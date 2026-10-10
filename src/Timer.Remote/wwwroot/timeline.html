@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/sw.css">
+<title>Timeline</title>
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; padding: 3vh 2.5vw; gap: 1.5vh; }
+  header { display: flex; align-items: baseline; gap: 2vw; }
+  #room { font-size: min(3.6vh, 3.4vw); font-weight: 800; }
+  #now { font-size: min(2.6vh, 2.4vw); color: var(--muted); font-variant-numeric: tabular-nums; }
+  #status { margin-left: auto; font-size: min(2.6vh, 2.4vw); }
+  #lane { position: relative; flex: 1; min-height: 0; }
+  .grp { position: absolute; top: 0; height: 5.5vh; border-left: 2px solid #475569; padding: .4vh .6vw; font-size: min(2vh, 1.7vw);
+         color: #cbd5e1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: #0f172a; }
+  .grp small { color: var(--muted); margin-left: .6em; }
+  .grp.over small { color: #fca5a5; }
+  .it { position: absolute; top: 7vh; bottom: 7vh; border-radius: 8px; background: #1f2937; border: 1px solid #374151; overflow: hidden;
+        padding: 1vh .6vw; font-size: min(2.2vh, 1.8vw); }
+  .it .t { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .it .s { color: var(--muted); font-size: .85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .it .tm { color: var(--muted); font-size: .85em; font-variant-numeric: tabular-nums; margin-top: .4vh; }
+  .it.done { opacity: .38; }
+  .it.live { background: #052e16; border-color: var(--accent); }
+  .it.break { background: #172554; border-color: #1d4ed8; }
+  .it.conflict { border-color: var(--amber); }
+  #nowline { position: absolute; top: 6vh; bottom: 2vh; width: 3px; background: #ef4444; box-shadow: 0 0 10px #ef4444; }
+  #nowline span { position: absolute; bottom: -1vh; left: 6px; font-size: min(2vh, 1.6vw); color: #fca5a5; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tick { position: absolute; bottom: 0; font-size: min(1.8vh, 1.5vw); color: var(--dim); font-variant-numeric: tabular-nums; transform: translateX(-50%); }
+  .tickline { position: absolute; top: 6vh; bottom: 3vh; width: 1px; background: #111827; }
+  #empty { color: var(--muted); font-size: min(3vh, 2.6vw); margin: auto; }
+</style>
+</head>
+<body>
+<div id="offline" class="hidden">reconnecting…</div>
+<header><div id="room">Timeline</div><div id="now"></div><div id="status"></div></header>
+<div id="lane"><div id="empty">The running order appears here once the show has a start time.</div></div>
+<script src="/common.js"></script>
+<script src="/timeline.js"></script>
+</body>
+</html>

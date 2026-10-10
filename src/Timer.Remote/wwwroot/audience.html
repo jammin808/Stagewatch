@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/sw.css">
+<title>Agenda</title>
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  body { display: grid; grid-template-columns: 1fr minmax(240px, 28vw); gap: 3vw; padding: 4vh 4vw; }
+  h1 { margin: 0 0 2vh; font-size: min(4vw, 5vh); letter-spacing: .04em; }
+  #now { font-size: min(3vw, 4vh); color: var(--muted); margin-bottom: 2vh; }
+  #break { font-size: min(14vw, 20vh); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  #breakLabel { font-size: min(3vw, 4vh); color: var(--muted); }
+  ol { list-style: none; margin: 0; padding: 0; }
+  li { display: grid; grid-template-columns: 5.5em 1fr; gap: 1em; padding: 1.1vh 0; border-bottom: 1px solid var(--border); font-size: min(2.4vw, 3.1vh); }
+  li.done { opacity: .35; }
+  li.live { color: var(--accent); font-weight: 700; }
+  li .t { font-variant-numeric: tabular-nums; color: var(--muted); }
+  li.live .t { color: var(--accent); }
+  aside { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2vh; text-align: center; }
+  #qr { width: 100%; max-width: 360px; background: #fff; border-radius: 14px; padding: 10px; }
+  #qr img { width: 100%; display: block; }
+  #ask { font-size: min(2.4vw, 3.2vh); font-weight: 700; }
+  #live { font-size: min(2.2vw, 3vh); color: var(--muted); }
+  @media (max-width: 700px) { body { grid-template-columns: 1fr; overflow: auto; } html, body { overflow: auto; } }
+</style>
+</head>
+<body>
+<div id="offline" class="hidden">reconnecting…</div>
+<section>
+  <h1 id="room">Agenda</h1>
+  <div id="now"></div>
+  <div id="breakBox" class="hidden"><div id="breakLabel">We'll be back in</div><div id="break">--:--</div></div>
+  <ol id="agenda"></ol>
+</section>
+<aside>
+  <div id="qr"></div>
+  <div id="ask">Scan to ask a question</div>
+  <div id="live" class="hidden"></div>
+</aside>
+<script src="/common.js"></script>
+<script src="/audience.js"></script>
+</body>
+</html>

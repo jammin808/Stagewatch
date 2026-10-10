@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="/sw.css">
+<title>Stagewatch</title>
+<style>
+  body { padding: 14px 16px 60px; max-width: 980px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  header h1 { margin: 0; font-size: 14px; letter-spacing: .12em; color: var(--muted); }
+  #clock { color: var(--muted); }
+  .big { font-size: clamp(56px, 20vw, 180px); font-weight: 800; line-height: 1; text-align: center; color: var(--timer); }
+  .sub { text-align: center; color: var(--muted); font-size: clamp(16px, 3.5vw, 26px); margin-top: 6px; }
+  .cue { text-align: center; margin: 10px 0; font-size: clamp(20px, 5vw, 40px); color: var(--timer); }
+  .signal { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 14px; border: 2px solid var(--border); margin-bottom: 10px; }
+  .signal .what { flex: 1; font-size: clamp(18px, 4vw, 28px); font-weight: 700; }
+  .signal.sent { border-color: var(--amber); background: #2a1f05; }
+  .signal.escalated { border-color: var(--red); background: #3b0d0d; }
+  .signal.seen { border-color: var(--blue); }
+  .signal.done { opacity: .5; }
+  #dept { text-align: center; padding: 6vh 4vw; border-radius: 22px; margin-top: 10px; border: 3px solid var(--border); }
+  #dept.standby { background: #3a2a06; border-color: var(--amber); }
+  #dept.go { background: #0d3a1b; border-color: var(--accent); }
+  #dept .state { font-size: clamp(64px, 22vw, 200px); font-weight: 900; letter-spacing: .04em; line-height: 1; }
+  #dept .what { font-size: clamp(18px, 5vw, 40px); margin-top: 8px; }
+  .q { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 8px; }
+  .q.live { border-color: var(--accent); background: #0f2a18; font-size: 20px; font-weight: 700; }
+  .q small { color: var(--muted); display: block; }
+  #haptic { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2vh; text-align: center; padding: 6vw; }
+  #haptic.alert { background: var(--timer); color: #000; }
+  #haptic .t { font-size: clamp(60px, 26vw, 220px); font-weight: 800; line-height: 1; }
+  #haptic .msg { font-size: clamp(22px, 7vw, 56px); font-weight: 800; }
+  #pair { color: var(--muted); font-size: 13px; }
+  #notes { margin-top: 18px; }
+  #notes .now { font-size: clamp(18px, 3.6vw, 28px); padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); margin-bottom: 8px; }
+  #notes .now b { display: block; font-size: 12px; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; }
+  #notes .now.empty { color: var(--dim); }
+  #noteEditor .item { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  #noteEditor .item.live { border-left: 3px solid var(--accent); padding-left: 10px; }
+  #noteEditor textarea { min-height: 60px; margin: 6px 0; }
+  #noteEditor .saved { color: var(--accent); font-size: 13px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<div id="offline" class="hidden">reconnecting…</div>
+<header><h1 id="roleName">STAGEWATCH</h1><span id="clock" class="num"></span></header>
+<main id="main"></main>
+<section id="notes" class="hidden">
+  <h2 id="notesTitle">Our notes</h2>
+  <div id="notesNow"></div>
+  <div class="row" style="margin-top:6px"><button id="editNotes" class="small">Edit our notes</button><span id="notesMsg" class="muted"></span></div>
+  <div id="noteEditor" class="hidden"></div>
+</section>
+<div id="haptic" class="hidden"><div class="t num" id="hT">--:--</div><div class="msg" id="hMsg"></div><div id="pair"></div></div>
+<script src="/common.js"></script>
+<script src="/role.js"></script>
+</body>
+</html>

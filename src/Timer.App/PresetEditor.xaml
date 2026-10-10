@@ -1,0 +1,61 @@
+<Window x:Class="Stagewatch.App.PresetEditor"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Edit preset"
+        Width="480"
+        SizeToContent="Height"
+        MaxHeight="{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height}"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{StaticResource BgDeepBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI"
+        FontSize="14">
+    <!-- Sizes to its content, so nothing can fall below the window at any DPI or theme;
+         on a very short screen the fields scroll and Save/Cancel stay pinned. -->
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Edit preset" FontSize="20" FontWeight="Bold" />
+            <TextBlock x:Name="SlotText" Opacity="0.6" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <TextBlock Text="Label" Opacity="0.7" />
+                <TextBox x:Name="LabelBox" Margin="0,4,0,12" />
+
+                <TextBlock Text="Duration  (HH:MM:SS, MM:SS or seconds)" Opacity="0.7" />
+                <TextBox x:Name="DurationBox" Margin="0,4,0,4" />
+                <CheckBox x:Name="CountUpBox" Content="Count up instead (for open-ended segments like Q&amp;A)"
+                          Margin="0,4,0,4" Checked="OnCountUpChanged" Unchecked="OnCountUpChanged" />
+                <TextBlock x:Name="DurationError" Foreground="{StaticResource AccentRedBrush}" FontSize="13"
+                           Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,4" />
+
+                <TextBlock Text="Auto-load message  (optional)" Opacity="0.7" Margin="0,8,0,0" />
+                <TextBox x:Name="MessageInputBox" Margin="0,4,0,12" />
+
+                <TextBlock Text="Colour tag" Opacity="0.7" />
+                <ComboBox x:Name="ColorBox" Margin="0,4,0,4">
+                    <ComboBoxItem Tag="" Content="Default" />
+                    <ComboBoxItem Tag="#22C55E" Content="Green" />
+                    <ComboBoxItem Tag="#3B82F6" Content="Blue" />
+                    <ComboBoxItem Tag="#F59E0B" Content="Amber" />
+                    <ComboBoxItem Tag="#DC2626" Content="Red" />
+                    <ComboBoxItem Tag="#A855F7" Content="Purple" />
+                </ComboBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" Width="100" Margin="0,0,8,0" Click="OnCancel" IsCancel="True" />
+            <Button Content="Save" Width="100" Click="OnSave" IsDefault="True" />
+        </StackPanel>
+    </Grid>
+</Window>

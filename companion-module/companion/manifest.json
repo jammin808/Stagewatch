@@ -1,0 +1,28 @@
+{
+	"$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+	"type": "connection",
+	"id": "stagewatch",
+	"name": "Stagewatch",
+	"shortname": "stagewatch",
+	"description": "Stage timer: live countdown keys, running order, presets, messages, blackout and schedule feedback",
+	"version": "0.0.0",
+	"license": "MIT",
+	"repository": "git+https://github.com/bitfocus/companion-module-stagewatch.git",
+	"bugs": "https://github.com/bitfocus/companion-module-stagewatch/issues",
+	"maintainers": [
+		{
+			"name": "Ben Rohleder",
+			"url": "https://www.linkedin.com/in/ben-rohleder-234aa36"
+		}
+	],
+	"runtime": {
+		"type": "node22",
+		"api": "nodejs-ipc",
+		"apiVersion": "0.0.0",
+		"entrypoint": "../dist/main.js"
+	},
+	"legacyIds": [],
+	"manufacturer": "Stagewatch",
+	"products": ["Stagewatch"],
+	"keywords": ["timer", "countdown", "stage", "presenter", "confidence monitor", "clock", "rundown"]
+}

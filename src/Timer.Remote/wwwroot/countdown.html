@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/sw.css">
+<title>Countdown</title>
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.6vh; padding: 4vh 4vw; }
+  #label { font-size: min(4.4vh, 5vw); color: var(--muted); letter-spacing: .04em; }
+  #big { font-size: min(26vh, 22vw); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  #what { font-size: min(5.4vh, 6vw); font-weight: 700; max-width: 92vw; }
+  #when { font-size: min(3.2vh, 4vw); color: var(--muted); font-variant-numeric: tabular-nums; }
+  #big.late { color: var(--amber); }
+  #big.now { color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="offline" class="hidden">reconnecting…</div>
+<div id="label">Starts in</div>
+<div id="big">--:--</div>
+<div id="what"></div>
+<div id="when"></div>
+<script src="/common.js"></script>
+<script src="/countdown.js"></script>
+</body>
+</html>

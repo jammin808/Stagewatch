@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Stagewatch.App</RootNamespace>
+    <AssemblyName>Stagewatch</AssemblyName>
+    <ApplicationIcon>Resources\stagewatch.ico</ApplicationIcon>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <Version>2.11.1</Version>
+    <FileVersion>2.11.1.0</FileVersion>
+    <Company>Stagewatch</Company>
+    <Product>Stagewatch Countdown Timer</Product>
+    <Copyright>© 2026</Copyright>
+
+    <!-- Single-file ready; we still ship installer for VSTO and shell integration. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Timer.Core\Timer.Core.csproj" />
+    <ProjectReference Include="..\Timer.Licensing\Timer.Licensing.csproj" />
+    <ProjectReference Include="..\Timer.Companion\Timer.Companion.csproj" />
+    <ProjectReference Include="..\Timer.Output\Timer.Output.csproj" />
+    <ProjectReference Include="..\Timer.Remote\Timer.Remote.csproj" />
+    <ProjectReference Include="..\Timer.Integrations\Timer.Integrations.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+  </ItemGroup>
+
+</Project>

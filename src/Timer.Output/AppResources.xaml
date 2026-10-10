@@ -1,0 +1,10 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:Stagewatch.Output">
+
+    <local:BoolToVis x:Key="BoolToVis" />
+    <local:UrgencyToBrush x:Key="UrgencyToBrush" />
+    <local:StateToTimerBrush x:Key="StateToTimerBrush" />
+
+</ResourceDictionary>

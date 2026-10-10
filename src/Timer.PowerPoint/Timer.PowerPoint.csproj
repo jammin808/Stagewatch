@@ -1,0 +1,34 @@
+<!--
+  VSTO PowerPoint add-in. VSTO requires .NET Framework 4.7.2+ and the
+  VSTO runtime / Office Developer Tools. The csproj below uses the legacy
+  format MSBuild understands once the VSTO targets are installed via
+  "Office/SharePoint development" workload in Visual Studio Build Tools 2022.
+
+  See docs/POWERPOINT.md for the prerequisites — there is no NuGet-only path
+  to a VSTO add-in, this must be opened in VS once for the manifest signing.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>Stagewatch.PowerPoint</RootNamespace>
+    <AssemblyName>Stagewatch.PowerPoint</AssemblyName>
+    <Deterministic>true</Deterministic>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <OutputType>Library</OutputType>
+
+    <!-- Marker so the installer knows this is a VSTO add-in. -->
+    <IsVstoAddIn>true</IsVstoAddIn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Microsoft.Office.Interop.PowerPoint" />
+    <Reference Include="Microsoft.Office.Tools" />
+    <Reference Include="Microsoft.Office.Tools.Common" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="office" />
+  </ItemGroup>
+
+</Project>

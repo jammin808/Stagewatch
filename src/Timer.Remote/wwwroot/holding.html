@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/sw.css">
+<title>Stagewatch — Holding</title>
+<style>
+  html, body { background: #000; margin: 0; height: 100%; overflow: hidden; cursor: none; }
+  #idle { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #333; font-size: 2.4vh; letter-spacing: .3em; }
+  #offline { position: fixed; left: 1vw; bottom: 1vh; color: #f59e0b; font-size: 12px; z-index: 1000; }
+</style>
+</head>
+<body>
+<div id="idle">STAGEWATCH</div>
+<div id="offline" class="hidden">reconnecting…</div>
+<script src="/common.js"></script>
+<script src="/holding.js"></script>
+</body>
+</html>

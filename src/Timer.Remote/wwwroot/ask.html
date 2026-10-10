@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/sw.css">
+<title>Ask a question</title>
+<style>
+  body { max-width: 520px; margin: 0 auto; padding: 28px 16px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  textarea { min-height: 140px; resize: vertical; margin: 14px 0 10px; font-size: 17px; }
+  #count { text-align: right; color: var(--dim); font-size: 12px; margin-top: -6px; }
+  #name { margin-bottom: 14px; }
+  #send { width: 100%; font-size: 18px; }
+  #msg { margin-top: 16px; min-height: 1.4em; }
+  .ok { color: var(--accent); } .bad { color: var(--amber); }
+</style>
+</head>
+<body>
+<h1>Ask a question</h1>
+<div class="muted" id="session">The moderator will pick questions to put to the speaker.</div>
+<textarea id="text" maxlength="280" placeholder="Your question"></textarea>
+<div id="count">0 / 280</div>
+<input id="name" maxlength="40" placeholder="Your name (optional)">
+<button class="primary" id="send">Send question</button>
+<div id="msg"></div>
+<script src="/ask.js"></script>
+</body>
+</html>

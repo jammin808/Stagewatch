@@ -1,0 +1,32 @@
+/* Stagewatch 2.0 shared styles for the role, producer, audience and rooms pages. Dark, high contrast, touch-first. */
+:root { --bg:#000; --panel:#0d0d0d; --raised:#1a1a1a; --border:#2a2a2a; --text:#F9FAFB; --muted:#9CA3AF; --dim:#6B7280;
+  --accent:#22C55E; --red:#DC2626; --amber:#F59E0B; --orange:#F97316; --blue:#3B82F6; --timer:#FFFFFF; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; font-size: 15px; }
+.hidden { display: none !important; }
+button { font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; min-height: 44px; cursor: pointer; touch-action: manipulation; }
+button:active { transform: translateY(1px); filter: brightness(1.3); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 700; }
+button.warn { background: var(--amber); border-color: var(--amber); color: #000; font-weight: 700; }
+button.danger { background: var(--red); border-color: var(--red); font-weight: 700; }
+button.small { min-height: 32px; padding: 4px 9px; font-size: 13px; border-radius: 8px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--raised); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; min-height: 44px; width: 100%; }
+h2 { font-size: 12px; letter-spacing: .08em; color: var(--muted); margin: 18px 0 8px; font-weight: 700; text-transform: uppercase; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.grow { flex: 1; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 700; background: var(--raised); border: 1px solid var(--border); }
+.pill.late { background: #3b0d0d; border-color: var(--red); color: #FCA5A5; }
+.pill.early { background: #0d2a18; border-color: var(--accent); color: #86EFAC; }
+.pill.warn { background: #3a2a06; border-color: var(--amber); color: #FCD34D; }
+.flash-slow { animation: flash 1s steps(1) infinite; }
+.flash-fast { animation: flash .33s steps(1) infinite; }
+@keyframes flash { 50% { opacity: .15; } }
+#offline { position: fixed; top: 8px; right: 10px; font-size: 13px; color: var(--amber); z-index: 50; }
+.cue-badge { display: inline-block; font-weight: 800; letter-spacing: .06em; border: 3px solid currentColor; border-radius: 12px; padding: .1em .5em; }
+.ack-btn { font-size: clamp(18px, 4vw, 30px); padding: .5em 1.2em; border-radius: 16px; font-weight: 800; }
+.ack-ok { color: var(--accent); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .flash-slow, .flash-fast { animation: none; outline: 4px solid currentColor; } }

@@ -1,0 +1,14 @@
+{
+  "name": "stagewatch-holo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Stagewatch holographic display (three.js), bundled into ../wwwroot/holo.bundle.js",
+  "scripts": {
+    "build": "esbuild holo.js --bundle --minify --format=iife --target=es2020 --legal-comments=eof --outfile=../wwwroot/holo.bundle.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "three": "0.186.1"
+  }
+}

@@ -1,0 +1,98 @@
+<Window x:Class="Stagewatch.App.SlidesAgentWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Stagewatch Slides"
+        Width="640" Height="680" MinWidth="520" MinHeight="520"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgDeepBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI"
+        FontSize="14">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="18">
+            <TextBlock Text="Stagewatch Slides" FontSize="22" FontWeight="Bold" />
+            <TextBlock Opacity="0.65" TextWrapping="Wrap" Margin="0,2,0,14"
+                       Text="This presenter PC sends its PowerPoint slideshow to Stagewatch: slide number, next slide, rehearsal timings and speaker notes. Leave it running; it needs nothing else." />
+
+            <Border Padding="12,10" CornerRadius="8" Background="{StaticResource BgPanelBrush}" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="POWERPOINT ON THIS PC" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                    <TextBlock x:Name="DeckLine" FontSize="18" FontWeight="SemiBold" Margin="0,4,0,0" TextWrapping="Wrap" Text="Looking for PowerPoint…" />
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="Name of this PC" Opacity="0.75" Margin="0,16,0,4" />
+            <TextBox x:Name="AgentName" MaxLength="60" LostFocus="OnNameChanged" ToolTip="How the operator sees this PC, e.g. Lectern laptop" />
+
+            <TextBlock Text="Send to" FontSize="16" FontWeight="SemiBold" Margin="0,18,0,6" />
+            <ItemsControl x:Name="TargetList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Padding="10,8" Margin="0,0,0,8" CornerRadius="6" Background="{StaticResource BgPanelBrush}"
+                                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <CheckBox IsChecked="{Binding Enabled}" VerticalAlignment="Center" Margin="0,0,8,0" Click="OnTargetsChanged" />
+                                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold">
+                                    <Run Text="{Binding Label, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Address, Mode=OneWay}" Foreground="{StaticResource TextMutedBrush}" />
+                                </TextBlock>
+                                <PasswordBox Grid.Column="2" Width="90" Margin="8,0,8,0" Tag="{Binding}" Loaded="OnPinLoaded" PasswordChanged="OnPinChanged"
+                                             ToolTip="That Stagewatch's PIN (Settings → Remote)" />
+                                <Button Grid.Column="3" Content="Remove" Padding="8,2" MinWidth="0" Tag="{Binding}" Click="OnRemoveTarget" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="3" Text="{Binding Status}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource AccentAmberBrush}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Ok}" Value="True"><Setter Property="Foreground" Value="{StaticResource NeonGreenBrush}" /></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock x:Name="NoTargets" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,6"
+                       Text="Not sending anywhere yet. Add a Stagewatch found on the network below (the main PC, and the backup too if there is one)." />
+
+            <TextBlock Text="Stagewatch on the network" FontSize="16" FontWeight="SemiBold" Margin="0,14,0,6" />
+            <ItemsControl x:Name="FoundList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <DockPanel Margin="0,0,0,6">
+                            <Button DockPanel.Dock="Right" Content="Add" Padding="12,3" MinWidth="0" Tag="{Binding}" Click="OnAddFound" />
+                            <TextBlock VerticalAlignment="Center">
+                                <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Address, Mode=OneWay}" Foreground="{StaticResource TextMutedBrush}" />
+                            </TextBlock>
+                        </DockPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock x:Name="NoneFound" Opacity="0.6" TextWrapping="Wrap"
+                       Text="None heard yet. Stagewatch must be running with Settings → Remote on, on the same network (UDP 9928)." />
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="Or type an address" VerticalAlignment="Center" Opacity="0.75" Margin="0,0,8,0" />
+                <TextBox x:Name="ManualHost" Width="170" ToolTip="Stagewatch PC's name or IP address" />
+                <TextBox x:Name="ManualPort" Width="60" Margin="6,0,6,0" Text="9924" />
+                <Button Content="Add" Padding="12,3" MinWidth="0" Click="OnAddManual" />
+            </StackPanel>
+
+            <TextBlock Text="Other presenter PCs" FontSize="16" FontWeight="SemiBold" Margin="0,18,0,4" />
+            <TextBlock x:Name="OtherAgents" Opacity="0.75" TextWrapping="Wrap" Text="None." />
+
+            <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
+                <CheckBox x:Name="StartWithWindows" Content="Start with Windows" VerticalAlignment="Center" Click="OnStartWithWindows" />
+                <Button Content="Open the speaker timer on this PC" Padding="12,4" Margin="16,0,0,0" Click="OnOpenTimer"
+                        ToolTip="Opens the confidence monitor from the first Stagewatch in your browser" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/sw.css">
+<title>Stagewatch — all rooms</title>
+<style>
+  body { padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: .08em; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .room { background: var(--panel); border: 2px solid var(--border); border-radius: 14px; padding: 14px; }
+  .room.late { border-color: var(--amber); }
+  .room.risk { border-color: var(--red); }
+  .room.stale { opacity: .5; }
+  .room h3 { margin: 0 0 4px; font-size: 16px; display: flex; justify-content: space-between; }
+  .room .t { font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .room .title { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .room .meta { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .room a { color: var(--blue); font-size: 13px; }
+  .phase-warning .t { color: var(--amber); } .phase-wrapup .t { color: var(--orange); } .phase-overtime .t { color: var(--red); }
+  #empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="offline" class="hidden">reconnecting…</div>
+<header><h1>ALL ROOMS</h1><span class="muted num" id="clock"></span></header>
+<div id="grid"></div>
+<p id="empty" class="hidden">No other Stagewatch rooms seen on this network yet. Give each room a name in Settings → Integrations; rooms on the same network appear here automatically.</p>
+<script src="/common.js"></script>
+<script src="/rooms.js"></script>
+</body>
+</html>

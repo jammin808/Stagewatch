@@ -1,0 +1,1112 @@
+<Window x:Class="Stagewatch.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Stagewatch.App.ViewModels"
+        xmlns:core="clr-namespace:Stagewatch.Core;assembly=Stagewatch.Core"
+        xmlns:help="clr-namespace:Stagewatch.App.Help"
+        xmlns:app="clr-namespace:Stagewatch.App"
+        Title="{Binding WindowTitle}"
+        Width="1320" Height="900"
+        MinWidth="1100" MinHeight="760"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource AppBackdropBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI"
+        FontSize="14"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display">
+
+    <!-- Stage = the window's client area; Root is laid out at design size and scaled down evenly on a
+         small window (see MainWindow.FitToStage), so nothing is ever clipped. -->
+    <Grid x:Name="Stage" SizeChanged="FitToStage">
+    <Grid x:Name="Root" Margin="16" help:ContextHelp.Topic="layout">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />   <!-- top bar -->
+            <RowDefinition Height="*" />      <!-- timer + nudge + presets -->
+            <RowDefinition Height="Auto" />   <!-- transport -->
+            <RowDefinition Height="Auto" />   <!-- message + bank -->
+            <RowDefinition Height="Auto" />   <!-- status bar -->
+        </Grid.RowDefinitions>
+
+        <!-- TOP BAR -->
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Grid.Column="0">
+                <TextBlock Text="STAGEWATCH" FontWeight="Bold" FontSize="22" VerticalAlignment="Center" />
+                <TextBlock Text=" · timer" Opacity="0.5" FontSize="22" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Grid.Column="2" VerticalAlignment="Center">
+                <TextBlock help:ContextHelp.Tip="license" Text="{Binding LicenseLine}" Opacity="0.7" Margin="0,0,16,0" VerticalAlignment="Center" />
+                <Button help:ContextHelp.Tip="open-show" Content="Open show…" Click="OnOpenShow" Padding="12,6" FontSize="13" MinWidth="0" Margin="0,0,6,0"
+                        ToolTip="Open a saved show: presets, running order and quick messages (Ctrl+O)" />
+                <Button help:ContextHelp.Tip="save-show" Content="Save show…" Click="OnSaveShow" Padding="12,6" FontSize="13" MinWidth="0" Margin="0,0,16,0"
+                        ToolTip="Save this event's presets, running order and quick messages (Ctrl+S; Ctrl+Shift+S = save as)" />
+                <Button help:ContextHelp.Tip="copilot" Click="OnOpenCopilot" Padding="12,6" FontSize="13" MinWidth="0" Margin="0,0,6,0"
+                        ToolTip="Ask in plain English; review and approve what the AI proposes (Ctrl+K)">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#x2728; Copilot" />
+                        <Border Margin="6,0,0,0" Padding="5,0" CornerRadius="7" Background="{StaticResource AccentAmberBrush}"
+                                Visibility="{Binding HasPendingProposals, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding PendingProposals}" FontSize="11" FontWeight="Bold" Foreground="Black" />
+                        </Border>
+                    </StackPanel>
+                </Button>
+                <Button help:ContextHelp.Tip="screens" Content="Screens" Click="OnOpenScreens" Padding="12,6" FontSize="13" MinWidth="0" Margin="0,0,6,0"
+                        ToolTip="Browser screens on the network: name them, find them, send them to another page, save setups" />
+                <Button help:ContextHelp.Tip="settings" Content="Settings" Click="OnOpenSettings" Padding="12,6" FontSize="13" MinWidth="0" />
+                <Button Content="Help ▾" Click="OnOpenHelp" Padding="12,6" FontSize="13" MinWidth="0" Margin="6,0,0,0" help:ContextHelp.Tip="help" ToolTip="How to use Stagewatch (F1), shortcuts and your licence" />
+            </StackPanel>
+        </Grid>
+
+        <!-- MIDDLE: timer + side panels -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="360" />
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT: huge timer + nudge + finish-by -->
+            <Border Grid.Column="0" Margin="0,0,14,0" Style="{StaticResource ShadowPlate}" />
+            <Border Grid.Column="0"
+                    Background="{StaticResource PanelFillBrush}"
+                    BorderBrush="{StaticResource PanelEdgeBrush}"
+                    BorderThickness="1"
+                    CornerRadius="14"
+                    Padding="24,20"
+                    Margin="0,0,14,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" MinHeight="120" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- current segment / preset title -->
+                    <TextBlock help:ContextHelp.Tip="title" Grid.Row="0" Text="{Binding CurrentTitle}"
+                               HorizontalAlignment="Right" VerticalAlignment="Center"
+                               FontSize="18" FontWeight="SemiBold" Opacity="0.75"
+                               TextTrimming="CharacterEllipsis" MaxWidth="420" />
+
+                    <!-- mode tabs -->
+                    <StackPanel help:ContextHelp.Tip="mode" Grid.Row="0" Orientation="Horizontal">
+                        <RadioButton Content="Countdown"
+                                     GroupName="Mode"
+                                     IsChecked="{Binding Mode, Converter={StaticResource ModeRadio}, ConverterParameter=Countdown, Mode=OneWay}"
+                                     Click="OnModeCountdown"
+                                     Style="{StaticResource ModeRadioStyle}" />
+                        <RadioButton Content="Count up"
+                                     GroupName="Mode"
+                                     IsChecked="{Binding Mode, Converter={StaticResource ModeRadio}, ConverterParameter=CountUp, Mode=OneWay}"
+                                     Command="{Binding SetModeCountUpCommand}"
+                                     Style="{StaticResource ModeRadioStyle}" />
+                        <RadioButton Content="Time of day"
+                                     GroupName="Mode"
+                                     IsChecked="{Binding Mode, Converter={StaticResource ModeRadio}, ConverterParameter=TimeOfDay, Mode=OneWay}"
+                                     Click="OnModeTod"
+                                     Style="{StaticResource ModeRadioStyle}" />
+                    </StackPanel>
+
+                    <!-- big timer face -->
+                    <!-- Ideal text mode: Display-mode glyphs vanish when a 220 pt face is scaled down hard. -->
+                    <Viewbox help:ContextHelp.Tip="timer" Grid.Row="1" Stretch="Uniform" Margin="0,12,0,0" MouseWheel="OnTimerWheel">
+                        <Grid>
+                            <TextBlock Text="{Binding TimerText}"
+                                       TextOptions.TextFormattingMode="Ideal"
+                                       FontSize="220"
+                                       FontWeight="Bold"
+                                       FontFamily="Segoe UI"
+                                       Foreground="{Binding TimerColorBrush}"
+                                       HorizontalAlignment="Center">
+                                <TextBlock.Effect>
+                                    <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.35"
+                                                      Color="{Binding TimerColorBrush.Color}" />
+                                </TextBlock.Effect>
+                            </TextBlock>
+                        </Grid>
+                    </Viewbox>
+
+                    <!-- ends at + stretch indicator -->
+                    <StackPanel Grid.Row="2" HorizontalAlignment="Stretch" Margin="0,0,0,12">
+                        <Border help:ContextHelp.Tip="progress" Height="8" CornerRadius="4" Background="{StaticResource BgRaisedBrush}" ClipToBounds="True"
+                                MaxWidth="900" Margin="0,0,0,10"
+                                Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}">
+                            <Border Background="{Binding TimerColorBrush}" CornerRadius="4" RenderTransformOrigin="0,0.5">
+                                <Border.RenderTransform>
+                                    <ScaleTransform ScaleX="{Binding ProgressValue}" />
+                                </Border.RenderTransform>
+                            </Border>
+                        </Border>
+                        <TextBlock help:ContextHelp.Tip="end-time" Text="{Binding EndTimeText}"
+                                   Visibility="{Binding ShowEndTime, Converter={StaticResource BoolToVis}}"
+                                   HorizontalAlignment="Center"
+                                   FontSize="28"
+                                   FontWeight="SemiBold"
+                                   Opacity="0.75" />
+                        <TextBlock help:ContextHelp.Tip="stretch" Text="{Binding StretchInfo}"
+                                   Visibility="{Binding StretchActive, Converter={StaticResource BoolToVis}}"
+                                   HorizontalAlignment="Center"
+                                   FontSize="13"
+                                   Foreground="{StaticResource AccentAmberBrush}"
+                                   Margin="0,4,0,0" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0">
+                            <TextBlock help:ContextHelp.Tip="next-title" Text="{Binding NextTitleText}" FontSize="15" Opacity="0.6" />
+                            <TextBlock help:ContextHelp.Tip="schedule" Text="{Binding ScheduleText}" FontSize="15" Margin="18,0,0,0"
+                                       Foreground="{StaticResource AccentAmberBrush}" />
+                        </StackPanel>
+                        <!-- 2.0 status strip: each chip appears only when it has something to say -->
+                        <WrapPanel HorizontalAlignment="Center" Margin="0,8,0,0">
+                            <WrapPanel.Resources>
+                                <Style TargetType="Border" x:Key="Chip">
+                                    <Setter Property="Background" Value="{StaticResource BgRaisedBrush}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}" />
+                                    <Setter Property="BorderThickness" Value="1" />
+                                    <Setter Property="CornerRadius" Value="10" />
+                                    <Setter Property="Padding" Value="8,2" />
+                                    <Setter Property="Margin" Value="3" />
+                                </Style>
+                            </WrapPanel.Resources>
+                            <Border help:ContextHelp.Tip="chip-cue" Style="{StaticResource Chip}" BorderBrush="{Binding TimerColorBrush}" BorderThickness="2"
+                                    Visibility="{Binding CueLabelText, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding CueLabelText}" FontWeight="Bold" Foreground="{Binding TimerColorBrush}" FontSize="13" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-finish" Style="{StaticResource Chip}" Visibility="{Binding FinishByText, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding FinishByText}" FontSize="13" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-slides" Style="{StaticResource Chip}" Visibility="{Binding SlidesText, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding SlidesText}" FontSize="13" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-pace" Style="{StaticResource Chip}" Visibility="{Binding PaceText, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding PaceText}" FontSize="13" Foreground="{StaticResource AccentAmberBrush}" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-vt" Style="{StaticResource Chip}" Visibility="{Binding PlayoutText, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding PlayoutText}" FontSize="13" Foreground="{StaticResource AccentBlueBrush}" />
+                            </Border>
+                            <Button help:ContextHelp.Tip="patterns-last10" Content="Last 10 s" Command="{Binding PatternsLast10Command}" FontSize="12" Padding="8,2" MinHeight="0" MinWidth="0" Margin="0,0,6,0"
+                                    Visibility="{Binding PatternsCanJump, Converter={StaticResource BoolToVis}}"
+                                    ToolTip="Patterns: jump the clip on air to its last 10 seconds (its end and whatever follows still play). Command: patterns end 10" />
+                            <Border help:ContextHelp.Tip="chip-curfew" Visibility="{Binding HardOutLine, Converter={StaticResource NonEmptyToVis}}">
+                                <Border.Style>
+                                    <Style TargetType="Border" BasedOn="{StaticResource Chip}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HardOutAtRisk}" Value="True">
+                                                <Setter Property="Background" Value="#3B0D0D" />
+                                                <Setter Property="BorderBrush" Value="{StaticResource AccentRedBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding HardOutLine}" FontSize="13" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-forecast" Style="{StaticResource Chip}" Visibility="{Binding ForecastLine, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding ForecastLine}" FontSize="13" Opacity="0.8" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-delay" Style="{StaticResource Chip}" Visibility="{Binding DelayText, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding DelayText}" FontSize="13" Foreground="{StaticResource AccentAmberBrush}" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-holding" Style="{StaticResource Chip}" BorderBrush="{StaticResource NeonVioletBrush}"
+                                    Visibility="{Binding HoldingLine, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding HoldingLine}" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource NeonVioletBrush}" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-ltc" Style="{StaticResource Chip}" Visibility="{Binding LtcLine, Converter={StaticResource NonEmptyToVis}}">
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Timer follows LTC (chase)" Command="{Binding ToggleLtcChaseCommand}" />
+                                        <MenuItem Header="Clear end timecode" Command="{Binding ClearLtcEndCommand}" />
+                                    </ContextMenu>
+                                </Border.ContextMenu>
+                                <TextBlock Text="{Binding LtcLine}" FontSize="13" FontFamily="Consolas" Foreground="{StaticResource AccentAmberBrush}" />
+                            </Border>
+                            <Border help:ContextHelp.Tip="chip-clock" Style="{StaticResource Chip}" Visibility="{Binding ClockLine, Converter={StaticResource NonEmptyToVis}}">
+                                <TextBlock Text="{Binding ClockLine}" FontSize="13" Foreground="{StaticResource AccentRedBrush}" />
+                            </Border>
+                        </WrapPanel>
+                    </StackPanel>
+
+                    <!-- duration / end at side by side, then one row of nudges: big, spaced, colour-hinted -->
+                    <StackPanel Grid.Row="3">
+                        <StackPanel.Resources>
+                            <Style TargetType="TextBlock" x:Key="InputLabel">
+                                <Setter Property="FontSize" Value="13" />
+                                <Setter Property="FontWeight" Value="Bold" />
+                                <Setter Property="Margin" Value="2,0,0,5" />
+                            </Style>
+                            <Style TargetType="Button" x:Key="InputButton" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="FontSize" Value="16" />
+                                <Setter Property="MinHeight" Value="48" />
+                                <Setter Property="MinWidth" Value="72" />
+                                <Setter Property="Padding" Value="14,8" />
+                                <Setter Property="Margin" Value="8,0,0,0" />
+                            </Style>
+                        </StackPanel.Resources>
+
+                        <WrapPanel HorizontalAlignment="Center">
+                            <StackPanel Margin="0,0,36,6">
+                                <TextBlock Text="DURATION" Style="{StaticResource InputLabel}" Foreground="{StaticResource NeonCyanBrush}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBox help:ContextHelp.Tip="duration" Text="{Binding CustomDurationInput, UpdateSourceTrigger=PropertyChanged}"
+                                             Width="160" Style="{StaticResource BigInput}" KeyDown="OnDurationKeyDown"
+                                             ToolTip="MM:SS or HH:MM:SS, then Enter" />
+                                    <Button help:ContextHelp.Tip="duration" Content="Load" Command="{Binding ApplyDurationCommand}" Style="{StaticResource InputButton}"
+                                            app:Glow.Color="{StaticResource NeonCyan}" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel Margin="0,0,0,6">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                                    <TextBlock Text="END AT" Style="{StaticResource InputLabel}" Foreground="{StaticResource NeonVioletBrush}" />
+                                    <TextBlock Text="e.g. 14:30 or 2:30 pm" FontSize="12" Opacity="0.4" Margin="10,0,0,5" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBox help:ContextHelp.Tip="end-at" Text="{Binding EndAtInput, UpdateSourceTrigger=PropertyChanged}"
+                                             Width="160" Style="{StaticResource BigInput}" KeyDown="OnEndAtKeyDown"
+                                             ToolTip="A time of day, e.g. 14:30 or 2:30 pm, then Enter" />
+                                    <Button help:ContextHelp.Tip="end-at" Content="Set" Command="{Binding ApplyEndAtCommand}" Style="{StaticResource InputButton}"
+                                            app:Glow.Color="{StaticResource NeonViolet}" />
+                                    <Button help:ContextHelp.Tip="end-at" Content="Clear" Command="{Binding ClearEndAtCommand}" Style="{StaticResource InputButton}" />
+                                    <CheckBox help:ContextHelp.Tip="pace" Content="Real time" IsChecked="{Binding EndAtRealTime}" VerticalAlignment="Center"
+                                              FontSize="15" Margin="14,0,0,0"
+                                              ToolTip="On: count the real time left at normal speed. Off (elastic): stretch the loaded duration to land on the end time." />
+                                </StackPanel>
+                            </StackPanel>
+                        </WrapPanel>
+
+                        <!-- Nudge: − takes time (amber), + gives it (green). One row, big targets, a gap in the middle. -->
+                        <Grid help:ContextHelp.Tip="nudge" Margin="0,10,0,0" MaxWidth="900" Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                                <TextBlock Text="NUDGE" FontSize="13" FontWeight="Bold" Foreground="{StaticResource NeonGreenBrush}" />
+                                <TextBlock Text="live" FontSize="12" Opacity="0.45" />
+                            </StackPanel>
+                            <UniformGrid Grid.Column="1" Rows="1" Columns="5">
+                                <Button Content="−1h"  Command="{Binding NudgeCommand}" CommandParameter="-1h"  Style="{StaticResource NudgeMinus}" />
+                                <Button Content="−5m"  Command="{Binding NudgeCommand}" CommandParameter="-5m"  Style="{StaticResource NudgeMinus}" />
+                                <Button Content="−1m"  Command="{Binding NudgeCommand}" CommandParameter="-1m"  Style="{StaticResource NudgeMinus}" />
+                                <Button Content="−10s" Command="{Binding NudgeCommand}" CommandParameter="-10s" Style="{StaticResource NudgeMinus}" />
+                                <Button Content="−1s"  Command="{Binding NudgeCommand}" CommandParameter="-1s"  Style="{StaticResource NudgeMinus}" />
+                            </UniformGrid>
+                            <Border Grid.Column="2" Width="1" Margin="0,8" Background="{StaticResource BorderStrongBrush}" />
+                            <UniformGrid Grid.Column="3" Rows="1" Columns="5">
+                                <Button Content="+1s"  Command="{Binding NudgeCommand}" CommandParameter="+1s"  Style="{StaticResource NudgePlus}" />
+                                <Button Content="+10s" Command="{Binding NudgeCommand}" CommandParameter="+10s" Style="{StaticResource NudgePlus}" />
+                                <Button Content="+1m"  Command="{Binding NudgeCommand}" CommandParameter="+1m"  Style="{StaticResource NudgePlus}" />
+                                <Button Content="+5m"  Command="{Binding NudgeCommand}" CommandParameter="+5m"  Style="{StaticResource NudgePlus}" />
+                                <Button Content="+1h"  Command="{Binding NudgeCommand}" CommandParameter="+1h"  Style="{StaticResource NudgePlus}" />
+                            </UniformGrid>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- RIGHT: presets | running order -->
+            <Border Grid.Column="1" Style="{StaticResource ShadowPlate}" />
+            <Border Grid.Column="1"
+                    Background="{StaticResource PanelFillBrush}"
+                    BorderBrush="{StaticResource PanelEdgeBrush}"
+                    BorderThickness="1"
+                    CornerRadius="14"
+                    Padding="10">
+              <TabControl x:Name="SideTabs" Background="Transparent" BorderThickness="0">
+                <TabItem Header="Presets" x:Name="TabPresets">
+                <Grid Margin="4,10,4,4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Border Width="3" Height="14" CornerRadius="1.5" Background="{StaticResource NeonCyanBrush}" Margin="0,0,8,0" /><TextBlock Text="PRESETS" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" /></StackPanel>
+                        <Button help:ContextHelp.Tip="presets-edit" Grid.Column="1" Content="Edit all..." Click="OnEditAllPresets" Padding="10,4" FontSize="12" MinWidth="0" MinHeight="0" />
+                    </Grid>
+
+                    <ItemsControl Grid.Row="1" ItemsSource="{Binding Presets}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Columns="3" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Style="{StaticResource PresetTile}"
+                                        Margin="3" Padding="10,6" MinHeight="0"
+                                        Command="{Binding DataContext.LoadPresetCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}"
+                                        MouseDoubleClick="OnPresetDoubleClick"
+                                        help:ContextHelp.Tip="preset"
+                                        Tag="{Binding}">
+                                    <Grid>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Label}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="0,0,12,0" />
+                                            <TextBlock Text="{Binding DurationSeconds, Converter={StaticResource SecondsToHms}}" Opacity="0.7" FontSize="13" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Slot}" FontSize="11" Opacity="0.5" HorizontalAlignment="Right" VerticalAlignment="Top" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Grid.Row="2"
+                               Text="Click = load &#xb7; double-click = load &amp; start &#xb7; right-click = more"
+                               Opacity="0.5" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap" />
+                </Grid>
+                </TabItem>
+
+                <TabItem Header="Running order" x:Name="TabRunning">
+                    <Grid Margin="4,10,4,4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                        <DockPanel Margin="0,0,0,6" help:ContextHelp.Tip="rundown-pick">
+                            <Button DockPanel.Dock="Right" Content="&#x22EF;" Click="OnRundownMenu" Padding="10,2" FontSize="13" MinWidth="0" MinHeight="0" Margin="6,0,0,0"
+                                    ToolTip="New, duplicate, rename, edit or delete running orders" />
+                            <TextBlock Text="Running order" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <ComboBox x:Name="RundownPicker" ItemsSource="{Binding RundownNames}" SelectionChanged="OnRundownPicked" FontSize="12"
+                                      ToolTip="The show's running orders. Choosing one makes it live (the current item ends cleanly)." />
+                        </DockPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Starts" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBox help:ContextHelp.Tip="rundown-start" Width="62" Text="{Binding ScheduledStartInput, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="Planned start of item 1 (HH:MM). Blank = back-timed from Ends, or starts when an item first runs."
+                                         KeyDown="OnScheduledStartKeyDown" LostFocus="OnScheduledStartLostFocus" />
+                                <TextBlock Text="Ends" Opacity="0.7" VerticalAlignment="Center" Margin="8,0,6,0" />
+                                <TextBox help:ContextHelp.Tip="rundown-end" Width="62" Text="{Binding EndOfShowInput, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="When the show must end (HH:MM). With no start, the plan is back-timed from it; it's also the last item's curfew."
+                                         KeyDown="OnEndOfShowKeyDown" LostFocus="OnEndOfShowLostFocus" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="3" Orientation="Horizontal">
+                                <Button help:ContextHelp.Tip="rundown-roll" Command="{Binding ToggleRollCommand}" Padding="10,4" FontSize="12" MinWidth="0" MinHeight="0" Margin="0,0,6,0"
+                                        ToolTip="Roll: run the running order by its planned times with nobody at the desk. Anything you do takes over.">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Setter Property="Content" Value="Roll" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding RollMode}" Value="True">
+                                                    <Setter Property="Content" Value="&#x25CF; Rolling" />
+                                                    <Setter Property="Foreground" Value="{StaticResource NeonGreenBrush}" />
+                                                    <Setter Property="BorderBrush" Value="{StaticResource NeonGreenBrush}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button help:ContextHelp.Tip="rundown-edit" Content="Edit…" Click="OnEditRundown" Padding="10,4" FontSize="12" MinWidth="0" MinHeight="0" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Text="{Binding RollLine}" Margin="0,6,0,0" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{StaticResource NeonGreenBrush}" Visibility="{Binding RollLine, Converter={StaticResource NonEmptyToVis}}" />
+                        </StackPanel>
+
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{Binding RundownRows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel>
+                                        <Border Visibility="{Binding GroupHeader, Converter={StaticResource NonEmptyToVis}}" Margin="0,6,0,4" Padding="2,0,2,2"
+                                                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,0,1" help:ContextHelp.Tip="rundown-group">
+                                            <DockPanel>
+                                                <TextBlock DockPanel.Dock="Right" Text="{Binding GroupDetail}" FontSize="11" Opacity="0.7">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding GroupOver}" Value="True"><Setter Property="Foreground" Value="{StaticResource AccentRedBrush}" /></DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding GroupHeader}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                                            </DockPanel>
+                                        </Border>
+                                        <Button Margin="0,0,0,4" Padding="8,6" MinHeight="0"
+                                                HorizontalContentAlignment="Stretch"
+                                                Command="{Binding DataContext.LoadItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"
+                                                MouseDoubleClick="OnRundownDoubleClick"
+                                                help:ContextHelp.Tip="rundown-row"
+                                                Tag="{Binding}">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <Border x:Name="Bd" CornerRadius="6"
+                                                                        Background="{TemplateBinding Background}"
+                                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                                        Padding="{TemplateBinding Padding}">
+                                                                    <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                                                                </Border>
+                                                                <ControlTemplate.Triggers>
+                                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                                        <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgRaisedHoverBrush}" />
+                                                                    </Trigger>
+                                                                </ControlTemplate.Triggers>
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                            <Setter Property="Background" Value="#0F2A18" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsDone}" Value="True">
+                                                            <Setter Property="Opacity" Value="0.45" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="26" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Index}" Opacity="0.5" FontSize="12" VerticalAlignment="Center" />
+                                                <StackPanel Grid.Column="1">
+                                                    <DockPanel>
+                                                        <ItemsControl DockPanel.Dock="Right" ItemsSource="{Binding LabelChips}" Margin="4,0,0,0"
+                                                                      Visibility="{Binding HasLabels, Converter={StaticResource BoolToVis}}">
+                                                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate>
+                                                                    <Border Background="{Binding Color}" CornerRadius="3" Padding="4,0" Margin="2,0,0,0" VerticalAlignment="Center">
+                                                                        <TextBlock Text="{Binding Name}" FontSize="10" FontWeight="Bold" Foreground="White" />
+                                                                    </Border>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                    </DockPanel>
+                                                    <TextBlock Text="{Binding Speaker}" Opacity="0.6" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                               Visibility="{Binding HasSpeaker, Converter={StaticResource BoolToVis}}" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2" Margin="8,0,0,0">
+                                                    <TextBlock Text="{Binding DurationText}" HorizontalAlignment="Right" FontSize="13" />
+                                                    <TextBlock Text="{Binding Subtitle}" HorizontalAlignment="Right" FontSize="11" Opacity="0.5" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </Button>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                    Visibility="{Binding HasRundown, Converter={StaticResource InverseBoolToVis}}">
+                            <TextBlock Text="No running order yet" HorizontalAlignment="Center" Opacity="0.7" />
+                            <TextBlock Text="Add items, paste from a spreadsheet, or import a CSV."
+                                       Opacity="0.45" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" Margin="0,4,0,10" />
+                            <Button Content="Edit running order…" Click="OnEditRundown" HorizontalAlignment="Center" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Button help:ContextHelp.Tip="rundown-nav" Content="◀ Prev" Command="{Binding PreviousItemCommand}" Margin="0,0,4,0" />
+                                <Button help:ContextHelp.Tip="rundown-nav" Grid.Column="1" Content="Next ▶" Command="{Binding NextItemCommand}" Margin="4,0,4,0" />
+                                <Button help:ContextHelp.Tip="rundown-nav" Grid.Column="2" Content="↺" ToolTip="Back to the top of the running order" Command="{Binding ResetShowCommand}" Margin="4,0,0,0" MinWidth="36" />
+                            </Grid>
+                            <TextBlock Text="Click = load &#xb7; double-click = load &amp; start &#xb7; right-click = trim and more &#xb7; N / P = next / previous"
+                                       Opacity="0.5" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Cues &amp; Q&amp;A" x:Name="TabCues">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0">
+                        <StackPanel Margin="4,0,4,4">
+                            <TextBlock Text="DEPARTMENTS" FontWeight="Bold" Opacity="0.7" />
+                            <ItemsControl ItemsSource="{Binding Departments}" Margin="0,6,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,4" help:ContextHelp.Tip="department" Background="Transparent">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" />
+                                            <Button Grid.Column="1" Content="Standby" Padding="10,4" MinHeight="0" FontSize="12"
+                                                    Command="{Binding DataContext.DepartmentStandbyCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            <Button Grid.Column="2" Content="GO" Padding="14,4" MinHeight="0" FontSize="12" Margin="4,0,0,0" Style="{StaticResource TransportButtonAccent}"
+                                                    Command="{Binding DataContext.DepartmentGoCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Button help:ContextHelp.Tip="call-stage" Content="Call next speaker to stage" Command="{Binding CallNextSpeakerCommand}" Margin="0,6,0,0" />
+                            <UniformGrid Columns="2" Margin="0,6,0,0">
+                                <Button help:ContextHelp.Tip="buzz" Content="Buzz: wrap up" Command="{Binding NudgeSpeakerCommand}" CommandParameter="Please wrap up" Margin="0,0,3,0" FontSize="12"
+                                        ToolTip="Discreet cue to the speaker's phone or watch (open /haptic on it)" />
+                                <Button help:ContextHelp.Tip="buzz" Content="Buzz: look at monitor" Command="{Binding NudgeSpeakerCommand}" CommandParameter="Look at the monitor" Margin="3,0,0,0" FontSize="12" />
+                            </UniformGrid>
+
+                            <TextBlock Text="CUES SENT" FontWeight="Bold" Opacity="0.7" Margin="0,14,0,0" />
+                            <ItemsControl ItemsSource="{Binding SignalItems}" Margin="0,6,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,4" help:ContextHelp.Tip="signal" Background="Transparent">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock FontSize="13" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding Kind, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" → " /><Run Text="{Binding Target, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Text, Mode=OneWay}" />
+                                                </TextBlock>
+                                                <TextBlock FontSize="11">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Text" Value="{Binding State}" />
+                                                            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding State}" Value="Sent">
+                                                                    <Setter Property="Text" Value="waiting for acknowledgement" />
+                                                                    <Setter Property="Foreground" Value="{StaticResource AccentAmberBrush}" />
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding Escalated}" Value="True">
+                                                                    <Setter Property="Text" Value="NO ACKNOWLEDGEMENT — radio them" />
+                                                                    <Setter Property="Foreground" Value="{StaticResource AccentRedBrush}" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="✕" Padding="8,2" MinHeight="0" MinWidth="0" FontSize="11"
+                                                    Command="{Binding DataContext.ClearSignalCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Grid Margin="0,14,0,0">
+                                <TextBlock Text="AUDIENCE Q&amp;A" FontWeight="Bold" Opacity="0.7" VerticalAlignment="Center" />
+                                <Button help:ContextHelp.Tip="qa-next" Content="Next question" Command="{Binding QuestionNextCommand}" HorizontalAlignment="Right" Padding="10,3" MinHeight="0" FontSize="12" />
+                            </Grid>
+                            <TextBlock Text="{Binding QuestionsLine}" Opacity="0.6" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Visibility="{Binding QuestionsLine, Converter={StaticResource NonEmptyToVis}}" />
+                            <ItemsControl ItemsSource="{Binding QuestionItems}" Margin="0,6,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,4" help:ContextHelp.Tip="question" Background="Transparent">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13" />
+                                                <TextBlock FontSize="11" Opacity="0.55"><Run Text="{Binding State, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Name, Mode=OneWay}" /></TextBlock>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                                <Button Content="✓" ToolTip="Approve" Padding="7,2" MinHeight="0" MinWidth="0" FontSize="11"
+                                                        Command="{Binding DataContext.QuestionApproveCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <Button Content="★" ToolTip="Star (asked first)" Padding="7,2" MinHeight="0" MinWidth="0" FontSize="11" Margin="3,0"
+                                                        Command="{Binding DataContext.QuestionStarCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                                <Button Content="✕" ToolTip="Dismiss" Padding="7,2" MinHeight="0" MinWidth="0" FontSize="11"
+                                                        Command="{Binding DataContext.QuestionDismissCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="Audience phones: open /audience on a screen and scan its QR code." Opacity="0.4" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem Header="Producer" x:Name="TabProducer">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0">
+                        <StackPanel Margin="4,0,4,4">
+                            <TextBlock Text="ASSISTANT" FontWeight="Bold" Opacity="0.7" />
+                            <ItemsControl ItemsSource="{Binding AdviceItems}" Margin="0,6,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border help:ContextHelp.Tip="advice" Margin="0,0,0,6" Padding="8" CornerRadius="6" Background="{StaticResource BgRaisedBrush}" BorderThickness="3,0,0,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBlueBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Level}" Value="Urgent"><Setter Property="BorderBrush" Value="{StaticResource AccentRedBrush}" /></DataTrigger>
+                                                        <DataTrigger Binding="{Binding Level}" Value="Warn"><Setter Property="BorderBrush" Value="{StaticResource AccentAmberBrush}" /></DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="13" />
+                                                <Button Content="{Binding CommandLabel}" HorizontalAlignment="Left" Padding="10,3" MinHeight="0" FontSize="12" Margin="0,6,0,0"
+                                                        Visibility="{Binding CommandLabel, Converter={StaticResource NonEmptyToVis}}"
+                                                        Command="{Binding DataContext.ApplyAdviceCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="No suggestions — the show is tracking." Opacity="0.45" FontSize="12">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AdviceItems.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <TextBlock Text="SCHEDULE RECOVERY" FontWeight="Bold" Opacity="0.7" Margin="0,14,0,0" />
+                            <UniformGrid Columns="3" Margin="0,6,0,0">
+                                <Button help:ContextHelp.Tip="catch-up" Content="Catch up" Command="{Binding CatchUpNowCommand}" Margin="0,0,3,0" FontSize="12"
+                                        ToolTip="Re-time the live item (elastic) so it lands on its planned end" />
+                                <Button help:ContextHelp.Tip="delay" Content="Delay +1m" Command="{Binding AddDelayCommand}" CommandParameter="60" Margin="3,0" FontSize="12"
+                                        ToolTip="Announce a delay before the next item (it ripples on until a gap absorbs it)" />
+                                <Button help:ContextHelp.Tip="delay" Content="Delay +5m" Command="{Binding AddDelayCommand}" CommandParameter="300" Margin="3,0,0,0" FontSize="12" />
+                            </UniformGrid>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Button help:ContextHelp.Tip="recover" Content="Recover time…" Click="OnRecover" Margin="0,0,3,0" FontSize="12"
+                                        ToolTip="Win back time from the rest of the show (or up to the next curfew, or this group) — see exactly what changes before you apply it" />
+                                <Button Grid.Column="1" help:ContextHelp.Tip="undo" Content="&#x21B6; Undo" Command="{Binding UndoCommand}" Margin="3,0" FontSize="12"
+                                        ToolTip="{Binding UndoLabel}" IsEnabled="{Binding UndoLabel, Converter={StaticResource NonEmptyToBool}}" />
+                                <Button Grid.Column="2" help:ContextHelp.Tip="undo" Content="Redo &#x21B7;" Command="{Binding RedoCommand}" Margin="3,0,0,0" FontSize="12"
+                                        ToolTip="{Binding RedoLabel}" IsEnabled="{Binding RedoLabel, Converter={StaticResource NonEmptyToBool}}" />
+                            </Grid>
+                            <UniformGrid Columns="2" Margin="0,6,0,0">
+                                <Button help:ContextHelp.Tip="review-plan" Content="&#x2728; Review the plan" Click="OnReviewPlan" Margin="0,0,3,0" FontSize="12"
+                                        ToolTip="The copilot reads the running order like a show caller the day before, using your own overrun history — findings, and fixes you approve one by one" />
+                                <Button help:ContextHelp.Tip="explain" Content="&#x2728; Explain a problem" Click="OnExplainProblem" Margin="3,0,0,0" FontSize="12"
+                                        ToolTip="The copilot looks at every link's health, refused commands and the show, and says what's wrong and how to fix it" />
+                            </UniformGrid>
+                            <TextBlock Text="{Binding UndoLabel}" FontSize="11" Opacity="0.55" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"
+                                       Visibility="{Binding UndoLabel, Converter={StaticResource NonEmptyToVis}}" />
+
+                            <TextBlock Text="SPEAKER CUES" FontWeight="Bold" Opacity="0.7" Margin="0,14,0,0" />
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="90" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Cue ladder" Opacity="0.7" VerticalAlignment="Center" />
+                                <ComboBox help:ContextHelp.Tip="ladder" Grid.Column="1" ItemsSource="{Binding Ladders}" DisplayMemberPath="Name" SelectedValuePath="Id"
+                                          SelectedValue="{Binding ActiveLadderId}" />
+                                <TextBlock Grid.Row="1" Text="Speaker clock" Opacity="0.7" VerticalAlignment="Center" Margin="0,6,0,0" />
+                                <ComboBox help:ContextHelp.Tip="speaker-clock" Grid.Row="1" Grid.Column="1" ItemsSource="{Binding SpeakerFormats}" SelectedItem="{Binding SpeakerFormat}" Margin="0,6,0,0" />
+                            </Grid>
+                            <Button help:ContextHelp.Tip="preview" Command="{Binding TogglePreviewCommand}" Margin="0,6,0,0"
+                                    ToolTip="Play the cue ladder at 10× on every output, so the speaker knows what each signal means">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                        <Setter Property="Content" Value="Briefing preview (10×)" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding PreviewActive}" Value="True">
+                                                <Setter Property="Content" Value="Stop preview" />
+                                                <Setter Property="Background" Value="{StaticResource AccentAmberBrush}" />
+                                                <Setter Property="Foreground" Value="Black" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+
+                            <TextBlock Text="PRESENTATION PACE" FontWeight="Bold" Opacity="0.7" Margin="0,14,0,0" />
+                            <UniformGrid Columns="2" Margin="0,6,0,0">
+                                <Button help:ContextHelp.Tip="rehearse" Command="{Binding ToggleRehearseCommand}" Margin="0,0,3,0" FontSize="12"
+                                        ToolTip="Time every slide of a rehearsal; the live talk is then compared against it (needs PowerPoint in Settings → Integrations)">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Setter Property="Content" Value="Record rehearsal" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Rehearsing}" Value="True">
+                                                    <Setter Property="Content" Value="Stop + save rehearsal" />
+                                                    <Setter Property="Background" Value="{StaticResource AccentRedBrush}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                                <Button help:ContextHelp.Tip="listen" Command="{Binding ToggleListenCommand}" Margin="3,0,0,0" FontSize="12"
+                                        ToolTip="Follow the speaker through their script (speaker notes or a script file) with Windows' offline speech recognition">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Setter Property="Content" Value="Listen to script" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Listening}" Value="True">
+                                                    <Setter Property="Content" Value="Stop listening" />
+                                                    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                                                    <Setter Property="Foreground" Value="Black" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </UniformGrid>
+
+                            <TextBlock Text="REPORT &amp; ROOMS" FontWeight="Bold" Opacity="0.7" Margin="0,14,0,0" />
+                            <UniformGrid Columns="2" Margin="0,6,0,0">
+                                <Button help:ContextHelp.Tip="report" Content="Show report" Command="{Binding OpenReportCommand}" Margin="0,0,3,0" FontSize="12"
+                                        ToolTip="Planned vs actual for every item — Print → Save as PDF for the client" />
+                                <Button help:ContextHelp.Tip="report-csv" Content="Export CSV" Command="{Binding ExportReportCsvCommand}" Margin="3,0,0,0" FontSize="12" />
+                            </UniformGrid>
+                            <Button help:ContextHelp.Tip="report-summary" Content="&#x2728; Draft the show summary…" Click="OnDraftSummary" Margin="0,6,0,0" FontSize="12"
+                                    ToolTip="The copilot drafts the report's narrative from the journal; you edit it before it's kept" />
+                            <TextBlock help:ContextHelp.Tip="rooms" Text="{Binding RoomsLine}" TextWrapping="Wrap" FontSize="12" Opacity="0.7" Margin="0,8,0,0"
+                                       Visibility="{Binding RoomsLine, Converter={StaticResource NonEmptyToVis}}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+                <TabItem Header="Holding" x:Name="TabHolding">
+                    <Grid Margin="4,10,4,4" AllowDrop="True" Drop="OnHoldingDrop" DragOver="OnHoldingDragOver" Background="Transparent"
+                          help:ContextHelp.Topic="holding">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Grid Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border Width="3" Height="14" CornerRadius="1.5" Background="{StaticResource NeonVioletBrush}" Margin="0,0,8,0" />
+                                <TextBlock Text="HOLDING IMAGES" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                            </StackPanel>
+                            <Button help:ContextHelp.Tip="holding-add" Content="Add images…" Click="OnAddHolding" HorizontalAlignment="Right"
+                                    Padding="10,4" FontSize="12" MinWidth="0" MinHeight="0" />
+                        </Grid>
+
+                        <Grid Grid.Row="1" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <CheckBox help:ContextHelp.Tip="holding-fill" Content="Fill the screen (crop)" IsChecked="{Binding HoldingFill}" VerticalAlignment="Center" FontSize="13" />
+                            <Button Grid.Column="1" help:ContextHelp.Tip="holding-clear" Content="Off  (H)" Command="{Binding ClearHoldingCommand}"
+                                    Padding="12,4" FontSize="13" MinWidth="0" MinHeight="32" app:Glow.Color="{StaticResource NeonAmber}" />
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{Binding HoldingItems}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><UniformGrid Columns="2" VerticalAlignment="Top" /></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button help:ContextHelp.Tip="holding-item" Tag="{Binding}" Margin="3" Padding="4" MinHeight="0"
+                                                HorizontalContentAlignment="Stretch" Click="OnHoldingItemClick" app:Glow.Color="{StaticResource NeonViolet}">
+                                            <Grid>
+                                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                                <Border Height="82" CornerRadius="6" Background="Black" ClipToBounds="True">
+                                                    <Image Source="{Binding Thumbnail}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" />
+                                                </Border>
+                                                <Border Height="82" CornerRadius="6" BorderThickness="3" BorderBrush="{StaticResource NeonGreenBrush}"
+                                                        Visibility="{Binding IsLive, Converter={StaticResource BoolToVis}}">
+                                                    <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4" Padding="6,1" CornerRadius="4"
+                                                            Background="{StaticResource NeonGreenBrush}">
+                                                        <TextBlock Text="ON AIR" FontSize="10" FontWeight="Black" Foreground="#052012" />
+                                                    </Border>
+                                                </Border>
+                                                <TextBlock Grid.Row="1" Text="{Binding Name}" FontSize="12" Margin="2,4,2,0" TextTrimming="CharacterEllipsis" />
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <StackPanel Grid.Row="2" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                    Visibility="{Binding HasHolding, Converter={StaticResource InverseBoolToVis}}">
+                            <TextBlock Text="No holding images yet" HorizontalAlignment="Center" Opacity="0.7" />
+                            <TextBlock Text="Add PNG, JPG, GIF, BMP, TIFF or WebP images — or drop them here. They show full screen on every output and browser screen."
+                                       Opacity="0.45" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" Margin="0,4,0,10" />
+                            <Button Content="Add images…" Click="OnAddHolding" HorizontalAlignment="Center" />
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="3" Text="Click = show on every screen · click again = hide · right-click = rename / remove · drop files here"
+                                   Opacity="0.5" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap" />
+                    </Grid>
+                </TabItem>
+                <TabItem Header="Timers" x:Name="TabAux">
+                    <Grid Margin="4,10,4,4" help:ContextHelp.Topic="aux">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Border Width="3" Height="14" CornerRadius="1.5" Background="{StaticResource NeonGreenBrush}" Margin="0,0,8,0" />
+                            <TextBlock Text="EXTRA TIMERS" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        </StackPanel>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding AuxItems}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border help:ContextHelp.Tip="aux-timer" Margin="0,0,0,10" Padding="10,8" CornerRadius="8"
+                                                Background="{StaticResource BgPanelBrush}" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1">
+                                            <Grid>
+                                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                <TextBox Text="{Binding Name, Mode=OneWay}" Tag="{Binding}" LostFocus="OnAuxNameCommit" KeyDown="OnAuxNameKey"
+                                                         FontSize="13" FontWeight="SemiBold" Background="Transparent" BorderThickness="0,0,0,1" Padding="0,2" MaxLength="30"
+                                                         ToolTip="Name it (e.g. VT, Changeover) - shown with the time on stage" />
+                                                <TextBlock Grid.Column="1" Text="ON STAGE" FontSize="10" FontWeight="Black" Foreground="{StaticResource NeonGreenBrush}"
+                                                           VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding OnStage, Converter={StaticResource BoolToVis}}" />
+                                                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Text}" FontSize="38" FontWeight="Bold" FontFamily="Consolas"
+                                                           Margin="0,4,0,6">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Overtime}" Value="True"><Setter Property="Foreground" Value="{StaticResource AccentRedBrush}" /></DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <WrapPanel Grid.Row="2" Grid.ColumnSpan="2">
+                                                    <Button Command="{Binding ToggleCommand}" Padding="10,4" MinWidth="70" Margin="0,0,6,4" FontSize="13">
+                                                        <Button.Style>
+                                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                                <Setter Property="Content" Value="&#x25B6; Start" />
+                                                                <Style.Triggers><DataTrigger Binding="{Binding Running}" Value="True"><Setter Property="Content" Value="&#x275A;&#x275A; Pause" /></DataTrigger></Style.Triggers>
+                                                            </Style>
+                                                        </Button.Style>
+                                                    </Button>
+                                                    <Button Content="Reset" Command="{Binding ResetCommand}" Padding="10,4" MinWidth="0" Margin="0,0,6,4" FontSize="13" />
+                                                    <Button Content="&#x2212;30s" Command="{Binding AddCommand}" CommandParameter="-30" Padding="8,4" MinWidth="0" Margin="0,0,4,4" FontSize="13" />
+                                                    <Button Content="+30s" Command="{Binding AddCommand}" CommandParameter="30" Padding="8,4" MinWidth="0" Margin="0,0,6,4" FontSize="13" />
+                                                    <Button Command="{Binding DirectionCommand}" Padding="8,4" MinWidth="0" Margin="0,0,6,4" FontSize="13"
+                                                            ToolTip="Count down from the loaded time, or count up from zero">
+                                                        <Button.Style>
+                                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                                <Setter Property="Content" Value="&#x25BC; Down" />
+                                                                <Style.Triggers><DataTrigger Binding="{Binding CountUp}" Value="True"><Setter Property="Content" Value="&#x25B2; Up" /></DataTrigger></Style.Triggers>
+                                                            </Style>
+                                                        </Button.Style>
+                                                    </Button>
+                                                    <TextBox Text="{Binding DurationInput, UpdateSourceTrigger=PropertyChanged}" Width="62" Margin="0,0,4,4" FontSize="13"
+                                                             ToolTip="Duration (5:00, 1:30:00 or seconds)" VerticalContentAlignment="Center" />
+                                                    <Button Content="Load" Command="{Binding LoadCommand}" Padding="8,4" MinWidth="0" Margin="0,0,6,4" FontSize="13" />
+                                                    <Button Command="{Binding StageCommand}" Padding="8,4" MinWidth="0" Margin="0,0,0,4" FontSize="13"
+                                                            ToolTip="Show this timer as a second line on the output and speaker screens">
+                                                        <Button.Style>
+                                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                                <Setter Property="Content" Value="Show on stage" />
+                                                                <Style.Triggers><DataTrigger Binding="{Binding OnStage}" Value="True"><Setter Property="Content" Value="Hide from stage" /></DataTrigger></Style.Triggers>
+                                                            </Style>
+                                                        </Button.Style>
+                                                    </Button>
+                                                </WrapPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <TextBlock Grid.Row="2" Text="They run beside the show and never change it. Companion, HTTP and OSC: aux 1 toggle, aux 2 set 3:00, aux 1 stage."
+                                   Opacity="0.5" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap" />
+                    </Grid>
+                </TabItem>
+              </TabControl>
+            </Border>
+        </Grid>
+
+        <!-- TRANSPORT -->
+        <Border Grid.Row="2" Margin="0,14,0,14" Style="{StaticResource ShadowPlate}" />
+        <Border Grid.Row="2"
+                Background="{StaticResource PanelFillBrush}"
+                BorderBrush="{StaticResource PanelEdgeBrush}"
+                BorderThickness="1"
+                CornerRadius="14"
+                Padding="16"
+                Margin="0,14,0,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <Button help:ContextHelp.Tip="start" Content="START  ⏵" Command="{Binding StartCommand}" Style="{StaticResource TransportButtonAccent}" />
+                    <Button help:ContextHelp.Tip="stop" Content="STOP  ⏸"  Command="{Binding StopCommand}"  Style="{StaticResource TransportButton}" Margin="10,0"
+                            app:Glow.Color="{StaticResource NeonAmber}" />
+                    <Button help:ContextHelp.Tip="reset" Content="RESET  ↺" Command="{Binding ResetCommand}" Style="{StaticResource TransportButton}" />
+                    <Button help:ContextHelp.Tip="next" Content="NEXT  ⏭" Command="{Binding NextItemCommand}" Style="{StaticResource TransportButton}" Margin="10,0,0,0"
+                            app:Glow.Color="{StaticResource NeonViolet}"
+                            ToolTip="Load the next item in the running order (N)" />
+                    <Button help:ContextHelp.Tip="blackout" Command="{Binding ToggleBlackoutCommand}" Margin="10,0,0,0" ToolTip="Hide everything on the outputs (B)"
+                            app:Glow.Color="{StaticResource AccentRed}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource TransportButton}">
+                                <Setter Property="Content" Value="BLACKOUT" />
+                                <Setter Property="Foreground" Value="#FCA5A5" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Blackout}" Value="True">
+                                        <Setter Property="Content" Value="BLACKOUT ON" />
+                                        <Setter Property="Background" Value="{StaticResource RedFaceBrush}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource AccentRedBrush}" />
+                                        <Setter Property="Foreground" Value="White" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Output" Opacity="0.7" Margin="0,0,8,0" VerticalAlignment="Center" />
+                    <ComboBox help:ContextHelp.Tip="output-mode" Width="190" FontSize="15" MinHeight="44" SelectedValue="{Binding SelectedOutputMode}" ItemsSource="{Binding OutputModeChoices}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock>
+                                    <TextBlock.Text>
+                                        <Binding Converter="{StaticResource OutputModeLabel}" />
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+
+                    <TextBlock Text="Key" Opacity="0.7" Margin="14,0,8,0" VerticalAlignment="Center" />
+                    <ComboBox help:ContextHelp.Tip="key-colour" Width="120" FontSize="15" MinHeight="44" SelectedValue="{Binding SelectedKeyColor}" ItemsSource="{Binding KeyColorChoices}" />
+
+                    <Button help:ContextHelp.Tip="ndi" Content="NDI" Command="{Binding ToggleNdiCommand}" Margin="14,0,0,0" Padding="18,8" MinHeight="44" FontSize="15" />
+                    <Button help:ContextHelp.Tip="holo" Command="{Binding ToggleHolographicCommand}" Margin="8,0,0,0" Padding="16,8" MinHeight="44" FontSize="15"
+                            app:Glow.Color="{StaticResource NeonViolet}" ToolTip="Holographic 3D display on the output and browser screens">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="Content" Value="3D" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Holographic}" Value="True">
+                                        <Setter Property="Content" Value="3D ●" />
+                                        <Setter Property="Foreground" Value="{StaticResource NeonVioletBrush}" />
+                                        <Setter Property="BorderBrush" Value="{StaticResource NeonVioletBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- MESSAGE -->
+        <Border Grid.Row="3" Style="{StaticResource ShadowPlate}" />
+        <Border Grid.Row="3"
+                Background="{StaticResource PanelFillBrush}"
+                BorderBrush="{StaticResource PanelEdgeBrush}"
+                BorderThickness="1"
+                CornerRadius="14"
+                Padding="16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="380" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Border Width="3" Height="14" CornerRadius="1.5" Background="{StaticResource NeonAmberBrush}" Margin="0,0,8,0" /><TextBlock Text="MESSAGE" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" /></StackPanel>
+                    <TextBox help:ContextHelp.Tip="message" Margin="0,8,0,0" Text="{Binding MessageInput, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource BigInput}" FontSize="18" FontWeight="Normal" />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <ComboBox SelectedValuePath="Tag" help:ContextHelp.Tip="urgency"
+                                  SelectedValue="{Binding SelectedUrgency}"
+                                  Width="150" MinHeight="44" FontSize="15">
+                            <ComboBoxItem Tag="{x:Static core:MessageUrgency.Info}"     Content="Info" />
+                            <ComboBoxItem Tag="{x:Static core:MessageUrgency.Warning}"  Content="Warning" />
+                            <ComboBoxItem Tag="{x:Static core:MessageUrgency.Critical}" Content="Critical" />
+                        </ComboBox>
+                        <ComboBox SelectedValuePath="Tag" help:ContextHelp.Tip="flash"
+                                  SelectedValue="{Binding SelectedFlash}"
+                                  Width="150" MinHeight="44" FontSize="15" Margin="8,0,0,0">
+                            <ComboBoxItem Tag="{x:Static core:FlashRate.Off}"  Content="No flash" />
+                            <ComboBoxItem Tag="{x:Static core:FlashRate.Slow}" Content="Slow flash" />
+                            <ComboBoxItem Tag="{x:Static core:FlashRate.Fast}" Content="Fast flash" />
+                        </ComboBox>
+                        <Button help:ContextHelp.Tip="send" Content="Send"  Command="{Binding ApplyMessageCommand}" Style="{StaticResource TransportButtonAccent}" Margin="12,0,0,0" Padding="22,8" FontSize="16" MinHeight="44" MinWidth="110" />
+                        <Button help:ContextHelp.Tip="clear-message" Content="Clear" Command="{Binding ClearMessageCommand}" Margin="8,0,0,0"  Padding="18,8" FontSize="16" MinHeight="44"
+                                app:Glow.Color="{StaticResource NeonAmber}" />
+                        <Button x:Name="SuggestButton" help:ContextHelp.Tip="suggest-message" Content="&#x2728;" Click="OnSuggestMessages" Margin="8,0,0,0" Padding="12,8" FontSize="16" MinHeight="44"
+                                ToolTip="Suggest three short, kind messages for this moment (or tighten what you've typed). You pick; nothing is sent until you press Send." />
+                        <CheckBox help:ContextHelp.Tip="ack" Content="Ask to acknowledge" IsChecked="{Binding AckRequested}" VerticalAlignment="Center" Margin="16,0,0,0" FontSize="15" />
+                    </StackPanel>
+                    <TextBlock help:ContextHelp.Tip="ack-state" Text="{Binding MessageAckText}" Margin="0,6,0,0" FontSize="13" Foreground="{StaticResource AccentBrush}"
+                               Visibility="{Binding MessageAckText, Converter={StaticResource NonEmptyToVis}}" />
+                    <TextBlock Text="Tip: {FINISH_BY}, {NEXT}, {OVER_UNDER}, {REMAINING} stay up to date in a message. Right-click the message box to save it as a quick message."
+                               Opacity="0.4" FontSize="11" Margin="0,4,0,0" />
+                </StackPanel>
+
+                <Border Grid.Column="1" Margin="14,0,0,0" Padding="10"
+                        BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="8">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Border Width="3" Height="14" CornerRadius="1.5" Background="{StaticResource NeonAmberBrush}" Margin="0,0,8,0" /><TextBlock Text="QUICK MESSAGES" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" /></StackPanel>
+                        <ItemsControl ItemsSource="{Binding MessageBank}" Margin="0,6,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding Label}" help:ContextHelp.Tip="quick" ToolTip="{Binding Text}"
+                                            Margin="4"
+                                            Padding="12,6" FontSize="13" MinWidth="0" MinHeight="34"
+                                            app:Glow.Color="{StaticResource NeonAmber}"
+                                            Command="{Binding DataContext.SendBankMessageCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- STATUS -->
+        <Grid Grid.Row="4" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock help:ContextHelp.Tip="status" Grid.Column="0" Text="{Binding StatusLine}" Opacity="0.6" TextTrimming="CharacterEllipsis" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <TextBlock help:ContextHelp.Tip="remote-line" Text="{Binding RemoteLine}" Opacity="0.5" />
+                <TextBlock Text="   ·   " Opacity="0.3" />
+                <TextBlock Text="Time: " Opacity="0.5" />
+                <TextBlock help:ContextHelp.Tip="clock" Text="{Binding TimeOfDayText}" />
+                <TextBlock Text="   ·   " Opacity="0.3" />
+                <TextBlock help:ContextHelp.Tip="timer-state" Text="{Binding TimerState}" Opacity="0.7" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+    </Grid>
+</Window>

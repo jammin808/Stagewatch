@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Self-contained test runner (no test framework dependency): dotnet run (project tests/Stagewatch.Tests).
+    Prints every failure and exits non-zero if anything fails, so it works in CI as-is.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Stagewatch.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Timer.Core\Timer.Core.csproj" />
+    <ProjectReference Include="..\..\src\Timer.Remote\Timer.Remote.csproj" />
+    <ProjectReference Include="..\..\src\Timer.Companion\Timer.Companion.csproj" />
+    <ProjectReference Include="..\..\src\Timer.Licensing\Timer.Licensing.csproj" />
+    <ProjectReference Include="..\..\src\Timer.Integrations\Timer.Integrations.csproj" />
+    <!-- The help text is plain data: test it without loading WPF. -->
+    <Compile Include="..\..\src\Timer.App\Help\HelpContent.cs" Link="Linked\HelpContent.cs" />
+  </ItemGroup>
+
+</Project>

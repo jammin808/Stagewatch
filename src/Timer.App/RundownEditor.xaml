@@ -1,0 +1,167 @@
+<Window x:Class="Stagewatch.App.RundownEditor"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Running order"
+        Width="1340" Height="680"
+        MinWidth="900" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgDeepBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}"
+        FontFamily="Segoe UI"
+        FontSize="14">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Running order" FontSize="20" FontWeight="Bold" Margin="0,0,0,4" />
+        <TextBlock Grid.Row="1" Opacity="0.6" Margin="0,0,0,12" TextWrapping="Wrap"
+                   Text="Durations: 45:00, 1:30:00, 15 (minutes), 20m, 1h30m. Tick Auto to roll into the next item at zero. Fixed start: hold the item to a published time (14:30, or 2026-10-24 14:30 for multi-day). Min: how short it may be cut. Curfew: the show must be past this item by then. Copy rows from Excel or Google Sheets and press Paste." />
+
+        <WrapPanel Grid.Row="2" Margin="0,0,0,10">
+            <Button Content="+ Add" Click="OnAdd" Margin="0,0,6,6" />
+            <Button Content="Remove" Click="OnRemove" Margin="0,0,6,6" />
+            <Button Content="▲ Up" Click="OnUp" Margin="0,0,6,6" />
+            <Button Content="▼ Down" Click="OnDown" Margin="0,0,18,6" />
+            <TextBlock Text="Show time zone" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,6,6" />
+            <ComboBox x:Name="ZoneCombo" Width="260" Margin="0,0,18,6" />
+            <Button Content="Paste from spreadsheet" Click="OnPaste" Margin="0,0,6,6" />
+            <Button x:Name="AiImport" Content="&#x2728; From any agenda text…" Click="OnAiImport" Margin="0,0,6,6"
+                    ToolTip="Paste an agenda from an email, PDF or document — the copilot drafts the rows, you check them here before OK" />
+            <Button Content="Import CSV…" Click="OnImport" Margin="0,0,6,6" />
+            <Button x:Name="SheetButton" Content="From Google Sheet…" Click="OnSheet" Margin="0,0,6,6"
+                    ToolTip="Import from a shared Google Sheet (or any CSV link). Update keeps trims and notes; Replace takes the sheet as it is." />
+            <Button Content="Export CSV…" Click="OnExport" Margin="0,0,18,6" />
+            <Button Content="Clear all" Click="OnClear" Margin="0,0,18,6" />
+            <TextBlock Text="Loop" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,6,6" />
+            <ComboBox x:Name="LoopCombo" Width="120" Margin="0,0,18,6" ToolTip="Play the running order again when it ends — walk-in loops, trade-show stands">
+                <ComboBoxItem Content="Off" Tag="0" />
+                <ComboBoxItem Content="Twice" Tag="1" />
+                <ComboBoxItem Content="3 times" Tag="2" />
+                <ComboBoxItem Content="5 times" Tag="4" />
+                <ComboBoxItem Content="10 times" Tag="9" />
+                <ComboBoxItem Content="Until stopped" Tag="-1" />
+            </ComboBox>
+            <Button Content="Labels…" Click="OnLabels" Margin="0,0,6,6"
+                    ToolTip="Rename or recolour a label on every item at once (VT, GFX, CAM…)" />
+            <Button Content="Group targets…" Click="OnGroupTargets" Margin="0,0,6,6"
+                    ToolTip="Set a target length for each group (session) — the editor and the timeline show if a group is over" />
+        </WrapPanel>
+
+        <DataGrid x:Name="Grid"
+                  Grid.Row="3"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="True"
+                  CanUserReorderColumns="False"
+                  CanUserResizeRows="False"
+                  CanUserSortColumns="False"
+                  SelectionMode="Single"
+                  SelectionUnit="FullRow"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  Background="{StaticResource BgPanelBrush}"
+                  RowBackground="{StaticResource BgPanelBrush}"
+                  AlternatingRowBackground="{StaticResource BgRaisedBrush}"
+                  Foreground="{StaticResource TextPrimaryBrush}"
+                  BorderBrush="{StaticResource BorderSubtleBrush}"
+                  HorizontalGridLinesBrush="{StaticResource BorderSubtleBrush}"
+                  VerticalGridLinesBrush="Transparent">
+            <DataGrid.Resources>
+                <Style TargetType="DataGridColumnHeader">
+                    <Setter Property="Background" Value="{StaticResource BgRaisedBrush}" />
+                    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}" />
+                    <Setter Property="BorderThickness" Value="0,0,1,1" />
+                    <Setter Property="Padding" Value="10,8" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                </Style>
+                <Style TargetType="DataGridCell">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Padding" Value="8,6" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="DataGridCell">
+                                <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter VerticalAlignment="Center" />
+                                </Border>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                    <Style.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="#14321F" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.Resources>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="#" Binding="{Binding Number}" IsReadOnly="True" Width="40" />
+                <DataGridTextColumn Header="Group" Binding="{Binding Group, UpdateSourceTrigger=PropertyChanged}" Width="0.9*" />
+                <DataGridTextColumn Header="Labels" Binding="{Binding LabelsText, UpdateSourceTrigger=LostFocus}" Width="0.8*" />
+                <DataGridTextColumn Header="Title" Binding="{Binding Title, UpdateSourceTrigger=PropertyChanged}" Width="2*" />
+                <DataGridTextColumn Header="Speaker" Binding="{Binding Speaker, UpdateSourceTrigger=PropertyChanged}" Width="1.3*" />
+                <DataGridTextColumn Header="Duration" Binding="{Binding DurationText, UpdateSourceTrigger=PropertyChanged}" Width="100" />
+                <DataGridTemplateColumn Header="Kind" Width="100">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ComboBox ItemsSource="{Binding DataContext.Kinds, RelativeSource={RelativeSource AncestorType=Window}}"
+                                      SelectedItem="{Binding Kind, UpdateSourceTrigger=PropertyChanged}" FontSize="12" MinHeight="0" Padding="4,2" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Fixed start" Binding="{Binding FixedStart, UpdateSourceTrigger=PropertyChanged}" Width="95" />
+                <DataGridTextColumn Header="Min" Binding="{Binding MinText, UpdateSourceTrigger=PropertyChanged}" Width="70" />
+                <DataGridTextColumn Header="Curfew" Binding="{Binding HardOut, UpdateSourceTrigger=PropertyChanged}" Width="85" />
+                <DataGridTemplateColumn Header="Cue ladder" Width="110">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ComboBox ItemsSource="{Binding DataContext.LadderIds, RelativeSource={RelativeSource AncestorType=Window}}"
+                                      SelectedItem="{Binding CueLadderId, UpdateSourceTrigger=PropertyChanged}" FontSize="12" MinHeight="0" Padding="4,2" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Message to presenter" Binding="{Binding Message, UpdateSourceTrigger=PropertyChanged}" Width="1.4*" />
+                <DataGridTextColumn Header="Notes (operator)" Binding="{Binding Notes, UpdateSourceTrigger=PropertyChanged}" Width="1.1*" />
+                <DataGridTemplateColumn Header="Chimes" Width="80">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding ChimesLabel}" Tag="{Binding}" Click="OnChimes" Padding="6,1" MinWidth="0" MinHeight="0" FontSize="12"
+                                    ToolTip="This item's own chimes at start, warning, wrap-up and zero (blank = the show's alerts)" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Dept notes" Width="95">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding DeptNotesLabel}" Tag="{Binding}" Click="OnDeptNotes" Padding="6,1" MinWidth="0" MinHeight="0" FontSize="12"
+                                    ToolTip="Each department's note on this item (they can also edit their own from their crew page)" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Auto" Width="60">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <CheckBox IsChecked="{Binding AutoAdvance, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Center"
+                                      ToolTip="At zero, load and start the next item automatically" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <TextBlock x:Name="Summary" Grid.Row="4" Opacity="0.6" Margin="0,10,0,0" TextWrapping="Wrap" />
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Cancel" Width="100" Margin="0,0,8,0" Click="OnCancel" IsCancel="True" />
+            <Button Content="Save" Width="100" Click="OnSave" />
+        </StackPanel>
+    </Grid>
+</Window>

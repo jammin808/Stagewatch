@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/sw.css">
+<title>Studio clock</title>
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2vh; }
+  #face { position: relative; width: min(82vh, 92vw); aspect-ratio: 1; }
+  #face svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #time { font-size: min(13vh, 14vw); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .02em; line-height: 1; }
+  #secs { font-size: min(5vh, 6vw); color: var(--muted); font-variant-numeric: tabular-nums; margin-top: .6vh; }
+  #date { font-size: min(3.2vh, 4vw); color: var(--muted); margin-top: 1.4vh; }
+  #timer { font-size: min(4.6vh, 5.4vw); font-variant-numeric: tabular-nums; font-weight: 700; }
+  #title { font-size: min(2.6vh, 3.4vw); color: var(--muted); text-align: center; max-width: 90vw; }
+  .dot { fill: #1f2937; }
+  .dot.on { fill: #ef4444; }
+  .dot.q { fill: #374151; }
+  .dot.q.on { fill: #ef4444; }
+  .dot.now { fill: #fca5a5; }
+</style>
+</head>
+<body>
+<div id="offline" class="hidden">reconnecting…</div>
+<div id="face">
+  <svg id="ring" viewBox="-100 -100 200 200" aria-hidden="true"></svg>
+  <div id="center">
+    <div id="time">--:--</div>
+    <div id="secs">--</div>
+    <div id="date"></div>
+  </div>
+</div>
+<div id="timer" class="hidden"></div>
+<div id="title" class="hidden"></div>
+<script src="/common.js"></script>
+<script src="/clock.js"></script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1220">
+<link rel="stylesheet" href="/sw.css">
+<title>Screen designer</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { display: grid; grid-template-rows: auto 1fr; font-family: "Segoe UI", system-ui, sans-serif; background: #0b1220; color: #e2e8f0; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #1e293b; }
+  header input:not([type=color]), header select { width: auto; margin: 0; }
+  aside input, aside select { width: auto; margin: 0; }
+  aside textarea { margin: 0; }
+  header h1 { font-size: 16px; margin: 0 10px 0 0; }
+  input, select, textarea, button { font: inherit; font-size: 14px; color: inherit; background: #111827; border: 1px solid #334155; border-radius: 6px; padding: 5px 8px; }
+  button { cursor: pointer; background: #1e293b; }
+  button.primary { background: #166534; border-color: #22c55e; }
+  button.ai { background: #312e81; border-color: #818cf8; }
+  button:disabled { opacity: .5; cursor: default; }
+  main { display: grid; grid-template-columns: 1fr 320px; min-height: 0; }
+  #stagewrap { display: flex; align-items: center; justify-content: center; padding: 16px; min-height: 0; min-width: 0; }
+  #stage { position: relative; box-shadow: 0 0 0 1px #334155; }
+  #canvas { position: absolute; inset: 0; }
+  #handles { position: absolute; inset: 0; }
+  .h { position: absolute; outline: 1px dashed rgba(148,163,184,.35); cursor: move; }
+  .h.sel { outline: 2px solid #38bdf8; }
+  .h .grip { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; background: #38bdf8; border-radius: 3px; cursor: nwse-resize; display: none; }
+  .h.sel .grip { display: block; }
+  .h .tag { position: absolute; left: 0; top: -18px; font-size: 11px; color: #38bdf8; display: none; white-space: nowrap; }
+  .h.sel .tag { display: block; }
+  .guide { position: absolute; background: #f472b6; pointer-events: none; display: none; }
+  aside { border-left: 1px solid #1e293b; padding: 12px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+  aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin: 6px 0 0; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .row label { font-size: 12px; color: #94a3b8; min-width: 54px; }
+  .row input[type=number] { width: 64px; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 54px; resize: vertical; }
+  #adds button { padding: 4px 8px; font-size: 13px; }
+  #draft { border: 1px solid #818cf8; background: #1e1b4b; border-radius: 8px; padding: 8px; font-size: 13px; display: none; }
+  #draft ul { margin: 6px 0; padding-left: 18px; }
+  #status { font-size: 12px; color: #94a3b8; min-height: 16px; }
+  #pinbox { display: none; gap: 6px; align-items: center; }
+  .muted { color: #94a3b8; font-size: 12px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } aside { border-left: 0; border-top: 1px solid #1e293b; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Screen designer</h1>
+  <select id="pick" title="Open a layout"></select>
+  <input id="name" placeholder="name" size="12" title="Letters, digits, - or _ — the screen opens at /layout?name=…">
+  <label class="muted">Background <input id="bgc" type="color" value="#000000"></label>
+  <select id="font" title="Font"></select>
+  <select id="aspect" title="Preview shape"><option value="16:9">16:9</option><option value="9:16">9:16 portrait</option><option value="4:3">4:3</option><option value="21:9">21:9</option></select>
+  <button id="undo" title="Undo (Ctrl+Z)">↶</button><button id="redo" title="Redo (Ctrl+Y)">↷</button>
+  <button id="save" class="primary" title="Save (Ctrl+S) — every screen showing it updates within a second">Save</button>
+  <button id="del" title="Delete this layout">Delete</button>
+  <a id="open" target="_blank" class="muted" href="#">Open screen ↗</a>
+  <span id="pinbox"><input id="pin" type="password" placeholder="PIN or API key" size="12"><button id="pinok">OK</button></span>
+  <span id="status"></span>
+</header>
+<main>
+  <div id="stagewrap"><div id="stage"><div id="canvas"></div><div id="handles"></div><div class="guide" id="gx"></div><div class="guide" id="gy"></div></div></div>
+  <aside>
+    <h2>Describe it</h2>
+    <textarea id="ask" placeholder="e.g. Foyer sign: big clock, the next session and when it starts, our logo bottom right — dark blue"></textarea>
+    <div class="row"><button id="aibtn" class="ai">Draft with AI</button><span class="muted">You see it first — nothing is saved until you press Save.</span></div>
+    <div id="draft"><b>AI draft</b> — previewed on the left.<ul id="notes"></ul><div class="row"><button id="keep" class="primary">Keep it</button><button id="discard">Discard</button></div></div>
+
+    <h2>Add</h2>
+    <div class="row" id="adds"></div>
+
+    <h2>Selected</h2>
+    <div id="props" class="muted">Click an element (Tab cycles). Arrows move it (Shift = 5%), Delete removes, Ctrl+D duplicates.</div>
+  </aside>
+</main>
+<script src="/common.js"></script>
+<script src="/layout-render.js"></script>
+<script src="/designer.js"></script>
+</body>
+</html>

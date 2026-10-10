@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stagewatch</title>
+<style>
+  html, body { margin: 0; background: #000; color: #F9FAFB; font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
+  h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: .04em; }
+  p { color: #9CA3AF; margin: 0 0 24px; }
+  a.card { display: block; padding: 18px; margin-bottom: 12px; border: 1px solid #2a2a2a; border-radius: 12px; background: #0d0d0d;
+    color: inherit; text-decoration: none; }
+  a.card:hover { border-color: #22C55E; }
+  a.card b { display: block; font-size: 18px; margin-bottom: 4px; }
+  a.card span { color: #9CA3AF; font-size: 14px; }
+  code { color: #9CA3AF; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>STAGEWATCH</h1>
+  <p>Open on any phone, tablet or laptop on this network.</p>
+  <a class="card" href="/viewer"><b>Speaker</b><span>Full-screen confidence monitor. Shows cues, finish-by time and messages; the speaker can tap to acknowledge.</span></a>
+  <a class="card" href="/producer"><b>Showcaller / Producer</b><span>The whole show: running order with expected and actual times, curfews, assistant, cues, Q&amp;A. Needs the PIN.</span></a>
+  <a class="card" href="/control"><b>Remote control</b><span>Start, pause, nudge, next, messages. Needs the PIN.</span></a>
+  <a class="card" href="/moderator"><b>Moderator</b><span>Session clock, Q&amp;A queue and how many questions fit.</span></a>
+  <a class="card" href="/backstage"><b>Backstage / green room</b><span>Now, next, expected start — and "call to stage" with found / in-position replies.</span></a>
+  <a class="card" href="/dept?name=Lighting"><b>Department</b><span>Big STANDBY / GO for one department (change <code>?name=</code>), with acknowledgement.</span></a>
+  <a class="card" href="/interpreter"><b>Interpreter booth</b><span>Who's speaking, time left, who's next.</span></a>
+  <a class="card" href="/haptic?for=speaker"><b>Pocket cue</b><span>Phone or watch for the speaker or chair: buzzes and flashes on a cue, tap to acknowledge.</span></a>
+  <a class="card" href="/audience"><b>Audience agenda</b><span>Agenda with live times, break countdown and a QR code for questions.</span></a>
+  <a class="card" href="/clock"><b>Studio clock</b><span>Time of day with a ring of seconds, in the show's time zone, plus the show timer.</span></a>
+  <a class="card" href="/countdown?to=next"><b>Countdown</b><span>Time until the next item, item n (<code>?to=3</code>), a group (<code>?to=group:Morning</code>) or the end (<code>?to=end</code>).</span></a>
+  <a class="card" href="/timeline"><b>Timeline</b><span>The running order on a time axis with a live now-line and groups.</span></a>
+  <a class="card" href="/rooms"><b>All rooms</b><span>Every Stagewatch on this network: time, lateness, curfew risk.</span></a>
+  <p style="margin-top:28px">HTTP API: <code>/api/state</code> (<code>?detail=1</code>), <code>/api/help</code>, <code>/api/&lt;command&gt;?pin=…</code>, <code>/report</code>. MCP for AI tools: <code>POST /mcp</code>.</p>
+</main>
+</body>
+</html>

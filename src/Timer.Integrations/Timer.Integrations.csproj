@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sensors and outputs that talk to other software and hardware: PowerPoint (COM), vMix, speech,
+    time servers, LTC, DMX (Art-Net / sACN), Philips Hue, outbound triggers and the multi-room beacon.
+    Every one runs on its own thread or timer and exchanges data with the show loop through
+    latest-wins values, so a slow or missing device can never stall the timer.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Stagewatch.Integrations</RootNamespace>
+    <AssemblyName>Stagewatch.Integrations</AssemblyName>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Timer.Core\Timer.Core.csproj" />
+    <ProjectReference Include="..\Timer.Remote\Timer.Remote.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Windows' built-in offline speech recogniser and voices. -->
+    <PackageReference Include="System.Speech" Version="8.0.0" />
+    <!-- Optional, opt-in producer assistant (Claude). -->
+    <PackageReference Include="Anthropic" Version="12.50.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,57 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.cache
+*.pdb
+.vs/
+
+# Rider / VS
+.idea/
+*.DotSettings.user
+
+# Build output
+artifacts/
+publish/
+out/
+
+# NDI SDK (do not commit)
+lib/ndi/
+
+# Installer output
+installer/Output/
+
+# Master keys (NEVER COMMIT)
+keys/master.key
+keys/private.pem
+*.pfx
+
+# Settings (per-user runtime data)
+**/AppData/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Node
+**/node_modules/
+companion-module/dist/
+companion-module/pkg/
+companion-module/*.tgz
+
+# Old packaged builds and local test output
+installer/*.zip
+artifacts/
+TestResults/
+
+# Local assistant settings
+.claude/
+
+# Research and business strategy (kept on this PC)
+reports/
+research_notes/
+
+# Old packaged tool builds
+tools/**/*.zip

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="/sw.css">
+<title>Stagewatch — Showcaller</title>
+<style>
+  body { padding: 10px 14px 70px; }
+  #top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  #top h1 { margin: 0; font-size: 14px; letter-spacing: .12em; color: var(--muted); }
+  #layout { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.4fr); gap: 14px; align-items: start; }
+  @media (max-width: 960px) { #layout { grid-template-columns: 1fr; } }
+  #face { text-align: center; }
+  #face .title { color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #timer { font-size: clamp(64px, 11vw, 150px); font-weight: 800; line-height: 1.02; color: var(--timer); font-variant-numeric: tabular-nums; }
+  #cue { margin: 4px 0; min-height: 1.6em; color: var(--timer); font-size: 20px; }
+  #bar { height: 8px; background: #1f1f1f; border-radius: 99px; overflow: hidden; margin: 8px auto; }
+  #fill { height: 100%; width: 0; background: var(--timer); transition: width 1s linear; }
+  #status { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+  .grid { display: grid; gap: 8px; }
+  .g5 { grid-template-columns: repeat(5, 1fr); }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 6px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr.live { background: #0f2a18; }
+  tr.loaded { background: #10213d; }
+  tr.done { opacity: .45; }
+  td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td .who { color: var(--muted); font-size: 12px; display: block; }
+  tr.group td { padding-top: 14px; border-bottom: 1px solid var(--border); letter-spacing: .04em; }
+  tr.group .who { display: inline; }
+  tr.group .who.over { color: #FCA5A5; }
+  td.act { white-space: nowrap; text-align: right; }
+  .conflict { color: var(--red); font-weight: 700; }
+  .advice { border-left: 4px solid var(--blue); background: var(--panel); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; display: flex; gap: 10px; align-items: center; }
+  .advice.urgent { border-left-color: var(--red); }
+  .advice.warn { border-left-color: var(--amber); }
+  .advice .txt { flex: 1; }
+  .sig { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .sig .what { flex: 1; }
+  .hold { padding: 4px; display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+  .hold img { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; border-radius: 6px; }
+  .hold span { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hold.on { outline: 3px solid var(--accent); }
+  .crew { display: flex; gap: 6px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .crew .what { flex: 1; }
+  #crewQr img { width: 220px; height: 220px; background: #fff; padding: 8px; border-radius: 8px; }
+  .q { display: flex; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .q .txt { flex: 1; }
+  .q.live .txt { color: var(--accent); font-weight: 700; }
+  #pinbox { max-width: 360px; margin: 18vh auto 0; text-align: center; }
+  #pinbox input { text-align: center; font-size: 28px; letter-spacing: .3em; margin: 12px 0; }
+  #toast { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 14px; background: #111; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div id="pinbox" class="hidden">
+  <h1 style="font-size:22px;margin:0">Showcaller</h1>
+  <p class="muted">Enter the PIN shown in Stagewatch → Settings → Remote.</p>
+  <input id="pin" inputmode="numeric" autocomplete="off" maxlength="12">
+  <button class="primary" id="pinok" style="width:100%">Connect</button>
+  <p id="pinerr" style="color:var(--red)"></p>
+</div>
+
+<div id="app" class="hidden">
+  <div id="top">
+    <h1>SHOWCALLER</h1>
+    <span class="pill" id="room"></span>
+    <span class="muted num" id="clock"></span>
+    <span class="grow"></span>
+    <a class="pill" href="/rooms" target="_blank">All rooms</a>
+    <a class="pill" id="reportLink" href="/report" target="_blank">Report</a>
+    <a class="pill" id="csvLink" href="/api/report.csv">CSV</a>
+  </div>
+
+  <div id="layout">
+    <section>
+      <div class="panel" id="face">
+        <div class="title" id="title"></div>
+        <div id="timer">--:--</div>
+        <div id="cue"></div>
+        <div id="bar"><div id="fill"></div></div>
+        <div id="status"></div>
+        <div class="muted" id="forecast" style="margin-top:6px"></div>
+      </div>
+
+      <h2>Transport</h2>
+      <div class="grid g5">
+        <button class="primary" id="toggle">Start</button>
+        <button data-cmd="previous">◀ Prev</button>
+        <button data-cmd="next">Next ▶</button>
+        <button data-cmd="catchup" title="Re-time this item (elastic) so it lands on its planned end">Catch up</button>
+        <button data-cmd="preview" title="Play the cue ladder at 10× on every output for the speaker briefing">Preview</button>
+      </div>
+      <div class="grid g5" style="margin-top:8px">
+        <button data-cmd="nudge" data-arg="-60">−1m</button>
+        <button data-cmd="nudge" data-arg="-10">−10s</button>
+        <button data-cmd="nudge" data-arg="10">+10s</button>
+        <button data-cmd="nudge" data-arg="60">+1m</button>
+        <button data-cmd="nudge" data-arg="300">+5m</button>
+      </div>
+
+      <h2>Speaker</h2>
+      <div class="row">
+        <input id="msg" class="grow" placeholder="Message to the speaker — {FINISH_BY} {NEXT} {OVER_UNDER} work" maxlength="200" style="width:auto">
+        <button class="warn" id="sendAck" title="Shows on the speaker's screen and asks them to confirm">Send + ack</button>
+      </div>
+      <div class="grid g4" style="margin-top:8px">
+        <button data-sig="message speaker" data-text="Please start to wrap up">Wrap up</button>
+        <button data-sig="message speaker" data-text="Please finish by {FINISH_BY}">Finish by…</button>
+        <button data-sig="message speaker" data-text="Slow down a little">Slow down</button>
+        <button data-sig="nudge speaker" data-text="Look at the monitor">Pocket buzz</button>
+      </div>
+      <div class="muted" id="ack" style="margin-top:6px"></div>
+
+      <h2>Holding image <span class="muted" id="holdOn"></span></h2>
+      <div id="holdList" class="grid g3"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="small warn" data-cmd="holding" data-arg="off">Off</button>
+        <button class="small" id="holdUpload" title="Add a PNG, JPG, GIF, BMP, TIFF or WebP (max 25 MB)">Upload…</button>
+        <input type="file" id="holdFile" accept="image/png,image/jpeg,image/gif,image/bmp,image/tiff,image/webp" multiple class="hidden">
+        <span class="muted grow" id="holdMsg"></span>
+      </div>
+
+      <h2>Departments &amp; green room</h2>
+      <div id="depts" class="grid g4"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="callNext" class="grow">Call next speaker to stage</button>
+        <button data-cmd="signal" data-arg="clear" data-arg2="*" class="small">Clear all cues</button>
+      </div>
+      <div id="signals" style="margin-top:6px"></div>
+
+      <h2>Q&amp;A</h2>
+      <div class="row"><span class="muted grow" id="qaSummary"></span><button data-cmd="q" data-arg="next" class="small">Next question</button></div>
+      <div id="questions"></div>
+
+      <h2>Crew links</h2>
+      <div class="muted" style="font-size:13px;margin-bottom:6px">Open each crew page from its own link (or QR): only that page can confirm the cues sent to it.</div>
+      <div id="crewLinks"></div>
+      <div id="crewQr" class="hidden" style="text-align:center;margin-top:8px"></div>
+
+      <h2>Show log</h2>
+      <div class="row"><input id="note" class="grow" placeholder="Note for the show report (who, what, why)" maxlength="300" style="width:auto"><button id="addNote">Log</button></div>
+    </section>
+
+    <section>
+      <h2>Assistant</h2>
+      <div id="advice"><div class="muted">No suggestions — the show is tracking.</div></div>
+
+      <h2>Running order <span class="muted" id="delayInfo"></span></h2>
+      <div class="row" style="margin-bottom:8px">
+        <span class="muted">Announce a delay before the next item:</span>
+        <button class="small" data-delay="60">+1m</button>
+        <button class="small" data-delay="300">+5m</button>
+        <button class="small" data-cmd="delay" data-arg="clear">Clear</button>
+      </div>
+      <div class="panel" style="padding:0;overflow-x:auto">
+        <table>
+          <thead><tr><th>#</th><th>Item</th><th>Planned</th><th>Expected</th><th>Actual</th><th>Δ</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+<div id="toast"><span id="conn">connecting…</span><span id="err"></span></div>
+<script src="/common.js"></script>
+<script src="/producer.js"></script>
+</body>
+</html>

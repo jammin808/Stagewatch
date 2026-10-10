@@ -1,0 +1,153 @@
+<Window x:Class="Stagewatch.Output.OutputWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Stagewatch.Output"
+        xmlns:core="clr-namespace:Stagewatch.Core;assembly=Stagewatch.Core"
+        Title="Stagewatch — Output"
+        Background="Black"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        AllowsTransparency="False"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        ShowInTaskbar="False"
+        Topmost="False">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Stagewatch.Output;component/AppResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style TargetType="TextBlock" x:Key="DisplayText">
+                <Setter Property="Foreground" Value="White" />
+                <Setter Property="FontFamily" Value="Segoe UI" />
+                <Setter Property="HorizontalAlignment" Value="Center" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid x:Name="RootGrid">
+        <!-- Cue frame: a coloured border around the whole output while a cue is in force. -->
+        <Border BorderBrush="{Binding TimerColorBrush}" BorderThickness="14" IsHitTestVisible="False"
+                Visibility="{Binding CueFrame, Converter={StaticResource BoolToVis}}" />
+        <Viewbox Stretch="Uniform" Margin="40"
+                 Visibility="{Binding ShowContent, Converter={StaticResource BoolToVis}}">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+
+                <TextBlock x:Name="PresetNameText"
+                           Style="{StaticResource DisplayText}"
+                           Text="{Binding PresetName}"
+                           Visibility="{Binding ShowPresetName, Converter={StaticResource BoolToVis}}"
+                           FontSize="38" Opacity="0.6" Margin="0,0,0,12" />
+
+                <TextBlock x:Name="TimerText"
+                           Style="{StaticResource DisplayText}"
+                           Text="{Binding TimerText}"
+                           Visibility="{Binding ShowTimer, Converter={StaticResource BoolToVis}}"
+                           FontWeight="Bold"
+                           FontSize="320"
+                           Foreground="{Binding TimerColorBrush}" />
+
+                <!-- Cue label: a cue that doesn't rely on colour (colour-blind speakers, bright stage light). -->
+                <Border HorizontalAlignment="Center" BorderBrush="{Binding TimerColorBrush}" BorderThickness="8" CornerRadius="18"
+                        Padding="28,0" Margin="0,4,0,8"
+                        Visibility="{Binding ShowCueLabel, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Style="{StaticResource DisplayText}" Text="{Binding CueLabel}" FontSize="90" FontWeight="Black"
+                               Foreground="{Binding TimerColorBrush}" />
+                </Border>
+
+                <!-- Progress: a render-transform scale, so per-tick updates never trigger layout. -->
+                <Border Width="1400" Height="{Binding ProgressHeight}" CornerRadius="9" Background="#262626" ClipToBounds="True"
+                        Margin="0,8,0,8"
+                        Visibility="{Binding ShowProgress, Converter={StaticResource BoolToVis}}">
+                    <Border Background="{Binding TimerColorBrush}" CornerRadius="9" RenderTransformOrigin="0,0.5">
+                        <Border.RenderTransform>
+                            <ScaleTransform ScaleX="{Binding Progress}" />
+                        </Border.RenderTransform>
+                    </Border>
+                </Border>
+
+                <TextBlock Style="{StaticResource DisplayText}" Text="{Binding FinishBy}"
+                           Visibility="{Binding ShowFinishBy, Converter={StaticResource BoolToVis}}"
+                           FontSize="40" FontWeight="SemiBold" Opacity="0.8" Margin="0,4,0,0" />
+
+                <TextBlock x:Name="EndTimeBlock"
+                           Style="{StaticResource DisplayText}"
+                           Text="{Binding EndTimeText}"
+                           Visibility="{Binding ShowEndTime, Converter={StaticResource BoolToVis}}"
+                           FontSize="34" Opacity="0.55" Margin="0,4,0,0" />
+
+                <TextBlock x:Name="MessageText"
+                           Style="{StaticResource DisplayText}"
+                           Text="{Binding MessageText}"
+                           Visibility="{Binding ShowMessage, Converter={StaticResource BoolToVis}}"
+                           FontSize="100"
+                           Margin="0,40,0,0"
+                           Foreground="{Binding Urgency, Converter={StaticResource UrgencyToBrush}}" />
+
+                <!-- Stable layout: an empty message still takes its space, so nothing jumps when one appears. -->
+                <TextBlock Style="{StaticResource DisplayText}" Text=" " FontSize="100" Margin="0,40,0,0"
+                           Visibility="{Binding ReserveMessage, Converter={StaticResource BoolToVis}}" />
+
+                <TextBlock Style="{StaticResource DisplayText}" Text="{Binding SlidesText}"
+                           Visibility="{Binding ShowSlides, Converter={StaticResource BoolToVis}}"
+                           FontSize="36" Opacity="0.6" Margin="0,24,0,0" />
+
+                <TextBlock Style="{StaticResource DisplayText}" Text="{Binding AuxText}"
+                           Visibility="{Binding ShowAux, Converter={StaticResource BoolToVis}}"
+                           FontSize="48" FontWeight="SemiBold" Foreground="#86EFAC" Margin="0,12,0,0" />
+
+                <TextBlock Style="{StaticResource DisplayText}" Text="{Binding PlayoutText}"
+                           Visibility="{Binding ShowPlayout, Converter={StaticResource BoolToVis}}"
+                           FontSize="44" Foreground="#93C5FD" Margin="0,12,0,0" />
+
+                <TextBlock Style="{StaticResource DisplayText}"
+                           Text="{Binding NextText}"
+                           Visibility="{Binding ShowNextUp, Converter={StaticResource BoolToVis}}"
+                           FontSize="38" Opacity="0.55" Margin="0,30,0,0" />
+
+                <TextBlock Style="{StaticResource DisplayText}"
+                           Text="{Binding ScheduleText}"
+                           Visibility="{Binding ShowSchedule, Converter={StaticResource BoolToVis}}"
+                           FontSize="30" Opacity="0.5" Margin="0,10,0,0" />
+
+                <StackPanel Margin="0,40,0,0"
+                            Visibility="{Binding ShowTimeOfDay, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Style="{StaticResource DisplayText}" Opacity="0.5" FontSize="22" Text="TIME OF DAY" />
+                    <TextBlock Style="{StaticResource DisplayText}" FontSize="56" Text="{Binding TimeOfDayText}" />
+                </StackPanel>
+            </StackPanel>
+        </Viewbox>
+
+        <!-- Holding image: covers the timer (and the cue frame) on every output, NDI included. Blackout hides it. -->
+        <Grid Background="Black" Visibility="{Binding ShowHolding, Converter={StaticResource BoolToVis}}">
+            <Image Source="{Binding HoldingImage}" Stretch="{Binding HoldingStretch}"
+                   RenderOptions.BitmapScalingMode="HighQuality" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- Briefing preview tag -->
+        <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="16" Background="#F59E0B" CornerRadius="6" Padding="10,2"
+                Visibility="{Binding Preview, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="PREVIEW" FontWeight="Black" FontSize="22" Foreground="Black" />
+        </Border>
+
+        <!-- Free-mode watermark (trial ended, no license). Scales with the output (~5% of its height),
+             sits above everything and ignores blackout, so it survives NDI and keyed outputs too. -->
+        <Grid Visibility="{Binding Watermark, Converter={StaticResource BoolToVis}}" IsHitTestVisible="False">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="19*" />
+                <RowDefinition Height="1*" />
+            </Grid.RowDefinitions>
+            <Viewbox Grid.Row="1" Stretch="Uniform" HorizontalAlignment="Right" Margin="0,0,24,12">
+                <TextBlock Text="{x:Static core:FeatureGate.WatermarkText}"
+                           FontFamily="Segoe UI" FontWeight="SemiBold" Foreground="#B3FFFFFF">
+                    <TextBlock.Effect>
+                        <DropShadowEffect BlurRadius="6" ShadowDepth="0" Opacity="0.9" Color="Black" />
+                    </TextBlock.Effect>
+                </TextBlock>
+            </Viewbox>
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,16 @@
+{
+  "solution": {
+    "path": "Timer.sln",
+    "projects": [
+      "src\\Timer.Core\\Timer.Core.csproj",
+      "src\\Timer.Licensing\\Timer.Licensing.csproj",
+      "src\\Timer.Companion\\Timer.Companion.csproj",
+      "src\\Timer.Output\\Timer.Output.csproj",
+      "src\\Timer.Remote\\Timer.Remote.csproj",
+      "src\\Timer.Integrations\\Timer.Integrations.csproj",
+      "src\\Timer.App\\Timer.App.csproj",
+      "tests\\Stagewatch.Tests\\Stagewatch.Tests.csproj",
+      "tools\\KeyGen\\KeyGen.csproj"
+    ]
+  }
+}
