@@ -132,3 +132,54 @@ public static class HoldingLibrary
             ?? images.FirstOrDefault(i => i.Name.StartsWith(key, StringComparison.OrdinalIgnoreCase));
     }
 }
+
+/// <summary>
+/// Which holding image is on air, and what "holding &lt;n|name|id|off|toggle&gt;" means. Owner thread only; the host
+/// decodes and shows whatever this decides.
+/// </summary>
+public sealed class HoldingSelection
+{
+    /// <summary>The image on air ("" = none).</summary>
+    public string OnAirId { get; private set; } = "";
+
+    /// <summary>The last image that was on air, which "toggle" brings back.</summary>
+    public string LastId { get; private set; } = "";
+
+    public bool OnAir => OnAirId.Length > 0;
+
+    /// <summary>The image a command asks for: null takes the image off. <paramref name="error"/> says why nothing matched.</summary>
+    public HoldingImage? Choose(IReadOnlyList<HoldingImage> images, string key, out string? error)
+    {
+        error = null;
+        if (key.Equals("off", StringComparison.OrdinalIgnoreCase)) return null;
+        if (key.Equals("toggle", StringComparison.OrdinalIgnoreCase))
+        {
+            if (OnAir) return null;
+            var again = images.FirstOrDefault(i => i.Id == LastId) ?? images.FirstOrDefault();
+            if (again is null) error = "no images yet — add some on the Holding tab";
+            return again;
+        }
+        var found = HoldingLibrary.Resolve(images, key);
+        if (found is null) error = $"no image called \"{key}\"";
+        return found;
+    }
+
+    /// <summary>Put <paramref name="image"/> on air (null = off). False when nothing changes.</summary>
+    public bool Set(HoldingImage? image)
+    {
+        var id = image?.Id ?? "";
+        if (id == OnAirId) return false;
+        OnAirId = id;
+        if (image is not null) LastId = image.Id;
+        return true;
+    }
+
+    /// <summary>An image was deleted: toggle mustn't bring it back.</summary>
+    public void Forget(string id)
+    {
+        if (LastId == id) LastId = "";
+    }
+
+    /// <summary>The on-air image's name, or "".</summary>
+    public string NameIn(IReadOnlyList<HoldingImage> images) => OnAir ? images.FirstOrDefault(i => i.Id == OnAirId)?.Name ?? "" : "";
+}

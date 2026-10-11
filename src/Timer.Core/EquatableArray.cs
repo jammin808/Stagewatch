@@ -11,7 +11,8 @@ public readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>, IReadO
 {
     private readonly T[]? _items;
 
-    public EquatableArray(T[] items) { _items = items; }
+    /// <summary>Copies <paramref name="items"/>: a frame must not change if the caller later writes to its array.</summary>
+    public EquatableArray(T[] items) { _items = (T[])items.Clone(); }
     public EquatableArray(IEnumerable<T> items) { _items = items.ToArray(); }
 
     public static readonly EquatableArray<T> Empty = new(Array.Empty<T>());

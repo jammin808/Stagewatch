@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The show's core, with no UI: the running-order cursor and its transitions, Roll, switching running orders,
+       undo, trims, delays and department notes. Driven by one owner thread; tested headless on a manual clock. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Stagewatch.Show</AssemblyName>
+    <RootNamespace>Stagewatch.Show</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Timer.Core\Timer.Core.csproj" />
+  </ItemGroup>
+</Project>

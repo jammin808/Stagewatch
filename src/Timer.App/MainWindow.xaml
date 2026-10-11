@@ -63,22 +63,23 @@
             </StackPanel>
         </Grid>
 
-        <!-- MIDDLE: timer + side panels -->
-        <Grid Grid.Row="1">
+        <!-- MIDDLE: timer | splitter | side panels. Panels can be dragged to reorder, dragged out into their own
+             windows and dragged back (see PanelDock); the splitter sets the side column's width. -->
+        <Grid Grid.Row="1" x:Name="Middle">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="360" />
+                <ColumnDefinition x:Name="SplitCol" Width="14" />
+                <ColumnDefinition x:Name="SideCol" Width="360" MinWidth="300" MaxWidth="760" />
             </Grid.ColumnDefinitions>
 
             <!-- LEFT: huge timer + nudge + finish-by -->
-            <Border Grid.Column="0" Margin="0,0,14,0" Style="{StaticResource ShadowPlate}" />
+            <Border Grid.Column="0" Style="{StaticResource ShadowPlate}" />
             <Border Grid.Column="0"
                     Background="{StaticResource PanelFillBrush}"
                     BorderBrush="{StaticResource PanelEdgeBrush}"
                     BorderThickness="1"
                     CornerRadius="14"
-                    Padding="24,20"
-                    Margin="0,0,14,0">
+                    Padding="24,20">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -289,7 +290,7 @@
                                 <TextBlock Text="live" FontSize="12" Opacity="0.45" />
                             </StackPanel>
                             <UniformGrid Grid.Column="1" Rows="1" Columns="5">
-                                <Button Content="−1h"  Command="{Binding NudgeCommand}" CommandParameter="-1h"  Style="{StaticResource NudgeMinus}" />
+                                <Button Content="−10m" Command="{Binding NudgeCommand}" CommandParameter="-10m" Style="{StaticResource NudgeMinus}" />
                                 <Button Content="−5m"  Command="{Binding NudgeCommand}" CommandParameter="-5m"  Style="{StaticResource NudgeMinus}" />
                                 <Button Content="−1m"  Command="{Binding NudgeCommand}" CommandParameter="-1m"  Style="{StaticResource NudgeMinus}" />
                                 <Button Content="−10s" Command="{Binding NudgeCommand}" CommandParameter="-10s" Style="{StaticResource NudgeMinus}" />
@@ -301,22 +302,38 @@
                                 <Button Content="+10s" Command="{Binding NudgeCommand}" CommandParameter="+10s" Style="{StaticResource NudgePlus}" />
                                 <Button Content="+1m"  Command="{Binding NudgeCommand}" CommandParameter="+1m"  Style="{StaticResource NudgePlus}" />
                                 <Button Content="+5m"  Command="{Binding NudgeCommand}" CommandParameter="+5m"  Style="{StaticResource NudgePlus}" />
-                                <Button Content="+1h"  Command="{Binding NudgeCommand}" CommandParameter="+1h"  Style="{StaticResource NudgePlus}" />
+                                <Button Content="+10m" Command="{Binding NudgeCommand}" CommandParameter="+10m" Style="{StaticResource NudgePlus}" />
                             </UniformGrid>
                         </Grid>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- RIGHT: presets | running order -->
-            <Border Grid.Column="1" Style="{StaticResource ShadowPlate}" />
-            <Border Grid.Column="1"
+            <GridSplitter x:Name="SideSplitter" Grid.Column="1" Width="14" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          ResizeBehavior="PreviousAndNext" ResizeDirection="Columns" Cursor="SizeWE" Focusable="False"
+                          help:ContextHelp.Tip="panel-splitter" ToolTip="Drag to widen or narrow the panels · double-click for the standard width">
+                <GridSplitter.Template>
+                    <ControlTemplate TargetType="GridSplitter">
+                        <Grid Background="Transparent">
+                            <Border x:Name="Line" Width="2" CornerRadius="1" Margin="0,24" Background="{StaticResource NeonCyanBrush}" Opacity="0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Line" Property="Opacity" Value="0.55" /></Trigger>
+                            <Trigger Property="IsDragging" Value="True"><Setter TargetName="Line" Property="Opacity" Value="0.9" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </GridSplitter.Template>
+            </GridSplitter>
+
+            <!-- RIGHT: presets | running order | cues | producer | holding | timers -->
+            <Border x:Name="SidePlate" Grid.Column="2" Style="{StaticResource ShadowPlate}" />
+            <Border x:Name="SidePanel" Grid.Column="2"
                     Background="{StaticResource PanelFillBrush}"
                     BorderBrush="{StaticResource PanelEdgeBrush}"
                     BorderThickness="1"
                     CornerRadius="14"
                     Padding="10">
-              <TabControl x:Name="SideTabs" Background="Transparent" BorderThickness="0">
+              <TabControl x:Name="SideTabs" Background="Transparent" BorderThickness="0" help:ContextHelp.Topic="layout">
                 <TabItem Header="Presets" x:Name="TabPresets">
                 <Grid Margin="4,10,4,4">
                     <Grid.RowDefinitions>
@@ -547,7 +564,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0">
                         <StackPanel Margin="4,0,4,4">
                             <TextBlock Text="DEPARTMENTS" FontWeight="Bold" Opacity="0.7" />
-                            <ItemsControl ItemsSource="{Binding Departments}" Margin="0,6,0,0">
+                            <ItemsControl ItemsSource="{Binding DepartmentRows}" Margin="0,6,0,0">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="0,0,0,4" help:ContextHelp.Tip="department" Background="Transparent">
@@ -556,15 +573,37 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" />
-                                            <Button Grid.Column="1" Content="Standby" Padding="10,4" MinHeight="0" FontSize="12"
-                                                    Command="{Binding DataContext.DepartmentStandbyCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
-                                            <Button Grid.Column="2" Content="GO" Padding="14,4" MinHeight="0" FontSize="12" Margin="4,0,0,0" Style="{StaticResource TransportButtonAccent}"
-                                                    Command="{Binding DataContext.DepartmentGoCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                           Visibility="{Binding State, Converter={StaticResource NonEmptyToVis}}">
+                                                    <Run Text="{Binding State, Mode=OneWay}" /><Run Text="  " /><Run Text="{Binding Cue, Mode=OneWay}" Foreground="{StaticResource TextMutedBrush}" />
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding StandingBy}" Value="True"><Setter Property="Foreground" Value="{StaticResource NeonAmberBrush}" /></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Gone}" Value="True"><Setter Property="Foreground" Value="{StaticResource NeonGreenBrush}" /></DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="Standby" Padding="10,4" MinHeight="0" FontSize="12" VerticalAlignment="Center"
+                                                    Command="{Binding DataContext.DepartmentStandbyCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding Name}" />
+                                            <Button Grid.Column="2" Content="GO" Padding="14,4" MinHeight="0" FontSize="12" Margin="4,0,0,0" Style="{StaticResource TransportButtonAccent}" VerticalAlignment="Center"
+                                                    Command="{Binding DataContext.DepartmentGoCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding Name}" />
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            <!-- ALL GO: one press fires every department standing by — a cue that spans departments. -->
+                            <Button help:ContextHelp.Tip="all-go" Content="{Binding AllGoText}" Command="{Binding AllGoCommand}" Style="{StaticResource TransportButtonAccent}"
+                                    Margin="0,4,0,0" Padding="14,8" MinHeight="0" FontSize="14" HorizontalAlignment="Stretch"
+                                    IsEnabled="{Binding HasStandingBy}"
+                                    ToolTip="GO every department standing by, at the same moment (Ctrl+G)" />
+                            <TextBlock Text="{Binding StandingByLine}" Opacity="0.7" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Foreground="{StaticResource NeonAmberBrush}"
+                                       Visibility="{Binding StandingByLine, Converter={StaticResource NonEmptyToVis}}" />
                             <Button help:ContextHelp.Tip="call-stage" Content="Call next speaker to stage" Command="{Binding CallNextSpeakerCommand}" Margin="0,6,0,0" />
                             <UniformGrid Columns="2" Margin="0,6,0,0">
                                 <Button help:ContextHelp.Tip="buzz" Content="Buzz: wrap up" Command="{Binding NudgeSpeakerCommand}" CommandParameter="Please wrap up" Margin="0,0,3,0" FontSize="12"
@@ -649,6 +688,41 @@
                 <TabItem Header="Producer" x:Name="TabProducer">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0">
                         <StackPanel Margin="4,0,4,4">
+                            <!-- SHOW NETWORK: the other show apps this Stagewatch hears (Show Bus), their light and headline. No AI needed. -->
+                            <StackPanel Visibility="{Binding ShowNetworkLine, Converter={StaticResource NonEmptyToVis}}" Margin="0,0,0,12">
+                                <TextBlock Text="SHOW NETWORK" FontWeight="Bold" Opacity="0.7" />
+                                <ItemsControl ItemsSource="{Binding PeerRows}" Margin="0,6,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,0,0,6" help:ContextHelp.Tip="show-network" Background="Transparent">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Ellipse Width="10" Height="10" Margin="0,4,8,0" VerticalAlignment="Top">
+                                                    <Ellipse.Style>
+                                                        <Style TargetType="Ellipse">
+                                                            <Setter Property="Fill" Value="{StaticResource TextDimBrush}" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Light}" Value="green"><Setter Property="Fill" Value="{StaticResource NeonGreenBrush}" /></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Light}" Value="amber"><Setter Property="Fill" Value="{StaticResource NeonAmberBrush}" /></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Light}" Value="red"><Setter Property="Fill" Value="{StaticResource AccentRedBrush}" /></DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Ellipse.Style>
+                                                </Ellipse>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock FontSize="13" TextTrimming="CharacterEllipsis"><Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Kind, Mode=OneWay}" Foreground="{StaticResource TextMutedBrush}" /></TextBlock>
+                                                    <TextBlock Text="{Binding Headline}" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Problems}" FontSize="12" Foreground="{StaticResource NeonAmberBrush}" TextWrapping="Wrap"
+                                                               Visibility="{Binding Problems, Converter={StaticResource NonEmptyToVis}}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+
                             <TextBlock Text="ASSISTANT" FontWeight="Bold" Opacity="0.7" />
                             <ItemsControl ItemsSource="{Binding AdviceItems}" Margin="0,6,0,0">
                                 <ItemsControl.ItemTemplate>
@@ -936,6 +1010,15 @@
                     </Grid>
                 </TabItem>
               </TabControl>
+            </Border>
+
+            <!-- Shown while a panel window is dragged over the main window: release here to dock it. -->
+            <Border x:Name="DockHint" Grid.Column="0" Grid.ColumnSpan="3" HorizontalAlignment="Right" Width="150" Visibility="Collapsed"
+                    CornerRadius="14" BorderThickness="2" BorderBrush="{StaticResource NeonCyanBrush}" IsHitTestVisible="False">
+                <Border.Background>
+                    <SolidColorBrush Color="{StaticResource NeonCyan}" Opacity="0.12" />
+                </Border.Background>
+                <TextBlock Text="Release to dock" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource NeonCyanBrush}" FontWeight="SemiBold" />
             </Border>
         </Grid>
 

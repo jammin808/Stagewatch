@@ -53,6 +53,78 @@ inputs ──► MainViewModel (UI thread) ──► ShowSnapshot ──► Snap
   frames, stalled ones are dropped, nothing queues. Each snapshot is serialized once (`Utf8JsonWriter`).
 - `SnapshotHub` isolates subscribers: one throwing consumer can't stop the others or the timer.
 
+### The show controller (Timer.Show) and the view model
+
+`ShowController` is the show's core, with no UI: the running-order cursor and every transition around it (load,
+start, end, expiry and auto-advance, loops, Roll, switching running orders, the schedule's anchors), trims, delays,
+department notes, undo (one history per running order) and session checkpoints. It owns the journal's identity stamping
+(running order, item, execution).
+
+- **One writer, still.** The controller is called on the owner thread only (the UI thread in the app) and never locks.
+- **Narrow edge.** It asks its host for exactly what belongs outside it, through `IShowHost`: permission (licensing),
+  a status line, and edge effects (an item's message on screens, triggers, chimes, the overrun history, rows to
+  rebuild, a frame to publish). `MainViewModel` is that host, plus presentation: observable properties, rows, windows
+  and outputs.
+- **Time is injected.** `TimerEngine` and the controller take a `TimeProvider`; tests drive whole workflows on a
+  manual clock (`tests/Stagewatch.Tests/ShowWorkflowTests.cs`): switching running orders, nudging during Roll, loop
+  passes, auto-advance, recovery and undo, editing the running order mid-show, crash restore.
+- **Identity, not position.** The cursor and the record of what ran follow items by id when the running order is
+  edited, so deleting or moving an item above the live one never points the show at a different item.
+- **No side effects on construction.** Building a `MainViewModel` opens no sockets: `StartServices()` starts the
+  Companion server, remotes, OSC, integrations and the LTC poll once the window exists.
+- **Frames are built by a pure function.** `FrameBuilder` (Timer.Show) turns a `FrameInput` — the tick, the controller,
+  the settings, the preview and stretch state — into the show's part of a frame: cue phase and colours, flashing,
+  the schedule projection, the speaker's face (honest clock, hide at zero), message placeholders, hard-outs, the
+  forecast line, timings and groups. The host reads its sensors and outputs once into an "ambient" snapshot and the
+  builder completes it, so a frame is still one immutable object. `Project` runs first because the host's forecast
+  and advice are built from the projection.
+- **Services, not view-model code.** Integration lifecycle is `IntegrationSupervisor` (Timer.Integrations: start,
+  background retirement, re-apply when the old instance has let go, capped parallel shutdown); reports are
+  `ShowReports` (Timer.Show: tier gating, build from the journal, render, safe file name); which holding image is on air
+  is `HoldingSelection` (Timer.Core). The view model keeps only what is WPF: decoding bitmaps, thumbnails, windows.
+- **What the AI sees is tested.** `AiContext` (Timer.Show) builds the JSON the models get: the copilot's context
+  (operator frame, config, screens, link health, overrun history, the last 30 journal lines), the cloud assistant's
+  compact show view, and the journal a show recap is drafted from (items named by identity across running orders).
+  The view model gathers the facts (`CopilotFacts`) and keeps the proposal queue, which is UI.
+- **Watchdog.** The first copy of Stagewatch is a supervisor (`Watchdog.Supervise`, no window) that runs the app as a
+  child with `--child --beat <pipe>`; the child beats once a second from its UI thread (byte 2 = a show is live). The
+  rules are `WatchdogPolicy` (Core, tested): restart at once, back off 1/2/5/10 s, give up after six failures in ten
+  minutes, hung = 10 s without a beat while live (30 s otherwise, 90 s before the first). A restarted child gets
+  `--recovered <note>` and restores the session without asking. UI faults are contained by `FaultCounter` (fatal or a
+  storm → let it die, the watchdog brings it back). Saves go through `AtomicFile` (flush to disk, swap, `.bak` of the
+  last whole file). Guard rails: `src/BannedSymbols.txt` (Thread.Sleep, GC.Collect, unbounded waits, TickCount) fails
+  the build; deliberate uses on worker threads say why.
+- **Show Bus.** `docs/SHOWBUS.md`. Frames are numbered by `SnapshotHub` (`FrameSeq` compares equal, so numbering never
+  makes an unchanged frame look new). Receipts: `IShowCommands.ExecuteWithReceiptAsync` runs on the owner thread and
+  collects refusals (`Gate`) and refs (message / signal ids). Context: `ShowContext` (Timer.Show, pure) builds the §6
+  JSON once a second; `PeerContexts` (Core) holds what peers post; the Producer's Show network, the advice and every AI
+  brief read them. `ClockOffsetEstimator` (Core) does the NTP-style offset.
+- **TLS and the approval desk (Show Bus 1.2).** `WebServer` peeks the first byte of each connection: 0x16 → `SslStream`
+  with `NodeCertificate` (App; DPAPI-protected PKCS#12 in `%APPDATA%\Stagewatch\tls`), anything else plain HTTP.
+  `TlsPins` (Core) is the pin store for outgoing TLS (Slides agent). `ProposalDesk` (Core, pure, thread-safe) is the
+  shared approval queue; `MainViewModel.Desk.cs` mirrors it into the Copilot list (`CopilotProposal.SharedId`), runs
+  desk-targeted lines through `RunWithReceipt`, and journals every decision. Node keys are bound one-to-one to node ids.
+- **Panels.** The side panels' arrangement is `PanelLayout` (Timer.Core: order, torn-out windows, width; every panel
+  always somewhere, each once; repaired on load). `PanelDock` (Timer.App) only moves the tab contents between the
+  strip and `PanelWindow`s to match. A torn-out panel is the same controls and bindings, re-parented: one view model,
+  one frame loop, nothing duplicated.
+
+### Contracts
+
+- **Commands carry typed arguments.** Commands with several values (a signal's target and words, a department and
+  its note, a screen action and which screens, an extra timer's action, LTC, acknowledgements, questions) carry a
+  typed `ShowArgs` record (`SignalArgs`, `DeptNoteArgs`, `ScreenArgs`…), read with `command.Get<T>()`. The parser and
+  the factories (`ShowCommand.Signal`, `.DeptNote`, `.Question`) set it; the older packed `Text` stays for
+  compatibility, and the packed form is read in exactly one place (`ShowArgs.From`).
+- **Focused interfaces.** `IShowControl` is the union of `IShowCommands` (run commands, frames, config),
+  `IShowAccess`, `IShowCrew`, `IShowScreens`, `IShowReports`, `IShowAgents` and `ISlideFeeds`. Consumers depend on
+  what they use: OSC on `IShowCommands`; MCP on commands, reports and agents; the web server on the whole surface.
+- **Settings have an owner.** `SettingsStore.Settings` is the live object: the owner thread reads it and changes it
+  only through `Update`. Other threads (web requests, the trigger worker) read `SettingsStore.Snapshot`, a private
+  copy rebuilt after each change, so they never see a half-made change or a list mid-edit.
+- **Frames are immutable all the way down.** `EquatableArray` copies the array it is given, so a caller writing to its
+  array later can't change a frame that's already published.
+
 ## Why these choices
 
 - **WPF over WinUI 3 / MAUI**: WPF still has the cleanest path to fast multi-monitor full-screen output on Windows 10/11, and no MSIX packaging weirdness for IT-restricted laptops.
@@ -70,6 +142,22 @@ inputs ──► MainViewModel (UI thread) ──► ShowSnapshot ──► Snap
   admin rights, no ASP.NET runtime. 64-connection cap, 8 KB header cap, 5 s header timeout.
 - OSC server: one UDP receive loop; feedback goes out on a separate socket.
 - NDI sender: `CompositionTarget.Rendering` callback on UI thread (cheap; we render at FPS).
+
+### Latency boundaries
+
+The show thread never waits on anything slow:
+
+- **Frame consumers run off the show thread.** `SnapshotHub.Publish` only swaps a reference in each consumer's
+  one-slot mailbox and, if that consumer is idle, queues one work item. Companion, the web server and OSC feedback
+  handle frames on workers; a consumer that falls behind skips to the newest frame (latest-wins) and sees frames in
+  order. A consumer slower than 100 ms on a frame is reported in Diagnostics (*Slow frame consumer*); one that throws
+  is isolated.
+- **Integrations stop in the background.** Changing an integration's settings disposes the old instance on a task;
+  its replacement starts on the owner thread once the old one has released its port or device, so there are no
+  "address in use" races. Settings that change again meanwhile are applied when the retirement finishes. On exit,
+  integrations stop in parallel with a 3 s cap.
+- **Time is measured monotonically.** The engine's countdowns use the time provider's monotonic timestamp, so a UI
+  stall delays a frame but never changes the time a frame shows.
 
 ## Settings location
 
@@ -106,9 +194,14 @@ inputs ──► MainViewModel (UI thread) ──► ShowSnapshot ──► Snap
   or slow device can never stall the timer.
 - **Renderers** subscribe to the immutable snapshot or read `SnapshotHub.Latest`; none of them writes show state.
   The cue-light output runs its own 30 Hz timer (flashing, DMX keep-alive) and never overlaps itself.
-- **The journal is event sourcing**: every start, end, cue, acknowledgement, trim and delay is appended (owner
-  thread, O(1)) and streamed to JSON-lines by a background writer. Reports and the forecaster's history are
-  built from it; crash recovery re-opens the same journal.
+- **The journal is an audit log, with session checkpoints beside it**: every start, end, cue, acknowledgement,
+  trim and delay is appended (owner thread, O(1)) and streamed to JSON-lines by a background writer. It records
+  events, not every state change, so it explains a show rather than rebuilding one; crash recovery restores state
+  from the session checkpoint and re-opens the same journal. Each entry about an item carries stable identities:
+  the running order's id, the item's id and an execution id that is new for every run of the item (Next, Go to,
+  Roll, each loop pass). Reports and the copilot's summary match entries by identity, never by position, so
+  switching running orders or reordering items can't move history onto another item. Journals from before
+  identities fall back to position.
 - **Value equality keeps traffic low**: lists in the snapshot use `EquatableArray<T>`, ages are quantised (5 s),
   forecasts to the minute, pace to 5 s — so an unchanged show produces no new frames.
 - **Two frame levels**: viewers get the basic frame; producer pages, Companion and MCP ask for the detail frame

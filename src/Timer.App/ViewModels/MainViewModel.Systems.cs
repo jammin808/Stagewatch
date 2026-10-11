@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Stagewatch.Core;
 using Stagewatch.Integrations;
+using Stagewatch.Show;
 
 namespace Stagewatch.App.ViewModels;
 
@@ -31,8 +32,6 @@ public sealed partial class MainViewModel
     private readonly RuleAdvisor _ruleAdvisor = new();
 
     // Running-order truth (owner thread).
-    private readonly Dictionary<int, ItemActual> _actuals = new();
-    private TimeSpan _pendingDelay;
     private ScheduleProjection _projection = ScheduleProjection.Empty;
     private ForecastResult? _forecast;
     private string _forecastKey = "";
@@ -75,6 +74,14 @@ public sealed partial class MainViewModel
     public ObservableCollection<QuestionView> QuestionItems { get; } = new();
     public IReadOnlyList<CueLadder> Ladders => Settings.Display.AllLadders();
     public IReadOnlyList<string> Departments => Settings.Signals.Departments;
+
+    /// <summary>The Cues panel's department rows, each showing where its cue is (standing by, in position, GO).</summary>
+    public ObservableCollection<DepartmentRow> DepartmentRows { get; } = new();
+
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(AllGoText), nameof(HasStandingBy))] private int _standingByCount;
+    public bool HasStandingBy => StandingByCount > 0;
+    [ObservableProperty] private string _standingByLine = "";
+    public string AllGoText => StandingByCount > 0 ? $"ALL GO  ({StandingByCount})" : "ALL GO";
     public IReadOnlyList<SpeakerTimerFormat> SpeakerFormats { get; } =
         new[] { SpeakerTimerFormat.Standard, SpeakerTimerFormat.Calm, SpeakerTimerFormat.ProgressOnly };
 
@@ -93,6 +100,7 @@ public sealed partial class MainViewModel
         _journal = new ShowJournal(path ?? Path.Combine(DataFolder, "journal", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".jsonl"));
         // Continuing a show after a crash: the report must include everything before it.
         if (path is not null && File.Exists(path)) _journal.Seed(ShowJournal.Load(path));
+        _show.Journal = _journal;   // the controller stamps entries with identities
         _ = old.DisposeAsync();
     }
 
@@ -101,30 +109,7 @@ public sealed partial class MainViewModel
     // ================================================================== the frame
 
     /// <summary>The cue ladder for whatever is loaded: the item's own, else the show default.</summary>
-    private CueLadder CurrentLadder()
-    {
-        var items = Settings.Rundown.Items;
-        string? id = _rundownActive && _currentItem >= 0 && _currentItem < items.Count ? items[_currentItem].CueLadderId : null;
-        return Settings.Display.LadderFor(string.IsNullOrWhiteSpace(id) ? ActiveLadderId : id);
-    }
-
-    private readonly record struct CueState(TimerPhase Phase, string Color, string Label, FlashRate Flash, CueStep? Step);
-
-    private CueState EvaluateCue(TimerTick t, long secs, CueLadder ladder)
-    {
-        var d = Settings.Display;
-        if (t.Mode != TimerMode.Countdown || (t.State == TimerState.Idle && secs <= 0))
-            return new CueState(TimerPhase.Normal, SpeakerFace.ColorFor(d.Palette, TimerPhase.Normal, ladder.NormalColorHex), "", FlashRate.Off, null);
-        var step = ladder.StepAt(secs);
-        var over = t.State == TimerState.Expired || secs < 0;
-        if (over && ladder.OvertimeSignal)
-            return new CueState(TimerPhase.Overtime, SpeakerFace.ColorFor(d.Palette, TimerPhase.Overtime, ladder.OvertimeColorHex),
-                ladder.OvertimeLabel, ladder.OvertimeFlash, step);
-        if (step is null)
-            return new CueState(TimerPhase.Normal, SpeakerFace.ColorFor(d.Palette, TimerPhase.Normal, ladder.NormalColorHex), "", FlashRate.Off, null);
-        var phase = over ? TimerPhase.Overtime : step.Phase;
-        return new CueState(phase, SpeakerFace.ColorFor(d.Palette, phase, step.ColorHex), step.Label, step.Flash, step);
-    }
+    private CueLadder CurrentLadder() => FrameBuilder.LadderFor(Settings, _show, ActiveLadderId);
 
     /// <summary>The engine's tick, or the simulated one while a briefing preview is playing.</summary>
     private TimerTick FrameTick(DateTime nowUtc)
@@ -139,74 +124,16 @@ public sealed partial class MainViewModel
     {
         var now = DateTime.UtcNow;
         var t = FrameTick(now);
-        var preview = _previewStartUtc is not null;
         var settings = _store.Settings;
-        var disp = settings.Display;
-        var msg = settings.MessageState;
-        var secs = t.DisplaySeconds;
-        var ladder = CurrentLadder();
-        var cue = EvaluateCue(t, secs, ladder);
-        var phase = cue.Phase;
-        var clock = ShowClock;
-
-        // Effective message flash/urgency: operator's choice, overridden by the cue ladder and thresholds.
-        var urgency = msg.Urgency;
-        var flash = msg.Flash;
-        var flashTimer = _manualTimerFlash;
-        if (t.Mode == TimerMode.Countdown && t.State is TimerState.Running or TimerState.Expired)
-        {
-            if (phase == TimerPhase.Overtime)
-            {
-                if (cue.Flash != FlashRate.Off) { flashTimer = true; flash = cue.Flash; }
-            }
-            else if (cue.Flash != FlashRate.Off) { flashTimer = true; flash = cue.Flash; }
-            else if (secs <= msg.AutoFlashCriticalSeconds) { flash = FlashRate.Fast; urgency = MessageUrgency.Critical; }
-            else if (secs <= msg.AutoFlashWarnSeconds) { flash = FlashRate.Slow; urgency = MessageUrgency.Warning; }
-        }
-
-        var items = settings.Rundown.Items;
-        var next = _rundownActive && _currentItem >= 0 && _currentItem + 1 < items.Count ? items[_currentItem + 1].DisplayTitle : "";
-
-        // ---- schedule recovery
-        long? offset = null;
-        var scheduleText = "";
-        var projection = ScheduleProjection.Empty;
-        if (items.Count > 0 && ScheduleAnchor() is { } anchor)
-        {
-            var cur = _rundownActive ? _currentItem : -1;
-            var rem = cur >= 0 && t.Mode == TimerMode.Countdown && !preview ? _lastTick.Remaining : TimeSpan.Zero;
-            projection = ScheduleEngine.Project(new ScheduleEngine.Input(items, anchor, cur, _currentItemStarted, rem, _actuals, now, clock, _pendingDelay,
-                EndOfShow: Settings.Rundown.EndOfShow));
-            if (cur >= 0 && cur < items.Count && t.Mode == TimerMode.Countdown)
-            {
-                offset = projection.OffsetSeconds;
-                var end = clock.ToShow(projection.ExpectedEndUtc);
-                scheduleText = $"{Schedule.DescribeOffset(TimeSpan.FromSeconds(offset ?? 0))} · show ends {Fmt(end, seconds: false)}"
-                               + (end.Date != clock.ToShow(now).Date ? $" {end:ddd}" : "");
-            }
-        }
+        var frame = new FrameInput(now, DateTime.Now, t, _lastTick, _previewStartUtc is not null, _engine.IsStretching, _engine.EndAt,
+            _engine.EndsAtWallClock, _manualTimerFlash, SpeakerFormat, ActiveLadderId, settings, _show);
+        var projection = FrameBuilder.Project(frame);
         _projection = projection;
 
-        // ---- speaker face (the operator always sees the true engine value)
-        var operatorText = t.Mode == TimerMode.TimeOfDay && disp.Use12HourClock ? Fmt(DateTime.Today + t.Remaining) : t.Format();
-        var speakerSeconds = secs;
-        var speakerBase = operatorText;
-        var stretching = !preview && _engine.IsStretching;
-        if (stretching && disp.HonestSpeakerClock && _engine.EndAt is { } endAt)
-        {
-            // Never show the speaker a stretched clock: give them the real time left.
-            speakerSeconds = (long)Math.Ceiling((endAt - DateTime.Now).TotalSeconds - 0.0005);
-            speakerBase = TimerTick.FormatSeconds(speakerSeconds);
-        }
-        var speakerText = t.Mode == TimerMode.Countdown ? SpeakerFace.Format(SpeakerFormat, speakerSeconds, speakerBase) : operatorText;
-        var finishBy = t.Mode == TimerMode.Countdown && t.State != TimerState.Expired && !preview
-            ? SpeakerFace.FinishBy(_engine.EndsAtWallClock, disp.Use12HourClock) : "";
-
-        // ---- message (placeholders re-rendered every frame) and its acknowledgement
-        var curItem = _rundownActive && _currentItem >= 0 && _currentItem < items.Count ? items[_currentItem] : null;
-        var message = Placeholders.Render(msg.Text, new Placeholders.Context(
-            next, finishBy.Replace("FINISH BY ", ""), Placeholders.OverUnder(offset), TimerTick.FormatSeconds(Math.Max(0, secs)),
-            _activeTitle, curItem?.Speaker ?? "", Fmt(DateTime.Now, seconds: false)));
+        // The host's part of the frame: sensors, outputs, signals and Q&A, each read once. The show's part is the builder's.
+        var slides = BuildSlides(now, t);
+        MaybeForecast(now, projection);
+        var advice = BuildAdvice(now, projection, t, slides);
         var ack = "";
         var ackBy = "";
         if (_messageSignalId > 0 && _signals.Find(_messageSignalId) is { } ms)
@@ -214,108 +141,35 @@ public sealed partial class MainViewModel
             ack = ms.State switch { SignalState.Sent => "sent", SignalState.Seen => "seen", SignalState.Done => "done", _ => "" };
             ackBy = ms.By;
         }
-
-        // ---- presentation awareness
-        var slides = BuildSlides(now, t);
-        var speech = _speech is { } sp && sp.Listening && sp.Sample(now) is { } pos
-            ? new SpeechView(pos.Percent, pos.WordsPerMinute, pos.ProjectedRemainingSeconds, true) : (SpeechView?)null;
-        var playout = PickPlayout() is { } vt
-            ? new PlayoutView(vt.Title, (long)Math.Ceiling(vt.RemainingSeconds), (long)Math.Round(vt.DurationSeconds), vt.Running, vt.Source) : (PlayoutView?)null;
-
-        // ---- hard-outs, forecast, advice
-        var hardOutText = "";
-        long? hardOutMargin = null;
-        if (projection.NextHardOut is { } h)
+        var ambient = new ShowSnapshot
         {
-            hardOutMargin = h.MarginSeconds;
-            hardOutText = $"Curfew {Fmt(clock.ToShow(h.CurfewUtc), seconds: false)}: " + (h.MarginSeconds >= 0
-                ? $"{TimerTick.FormatSeconds(h.MarginSeconds)} to spare"
-                : $"{TimerTick.FormatSeconds(-h.MarginSeconds)} OVER");
-        }
-        MaybeForecast(now, projection);
-        var forecastText = _forecast is { } f && _rundownActive
-            ? $"Likely end {Fmt(clock.ToShow(f.P50Utc), seconds: false)} · 80% by {Fmt(clock.ToShow(f.P80Utc), seconds: false)}"
-              + (f.CurfewRisk > 0 ? $" · curfew risk {f.CurfewRisk:P0}" : "")
-            : "";
-
-        var advice = BuildAdvice(now, projection, t, slides);
-
-        return new ShowSnapshot
-        {
-            Mode = t.Mode,
-            State = t.State,
-            Seconds = secs,
-            Text = operatorText,
-            TotalSeconds = (long)Math.Round(t.Total.TotalSeconds),
-            Phase = phase,
-            ColorHex = cue.Color,
-            Title = preview ? "PREVIEW — " + (_activeTitle.Length > 0 ? _activeTitle : "cue briefing") : _activeTitle,
-            NextTitle = next,
-            ItemIndex = _rundownActive ? _currentItem : -1,
-            ItemCount = items.Count,
-            PresetSlot = !_rundownActive && t.Mode != TimerMode.TimeOfDay ? t.PresetSlot ?? 0 : 0,
-            EndTimeText = preview ? "" : ComputeEndTimeText(),
-            TimeOfDay = TimeOfDayText,
-            OffsetSeconds = offset,
-            ScheduleText = scheduleText,
-            Message = message,
-            Urgency = urgency,
-            Flash = flash,
-            FlashTimer = flashTimer,
             Blackout = Blackout,
             Output = _outputWindow is null ? OutputMode.Closed : SelectedOutputMode,
             Ndi = _ndi is not null,
-            HoldingId = _holdingId,
-            HoldingName = _store.Settings.Holding.Images.FirstOrDefault(i => i.Id == _holdingId)?.Name ?? "",
+            HoldingId = _holding.OnAirId,
+            HoldingName = _holding.NameIn(settings.Holding.Images),
             HoldingFill = HoldingFill,
             LtcText = _ltcView.Text,
             LtcRunning = _ltcView.Running,
-            LtcChase = Settings.Integrations.LtcChase && _ltcIn is not null,
+            LtcChase = settings.Integrations.LtcChase && _ltcIn is not null,
             Aux = AuxViews(),
             AuxLine = AuxStageLine(),
             Watermark = _license.ShowsWatermark ? FeatureGate.WatermarkText : "",
-            Elements = disp.Elements,
+            Holographic = settings.Display.Holographic && FeatureGate.AllowsHolographic(_license.Tier),
             ConfigVersion = _configVersion,
-
-            // "Hide at zero": speaker screens go blank in overtime (a space, so they don't switch to the progress-only bar);
-            // the operator's own display still counts on.
-            SpeakerText = Settings.HideAtZero && t.Mode == TimerMode.Countdown && secs <= 0 && t.State is TimerState.Running or TimerState.Expired ? " " : speakerText,
-            CueLabel = cue.Label,
-            FinishBy = finishBy,
-            Preview = preview,
-            Stretching = stretching,
-            StableLayout = disp.StableLayout,
-            Holographic = disp.Holographic && FeatureGate.AllowsHolographic(_license.Tier),
-            HoloFloor = disp.HoloFloor,
-            EggTimer = disp.EggTimer,
-            Animations3D = disp.Animations3D,
-            Particles3D = disp.Particles3D,
             MessageSignalId = ack.Length > 0 ? _messageSignalId : 0,
             MessageAck = ack,
             MessageAckBy = ackBy,
             Signals = _signals.Views(now),
             Slides = slides,
-            Speech = speech,
-            Playout = playout,
-            Room = settings.Integrations.RoomName,
-            Timings = BuildTimings(projection, items, clock, now),
-            Groups = RundownGroups.Build(Settings.Rundown, projection, now,
-                u => Clock.Time(clock.ToShow(u), Settings.Display.Use12HourClock, seconds: false)).ToEquatableArray(),
-            ClockSeconds = (long)clock.ToShow(now).TimeOfDay.TotalSeconds,
-            UtcSeconds = new DateTimeOffset(now).ToUnixTimeSeconds(),
+            Speech = _speech is { } sp && sp.Listening && sp.Sample(now) is { } pos
+                ? new SpeechView(pos.Percent, pos.WordsPerMinute, pos.ProjectedRemainingSeconds, true) : null,
+            Playout = PickPlayout() is { } vt
+                ? new PlayoutView(vt.Title, (long)Math.Ceiling(vt.RemainingSeconds), (long)Math.Round(vt.DurationSeconds), vt.Running, vt.Source) : null,
             NotesVersion = Volatile.Read(ref _notesVersion),
             ChimeSeq = Volatile.Read(ref _chimeSeq),
             Chime = _chimeSpec,
-            LabelColors = string.Join(";", Stagewatch.Core.Labels.InUse(items).Select((l, i) => l + "=" + Stagewatch.Core.Labels.ColorFor(Settings.Rundown, l, i))),
-            Roll = RollMode,
-            RundownName = Settings.RundownName,
             RundownNames = RundownNames.ToEquatableArray(),
-            DateText = clock.ToShow(now).ToString("dddd d MMMM", System.Globalization.CultureInfo.CurrentCulture),
-            HardOutText = hardOutText,
-            HardOutMarginSeconds = hardOutMargin,
-            ForecastText = forecastText,
-            PendingDelaySeconds = (long)_pendingDelay.TotalSeconds,
-            Advice = advice,
             Rooms = _rooms?.Rooms().ToEquatableArray() ?? EquatableArray<RoomView>.Empty,
             ClockOffsetMs = _ntp?.Value is { } c ? (int)Math.Round(c.Offset.TotalMilliseconds / 50) * 50 : null,
             QaLive = _qa.Live?.Text ?? "",
@@ -324,6 +178,7 @@ public sealed partial class MainViewModel
             QaFit = _qa.FitIn(t.Remaining),
             Questions = _qa.Views()
         };
+        return FrameBuilder.Build(frame, projection, _forecast, advice, ambient);
     }
 
     /// <summary>What an item-start/end trigger can match: its number, "label:VT", "group:Morning", "kind:break".</summary>
@@ -334,28 +189,6 @@ public sealed partial class MainViewModel
         parts.AddRange(it.Labels.Select(l => "label:" + l));
         if (!string.IsNullOrWhiteSpace(it.Group)) parts.Add("group:" + it.Group.Trim());
         return string.Join("|", parts);
-    }
-
-    private EquatableArray<ItemTimingView> BuildTimings(ScheduleProjection p, IReadOnlyList<RundownItem> items, ShowClock clock, DateTime now)
-    {
-        if (p.Items.Length != items.Count) return EquatableArray<ItemTimingView>.Empty;
-        var twelve = Settings.Display.Use12HourClock;
-        string Hm(DateTime utc) => Clock.Time(clock.ToShow(utc), twelve, seconds: false);
-        string Hms(DateTime? utc) => utc is { } u ? Clock.Time(clock.ToShow(u), twelve, seconds: true) : "";
-        var list = new ItemTimingView[items.Count];
-        long In(DateTime utc) => (long)Math.Round((utc - now).TotalSeconds);
-        for (int i = 0; i < items.Count; i++)
-        {
-            var t = p.Items[i];
-            var it = items[i];
-            list[i] = new ItemTimingView(i, it.Title, it.Speaker ?? "", it.Kind, it.EffectiveSeconds, it.AdjustSeconds,
-                Hm(t.PlannedStartUtc), Hm(t.ExpectedStartUtc), Hm(t.ExpectedEndUtc), Hms(t.ActualStartUtc), Hms(t.ActualEndUtc),
-                t.Status, t.DelaySeconds / 30 * 30, t.Conflict, it.StartMode == StartMode.Fixed, it.HardOut ?? "",
-                (it.Group ?? "").Trim(),
-                In(t.ActualStartUtc ?? t.ExpectedStartUtc), In(t.ActualEndUtc ?? t.ExpectedEndUtc), In(t.PlannedStartUtc),
-                string.Join(",", it.Labels));
-        }
-        return list.ToEquatableArray();
     }
 
     private SlideView? BuildSlides(DateTime now, TimerTick t)
@@ -374,53 +207,34 @@ public sealed partial class MainViewModel
         if (!Settings.Integrations.Assistant || !FeatureGate.AllowsAssistant(_license.Tier)) return EquatableArray<Advice>.Empty;
         GhostResult? ghost = slides is { Pace: not PaceState.Unknown } s ? new GhostResult(s.GhostDeltaSeconds, s.ProjectedSeconds, s.Pace) : null;
         ScriptPosition? script = _speech is { Listening: true } sp ? sp.Position : null;
-        var input = new AdvisorInput(Settings.Rundown.Items, p, _rundownActive ? _currentItem : -1, _engine.IsCounting,
+        var input = new AdvisorInput(Settings.Rundown.Items, p, _show.RundownActive ? _show.CurrentItem : -1, _engine.IsCounting,
             t.Remaining, _forecast, ghost, script, _signals.All, _qa.Queued, _qa.FitIn(t.Remaining), now, ShowClock,
             Settings.Display.Use12HourClock);
         var list = new List<Advice>(_ruleAdvisor.Advise(input));
+        list.AddRange(PeerAdvice(now));
         if (_cloud is { } cloud)
         {
             list.AddRange(cloud.Latest);
-            if (_rundownActive && _currentItemStarted) cloud.MaybeAsk(DescribeShowForAssistant(p, now), now);
+            if (_show.RundownActive && _show.ItemStarted) cloud.MaybeAsk(DescribeShowForAssistant(p, now), now);
         }
         return list.Take(8).ToEquatableArray();
     }
 
     /// <summary>Compact JSON the cloud assistant sees (titles, plan, expected/actual, curfews, live remaining).</summary>
     private string DescribeShowForAssistant(ScheduleProjection p, DateTime now)
-    {
-        var clock = ShowClock;
-        var items = Settings.Rundown.Items;
-        var rows = items.Select((it, i) => new
-        {
-            n = i + 1, title = it.Title, kind = it.Kind.ToString(), planned_min = it.DurationSeconds / 60.0, adjust_s = it.AdjustSeconds,
-            min_s = it.MinDurationSeconds, start_mode = it.StartMode.ToString(), fixed_start = it.FixedStart, hard_out = it.HardOut,
-            planned_start = i < p.Items.Length ? clock.ToShow(p.Items[i].PlannedStartUtc).ToString("HH:mm") : null,
-            expected_start = i < p.Items.Length ? clock.ToShow(p.Items[i].ExpectedStartUtc).ToString("HH:mm") : null,
-            status = i < p.Items.Length ? p.Items[i].Status.ToString() : null
-        });
-        return JsonSerializer.Serialize(new
-        {
-            now = clock.ToShow(now).ToString("HH:mm:ss"),
-            live_item = _rundownActive ? _currentItem + 1 : 0,
-            live_remaining_s = (long)_lastTick.Remaining.TotalSeconds,
-            offset_s = p.OffsetSeconds,
-            pending_delay_s = (long)_pendingDelay.TotalSeconds,
-            qa_queued = _qa.Queued,
-            items = rows
-        });
-    }
+        => AiContext.Assistant(Settings.Rundown.Items, p, ShowClock, now, _show.RundownActive ? _show.CurrentItem : -1,
+            _lastTick.Remaining, _show.PendingDelay, _qa.Queued, PeerFacts(now));
 
     private void MaybeForecast(DateTime now, ScheduleProjection p)
     {
-        if (!_rundownActive || p.Items.Length == 0 || !FeatureGate.AllowsForecast(_license.Tier)) { _forecast = null; return; }
-        var key = $"{_currentItem}|{_currentItemStarted}|{_configVersion}|{(long)_pendingDelay.TotalSeconds}";
+        if (!_show.RundownActive || p.Items.Length == 0 || !FeatureGate.AllowsForecast(_license.Tier)) { _forecast = null; return; }
+        var key = $"{_show.CurrentItem}|{_show.ItemStarted}|{_configVersion}|{(long)_show.PendingDelay.TotalSeconds}";
         if (key == _forecastKey && now - _forecastAtUtc < TimeSpan.FromSeconds(30)) return;
         if (Interlocked.Exchange(ref _forecastRunning, 1) == 1) return;
         _forecastKey = key;
         _forecastAtUtc = now;
         var items = Settings.Rundown.Items.Select(i => i.Clone()).ToList();
-        var cur = _currentItem;
+        var cur = _show.CurrentItem;
         var model = _model;
         DateTime? curfew = p.NextHardOut?.CurfewUtc;
         ThreadPool.QueueUserWorkItem(_ =>
@@ -438,11 +252,14 @@ public sealed partial class MainViewModel
     /// <summary>4 Hz housekeeping: signals escalate, sensors are sampled, the frame is rebuilt if anything changed.</summary>
     private void UpdateSystems()
     {
-        UpdateRoll();
+        _show.Housekeeping();
+        GovernGc();
+        WatchClipEnd();
+        RefreshShowBus();
         var now = DateTime.UtcNow;
         foreach (var esc in _signals.Update(now))
         {
-            _journal.Add(now, JournalKind.Escalated, _rundownActive ? _currentItem : -1, $"{esc.Kind} {esc.Target}: {esc.Text}");
+            _journal.Add(now, JournalKind.Escalated, _show.RundownActive ? _show.CurrentItem : -1, $"{esc.Kind} {esc.Target}: {esc.Text}");
             FireTrigger(TriggerEvent.Escalated, esc.Target, esc.Text);
             StatusLine = $"No acknowledgement from {esc.Target} for \"{(esc.Text.Length > 0 ? esc.Text : esc.Kind.ToString())}\" — radio them.";
         }
@@ -507,6 +324,30 @@ public sealed partial class MainViewModel
         Sync(AdviceItems, s.Advice);
         Sync(SignalItems, s.Signals);
         Sync(QuestionItems, s.Questions);
+        RefreshDepartments(s.Signals);
+    }
+
+    /// <summary>Rows follow the department list; each row's state is its latest cue. Owner thread, per published frame.</summary>
+    private void RefreshDepartments(EquatableArray<SignalView> signals)
+    {
+        var names = Departments;
+        if (DepartmentRows.Count != names.Count || DepartmentRows.Select(r => r.Name).Where((n, i) => n != names[i]).Any())
+        {
+            DepartmentRows.Clear();
+            foreach (var n in names) DepartmentRows.Add(new DepartmentRow(n));
+        }
+        foreach (var row in DepartmentRows)
+        {
+            var target = SignalBoard.NormaliseTarget(row.Name);
+            SignalView? last = null;
+            foreach (var g in signals)
+                if (g.Target == target && g.Kind is SignalKind.Standby or SignalKind.Go) last = g;
+            row.Show(last);
+        }
+        // Every department standing by, configured or not (a Stream Deck may cue one that isn't in the list).
+        var standing = signals.Where(g => g.Kind == SignalKind.Standby).ToList();
+        StandingByCount = standing.Count;
+        StandingByLine = standing.Count == 0 ? "" : "Standing by: " + string.Join(" · ", standing.Select(g => g.Text.Length > 0 ? $"{g.Target} {g.Text}" : g.Target));
     }
 
     private static void Sync<T>(ObservableCollection<T> target, EquatableArray<T> source)
@@ -564,55 +405,30 @@ public sealed partial class MainViewModel
 
     // ================================================================== running-order bookkeeping
 
-    /// <summary>The live item has started for the first time.</summary>
-    private void MarkItemStarted(int index)
-    {
-        var now = DateTime.UtcNow;
-        var first = _actuals.Count == 0;
-        _actuals[index] = new ItemActual(now, null);
-        _pendingDelay = TimeSpan.Zero;
-        _journal.Add(now, JournalKind.ItemStart, index, Settings.Rundown.Items[index].Title);
-        if (first) FireTrigger(TriggerEvent.ShowStart, "", Settings.Rundown.Items[index].Title);
-        if (FeatureGate.AllowsAlerts(_license.Tier)) PlayChime(ChimeFor("start", Settings.Alerts.OnStart), Settings.Alerts.Device ?? "");
-        FireTrigger(TriggerEvent.ItemStart, ItemFilters(index), Settings.Rundown.Items[index].Title);
-    }
-
-    /// <summary>Leaving an item that ran: record its end (journal, overrun history, triggers).</summary>
-    private void MarkItemEnded(int index)
-    {
-        if (index < 0 || !_actuals.TryGetValue(index, out var a) || a.StartUtc is not { } start || a.EndUtc is not null) return;
-        var now = DateTime.UtcNow;
-        _actuals[index] = a with { EndUtc = now };
-        var items = Settings.Rundown.Items;
-        if (index >= items.Count) return;
-        var it = items[index];
-        _journal.Add(now, JournalKind.ItemEnd, index, it.Title, (now - start).TotalSeconds);
-        _history.Add(new HistoryRecord(it.Kind, it.Speaker ?? "", it.EffectiveSeconds, (int)Math.Round((now - start).TotalSeconds), now));
-        _model = OverrunModel.Learn(_history.Records);
-        FireTrigger(TriggerEvent.ItemEnd, ItemFilters(index), it.Title);
-    }
-
     // ================================================================== 2.0 commands
 
     private void ExecuteSystemCommand(ShowCommand c)
     {
         var now = DateTime.UtcNow;
-        var item = _rundownActive ? _currentItem : -1;
+        var item = _show.RundownActive ? _show.CurrentItem : -1;
         switch (c.Kind)
         {
             case ShowCommandKind.Signal:
             {
                 if (!Gate(CrewCuesAllowed, "Crew cues", FeatureTier.Production)) break;
-                var parts = (c.Text ?? "").Split('\u0001');
-                var kind = (SignalKind)(int)c.Number;
-                SendSignal(kind, parts[0], parts.Length > 1 ? parts[1] : "", c.Flag);
+                var signal = c.Get<SignalArgs>();
+                SendSignal((SignalKind)(int)c.Number, signal.Target, signal.Text, c.Flag);
                 break;
             }
+            case ShowCommandKind.SignalGoAll:
+                if (!Gate(CrewCuesAllowed, "Crew cues", FeatureTier.Production)) break;
+                GoAll();
+                break;
             case ShowCommandKind.Ack:
             {
-                var parts = (c.Text ?? "|seen").Split('|');
+                var ack = c.Get<AckArgs>();
                 var before = _signals.Find((int)c.Number);
-                if (_signals.Ack((int)c.Number, parts[0], parts.Length > 1 ? parts[1] : "seen", now) is { } s)
+                if (_signals.Ack((int)c.Number, ack.By, ack.State, now) is { } s)
                 {
                     var latency = before is null ? 0 : (now - before.SentUtc).TotalSeconds;
                     _journal.Add(now, JournalKind.Ack, item, $"{s.Kind} {s.Target}: {s.Text} ({s.State}{(s.By.Length > 0 ? " by " + s.By : "")})", Math.Round(latency, 1));
@@ -633,15 +449,10 @@ public sealed partial class MainViewModel
                 }
                 break;
             case ShowCommandKind.Trim:
-                TrimItem((int)c.Number - 1, int.Parse(c.Text ?? "0", CultureInfo.InvariantCulture));
+                _show.Trim((int)c.Number - 1, int.Parse(c.Text ?? "0", CultureInfo.InvariantCulture));
                 break;
             case ShowCommandKind.Delay:
-                if (Math.Abs(_pendingDelay.TotalSeconds - c.Number) > 0.5)
-                    RecordEdit(c.Number > 0 ? $"Delay {TimerTick.FormatSeconds((long)c.Number)}" : "Clear the delay",
-                        new ShowCommand(ShowCommandKind.Delay, Number: _pendingDelay.TotalSeconds), c, targets: LiveTarget());
-                _pendingDelay = TimeSpan.FromSeconds(c.Number);
-                _journal.Add(now, JournalKind.Delay, item, "", c.Number);
-                StatusLine = c.Number > 0 ? $"Delay of {TimerTick.FormatSeconds((long)c.Number)} before the next item" : "Delay cleared";
+                _show.SetDelay(c.Number);
                 break;
             case ShowCommandKind.CatchUp:
                 CatchUp();
@@ -659,8 +470,8 @@ public sealed partial class MainViewModel
             case ShowCommandKind.Question:
             {
                 if (!FeatureGate.AllowsRemote(_license.Tier)) break;
-                var parts = (c.Text ?? "").Split('\u0001');
-                if (_qa.Submit(parts[0], parts.Length > 1 ? parts[1] : "", now) is { } q)
+                var question = c.Get<QuestionArgs>();
+                if (_qa.Submit(question.Text, question.Name, now) is { } q)
                     _journal.Add(now, JournalKind.Question, item, q.Text);
                 break;
             }
@@ -677,7 +488,8 @@ public sealed partial class MainViewModel
             {
                 var format = c.Text == "csv" || !FeatureGate.AllowsFullReport(_license.Tier) ? "csv" : "html";
                 if (!Gate(ReportAllowed(format), "The show report", FeatureTier.Pro)) break;
-                StatusLine = WriteReport(format, open: false) is { } path ? $"Report saved: {path}" : "Report: nothing to report yet";
+                if (WriteReport(format, open: false) is { } path) StatusLine = $"Report saved: {path}";
+                else Refuse("Report: nothing to report yet");
             }
                 break;
             case ShowCommandKind.Note:
@@ -691,7 +503,8 @@ public sealed partial class MainViewModel
     {
         var now = DateTime.UtcNow;
         var s = _signals.Send(kind, target, text, now);
-        _journal.Add(now, JournalKind.Signal, _rundownActive ? _currentItem : -1, $"{kind} {s.Target}: {text}");
+        ReceiptRef("signalId", s.Id);
+        _journal.Add(now, JournalKind.Signal, _show.RundownActive ? _show.CurrentItem : -1, $"{kind} {s.Target}: {text}");
         // A message for the speaker also goes on the speaker displays.
         if (kind == SignalKind.Message && s.Target == "speaker")
         {
@@ -710,37 +523,28 @@ public sealed partial class MainViewModel
         };
     }
 
-    private void TrimItem(int index, int deltaSeconds)
+    /// <summary>
+    /// GO every department standing by, in one moment: a cue that spans departments (lights, sound and video together).
+    /// Each department gets its own GO, carrying the cue its standby named, so crew pages and acknowledgements work as
+    /// for a single GO.
+    /// </summary>
+    private void GoAll()
     {
-        var items = Settings.Rundown.Items;
-        if (index < 0 || index >= items.Count || deltaSeconds == 0) return;
-        if (!Gate(FeatureGate.AllowsRunOfShow(_license.Tier), "Schedule recovery", FeatureTier.Pro)) return;
-        var it = items[index];
-        var newAdjust = it.AdjustSeconds + deltaSeconds;
-        if (it.DurationSeconds + newAdjust < 0) newAdjust = -it.DurationSeconds;
-        var applied = newAdjust - it.AdjustSeconds;
-        _store.Update(_ => it.AdjustSeconds = newAdjust);
-        RecordEdit($"{(applied < 0 ? "Cut" : "Extend")} \"{it.Title}\" {TimerTick.FormatSeconds(Math.Abs(applied))}",
-            new ShowCommand(ShowCommandKind.Trim, Number: index + 1, Text: (-applied).ToString(CultureInfo.InvariantCulture)),
-            new ShowCommand(ShowCommandKind.Trim, Number: index + 1, Text: applied.ToString(CultureInfo.InvariantCulture)),
-            targets: ItemTarget(index) is { } t ? new[] { t } : null);
-        // The live item's clock moves with it.
-        if (index == _currentItem && _rundownActive && applied != 0) _engine.Nudge(TimeSpan.FromSeconds(applied));
-        _journal.Add(DateTime.UtcNow, JournalKind.Trim, index, it.Title, applied);
-        StatusLine = $"{(applied < 0 ? "Cut" : "Extended")} \"{it.Title}\" by {TimerTick.FormatSeconds(Math.Abs(applied))}";
-        RebuildRundownRows();
-        BumpConfig();
+        var standing = _signals.StandingBy();
+        if (standing.Count == 0) { Refuse("ALL GO: no department is standing by"); return; }
+        foreach (var s in standing) SendSignal(SignalKind.Go, s.Target, s.Text, ackRequired: true);
+        StatusLine = "ALL GO: " + string.Join(" · ", standing.Select(s => s.Text.Length > 0 ? $"{s.Target} {s.Text}" : s.Target));
     }
 
     /// <summary>"Reach schedule": re-time the live item (elastic) so it lands on its planned end.</summary>
     private void CatchUp()
     {
-        if (!_rundownActive || _currentItem < 0 || _projection.Items.Length <= _currentItem) { StatusLine = "Catch up needs a running-order item"; return; }
-        var plannedEnd = _projection.Items[_currentItem].PlannedStartUtc.AddSeconds(Settings.Rundown.Items[_currentItem].EffectiveSeconds);
-        if (plannedEnd <= DateTime.UtcNow.AddSeconds(30)) { StatusLine = "Too late to catch up within this item — trim later items instead"; return; }
+        if (!_show.RundownActive || _show.CurrentItem < 0 || _projection.Items.Length <= _show.CurrentItem) { Refuse("Catch up needs a running-order item"); return; }
+        var plannedEnd = _projection.Items[_show.CurrentItem].PlannedStartUtc.AddSeconds(Settings.Rundown.Items[_show.CurrentItem].EffectiveSeconds);
+        if (plannedEnd <= DateTime.UtcNow.AddSeconds(30)) { Refuse("Too late to catch up within this item — trim later items instead"); return; }
         _engine.SetEndAt(plannedEnd.ToLocalTime(), realTime: false);
         StatusLine = $"Catching up: this item now lands on its planned end, {Fmt(ShowClock.ToShow(plannedEnd), seconds: false)} (elastic)";
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, _currentItem, "Catch up to planned end");
+        _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.CurrentItem, "Catch up to planned end");
     }
 
     private void StartPreview()
@@ -788,7 +592,7 @@ public sealed partial class MainViewModel
         var now = DateTime.UtcNow;
         if (on)
         {
-            if (CurrentDeck() is not { } deck) { StatusLine = "Start the PowerPoint slideshow first (here or on a presenter PC), then press Rehearse"; return; }
+            if (CurrentDeck() is not { } deck) { Refuse("Start the PowerPoint slideshow first (here or on a presenter PC), then press Rehearse"); return; }
             _rehearsal.Begin(deck.Presentation, deck.Count, now);
             Rehearsing = true;
             StatusLine = $"Rehearsing \"{deck.Presentation}\" — Stagewatch is timing every slide";
@@ -815,7 +619,7 @@ public sealed partial class MainViewModel
             if (path.Length > 0)
             {
                 try { _speech.SetScript(File.ReadAllText(path)); }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { StatusLine = "Couldn't read the script: " + ex.Message; return; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Refuse("Couldn't read the script: " + ex.Message); return; }
             }
             else if (CurrentDeck() is { } deck) _speech.SetScript(deck.Script);
             Listening = _speech.Start();
@@ -831,22 +635,14 @@ public sealed partial class MainViewModel
 
     // ================================================================== report
 
-    public ShowReport BuildReport()
-        => ShowReport.Build(ShowName, Settings.Rundown.Items, _journal.Entries, ScheduleAnchor(), ShowClock, DateTime.UtcNow);
+    public ShowReport BuildReport() => ShowReports.Build(ShowName, Settings, _show, _journal.Entries, DateTime.UtcNow);
 
     /// <summary>Write the planned-vs-actual report next to the shows. Returns the path, or null when nothing ran.</summary>
     public string? WriteReport(string format, bool open)
     {
-        if (Settings.Rundown.Items.Count == 0 || !ReportAllowed(format)) return null;
-        var report = BuildReport();
-        var folder = Path.Combine(DefaultShowFolder, "Reports");
-        var safe = string.Concat(ShowName.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
-        var path = Path.Combine(folder, $"{safe} {DateTime.Now:yyyy-MM-dd HHmm}.{format}");
-        try
-        {
-            Directory.CreateDirectory(folder);
-            File.WriteAllText(path, format == "csv" ? report.ToCsv(ShowClock) : report.ToHtml(ShowClock), Encoding.UTF8);
-        }
+        if (!ShowReports.HasContent(Settings) || !ReportAllowed(format)) return null;
+        var path = ShowReports.PathFor(DefaultShowFolder, ShowName, DateTime.Now, format);
+        try { ShowReports.Save(path, ReportText(format)); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             StatusLine = "Couldn't save the report: " + ex.Message;
@@ -859,25 +655,23 @@ public sealed partial class MainViewModel
         return path;
     }
 
-    /// <summary>CSV is Pro; the full printable HTML report is Production.</summary>
-    private bool ReportAllowed(string format) => format == "csv"
-        ? FeatureGate.AllowsCsvReport(_license.Tier)
-        : FeatureGate.AllowsFullReport(_license.Tier);
+    private bool ReportAllowed(string format) => ShowReports.Allowed(format, _license.Tier);
 
     /// <summary>IShowControl: the MCP endpoint answers only when enabled and licensed (Production).</summary>
     public bool McpAllowed => Settings.Integrations.Mcp && FeatureGate.AllowsMcp(_license.Tier);
 
-    public string ReportText(string format) => format == "csv" ? BuildReport().ToCsv(ShowClock) : BuildReport().ToHtml(ShowClock);
+    public string ReportText(string format) => ShowReports.Render(BuildReport(), format, ShowClock);
 
     /// <summary>IShowControl: the report for remotes (web / MCP threads). Built on the owner thread, never racing the journal.</summary>
     public string? Report(string format)
     {
-        if (Settings.Rundown.Items.Count == 0 || !ReportAllowed(format == "csv" ? "csv" : "html")) return null;
+        format = ShowReports.Format(format);
+        if (!ShowReports.HasContent(_store.Snapshot) || !ReportAllowed(format)) return null;
         // Called from network threads. Never from the UI thread (that would wait on itself).
-        if (_ui.CheckAccess()) return ReportText(format == "csv" ? "csv" : "html");
+        if (_ui.CheckAccess()) return ReportText(format);
         try
         {
-            var op = _ui.InvokeAsync(() => ReportText(format == "csv" ? "csv" : "html"), System.Windows.Threading.DispatcherPriority.Background);
+            var op = _ui.InvokeAsync(() => ReportText(format), System.Windows.Threading.DispatcherPriority.Background);
             return op.Task.Wait(TimeSpan.FromSeconds(3)) ? op.Result : null;
         }
         catch (Exception) { return null; }
@@ -900,8 +694,9 @@ public sealed partial class MainViewModel
         if (WriteReport("csv", open: true) is { } p) StatusLine = "Report: " + p;
     }
     [RelayCommand] private void ApplyAdvice(Advice a) { if (a.Command is { } cmd) { RecordUi(cmd); RunCommandLine(cmd); } }
-    [RelayCommand] private void DepartmentStandby(string dept) { RecordUi($"signal standby {Q(dept)}"); ExecuteNow(new ShowCommand(ShowCommandKind.Signal, Number: (int)SignalKind.Standby, Text: dept + "\u0001", Flag: true)); }
-    [RelayCommand] private void DepartmentGo(string dept) { RecordUi($"signal go {Q(dept)}"); ExecuteNow(new ShowCommand(ShowCommandKind.Signal, Number: (int)SignalKind.Go, Text: dept + "\u0001", Flag: true)); }
+    [RelayCommand] private void DepartmentStandby(string dept) { RecordUi($"signal standby {Q(dept)}"); ExecuteNow(ShowCommand.Signal(SignalKind.Standby, dept, "", ackRequired: true)); }
+    [RelayCommand] private void DepartmentGo(string dept) { RecordUi($"signal go {Q(dept)}"); ExecuteNow(ShowCommand.Signal(SignalKind.Go, dept, "", ackRequired: true)); }
+    [RelayCommand] private void AllGo() { RecordUi("signal go all"); ExecuteNow(new ShowCommand(ShowCommandKind.SignalGoAll)); }
     [RelayCommand] private void ClearSignal(SignalView s) => ExecuteNow(new ShowCommand(ShowCommandKind.SignalClear, Number: s.Id));
     [RelayCommand] private void QuestionNext() { RecordUi("q next"); ExecuteNow(new ShowCommand(ShowCommandKind.QuestionSet, Text: "next")); }
     [RelayCommand] private void QuestionApprove(QuestionView q) => ExecuteNow(new ShowCommand(ShowCommandKind.QuestionSet, Number: q.Id, Text: "approve"));
@@ -913,11 +708,11 @@ public sealed partial class MainViewModel
     private void CallNextSpeaker()
     {
         var items = Settings.Rundown.Items;
-        var n = _currentItem + 1;
-        if (n < 0 || n >= items.Count) { StatusLine = "No next item to call"; return; }
+        var n = _show.CurrentItem + 1;
+        if (n < 0 || n >= items.Count) { Refuse("No next item to call"); return; }
         var who = string.IsNullOrWhiteSpace(items[n].Speaker) ? items[n].Title : items[n].Speaker!;
         RecordUi($"signal call backstage {Q(who + " to stage")}");
-        ExecuteNow(new ShowCommand(ShowCommandKind.Signal, Number: (int)SignalKind.Call, Text: "backstage\u0001" + who + " to stage", Flag: true));
+        ExecuteNow(ShowCommand.Signal(SignalKind.Call, "backstage", who + " to stage", ackRequired: true));
     }
 
     /// <summary>Discreet nudge to the speaker's phone/watch (haptic page).</summary>
@@ -925,15 +720,15 @@ public sealed partial class MainViewModel
     private void NudgeSpeaker(string text)
     {
         RecordUi($"signal nudge speaker {Q(text)}");
-        ExecuteNow(new ShowCommand(ShowCommandKind.Signal, Number: (int)SignalKind.Nudge, Text: "speaker\u0001" + text, Flag: true));
+        ExecuteNow(ShowCommand.Signal(SignalKind.Nudge, "speaker", text, ackRequired: true));
     }
 
     [RelayCommand]
     private void AddDelay(string seconds)
     {
         if (!double.TryParse(seconds, NumberStyles.Float, CultureInfo.InvariantCulture, out var s)) return;
-        RecordUi($"delay {(long)Math.Max(0, _pendingDelay.TotalSeconds + s)}");
-        ExecuteNow(new ShowCommand(ShowCommandKind.Delay, Number: Math.Max(0, _pendingDelay.TotalSeconds + s)));
+        RecordUi($"delay {(long)Math.Max(0, _show.PendingDelay.TotalSeconds + s)}");
+        ExecuteNow(new ShowCommand(ShowCommandKind.Delay, Number: Math.Max(0, _show.PendingDelay.TotalSeconds + s)));
     }
 
     partial void OnActiveLadderIdChanged(string value)
@@ -958,6 +753,36 @@ public sealed partial class MainViewModel
         var tokens = CloudAdvisor.Tokenize(line);
         if (tokens.Count == 0) return;
         if (ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out var error)) Execute(cmd);
-        else StatusLine = "Command rejected: " + error;
+        else Refuse("Command rejected: " + error);
+    }
+}
+
+/// <summary>One department in the Cues panel, with where its cue is.</summary>
+public sealed partial class DepartmentRow : ObservableObject
+{
+    public DepartmentRow(string name) => Name = name;
+
+    public string Name { get; }
+
+    /// <summary>"STANDBY", "STANDING BY ✓", "IN POSITION", "GO", "GO ✓", or "" when nothing is in play.</summary>
+    [ObservableProperty] private string _state = "";
+    [ObservableProperty] private string _cue = "";
+    [ObservableProperty] private bool _standingBy;
+    [ObservableProperty] private bool _gone;
+
+    internal void Show(SignalView? g)
+    {
+        StandingBy = g is { Kind: SignalKind.Standby };
+        Gone = g is { Kind: SignalKind.Go };
+        Cue = g?.Text ?? "";
+        State = g switch
+        {
+            null => "",
+            { Kind: SignalKind.Standby, State: SignalState.Sent } => g.Value.Escalated ? "STANDBY — NO ACK" : "STANDBY",
+            { Kind: SignalKind.Standby, State: SignalState.Seen } => "STANDING BY ✓",
+            { Kind: SignalKind.Standby } => "IN POSITION",
+            { Kind: SignalKind.Go, State: SignalState.Sent } => "GO",
+            _ => "GO ✓",
+        };
     }
 }

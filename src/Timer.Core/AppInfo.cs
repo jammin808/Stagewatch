@@ -13,7 +13,7 @@ public static class AppInfo
     /// The day this build was released (yyyy-MM-dd). Set by tools\release.ps1. A licence whose
     /// update entitlement ended before this date runs this build at the tier below.
     /// </summary>
-    public const string ReleaseDate = "2026-10-10";
+    public const string ReleaseDate = "2026-10-11";
 
     public static DateTime ReleaseDateUtc => DateTime.SpecifyKind(DateTime.ParseExact(ReleaseDate, "yyyy-MM-dd",
         System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);

@@ -417,7 +417,7 @@ static class WebV2Tests
         Check((await http.SendAsync(noteReply)).StatusCode == HttpStatusCode.Accepted, "mcp: notification → 202");
         var tools = await Mcp("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
         var names = tools.GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
-        Check(names.SequenceEqual(new[] { "get_state", "get_running_order", "run_command", "get_report" }), "mcp: tools/list");
+        Check(names.SequenceEqual(new[] { "get_state", "get_running_order", "run_command", "get_report", "get_proposal", "get_context" }), "mcp: tools/list (with a proposal's fate and the room's context)");
         var call = await Mcp("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"run_command\",\"arguments\":{\"command\":\"signal message speaker \\\"Wrap up\\\"\"}}}");
         Check(call.GetProperty("result").GetProperty("isError").GetBoolean() == false && control.Commands.Last() is { Kind: ShowCommandKind.Signal, Text: "speaker\u0001Wrap up" }, "mcp: run_command goes through the grammar");
         // Human in the loop: with approval on, an agent's command is queued for the operator and does not run.

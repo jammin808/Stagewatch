@@ -70,7 +70,7 @@ public static class HelpContent
                     ("Status chips", "Small labels under the timer that appear only when they have something to say: cue label, finish-by, slides, pace, VT, curfew, forecast, delay, clock drift. Right-click one to learn what it means."),
                     ("Inputs", "Duration, End at and Pace — load a time, or finish at a time of day."),
                     ("Nudge", "Add or remove time while the timer runs."),
-                    ("Right panel", "**Presets**, **Running order**, **Cues & Q&A** and **Producer** tabs."),
+                    ("Right panel", "**Presets**, **Running order**, **Cues & Q&A**, **Producer**, **Holding** and **Timers**. Drag a tab to reorder; drag it out of the window for a window of its own (another monitor, beside the timer); drag that window back onto the panel, or press Dock, to put it back. Drag the gap between the timer and the panel to widen it. Right-click a tab for Pop out, Move and Reset panel layout."),
                     ("Transport", "START, STOP, RESET, NEXT, BLACKOUT; the output mode, key colour and NDI."),
                     ("Message", "Text for the speaker, its urgency and flash, quick messages and acknowledgements."),
                     ("Status line", "What just happened, the remote address, the time of day and the timer state.")),
@@ -326,7 +326,7 @@ public static class HelpContent
                 new H("Nudge"),
                 new Bullets(
                     "The **NUDGE** buttons add or remove time live (±1 s up to ±1 h).",
-                    "Mouse wheel over the timer: **10 s** per notch, **Shift** = 1 min, **Ctrl** = 1 hour."),
+                    "Mouse wheel over the timer: **10 s** per notch, **Shift** = 1 min, **Ctrl** = 5 min."),
             }, "Standard"),
 
         new("aux", "Timing", "Extra timers (VT, changeover...)",
@@ -694,7 +694,7 @@ public static class HelpContent
                     ("1–9, 0, −, =", "Presets 1–12"),
                     ("Ctrl+O / Ctrl+S / Ctrl+Shift+S", "Open / save / save show as"),
                     ("F1", "This help"),
-                    ("Mouse wheel on the timer", "±10 s; Shift ±1 min; Ctrl ±1 hour"),
+                    ("Mouse wheel on the timer", "±10 s; Shift ±1 min; Ctrl ±5 min"),
                     ("Right-click", "Help and quick actions for what's under the pointer")),
                 new Note("Single-key shortcuts work when **Enable operator keyboard shortcuts** is on (Settings → Timer) and you're not typing in a box."),
             }),
@@ -824,7 +824,12 @@ public static class HelpContent
         ["rundown-nav"] = new("Previous / next", "Step through the running order (P / N). ↺ goes back to the top.", "rundown"),
 
         // Cues & Q&A
-        ["department"] = new("Department", "Standby, then GO. The department confirms on its own page (/dept?name=…).", "wf-crew"),
+        ["department"] = new("Department", "Standby, then GO. The department confirms on its own page (/dept?name=…). The line under its name shows where its cue is: STANDBY (sent), STANDING BY ✓ (seen), IN POSITION, GO.", "wf-crew"),
+        ["show-network"] = new("Show network", "Another show app this Stagewatch can hear — Patterns, AGMessage, another Stagewatch — with its light (worst thing it knows about itself) and its one-line headline. Problems it reports are listed under it. All worked out from facts on the local network: no internet or AI needed. Grey = heard but no details yet, or not heard lately.", "layout"),
+        ["panel"] = new("Panel", "Drag a tab along the strip to reorder the panels. Drag it out of the window to give it a window of its own — beside the timer or on another monitor — and drag that window back onto the side panel (or press Dock) to put it back. With every panel out, the timer fills the main window. Your layout is remembered.", "layout"),
+        ["panel-window"] = new("Panel window", "A panel in its own window. Drag it onto the main window's side panel to dock it, or press Dock (closing it docks it too). Shortcuts work here as in the main window.", "layout"),
+        ["panel-splitter"] = new("Panel width", "Drag to widen or narrow the side panels; double-click for the standard width.", "layout"),
+        ["all-go"] = new("ALL GO", "Fires GO to every department standing by, at the same moment — for a cue that spans departments (lights, sound and video together). Stand each one by with its cue first, check they're in position, then ALL GO. Each department still gets its own GO to confirm. Shortcut Ctrl+G; Companion, OSC and the producer page send \"signal go all\".", "wf-crew"),
         ["call-stage"] = new("Call to stage", "Tells the green room (/backstage) to bring the next speaker.", "crew"),
         ["buzz"] = new("Pocket buzz", "A silent cue to the speaker's phone or watch (/haptic?for=speaker).", "crew"),
         ["signal"] = new("Sent cue", "Amber = waiting, green = acknowledged, red = nobody answered — radio them.", "crew"),

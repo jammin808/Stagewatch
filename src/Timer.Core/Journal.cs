@@ -11,18 +11,38 @@ public enum JournalKind
     Phase, Message, Signal, Ack, Escalated, Trim, Delay, Question, Note, Preview, Blackout, ClockCheck
 }
 
-/// <summary>One thing that happened, with its UTC time. Append-only: the show's flight recorder.</summary>
+/// <summary>
+/// One thing that happened, with its UTC time. Append-only: the show's flight recorder.
+/// <see cref="Item"/> is the position at the time (kept for old journals and for reading); identity is
+/// <see cref="RundownId"/> + <see cref="ItemId"/>, and <see cref="Execution"/> tells one run of an item from the next
+/// (a loop pass, a second go after a restart). Entries written before identities existed have none of the three.
+/// </summary>
 public sealed record JournalEntry(
     [property: JsonPropertyName("t")] DateTime Utc,
     [property: JsonPropertyName("k")] JournalKind Kind,
     [property: JsonPropertyName("i")] int Item = -1,
     [property: JsonPropertyName("x")] string Text = "",
-    [property: JsonPropertyName("v")] double Value = 0);
+    [property: JsonPropertyName("v")] double Value = 0)
+{
+    [JsonPropertyName("ro"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? RundownId { get; init; }
+    [JsonPropertyName("ii"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ItemId { get; init; }
+    [JsonPropertyName("ex"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Execution { get; init; }
+
+    /// <summary>Whether this entry is about <paramref name="item"/> at <paramref name="index"/> of running order <paramref name="rundownId"/>.</summary>
+    public bool IsAbout(string rundownId, RundownItem item, int index)
+        => ItemId is not null
+            ? ItemId == item.Id && (RundownId is null || RundownId == rundownId)
+            : RundownId is null && Item == index;   // an old journal: position is all there is
+}
+
+/// <summary>Who an entry is about: the running order, the item, and which run of it.</summary>
+public readonly record struct JournalIdentity(string? RundownId, string? ItemId, string? Execution);
 
 /// <summary>
-/// The show journal (event sourcing, like a game's replay log). The owner thread appends; a
-/// background writer streams entries to a JSON-lines file so nothing is lost in a crash and the
-/// show thread never waits on disk. Reports and the overrun forecaster are built from it.
+/// The show journal: an append-only audit log of what happened (with session checkpoints beside it, this is what
+/// crash recovery and the report use). It records events, not every state change, so it explains a show rather than
+/// rebuilding one. The owner thread appends; a background writer streams entries to a JSON-lines file so nothing is
+/// lost in a crash and the show thread never waits on disk. Entries carry stable identities (see <see cref="Identify"/>).
 /// </summary>
 public sealed class ShowJournal : IAsyncDisposable
 {
@@ -43,9 +63,21 @@ public sealed class ShowJournal : IAsyncDisposable
     public IReadOnlyList<JournalEntry> Entries => _entries;
     public int Count => _entries.Count;
 
+    /// <summary>
+    /// Stamps each entry about an item with who it is about (running order, item id, current run). Set by the owner of
+    /// the live show; null leaves entries as given.
+    /// </summary>
+    public Func<int, JournalIdentity>? Identify { get; set; }
+
     /// <summary>Owner thread only. O(1), never blocks.</summary>
     public void Add(JournalEntry e)
     {
+        if (e.ItemId is null && Identify is { } who)
+        {
+            var id = who(e.Item);
+            if (id.RundownId is not null || id.ItemId is not null)
+                e = e with { RundownId = id.RundownId, ItemId = id.ItemId, Execution = id.Execution };
+        }
         _entries.Add(e);
         if (_path is not null) _pending.Writer.TryWrite(e);
     }
@@ -131,31 +163,45 @@ public sealed class ShowReport
     public int ItemsRun => Rows.Count(r => r.ActualSeconds is not null);
     public int ItemsOver => Rows.Count(r => r.OverrunSeconds > 30);
 
-    public static ShowReport Build(string showName, IReadOnlyList<RundownItem> items, IReadOnlyList<JournalEntry> journal,
+    /// <summary>
+    /// The report for one running order. Entries are matched by identity (running order + item id), never by position,
+    /// so another running order's history can't land on this one's items; each run of an item (a loop pass, a second go)
+    /// is its own row. Old journals without identities fall back to position.
+    /// </summary>
+    public static ShowReport Build(string showName, Rundown rundown, IReadOnlyList<JournalEntry> journal,
         DateTime? anchorUtc, ShowClock clock, DateTime nowUtc)
     {
+        var items = rundown.Items;
         var plan = anchorUtc is { } a ? ScheduleEngine.Plan(items, a, clock) : null;
         var rows = new List<ReportRow>();
         for (int i = 0; i < items.Count; i++)
         {
             var it = items[i];
-            var mine = journal.Where(e => e.Item == i).ToList();
-            var start = mine.FirstOrDefault(e => e.Kind == JournalKind.ItemStart)?.Utc;
-            var end = mine.LastOrDefault(e => e.Kind == JournalKind.ItemEnd)?.Utc;
-            int? actual = start is { } s && end is { } en ? (int)Math.Round((en - s).TotalSeconds) : null;
-            // Wrap-up cue → finish: how responsive the speaker was to the cue.
-            var wrap = mine.FirstOrDefault(e => e.Kind == JournalKind.Phase && e.Text is "WrapUp" or "wrapup")?.Utc;
-            int? wrapToEnd = wrap is { } w && end is { } en2 && en2 > w ? (int)Math.Round((en2 - w).TotalSeconds) : null;
-            var acks = mine.Where(e => e.Kind == JournalKind.Ack).ToList();
-            rows.Add(new ReportRow(
-                i + 1, it.Title, it.Speaker ?? "", it.Kind,
-                plan?[i].Start, it.DurationSeconds, it.AdjustSeconds,
-                start, end, actual,
-                actual is { } act ? act - it.EffectiveSeconds : null,
-                wrapToEnd,
-                mine.Count(e => e.Kind is JournalKind.Message or JournalKind.Signal),
-                acks.Count,
-                acks.Count > 0 ? acks.Average(e => e.Value) : null));
+            var mine = journal.Where(e => e.IsAbout(rundown.Id, it, i)).ToList();
+            // One row per run: runs are told apart by their execution id, in the order they started.
+            var runs = mine.Where(e => e.Kind == JournalKind.ItemStart).Select(e => e.Execution).Distinct().ToList();
+            if (runs.Count == 0) runs.Add(null);
+            for (int r = 0; r < runs.Count; r++)
+            {
+                var run = runs[r];
+                var these = runs.Count == 1 ? mine : mine.Where(e => e.Execution == run).ToList();
+                var start = these.FirstOrDefault(e => e.Kind == JournalKind.ItemStart)?.Utc;
+                var end = these.LastOrDefault(e => e.Kind == JournalKind.ItemEnd)?.Utc;
+                int? actual = start is { } s && end is { } en ? (int)Math.Round((en - s).TotalSeconds) : null;
+                // Wrap-up cue → finish: how responsive the speaker was to the cue.
+                var wrap = these.FirstOrDefault(e => e.Kind == JournalKind.Phase && e.Text is "WrapUp" or "wrapup")?.Utc;
+                int? wrapToEnd = wrap is { } w && end is { } en2 && en2 > w ? (int)Math.Round((en2 - w).TotalSeconds) : null;
+                var acks = these.Where(e => e.Kind == JournalKind.Ack).ToList();
+                rows.Add(new ReportRow(
+                    i + 1, runs.Count > 1 ? $"{it.Title} (run {r + 1})" : it.Title, it.Speaker ?? "", it.Kind,
+                    r == 0 ? plan?[i].Start : null, it.DurationSeconds, it.AdjustSeconds,
+                    start, end, actual,
+                    actual is { } act ? act - it.EffectiveSeconds : null,
+                    wrapToEnd,
+                    these.Count(e => e.Kind is JournalKind.Message or JournalKind.Signal),
+                    acks.Count,
+                    acks.Count > 0 ? acks.Average(e => e.Value) : null));
+            }
         }
         var notes = journal.Where(e => e.Kind == JournalKind.Note).ToList();
         var summary = notes.LastOrDefault(e => e.Text.StartsWith(SummaryPrefix, StringComparison.Ordinal))?.Text[SummaryPrefix.Length..] ?? "";

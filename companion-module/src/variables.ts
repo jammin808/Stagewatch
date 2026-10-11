@@ -80,6 +80,8 @@ const STATIC: Record<string, string> = {
 	cues_waiting: 'Cues nobody has acknowledged yet',
 	cues_unanswered: 'Cues that escalated (no acknowledgement in time)',
 	last_cue: 'Newest open cue (kind and target)',
+	standing_by: 'Departments standing by (waiting for GO)',
+	standing_by_list: 'Departments standing by, by name',
 	slide: 'PowerPoint slide number',
 	slides: 'PowerPoint slide count',
 	slide_next: 'Title of the next slide',

@@ -31,3 +31,6 @@ global using Brush        = System.Windows.Media.Brush;
 global using Brushes      = System.Windows.Media.Brushes;
 global using Color        = System.Windows.Media.Color;
 global using Colors       = System.Windows.Media.Colors;
+global using TabControl   = System.Windows.Controls.TabControl;
+global using TabItem      = System.Windows.Controls.TabItem;
+global using MouseEventArgs = System.Windows.Input.MouseEventArgs;

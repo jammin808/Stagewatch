@@ -72,7 +72,7 @@ public sealed partial class MainViewModel
         var t = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (t.Length == 0) return;
         if (ShowCommandParser.TryParse(t[0], t.Skip(1).ToList(), out var cmd, out var error)) Execute(cmd);
-        else StatusLine = error;
+        else Refuse(error);
     }
 
     private EquatableArray<AuxView> AuxViews()
@@ -92,14 +92,12 @@ public sealed partial class MainViewModel
         return $"{v.Name.ToUpperInvariant()}  {v.Text}";
     }
 
-    private void ApplyAuxCommand(double number, string text)
+    private void ApplyAuxCommand(double number, AuxArgs args)
     {
         var slot = (int)number;
         if (slot < 1 || slot > _aux.Length) return;
         var a = _aux[slot - 1];
-        var parts = text.Split('\u0001');
-        var action = parts[0];
-        var arg = parts.Length > 1 ? parts[1] : "";
+        var (action, arg) = (args.Action, args.Argument);
         switch (action)
         {
             case "start": a.Start(); break;

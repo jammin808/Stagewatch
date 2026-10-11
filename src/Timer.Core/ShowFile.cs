@@ -101,6 +101,7 @@ public sealed class ShowFile
         r ??= new Rundown();
         r.Items ??= new();
         r.Items.RemoveAll(i => i is null);
+        r.EnsureIds();
         r.GroupTargets = new Dictionary<string, int>(r.GroupTargets ?? new(), StringComparer.OrdinalIgnoreCase);
         r.LabelColors = new Dictionary<string, string>((r.LabelColors ?? new())
             .Where(kv => System.Text.RegularExpressions.Regex.IsMatch(kv.Value ?? "", "^#[0-9A-Fa-f]{6}$")), StringComparer.OrdinalIgnoreCase);

@@ -28,6 +28,9 @@ re-time anything themselves.
 
 ## 2. Show Bus v1: the one contract every node speaks
 
+*Now specified exactly in `docs/SHOWBUS.md` (Show Bus 1.1, 2026-10-10) and implemented by Stagewatch 2.15, Patterns
+round 87 and AGMessage 0.3. This section is the original plan.*
+
 It's small enough to adopt in a day per node, and every piece already exists somewhere in the three apps:
 
 1. **Discovery:** one hello on UDP 9928, `{"t":"<kind>","v":1,"id","name","machine","web","caps":[…]}`, every 2 s.

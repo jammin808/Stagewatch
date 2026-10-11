@@ -258,7 +258,7 @@ test('malformed JSON is reported and survived', async () => {
 
 // ---------------------------------------------------------------- Stagewatch 2.0
 
-import { adviceCommand, deptState, latestOpenFor, signed, slug } from '../dist/state.js'
+import { adviceCommand, deptState, latestOpenFor, signed, slug, standingBy } from '../dist/state.js'
 
 const v2 = (over = {}) => snap({
 	speakerText: '5 MIN', cue: '5 MIN', finishBy: 'FINISH BY 14:05', preview: false, stretching: true, room: 'Hall A',
@@ -321,6 +321,8 @@ test('2.0 helpers', () => {
 	assert.equal(signed(-75), '-01:15')
 	assert.equal(signed(0), '±00:00')
 	assert.equal(deptState(v2(), 'lighting'), 'standby_ack')
+	assert.ok(standingBy(v2()).some((g) => g.target.toLowerCase() === 'lighting'))
+	assert.equal(deriveVariables(v2(), true).standing_by, standingBy(v2()).length)
 	assert.equal(adviceCommand(v2(), 2), 'trim 3 -240')
 	assert.equal(adviceCommand(v2(), 1), null)
 	assert.equal(adviceCommand(v2(), 9), null)
@@ -337,7 +339,7 @@ test('2.0 feedback rechecks are targeted', () => {
 	const ack = feedbacksAffected(a, v2({ messageAck: 'done' }), false)
 	assert.ok(ack.includes('message_ack') && !ack.includes('blackout'))
 	const sig = feedbacksAffected(a, v2({ signals: [] }), false)
-	assert.ok(sig.includes('dept_state') && sig.includes('cue_waiting'))
+	assert.ok(sig.includes('dept_state') && sig.includes('cue_waiting') && sig.includes('standing_by'))
 	const tick = feedbacksAffected(a, v2({ seconds: 298 }), false)
 	assert.ok(tick.includes('remaining') && tick.includes('progress_value') && !tick.includes('dept_state'))
 	for (const id of ['message_ack', 'dept_state', 'hard_out_risk', 'remaining', 'progress_value', 'advice_waiting']) assert.ok(FEEDBACK_IDS.includes(id))

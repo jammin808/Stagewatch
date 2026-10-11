@@ -318,7 +318,7 @@ static class V2Tests
         File.AppendAllText(path, "{broken\n");
         Check(ShowJournal.Load(path).Count == 7, "journal: damaged lines skipped");
 
-        var r = ShowReport.Build("Summit", items, back, anchor, utc, anchor.AddHours(1));
+        var r = ShowReport.Build("Summit", new Rundown { Items = items.ToList() }, back, anchor, utc, anchor.AddHours(1));
         Check(r.Rows[0].ActualSeconds == 660 && r.Rows[0].OverrunSeconds == 60, "report: actual + overrun");
         Check(r.Rows[1].ActualSeconds == 1740 && r.Rows[1].OverrunSeconds == 1740 - 1680 && r.Rows[1].WrapUpToFinishSeconds == 300, "report: trims count, wrap-up → finish");
         Check(r.Rows[1].Acks == 1 && r.Rows[1].AvgAckSeconds == 5 && r.Rows[1].Messages == 1, "report: cues and acks");

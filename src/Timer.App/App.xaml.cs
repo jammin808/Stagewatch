@@ -14,9 +14,23 @@ public partial class App : Application
     private static Mutex? _instanceMutex;
     private static EventWaitHandle? _activateSignal;
 
+    /// <summary>
+    /// Set by a host that drives the app's windows itself (the smoke harness): startup then does nothing — no
+    /// single-instance handshake (which would wake, or defer to, a Stagewatch already running on this PC), no settings
+    /// or licence of its own, no main window.
+    /// </summary>
+    public static bool Hosted { get; set; }
+
+    /// <summary>Set when the watchdog restarted this copy after a fault: the show is put back without asking.</summary>
+    public static string? RestartNote { get; private set; }
+
+    /// <summary>UI faults contained so far (Diagnostics).</summary>
+    public static FaultCounter Faults { get; } = new();
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (Hosted) return;
 
         // Roles: the same Stagewatch.exe runs as the presenter-PC app with --slides (Stagewatch Slides). It has its own
         // single instance and needs no licence, settings store or ports of its own beyond the discovery beacon.
@@ -35,7 +49,10 @@ public partial class App : Application
         // One Stagewatch per Windows session: a second copy would fight the first for the
         // network ports and the output screen. Instead, wake the running one and leave.
         var showArg = e.Args.FirstOrDefault(a => a.EndsWith(ShowFile.Extension, StringComparison.OrdinalIgnoreCase));
-        _instanceMutex = new Mutex(initiallyOwned: true, @"Local\" + InstanceName, out var isFirst);
+        var isChild = e.Args.Contains(Watchdog.ChildArg);
+        // The supervisor holds the single-instance lock; the copy it watches doesn't take it again.
+        var isFirst = true;
+        if (!isChild) _instanceMutex = new Mutex(initiallyOwned: true, @"Local\" + InstanceName, out isFirst);
         _activateSignal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\" + InstanceName + ".Activate");
         if (!isFirst)
         {
@@ -49,6 +66,23 @@ public partial class App : Application
             Shutdown();
             return;
         }
+
+        // The first copy becomes the watchdog (no window) and runs the real app as its child — see Watchdog.
+        if (!isChild && !e.Args.Contains(Watchdog.NoWatchdogArg) && !System.Diagnostics.Debugger.IsAttached)
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            var args = e.Args;
+            new Thread(() =>
+            {
+                int code;
+                try { code = Watchdog.Supervise(args); }
+                catch (Exception ex) { LogCrash("watchdog", ex); code = 1; }
+                Dispatcher.BeginInvoke(() => Shutdown(code));
+            }) { Name = "watchdog", IsBackground = false }.Start();
+            return;
+        }
+        RestartNote = Watchdog.LastRestartNote(e.Args) ?? Watchdog.TakeGaveUpNote();
+        TimerResolution.Begin();
         var listener = new Thread(() =>
         {
             while (_activateSignal.WaitOne())
@@ -63,7 +97,15 @@ public partial class App : Application
 
         // Crash log: every unhandled exception — UI thread, worker threads, forgotten tasks — goes to
         // %APPDATA%\Stagewatch\crash.log (and into "Copy diagnostics").
-        DispatcherUnhandledException += (_, ex) => LogCrash("ui", ex.Exception);
+        DispatcherUnhandledException += (_, ex) =>
+        {
+            LogCrash("ui", ex.Exception);
+            // A stray fault in one handler must not end the show: contain it, say so, carry on. A fatal one (or a storm
+            // of them) still ends the process — and the watchdog brings the show back in seconds.
+            if (!Faults.Contain(ex.Exception, DateTime.UtcNow)) return;
+            ex.Handled = true;
+            (MainWindow as MainWindow)?.ReportFault(ex.Exception);
+        };
         AppDomain.CurrentDomain.UnhandledException += (_, ex) => LogCrash("fatal", ex.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, ex) => { LogCrash("task", ex.Exception); ex.SetObserved(); };
 
@@ -74,6 +116,7 @@ public partial class App : Application
         var window = new MainWindow(showArg is null ? null : System.IO.Path.GetFullPath(showArg));
         MainWindow = window;
         window.Show();
+        Watchdog.StartHeartbeat(e.Args, () => window.ShowLive);
     }
 
     private static string OpenRequestPath => System.IO.Path.Combine(
@@ -106,6 +149,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Watchdog.StopHeartbeat();
+        TimerResolution.End();
         if (SettingsStore is null) { base.OnExit(e); return; } // second instance, or the --slides role
         SettingsStore.SaveNow();
         SettingsStore.Dispose();

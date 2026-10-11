@@ -13,13 +13,22 @@ namespace Stagewatch.Remote;
 public sealed class McpEndpoint
 {
     public const string ProtocolVersion = "2025-06-18";
-    private readonly IShowControl _control;
+    private readonly IShowCommands _commands;
+    private readonly IShowReports _reports;
+    private readonly IShowAgents _agents;
+    private readonly IShowContext? _context;
     private readonly Func<byte[]> _detailFrame;
 
-    public McpEndpoint(IShowControl control, Func<byte[]> detailFrame)
+    public McpEndpoint(IShowControl control, Func<byte[]> detailFrame) : this(control, control, control, detailFrame, control) { }
+
+    /// <summary>MCP needs only these: run commands, read the report and the show's context, and route agents' commands to the operator.</summary>
+    public McpEndpoint(IShowCommands commands, IShowReports reports, IShowAgents agents, Func<byte[]> detailFrame, IShowContext? context = null)
     {
-        _control = control;
+        _commands = commands;
+        _reports = reports;
+        _agents = agents;
         _detailFrame = detailFrame;
+        _context = context;
     }
 
     /// <summary>Handle one JSON-RPC message (or batch). Returns the reply, or null for notifications.</summary>
@@ -87,6 +96,19 @@ public sealed class McpEndpoint
                 ["required"] = new JsonArray("command")
             }),
         Tool("get_report", "The planned-vs-actual show report as CSV.",
+            new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
+        Tool("get_proposal", "What became of a command you proposed: waiting for the operator, approved (with each step's result) or discarded. " +
+                             "Pass the proposal number run_command gave you.",
+            new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject { ["id"] = new JsonObject { ["type"] = "integer", ["description"] = "The proposal number" } },
+                ["required"] = new JsonArray("id")
+            }),
+        Tool("get_context", "The whole room at a glance (Show Bus context): this Stagewatch's light and one-line headline, its parts " +
+                            "(timer, departments, links to Patterns, presenter PCs, screens) with their lights, recent events, the verbs you may " +
+                            "propose with their risk, and every other show app it can hear (Patterns, AGMessage…) with their lights and headlines. " +
+                            "Lights are facts: grey means unknown — say so, never guess.",
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() })
     };
 
@@ -107,7 +129,7 @@ public sealed class McpEndpoint
                 return Text(frame?["timings"]?.ToJsonString() ?? "[]");
             }
             case "get_report":
-                return Text(_control.Report("csv") ?? "No running order yet.");
+                return Text(_reports.Report("csv") ?? "No running order yet.");
             case "run_command":
             {
                 var line = args?["command"]?.GetValue<string>() ?? "";
@@ -117,10 +139,22 @@ public sealed class McpEndpoint
                     return Text("Rejected: " + error + ". Grammar: " + ShowCommandParser.Help, isError: true);
                 // Human in the loop: by default an agent proposes and the operator decides.
                 var reason = args?["reason"]?.GetValue<string>() ?? "";
-                if (_control.ProposeFromAgent(line, reason) is { } queued) return Text(queued);
-                _control.Execute(cmd);
-                return Text("OK: " + line);
+                if (_agents.ProposeFromAgent(line, reason) is { } queued) return Text(queued);
+                // Acting directly: say what actually happened (Show Bus receipt), not just that it was sent.
+                var receipt = _commands.ExecuteWithReceiptAsync(cmd, "mcp", TimeSpan.FromSeconds(3));
+                if (!receipt.Wait(TimeSpan.FromSeconds(4))) return Text("Sent: " + line + " (Stagewatch hasn't confirmed it yet)");
+                var r = receipt.Result;
+                return r.Ok
+                    ? Text($"{(r.Stage == "applied" ? "Done" : "Accepted")}: {line}{(r.Effect.Length > 0 ? " — " + r.Effect : "")}")
+                    : Text($"Refused: {line} — {r.Error}", isError: true);
             }
+            case "get_proposal":
+            {
+                var id = args?["id"] is JsonValue v && v.TryGetValue<int>(out var n) ? n : 0;
+                return _agents.ProposalJson(id) is { } json ? Text(json) : Text($"No proposal {id}.", isError: true);
+            }
+            case "get_context":
+                return Text(_context?.ContextJson() ?? "{}");
             default:
                 return Text("Unknown tool: " + name, isError: true);
         }

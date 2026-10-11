@@ -16,9 +16,18 @@ public partial class SettingsDialog : Window
     private readonly Func<IReadOnlyList<(string Name, LinkHealth Health, string Status)>>? _integrations;
     private readonly ObservableCollection<TriggerRule> _triggers = new();
 
+    private readonly Func<string?>? _fingerprint;
+
+    private void OnCertificatePage(object sender, RoutedEventArgs e)
+    {
+        var port = int.TryParse(WebPort.Text, out var p) ? p : _store.Settings.Remote.WebPort;
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo($"http://localhost:{port}/tls") { UseShellExecute = true }); }
+        catch (System.ComponentModel.Win32Exception) { }
+    }
+
     public SettingsDialog(SettingsStore store, LicenseStatus license, Func<string>? diagnostics = null,
         Func<IReadOnlyList<(string Name, LinkHealth Health, string Status)>>? integrations = null,
-        Func<IReadOnlyList<PresenterPc>>? presenters = null)
+        Func<IReadOnlyList<PresenterPc>>? presenters = null, Func<string?>? fingerprint = null)
     {
         InitializeComponent();
         Help.ContextHelp.Attach(this);
@@ -27,6 +36,7 @@ public partial class SettingsDialog : Window
         _diagnostics = diagnostics;
         _integrations = integrations;
         _presenters = presenters;
+        _fingerprint = fingerprint;
         DiagnosticsButton.IsEnabled = diagnostics is not null;
         Load();
         LoadV2();
@@ -190,6 +200,7 @@ public partial class SettingsDialog : Window
         VmixHost.Text = i.VmixHost;
         VmixPort.Text = i.VmixPort.ToString();
         PatternsOn.IsChecked = i.Patterns;
+        PatternsNextOnEnd.IsChecked = i.PatternsNextOnEnd;
         PatternsHost.Text = i.PatternsHost;
         PatternsPort.Text = i.PatternsPort.ToString();
         if (i.PatternsTokenProtected.Length > 0) PatternsToken.Password = "••••••••";
@@ -307,6 +318,7 @@ public partial class SettingsDialog : Window
         i.VmixHost = VmixHost.Text.Trim();
         if (int.TryParse(VmixPort.Text, out var vp) && vp is > 0 and < 65536) i.VmixPort = vp;
         i.Patterns = PatternsOn.IsChecked == true;
+        i.PatternsNextOnEnd = PatternsNextOnEnd.IsChecked == true;
         i.PatternsHost = PatternsHost.Text.Trim().Length > 0 ? PatternsHost.Text.Trim() : "127.0.0.1";
         if (int.TryParse(PatternsPort.Text, out var pp) && pp is > 0 and < 65536) i.PatternsPort = pp;
         if (PatternsToken.Password != "••••••••")
@@ -405,6 +417,10 @@ public partial class SettingsDialog : Window
         WebEnabled.IsChecked = s.Remote.WebEnabled;
         WebPort.Text = s.Remote.WebPort.ToString();
         WebBindAll.IsChecked = s.Remote.WebBindAll;
+        WebHttps.IsChecked = s.Remote.Https;
+        WebRequireHttps.IsChecked = s.Remote.RequireHttps;
+        CertFingerprint.Text = _fingerprint?.Invoke() is { } fp ? "SHA-256 " + string.Join(":", Enumerable.Range(0, 8).Select(i => fp.Substring(7 + i * 4, 4))) + "…" : "no certificate yet";
+        CertFingerprint.ToolTip = _fingerprint?.Invoke();
         RemotePin.Text = s.Remote.Pin ?? "";
         CrewKeysOn.IsChecked = s.Remote.CrewKeysRequired;
         CustomCss.Text = s.Remote.CustomCss;
@@ -573,6 +589,8 @@ public partial class SettingsDialog : Window
             s.Remote.WebEnabled = WebEnabled.IsChecked == true;
             if (int.TryParse(WebPort.Text, out var wp) && wp is > 0 and < 65536) s.Remote.WebPort = wp;
             s.Remote.WebBindAll = WebBindAll.IsChecked == true;
+            s.Remote.Https = WebHttps.IsChecked == true;
+            s.Remote.RequireHttps = WebHttps.IsChecked == true && WebRequireHttps.IsChecked == true;
             s.Remote.Pin = RemotePin.Text.Trim();
             s.Remote.CrewKeysRequired = CrewKeysOn.IsChecked == true;
             s.Remote.ViewCode = ViewCode.Text.Trim();

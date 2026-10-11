@@ -56,12 +56,8 @@ public sealed partial class MainViewModel
         Presets.Clear();
         foreach (var p in Settings.Presets) Presets.Add(p);
 
-        // A new show starts at the top of its running order.
-        _currentItem = -1;
-        _rundownActive = false;
-        _currentItemStarted = false;
-        _showAnchorUtc = null;
-        _pinnedStartUtc = null;
+        // A new show starts at the top of its running order, with a fresh undo history.
+        _show.NewShow();
         OnRundownEdited();   // rebuilds rows + Starts box, bumps remotes/Companion
         UpdateWindowTitle();
         StatusLine = $"Opened show: {show.Name} — {show.Rundown.Items.Count} running-order items";

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using Stagewatch.Core;
 
 namespace Stagewatch.Integrations;
 
@@ -38,8 +39,12 @@ public sealed class PatternsLink : IPlayoutSource
     public const int HelloPort = 9928;
     public const int MaxLine = 256 * 1024;
     public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(3);
+    // Show Bus 1.1 liveness: a ping every 2 s; a link silent for 12 s is dropped and redialled.
     private static readonly TimeSpan PingEvery = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan DeadAfter = TimeSpan.FromSeconds(7);
+    private static readonly TimeSpan DeadAfter = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan ContextEvery = TimeSpan.FromSeconds(5);
+    /// <summary>How long to wait for a desk's NONCE before pairing the old way (desks older than Show Bus 1.1).</summary>
+    private static readonly TimeSpan NonceWait = TimeSpan.FromMilliseconds(1500);
 
     private readonly string _host;
     private readonly int _port;
@@ -57,6 +62,16 @@ public sealed class PatternsLink : IPlayoutSource
     private volatile string _status = "connecting";
     private long _lastLineMs;
     private int _malformed;
+    private int _nextId;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Action<bool, string>> _pending = new();
+    private readonly ClockOffsetEstimator _offset = new();
+    private volatile string? _context;
+    private volatile bool _proofSent;
+    /// <summary>The desk speaks Show Bus 1.1 (it sent NONCE): request ids, timed pings and CONTEXT. Older desks refuse
+    /// words they don't know, so they get plain lines.</summary>
+    private volatile bool _bus11;
+    /// <summary>The "@hi PING" probe is out: a 1.1 desk answers "OK @hi PONG …", an older one an ERR we swallow.</summary>
+    private volatile bool _probing;
 
     public PatternsLink(string host, int port, string token)
     {
@@ -74,6 +89,15 @@ public sealed class PatternsLink : IPlayoutSource
     public int Malformed => Volatile.Read(ref _malformed);
 
     public void Start() => _thread.Start();
+
+    /// <summary>The desk's clock minus ours (Show Bus §5), or null before a good sample.</summary>
+    public TimeSpan? ClockOffset => _offset.Offset;
+
+    /// <summary>Patterns' context (Show Bus §6 JSON: the Eye's headline, lights, problems…), refreshed every 5 s, or null.</summary>
+    public string? Context => _connected ? _context : null;
+
+    /// <summary>A command's receipt arrived: (ok, words). Raised on the link's thread.</summary>
+    public event Action<string, bool, string>? Receipt;
 
     /// <summary>The clip on air with its position counted on to now, or null (none, or stale).</summary>
     public PatternsVideo? Video
@@ -130,15 +154,24 @@ public sealed class PatternsLink : IPlayoutSource
         return Send(line);
     }
 
-    // Only lines built in this class reach the wire.
+    // Only lines built in this class reach the wire. Each carries a request id (Show Bus §3): the desk's
+    // "OK @id" / "ERR @id why" is matched back to it and raised as Receipt, so "sent" is never mistaken for "done".
     private string? Send(string line)
     {
         if (line.Trim().Equals("STOP", StringComparison.OrdinalIgnoreCase)) return "refused";   // never: it closes every Patterns output
         var s = _stream;
         if (!_connected || s is null) return "Patterns isn't connected — nothing sent";
+        var wire = line;
+        if (_bus11)
+        {
+            var id = "s" + Interlocked.Increment(ref _nextId).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _pending[id] = (ok, words) => Receipt?.Invoke(line, ok, words);
+            if (_pending.Count > 64) foreach (var old in _pending.Keys.Take(_pending.Count - 64)) _pending.TryRemove(old, out _);
+            wire = "@" + id + " " + line;
+        }
         try
         {
-            var bytes = Encoding.UTF8.GetBytes(line + "\n");
+            var bytes = Encoding.UTF8.GetBytes(wire + "\n");
             lock (_writeLock) s.Write(bytes, 0, bytes.Length);
             return null;
         }
@@ -164,7 +197,13 @@ public sealed class PatternsLink : IPlayoutSource
                 var stream = tcp.GetStream();
                 _stream = stream;
                 Write(stream, "HELLO Stagewatch");
-                if (_token.Length > 0) Write(stream, "AUTH " + _token);
+                // Pairing (Show Bus §7): the desk sends NONCE on connect and we prove we hold the token without sending
+                // it. A desk that never sends one is older: it gets the plain AUTH it expects (after a short wait).
+                _proofSent = _token.Length == 0;
+                _bus11 = false;
+                // A desk on this PC trusts loopback and sends no NONCE: ask it whether it speaks Show Bus 1.1.
+                _probing = true;
+                Write(stream, "@hi PING " + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
                 Interlocked.Exchange(ref _lastLineMs, _clock.ElapsedMilliseconds);
                 _connected = true;
                 backoff = 250;
@@ -181,6 +220,10 @@ public sealed class PatternsLink : IPlayoutSource
                 _connected = false;
                 _stream = null;
                 _latest.Set(null);
+                _context = null;
+                // Nothing waits for an answer from a dead link: every pending command is told it's lost.
+                foreach (var id in _pending.Keys.ToList())
+                    if (_pending.TryRemove(id, out var lost)) lost(false, "Patterns connection lost before it answered");
             }
             if (ct.IsCancellationRequested) break;
             ct.WaitHandle.WaitOne(backoff);
@@ -201,6 +244,8 @@ public sealed class PatternsLink : IPlayoutSource
         var line = new MemoryStream();
         var discarding = false;
         var lastPing = _clock.ElapsedMilliseconds;
+        var connectedAt = lastPing;
+        var lastContext = long.MinValue / 2;
         stream.ReadTimeout = 500;
         while (!ct.IsCancellationRequested)
         {
@@ -231,8 +276,24 @@ public sealed class PatternsLink : IPlayoutSource
                     }
                 }
             }
-            // A link that says nothing at all is checked, then dropped: no silent half-open sockets.
-            if (now - lastPing > PingEvery.TotalMilliseconds) { Write(stream, "PING"); lastPing = now; }
+            if (_probing && now - connectedAt > 3000) _probing = false;   // no answer to the probe: treat as an older desk
+            if (!_proofSent && now - connectedAt > NonceWait.TotalMilliseconds)
+            {
+                _proofSent = true;
+                Write(stream, "AUTH " + _token);   // a desk from before Show Bus 1.1: no NONCE, so the old way
+            }
+            // A link that says nothing at all is checked, then dropped: no silent half-open sockets. The ping carries
+            // our time, so the desk's reply gives the clock offset (Show Bus §5).
+            if (now - lastPing > PingEvery.TotalMilliseconds)
+            {
+                Write(stream, _bus11 ? "PING " + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture) : "PING");
+                lastPing = now;
+            }
+            if (_bus11 && _proofSent && now - lastContext > ContextEvery.TotalMilliseconds)
+            {
+                Write(stream, "@ctx CONTEXT");
+                lastContext = now;
+            }
             if (now - Interlocked.Read(ref _lastLineMs) > DeadAfter.TotalMilliseconds)
             {
                 Report(LinkHealth.Error, "Patterns stopped answering — reconnecting");
@@ -243,6 +304,56 @@ public sealed class PatternsLink : IPlayoutSource
 
     private void Handle(string line)
     {
+        if (line.StartsWith("NONCE ", StringComparison.Ordinal))
+        {
+            var nonce = line[6..].Trim();
+            _bus11 = true;
+            if (!_proofSent && _token.Length > 0 && nonce.Length is > 0 and <= 128 && _stream is { } st)
+            {
+                _proofSent = true;
+                Write(st, "AUTH-PROOF " + Proof(_token, nonce, "Stagewatch"));
+            }
+            return;
+        }
+        if (line.StartsWith("OK PONG ", StringComparison.Ordinal))
+        {
+            var p = line[8..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            if (p.Length >= 3 && long.TryParse(p[0], System.Globalization.NumberStyles.Integer, inv, out var t1)
+                && long.TryParse(p[1], System.Globalization.NumberStyles.Integer, inv, out var t2)
+                && long.TryParse(p[2], System.Globalization.NumberStyles.Integer, inv, out var t3))
+                _offset.Add(t1, t2, t3, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            return;
+        }
+        if (line.StartsWith("OK @hi PONG ", StringComparison.Ordinal))
+        {
+            _probing = false;
+            _bus11 = true;
+            Handle("OK PONG " + line[12..]);
+            return;
+        }
+        if (_probing && line.StartsWith("ERR", StringComparison.Ordinal) && !line.StartsWith("ERR @", StringComparison.Ordinal))
+        {
+            _probing = false;   // an older desk doesn't know "@hi": plain lines from here on
+            return;
+        }
+        // Receipts: "OK @id …" / "ERR @id …".
+        if ((line.StartsWith("OK @", StringComparison.Ordinal) || line.StartsWith("ERR @", StringComparison.Ordinal)))
+        {
+            var ok = line[0] == 'O';
+            var rest = line[(ok ? 4 : 5)..];
+            var sp = rest.IndexOf(' ');
+            var id = sp < 0 ? rest : rest[..sp];
+            var words = sp < 0 ? "" : rest[(sp + 1)..];
+            if (id == "ctx")
+            {
+                if (ok && words.StartsWith('{') && words.Length < 256 * 1024) _context = words;
+                return;
+            }
+            if (_pending.TryRemove(id, out var done)) done(ok, words.Length > 200 ? words[..200] : words);
+            if (ok) return;
+            line = "ERR " + words;
+        }
         if (line.StartsWith("STATE ", StringComparison.Ordinal))
         {
             if (TryParseState(line[6..], out var video))
@@ -259,6 +370,17 @@ public sealed class PatternsLink : IPlayoutSource
             Report(why.Contains("not paired", StringComparison.OrdinalIgnoreCase) || why.Contains("token", StringComparison.OrdinalIgnoreCase)
                 ? LinkHealth.Error : _health, "Patterns: " + (why.Length > 160 ? why[..160] : why));
         }
+    }
+
+    /// <summary>
+    /// Pure: the pairing proof — HMAC-SHA256(key, nonce + client name), lowercase hex (Show Bus §7). The key is the token as
+    /// Patterns canonicalises it: upper case, without dashes or spaces (so "abcd-efgh" typed either way pairs).
+    /// </summary>
+    public static string Proof(string token, string nonce, string clientName)
+    {
+        var key = new string(token.Where(c => c != '-' && !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
+        using var h = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(key));
+        return Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes(nonce + clientName))).ToLowerInvariant();
     }
 
     /// <summary>Pure: a STATE frame's JSON → the clip on air (null when none). False when the frame can't be read.</summary>
@@ -344,8 +466,11 @@ public sealed class PatternsLink : IPlayoutSource
         catch (JsonException) { return null; }
     }
 
+    private int _disposed;
+
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) == 1) return;   // safe to call twice (a retiring link may be stopped from two places)
         _cts.Cancel();
         try { _stream?.Dispose(); } catch { }
         if (_thread.IsAlive) _thread.Join(1500);

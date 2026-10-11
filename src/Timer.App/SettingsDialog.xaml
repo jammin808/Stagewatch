@@ -258,6 +258,15 @@
                             <TextBox x:Name="WebPort" Grid.Column="1" Width="100" HorizontalAlignment="Left" />
                         </Grid>
                         <CheckBox x:Name="WebBindAll" Content="Allow other devices on the network (off = this PC only)" Margin="0,4,0,8" />
+                        <CheckBox x:Name="WebHttps" Content="Encrypted connections (HTTPS) too — same port, plain HTTP keeps working" Margin="0,0,0,4"
+                                  ToolTip="Stagewatch's own certificate (made once for this PC). Screens that trust it get https:// and wss://." />
+                        <CheckBox x:Name="WebRequireHttps" Content="Require HTTPS from other devices (plain HTTP is sent to https://)" Margin="24,0,0,4"
+                                  ToolTip="Screens must trust the certificate first: open /tls on each device. This PC can always use plain HTTP." />
+                        <StackPanel Orientation="Horizontal" Margin="24,0,0,8">
+                            <TextBlock x:Name="CertFingerprint" FontFamily="Consolas" FontSize="11" Opacity="0.6" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="380" />
+                            <Button Content="Certificate page" Click="OnCertificatePage" Margin="8,0,0,0" Padding="10,2" MinHeight="0" FontSize="12"
+                                    ToolTip="Open /tls: the fingerprint and how to trust it on Windows, macOS, iPhone/iPad and Android" />
+                        </StackPanel>
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="180" />
@@ -458,6 +467,8 @@
                             <TextBlock Text="Pairing token" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,8,0" />
                             <PasswordBox x:Name="PatternsToken" Width="180" ToolTip="Patterns → Remote → TRUST. Leave empty if the desk asks for none." />
                         </StackPanel>
+                        <CheckBox x:Name="PatternsNextOnEnd" Content="When the clip ends on a video item, go to the next item" Margin="24,2,0,4"
+                                  ToolTip="The live item must be a Video item (or labelled VT). The clip ending is also a trigger (Triggers → Clip ends)." />
                         <TextBlock x:Name="PatternsNote" Opacity="0.55" FontSize="12" TextWrapping="Wrap" Margin="24,0,0,14"
                                    Text="With vMix and Patterns both on, the VT countdown follows whichever is playing (Patterns if both)." />
 

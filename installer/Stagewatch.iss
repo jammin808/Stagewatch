@@ -2,7 +2,7 @@
 ; Build with the Inno Setup 6 IDE or `iscc Stagewatch.iss`.
 
 #define AppName       "Stagewatch"
-#define AppVersion    "2.11.1"
+#define AppVersion    "2.16.0"
 #define AppPublisher  "Stagewatch"
 #define AppExe        "Stagewatch.exe"
 #define AppId         "{{8E2C5F60-9B5C-4F44-9D60-1F0B6E3E7B92}"

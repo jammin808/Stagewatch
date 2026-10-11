@@ -34,46 +34,14 @@ public sealed partial class MainViewModel
     /// <summary>Make another running order live. Returns false (with a status line) when it can't.</summary>
     public bool SwitchRundown(string name)
     {
-        name = name.Trim();
-        if (string.Equals(name, Settings.RundownName, StringComparison.OrdinalIgnoreCase)) return true;
-        if (Other(name) is not { } target) { StatusLine = $"No running order called \"{name}\""; return false; }
-        if (RollMode) SetRoll(false);
-        if (_rundownActive && _currentItemStarted) MarkItemEnded(_currentItem);
-        var from = Settings.RundownName;
-        _store.Update(s =>
+        var ok = _show.SwitchRundown(name);
+        if (ok)
         {
-            s.OtherRundowns.RemoveAll(r => string.Equals(r.Name, target.Name, StringComparison.OrdinalIgnoreCase));
-            s.OtherRundowns.Insert(0, new NamedRundown { Name = s.RundownName, Rundown = s.Rundown });
-            s.Rundown = target.Rundown;
-            s.RundownName = target.Name;
-        });
-        _actuals.Clear();
-        _pendingDelay = TimeSpan.Zero;
-        _currentItem = -1;
-        _rundownActive = false;
-        _currentItemStarted = false;
-        _showAnchorUtc = null;
-        _pinnedStartUtc = null;
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, -1, $"Running order switched: {from} → {target.Name}");
-        // The old talk ends here: its timer stops and its title comes off every screen. The new running order's first
-        // item is loaded (not started), so what screens show belongs to the running order that is now live.
-        _engine.SetMode(TimerMode.Countdown);
-        _engine.SetDuration(TimeSpan.Zero);
-        EndAtInput = "";
-        _activeTitle = "";
-        _loopPass = 0;
-        OnRundownEdited();
-        RefreshRundownNames();
-        RefreshUndo();
-        if (Settings.Rundown.Items.Count > 0)
-        {
-            GoToItem(0, start: false);
-            StatusLine = $"Running order \"{target.Name}\" is live — item 1 loaded, Start when ready";
+            OnRundownEdited();
+            RefreshRundownNames();
+            RefreshUndo();
         }
-        else StatusLine = $"Running order \"{target.Name}\" is live — it has no items yet";
-        MarkDirty();
-        Publish();
-        return true;
+        return ok;
     }
 
     public bool NewRundown(string name, bool duplicateLive)
@@ -82,6 +50,7 @@ public sealed partial class MainViewModel
         if (!NamedRundown.ValidName(name) || NameTaken(name)) { StatusLine = "Pick a new name (up to 40 characters)"; return false; }
         var rundown = duplicateLive ? Settings.Rundown.Clone() : new Rundown { TimeZoneId = Settings.Rundown.TimeZoneId };
         if (duplicateLive) foreach (var i in rundown.Items) { i.Id = Guid.NewGuid().ToString("N")[..10]; i.AdjustSeconds = 0; }
+        rundown.Id = Rundown.NewId();   // a copy is a different running order: its history is its own
         _store.Update(s => s.OtherRundowns.Add(new NamedRundown { Name = name, Rundown = rundown }));
         RefreshRundownNames();
         StatusLine = $"Running order \"{name}\" added (not live)";
@@ -98,16 +67,16 @@ public sealed partial class MainViewModel
             if (string.Equals(s.RundownName, oldName, StringComparison.OrdinalIgnoreCase)) s.RundownName = newName;
             else if (s.OtherRundowns.FirstOrDefault(r => string.Equals(r.Name, oldName, StringComparison.OrdinalIgnoreCase)) is { } r) r.Name = newName;
         });
-        RenameEditHistory(oldName, newName);
+        _show.RundownRenamed(oldName, newName);
         RefreshRundownNames();
         return true;
     }
 
     public bool DeleteRundown(string name)
     {
-        if (string.Equals(name, Settings.RundownName, StringComparison.OrdinalIgnoreCase)) { StatusLine = "The live running order can't be deleted — switch to another first"; return false; }
+        if (string.Equals(name, Settings.RundownName, StringComparison.OrdinalIgnoreCase)) { Refuse("The live running order can't be deleted — switch to another first"); return false; }
         _store.Update(s => s.OtherRundowns.RemoveAll(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase)));
-        _editsByOrder.Remove(name);
+        _show.RundownDeleted(name);
         RefreshRundownNames();
         StatusLine = $"Running order \"{name}\" deleted";
         return true;
@@ -116,5 +85,5 @@ public sealed partial class MainViewModel
     public bool IsLiveRundown(string name) => string.Equals(name, Settings.RundownName, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>True while something from the live running order is on the clock (switching would interrupt it).</summary>
-    public bool RundownBusy => _rundownActive && (_engine.IsCounting || _currentItemStarted);
+    public bool RundownBusy => _show.RundownActive && (_engine.IsCounting || _show.ItemStarted);
 }

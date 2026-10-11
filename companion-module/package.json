@@ -1,6 +1,6 @@
 {
 	"name": "stagewatch",
-	"version": "2.11.1",
+	"version": "2.16.0",
 	"description": "Bitfocus Companion module for the Stagewatch stage timer",
 	"main": "dist/main.js",
 	"type": "module",

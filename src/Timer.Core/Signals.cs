@@ -35,6 +35,15 @@ public sealed record Signal
     public bool Escalated { get; init; }
 
     public bool IsOpen => State is SignalState.Sent or SignalState.Seen;
+
+    /// <summary>
+    /// A department standing by: a standby that hasn't been answered with a GO or cleared. Confirmed ("in position")
+    /// still counts — that department is waiting for its GO.
+    /// </summary>
+    public bool IsStandingBy => Kind == SignalKind.Standby && State is SignalState.Sent or SignalState.Seen or SignalState.Done;
+
+    /// <summary>Still in play: waiting for an answer, or a department standing by.</summary>
+    public bool IsLive => IsOpen || IsStandingBy;
 }
 
 /// <summary>The view of a signal every output gets (value type, compared by content).</summary>
@@ -66,7 +75,7 @@ public sealed class SignalBoard
         // A new standby/go/call to the same target supersedes the previous one.
         if (kind is SignalKind.Standby or SignalKind.Go or SignalKind.Call)
             for (int i = 0; i < _signals.Count; i++)
-                if (_signals[i].IsOpen && _signals[i].Target == target && _signals[i].Kind is SignalKind.Standby or SignalKind.Go or SignalKind.Call)
+                if (_signals[i].IsLive && _signals[i].Target == target && _signals[i].Kind is SignalKind.Standby or SignalKind.Go or SignalKind.Call)
                     Replace(i, _signals[i] with { State = SignalState.Cancelled, DoneUtc = nowUtc });
 
         var s = new Signal { Id = _nextId++, Kind = kind, Target = target, Text = text, State = SignalState.Sent, SentUtc = nowUtc };
@@ -103,14 +112,14 @@ public sealed class SignalBoard
     public void Cancel(int id, DateTime nowUtc)
     {
         var i = _signals.FindIndex(s => s.Id == id);
-        if (i >= 0 && _signals[i].IsOpen) Replace(i, _signals[i] with { State = SignalState.Cancelled, DoneUtc = nowUtc });
+        if (i >= 0 && _signals[i].IsLive) Replace(i, _signals[i] with { State = SignalState.Cancelled, DoneUtc = nowUtc });
     }
 
     public void ClearTarget(string target, DateTime nowUtc)
     {
         target = NormaliseTarget(target);
         for (int i = 0; i < _signals.Count; i++)
-            if (_signals[i].IsOpen && (target == "*" || _signals[i].Target == target))
+            if (_signals[i].IsLive && (target == "*" || _signals[i].Target == target))
                 Replace(i, _signals[i] with { State = SignalState.Cancelled, DoneUtc = nowUtc });
     }
 
@@ -127,7 +136,7 @@ public sealed class SignalBoard
                 Replace(i, e);
                 escalated.Add(e);
             }
-            else if (!s.IsOpen && s.DoneUtc is { } d && nowUtc - d > KeepDoneFor)
+            else if (!s.IsLive && s.DoneUtc is { } d && nowUtc - d > KeepDoneFor)
             {
                 _signals.RemoveAt(i);
                 Version++;
@@ -137,6 +146,9 @@ public sealed class SignalBoard
     }
 
     public Signal? Find(int id) => _signals.FirstOrDefault(s => s.Id == id);
+
+    /// <summary>The departments standing by, in the order they were stood by (one standby each).</summary>
+    public IReadOnlyList<Signal> StandingBy() => _signals.Where(s => s.IsStandingBy).ToList();
 
     /// <summary>The latest open signal for a target, if any.</summary>
     public Signal? LatestFor(string target, SignalKind? kind = null)

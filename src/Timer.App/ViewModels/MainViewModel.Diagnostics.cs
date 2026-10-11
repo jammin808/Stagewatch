@@ -36,6 +36,12 @@ public sealed partial class MainViewModel
         Line("Version", asm.GetName().Version);
         Line("Exe", Environment.ProcessPath);
         Line("Running since", $"{_startedAt:HH:mm:ss} ({(DateTime.Now - _startedAt):hh\\:mm\\:ss})");
+        Line("Slow frame consumer", SlowSubscriberNote ?? "none (no consumer has delayed a frame)");
+        Line("Watchdog", Environment.GetCommandLineArgs().Contains(Watchdog.ChildArg) ? "watching (restarts a crashed or hung Stagewatch in seconds; watchdog.log)" : "off (run with --no-watchdog or under a debugger)");
+        Line("Faults contained", App.Faults.Total);
+        Line("GO latency", GoLatencyLine);
+        Line("Garbage collector", System.Runtime.GCSettings.LatencyMode + (System.Runtime.GCSettings.IsServerGC ? ", server" : ", workstation"));
+        if (SettingsStore.LoadedFromBackup) Line("Settings", "the settings file was damaged at start — the last good copy (.bak) was loaded");
         Line("Memory", $"{Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024)} MB");
         Line(".NET", RuntimeInformation.FrameworkDescription);
         Line("Windows", RuntimeInformation.OSDescription + " " + RuntimeInformation.OSArchitecture);
@@ -74,7 +80,7 @@ public sealed partial class MainViewModel
         Line("Show file", Settings.ShowPath ?? "(not saved)");
         Line("Timer", $"{_engine.Mode} {_engine.State} {TimerText}");
         Line("Title", CurrentTitle);
-        Line("Running order", $"{Settings.Rundown.Items.Count} items, current {(_rundownActive ? _currentItem + 1 : 0)}, starts {Settings.Rundown.ScheduledStart ?? "—"}");
+        Line("Running order", $"{Settings.Rundown.Items.Count} items, current {(_show.RundownActive ? _show.CurrentItem + 1 : 0)}, starts {Settings.Rundown.ScheduledStart ?? "—"}");
         Line("Settings", $"overtime={Settings.AllowOvertime} warn={Settings.Display.WarningSeconds}s wrap={Settings.Display.WrapUpSeconds}s 12h={Settings.Display.Use12HourClock} elements={Settings.Display.Elements}");
 
         Section("Recent activity");

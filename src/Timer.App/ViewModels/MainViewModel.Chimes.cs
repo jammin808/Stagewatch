@@ -104,7 +104,7 @@ public sealed partial class MainViewModel
     /// <summary>The chime for a moment of the live item: its own override, else the show's alert (when that alert is on).</summary>
     private string ChimeFor(string moment, bool showAlertOn)
     {
-        var item = _rundownActive && _currentItem >= 0 && _currentItem < Settings.Rundown.Items.Count ? Settings.Rundown.Items[_currentItem] : null;
+        var item = _show.RundownActive && _show.CurrentItem >= 0 && _show.CurrentItem < Settings.Rundown.Items.Count ? Settings.Rundown.Items[_show.CurrentItem] : null;
         var own = moment switch
         {
             "start" => item?.Chimes.Start,

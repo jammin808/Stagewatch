@@ -35,25 +35,4 @@ public sealed partial class MainViewModel
         }
         return list;
     }
-
-    private void ApplyDeptNote(int item, string text)
-    {
-        var parts = text.Split('\u0001');
-        if (parts.Length < 2) return;
-        var (dept, note) = (parts[0].Trim(), parts[1]);
-        var index = item - 1;
-        if (index < 0 || index >= Settings.Rundown.Items.Count) { StatusLine = $"No item {item} for a {dept} note"; return; }
-        var before = Settings.Rundown.Items[index].DeptNote(dept);
-        if (before == note.Trim()) return;
-        RecordEdit($"{dept} note on item {item}",
-            new ShowCommand(ShowCommandKind.DeptNote, Number: item, Text: dept + "\u0001" + before),
-            new ShowCommand(ShowCommandKind.DeptNote, Number: item, Text: dept + "\u0001" + note),
-            targets: ItemTarget(index) is { } t ? new[] { t } : null);
-        _store.Update(s => s.Rundown.Items[index].SetDeptNote(dept, note));
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, index, $"{dept} note: {(note.Length > 0 ? note : "(cleared)")}");
-        RefreshNotesCopy();
-        StatusLine = $"{dept} updated their note on item {item}";
-        MarkDirty();
-        Publish();
-    }
 }

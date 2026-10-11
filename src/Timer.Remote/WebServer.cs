@@ -56,6 +56,18 @@ public sealed class WebServer : IAsyncDisposable
     }
 
     public bool IsRunning => _listener is not null;
+
+    /// <summary>
+    /// This install's certificate (Show Bus §10). With one, the port also speaks TLS: a connection whose first byte is a
+    /// TLS handshake is encrypted, any other is plain HTTP — one port, both kinds of client.
+    /// </summary>
+    public System.Security.Cryptography.X509Certificates.X509Certificate2? Certificate { get; set; }
+
+    /// <summary>Refuse plain HTTP and WebSockets from other machines (this machine and the certificate pages still work).</summary>
+    public bool RequireHttps { get; set; }
+
+    /// <summary>The certificate's fingerprint ("sha256:…"), or null without one.</summary>
+    public string? Fingerprint => Certificate is { } c ? TlsPins.Fingerprint(c.RawData) : null;
     public int Port { get; private set; }
     public int ConnectedClients => _sockets.Count;
 
@@ -218,16 +230,46 @@ public sealed class WebServer : IAsyncDisposable
         try
         {
             tcp.NoDelay = true;
-            var stream = tcp.GetStream();
+            Stream stream = tcp.GetStream();
             var remote = (tcp.Client.RemoteEndPoint as IPEndPoint)?.Address ?? IPAddress.None;
 
             HttpRequest? req;
+            var secure = false;
             using (var headerCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
                 headerCts.CancelAfter(HeaderTimeout);
+                // TLS or plain on the same port: a TLS client speaks first with a handshake record (0x16).
+                if (Certificate is { } cert)
+                {
+                    var first = new byte[1];
+                    var n = await tcp.Client.ReceiveAsync(first, SocketFlags.Peek, headerCts.Token);
+                    if (n == 0) return;
+                    if (first[0] == 0x16)
+                    {
+                        var ssl = new System.Net.Security.SslStream(stream, leaveInnerStreamOpen: false);
+                        await ssl.AuthenticateAsServerAsync(new System.Net.Security.SslServerAuthenticationOptions
+                        {
+                            ServerCertificate = cert,
+                            ClientCertificateRequired = false,
+                            EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                        }, headerCts.Token);
+                        stream = ssl;
+                        secure = true;
+                    }
+                }
                 req = await HttpRequest.ReadAsync(stream, MaxHeaderBytes, headerCts.Token);
             }
             if (req is null) return;
+
+            // Require HTTPS: plain requests from other machines go to the encrypted address (the certificate pages stay
+            // reachable, so a screen can fetch the certificate it needs to trust).
+            if (!secure && RequireHttps && !IPAddress.IsLoopback(remote) && req.Path is not ("/tls" or "/tls.cer"))
+            {
+                if (req.IsWebSocketUpgrade) { await WriteJsonError(stream, 403, "this Stagewatch requires wss:// (Settings → Remote → Require HTTPS)", ct); return; }
+                var host = req.Headers.GetValueOrDefault("host") ?? $"{Screens.AddressOf(remote)}:{Port}";
+                await WriteRedirectAsync(stream, "https://" + host + req.Path + (req.Query.Count == 0 ? "" : "?" + string.Join("&", req.Query.Select(kv => Uri.EscapeDataString(kv.Key) + "=" + Uri.EscapeDataString(kv.Value)))), ct);
+                return;
+            }
 
             if (req.Path == "/ws" && req.IsWebSocketUpgrade)
             {
@@ -332,6 +374,32 @@ public sealed class WebServer : IAsyncDisposable
             }
             case "/mcp":
                 await HandleMcpAsync(stream, req, remote, ct); return;
+            case "/tls":
+                await WriteAsync(stream, 200, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(TlsPage()), ct); return;
+            case "/tls.cer":
+                if (Certificate is not { } cer) { await WriteJsonError(stream, 404, "no certificate", ct); return; }
+                await WriteAsync(stream, 200, "application/pkix-cert", cer.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Cert), ct,
+                    extra: "Content-Disposition: attachment; filename=\"stagewatch.cer\"\r\n"); return;
+            case "/api/proposals":
+                await HandleProposalsAsync(stream, req, remote, null, ct); return;
+            case "/api/context":
+            {
+                // Show Bus §6: what this node is doing, for other apps and their AI. Read access (PIN or any key).
+                if (Authorize(req, remote, ApiKeyScope.Read) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+                var json = _control.ContextJson();
+                if (json is null) { await WriteJsonError(stream, 404, "no context", ct); return; }
+                await WriteAsync(stream, 200, "application/json", Encoding.UTF8.GetBytes(json), ct, cors: true, extra: RateHeaders(req)); return;
+            }
+            case "/api/peers/context":
+            {
+                // Another show app tells us what it's doing (its own context, §6). A node key, a control key or the PIN.
+                if (req.Method != "POST") { await WriteJsonError(stream, 405, "POST the context", ct); return; }
+                if (Authorize(req, remote, ApiKeyScope.Node) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+                if (req.Body.Length is 0 or > 64 * 1024) { await WriteJsonError(stream, 400, "a context is 1 byte to 64 KB of JSON", ct); return; }
+                if (_control.AcceptPeerContext(Encoding.UTF8.GetString(req.Body), Screens.AddressOf(remote), NodeKeyId(req)) is { } refused)
+                { await WriteJsonError(stream, 400, refused, ct); return; }
+                await WriteAsync(stream, 200, "application/json", "{\"ok\":true}"u8.ToArray(), ct, extra: RateHeaders(req)); return;
+            }
             case "/api/state":
             {
                 if (CheckView(req, remote) is { } viewDenied) { await WriteJsonError(stream, 401, viewDenied, ct); return; }
@@ -399,6 +467,11 @@ public sealed class WebServer : IAsyncDisposable
             return;
         }
 
+        if (req.Path.StartsWith("/api/proposals/", StringComparison.Ordinal))
+        {
+            await HandleProposalsAsync(stream, req, remote, req.Path["/api/proposals/".Length..], ct);
+            return;
+        }
         if (req.Path == "/api/layouts" || req.Path.StartsWith("/api/layouts/", StringComparison.Ordinal))
         {
             await HandleLayoutsAsync(stream, req, remote, ct);
@@ -423,6 +496,79 @@ public sealed class WebServer : IAsyncDisposable
             return;
         }
         await WriteJsonError(stream, 404, "not found", ct);
+    }
+
+    /// <summary>The node key behind a request, if it carries one (Show Bus §11 binds it to the node it speaks for).</summary>
+    private string? NodeKeyId(HttpRequest req)
+        => ApiKeys.Find(_control.ApiKeys, PinFrom(req)) is { Scope: ApiKeyScope.Node } k ? k.Id : null;
+
+    /// <summary>
+    /// The shared approval queue (Show Bus §11). POST /api/proposals (a node, MCP or control key, or the PIN);
+    /// GET /api/proposals/&lt;id&gt; and ?from=&lt;node&gt; (read); GET ?target=&lt;node&gt;&amp;state=approved collects what was
+    /// approved for a node (its node key, or control/PIN); POST /api/proposals/&lt;id&gt;/result reports what it did.
+    /// </summary>
+    private async Task HandleProposalsAsync(Stream stream, HttpRequest req, IPAddress remote, string? rest, CancellationToken ct)
+    {
+        async Task Reply((int Status, string Json) r) => await WriteAsync(stream, r.Status, "application/json", Encoding.UTF8.GetBytes(r.Json), ct, cors: true, extra: RateHeaders(req));
+        Denied? Proposer()
+        {
+            var supplied = PinFrom(req);
+            if (ApiKeys.LooksLikeKey(supplied) && ApiKeys.Find(_control.ApiKeys, supplied) is { Scope: ApiKeyScope.Mcp })
+                return Authorize(req, remote, ApiKeyScope.Mcp);
+            return Authorize(req, remote, ApiKeyScope.Node);
+        }
+        if (string.IsNullOrEmpty(rest))
+        {
+            if (req.Method == "POST")
+            {
+                if (Proposer() is { } denied) { await WriteDenied(stream, denied, ct); return; }
+                if (req.Body.Length is 0 or > 16 * 1024) { await WriteJsonError(stream, 400, "a proposal is 1 byte to 16 KB of JSON", ct); return; }
+                await Reply(_control.SubmitProposal(Encoding.UTF8.GetString(req.Body), NodeKeyId(req)));
+                return;
+            }
+            if (req.Query.GetValueOrDefault("target") is { Length: > 0 } target)
+            {
+                if (Authorize(req, remote, ApiKeyScope.Node) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+                if (req.Query.GetValueOrDefault("state") is not (null or "approved")) { await WriteJsonError(stream, 400, "targets collect state=approved", ct); return; }
+                await Reply(_control.CollectApproved(target, NodeKeyId(req)));
+                return;
+            }
+            if (Authorize(req, remote, ApiKeyScope.Read) is { } readDenied) { await WriteDenied(stream, readDenied, ct); return; }
+            await Reply(_control.ProposalsFrom(req.Query.GetValueOrDefault("from") ?? ""));
+            return;
+        }
+        var parts = rest.Split('/', 2);
+        if (parts.Length == 2 && parts[1] == "result")
+        {
+            if (req.Method != "POST") { await WriteJsonError(stream, 405, "POST the result", ct); return; }
+            if (Authorize(req, remote, ApiKeyScope.Node) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+            await Reply(_control.ProposalResult(parts[0], Encoding.UTF8.GetString(req.Body), NodeKeyId(req)));
+            return;
+        }
+        if (Authorize(req, remote, ApiKeyScope.Read) is { } getDenied) { await WriteDenied(stream, getDenied, ct); return; }
+        await Reply(_control.GetProposal(parts[0]));
+    }
+
+    /// <summary>How to trust this Stagewatch's certificate on a screen (Show Bus §10).</summary>
+    private string TlsPage()
+    {
+        var fp = Fingerprint;
+        var body = fp is null
+            ? "<p>This Stagewatch has no certificate yet (Settings → Remote).</p>"
+            : $"""
+               <p>Fingerprint (SHA-256): <code>{fp[7..]}</code></p>
+               <p><a href="/tls.cer">Download the certificate</a>, then trust it on this device:</p>
+               <ul>
+               <li><b>Windows</b>: open the file → Install Certificate → Local Machine → "Trusted Root Certification Authorities".</li>
+               <li><b>macOS</b>: open it in Keychain Access → System → double-click it → Trust → Always Trust.</li>
+               <li><b>iPhone / iPad</b>: open the download → Settings → Profile Downloaded → Install; then Settings → General → About → Certificate Trust Settings → turn it on.</li>
+               <li><b>Android</b>: Settings → Security → Encryption &amp; credentials → Install a certificate → CA certificate.</li>
+               </ul>
+               <p>Check the fingerprint matches the one in Stagewatch (Settings → Remote) before you trust it. Then open screens with <code>https://</code>.</p>
+               """;
+        return $"<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><title>Stagewatch certificate</title>" +
+               "<style>body{font:16px system-ui;background:#0b0d12;color:#e6e8ee;max-width:42em;margin:2em auto;padding:0 1em}code{word-break:break-all;color:#22d3ee}a{color:#a78bfa}</style>" +
+               "<h1>Stagewatch: encrypted screens</h1>" + body;
     }
 
     /// <summary>One copilot design at a time: each is a paid model call.</summary>
@@ -500,11 +646,16 @@ public sealed class WebServer : IAsyncDisposable
         if (segments.Count == 0) { await WriteJsonError(stream, 404, "missing command", ct); return; }
         var verb = segments[0];
 
-        // Acknowledging a cue and asking a question need no PIN (speaker tablets, audience phones).
+        // Acknowledging a cue and asking a question need no PIN (speaker tablets, audience phones). A node key (another
+        // show app) may put a message on the stage and nothing else.
         var authorized = false;
         if (!ShowCommandParser.IsPublicVerb(verb))
         {
-            if (Authorize(req, remote, ApiKeyScope.Control) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+            var probeArgs = segments.Skip(1).ToList();
+            if (probeArgs.Count == 0) probeArgs = ArgsFromQuery(req.Query);
+            var need = ShowCommandParser.TryParse(verb, probeArgs, out var probe, out _) && ApiKeys.NodeMayRun(probe.Kind)
+                ? ApiKeyScope.Node : ApiKeyScope.Control;
+            if (Authorize(req, remote, need) is { } denied) { await WriteDenied(stream, denied, ct); return; }
             authorized = true;
         }
         else if (IsQuestion(verb) && !AllowQuestion(remote))
@@ -537,9 +688,19 @@ public sealed class WebServer : IAsyncDisposable
                 return;
             }
         }
+        // Show Bus receipts: with a request id the sender hears what happened, not just that it was sent.
+        if (CommandReceipt.CleanId(req.Headers.GetValueOrDefault("x-request-id")) is { } requestId)
+        {
+            var receipt = await _control.ExecuteWithReceiptAsync(cmd, requestId, ReceiptWait);
+            await WriteAsync(stream, receipt.Ok ? 200 : 409, "application/json", receipt.ToJson(), ct, extra: RateHeaders(req));
+            return;
+        }
         _control.Execute(cmd);
         await WriteAsync(stream, 200, "application/json", "{\"ok\":true}"u8.ToArray(), ct, extra: RateHeaders(req));
     }
+
+    /// <summary>How long a receipt waits for the show thread before saying "accepted" (Show Bus §3).</summary>
+    public static readonly TimeSpan ReceiptWait = TimeSpan.FromSeconds(3);
 
     private static List<string> ArgsFromQuery(IReadOnlyDictionary<string, string> q)
     {
@@ -652,7 +813,7 @@ public sealed class WebServer : IAsyncDisposable
             await WriteJsonError(stream, status, error, ct);
         }
         if (req.Method != "POST") { await Refuse(405, "POST the script"); return; }
-        if (CheckPin(PinFrom(req), remote) is { } auth) { await Refuse(401, auth); return; }
+        if (Authorize(req, remote, ApiKeyScope.Control) is { } auth) { await Refuse(auth.Status, auth.Error); return; }
         byte[]? body;
         using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
         {
@@ -677,9 +838,7 @@ public sealed class WebServer : IAsyncDisposable
             await WriteJsonError(stream, status, error, ct);
         }
         if (req.Method != "POST") { await Refuse(405, "POST the image file"); return; }
-        var auth = CheckPin(req.Query.GetValueOrDefault("pin") ?? req.Headers.GetValueOrDefault("x-stagewatch-pin")
-                            ?? BearerPin(req.Headers.GetValueOrDefault("authorization")), remote);
-        if (auth is not null) { await Refuse(401, auth); return; }
+        if (Authorize(req, remote, ApiKeyScope.Control) is { } auth) { await Refuse(auth.Status, auth.Error); return; }
         if (req.DeferredLength <= 0) { await WriteJsonError(stream, 400, "empty upload", ct); return; }
         byte[]? body;
         using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct))
@@ -719,7 +878,7 @@ public sealed class WebServer : IAsyncDisposable
         return supplied is null ? "This screen needs the viewing code" : "Wrong viewing code";
     }
 
-    private static string DeptOf(ShowCommand cmd) => (cmd.Text ?? "").Split('\u0001')[0];
+    private static string DeptOf(ShowCommand cmd) => cmd.Get<DeptNoteArgs>().Department;
 
     /// <summary>A department's notes may be read or written without the PIN only from that department's crew link
     /// (when crew links are required). Returns why not, or null.</summary>
@@ -739,9 +898,9 @@ public sealed class WebServer : IAsyncDisposable
         var (secret, required) = _control.CrewKeyPolicy;
         if (required && !string.IsNullOrEmpty(secret) && !CrewKeys.Matches(secret, signal.Target, key))
             return $"This screen can't confirm cues for {signal.Target}. Open its crew link (Showcaller page → Crew links).";
-        var parts = (cmd.Text ?? "|seen").Split('|');
-        var by = parts[0].Length > 0 ? $"{parts[0]} ({remote})" : remote.ToString();
-        cmd = cmd with { Text = by.Replace("|", "/") + "|" + (parts.Length > 1 ? parts[1] : "seen") };
+        var ack = cmd.Get<AckArgs>();
+        var by = (ack.By.Length > 0 ? $"{ack.By} ({remote})" : remote.ToString()).Replace("|", "/");
+        cmd = cmd with { Text = by + "|" + ack.State, Args = new AckArgs(by, ack.State) };
         return null;
     }
 
@@ -831,8 +990,21 @@ public sealed class WebServer : IAsyncDisposable
     private async Task HandleWebSocketAsync(Stream stream, HttpRequest req, IPAddress remote, CancellationToken ct)
     {
         var wantsControl = req.Query.GetValueOrDefault("role") == "control";
-        string? authError = wantsControl ? CheckPin(req.Query.GetValueOrDefault("pin"), remote) : null;
-        var viewError = wantsControl && authError is null ? null : CheckView(req, remote);
+        // The PIN or a key may come in the Authorization header (Show Bus §7: never in a URL), or ?pin= from a browser.
+        var supplied = BearerPin(req.Headers.GetValueOrDefault("authorization")) ?? req.Query.GetValueOrDefault("pin");
+        string? authError = null;
+        var readKey = false;
+        if (ApiKeys.LooksLikeKey(supplied))
+        {
+            // A control key controls; any other valid key reads the operator frame. Unknown or revoked keys are refused.
+            var asRead = Authorize(req, remote, ApiKeyScope.Read);
+            readKey = asRead is null;
+            if (!readKey) authError = asRead!.Error;
+            else if (wantsControl && ApiKeys.Find(_control.ApiKeys, supplied) is { } k && !ApiKeys.Allows(k.Scope, ApiKeyScope.Control))
+                authError = $"this API key is {ApiKeys.Describe(k.Scope)}";
+        }
+        else if (wantsControl) authError = CheckPin(supplied, remote);
+        var viewError = (wantsControl && authError is null) || readKey ? null : CheckView(req, remote);
 
         var key = req.Headers.GetValueOrDefault("sec-websocket-key") ?? "";
         var accept = Convert.ToBase64String(SHA1.HashData(Encoding.ASCII.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));
@@ -849,6 +1021,7 @@ public sealed class WebServer : IAsyncDisposable
         var cid = req.Query.GetValueOrDefault("cid");
         var client = new WsClient(ws, canControl: wantsControl && authError is null, detail, remote)
         {
+            ReadKey = readKey,
             CrewKey = req.Query.GetValueOrDefault("key"),
             ScreenId = Screens.ValidId(cid) ? cid! : "anon-" + Guid.NewGuid().ToString("N")[..8],
             Page = Screens.CleanPage(req.Query.GetValueOrDefault("page")),
@@ -955,6 +1128,8 @@ public sealed class WebServer : IAsyncDisposable
     private byte[]? HandleWsMessage(WsClient client, ReadOnlySpan<byte> json)
     {
         string? verb = null;
+        string? requestId = null;
+        long? pingT = null;
         var args = new List<string>();
         try
         {
@@ -963,6 +1138,8 @@ public sealed class WebServer : IAsyncDisposable
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return Error("expected an object");
             if (root.TryGetProperty("cmd", out var c) && c.ValueKind == JsonValueKind.String) verb = c.GetString();
+            if (root.TryGetProperty("id", out var rid) && rid.ValueKind == JsonValueKind.String) requestId = CommandReceipt.CleanId(rid.GetString());
+            if (root.TryGetProperty("t", out var pt) && pt.ValueKind == JsonValueKind.Number && pt.TryGetInt64(out var t1)) pingT = t1;
             if (root.TryGetProperty("args", out var a) && a.ValueKind == JsonValueKind.Array)
                 foreach (var e in a.EnumerateArray())
                     args.Add(e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : e.GetRawText());
@@ -970,7 +1147,13 @@ public sealed class WebServer : IAsyncDisposable
         catch (JsonException) { return Error("bad JSON"); }
 
         if (string.IsNullOrEmpty(verb)) return Error("missing cmd");
-        if (verb == "ping") return "{\"type\":\"pong\"}"u8.ToArray();
+        if (verb == "ping")
+        {
+            if (pingT is not { } t) return "{\"type\":\"pong\"}"u8.ToArray();
+            // Show Bus §5: the client works out the clock offset from its t1/t4 and our t2/t3.
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return Encoding.UTF8.GetBytes(FormattableString.Invariant($"{{\"type\":\"pong\",\"t\":{t},\"t2\":{now},\"t3\":{now}}}"));
+        }
         if (!client.CanControl && !ShowCommandParser.IsPublicVerb(verb)) return Error("read-only connection (PIN required)");
         if (IsQuestion(verb) && !AllowQuestion(client.Remote)) return Error("please wait a little before asking again");
         if (!ShowCommandParser.TryParse(verb, args, out var cmd, out var error))
@@ -982,10 +1165,22 @@ public sealed class WebServer : IAsyncDisposable
             return Error(refused);
         if (cmd.Kind == ShowCommandKind.DeptNote && !client.CanControl && CheckDeptKey(DeptOf(cmd), client.CrewKey) is { } noteRefused)
             return Error(noteRefused);
+        if (requestId is not null)
+        {
+            // The receipt follows when the show thread has run it; frames keep flowing meanwhile.
+            _ = SendReceiptAsync(client, _control.ExecuteWithReceiptAsync(cmd, requestId, ReceiptWait));
+            return null;
+        }
         _control.Execute(cmd);
         return null;
 
         static byte[] Error(string e) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "error", error = e }));
+    }
+
+    private static async Task SendReceiptAsync(WsClient client, Task<CommandReceipt> receipt)
+    {
+        try { await client.SendTextAsync((await receipt.ConfigureAwait(false)).ToJson(), CancellationToken.None).ConfigureAwait(false); }
+        catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or OperationCanceledException or IOException) { }
     }
 
     private sealed class WsClient
@@ -1007,7 +1202,10 @@ public sealed class WebServer : IAsyncDisposable
         public bool Detail { get; }
 
         /// <summary>Operator frames only for a PIN-authenticated control connection; public pages get the public view.</summary>
-        public FrameAccess Access => !Detail ? FrameAccess.Public : CanControl ? FrameAccess.Operator : FrameAccess.PublicDetail;
+        public FrameAccess Access => !Detail ? FrameAccess.Public : CanControl || ReadKey ? FrameAccess.Operator : FrameAccess.PublicDetail;
+
+        /// <summary>Connected with a valid API key: the operator frame, read-only unless the key controls.</summary>
+        public bool ReadKey { get; init; }
 
         /// <summary>The crew link key this page was opened with (?key=), if any.</summary>
         public string? CrewKey { get; init; }

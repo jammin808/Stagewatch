@@ -246,6 +246,7 @@ export const FEEDBACK_IDS = [
 	'message_ack',
 	'cue_waiting',
 	'dept_state',
+	'standing_by',
 	'hard_out_risk',
 	'pace',
 	'vt_running',
@@ -321,6 +322,11 @@ export function openSignals(s: Snapshot | null): SignalInfo[] {
 export type DeptState = 'clear' | 'standby' | 'standby_ack' | 'go' | 'go_ack'
 
 /** Where a department's latest cue stands. */
+/** Departments standing by (a standby not yet answered with a GO), in the order they were stood by. */
+export function standingBy(s: Snapshot | null): NonNullable<Snapshot['signals']> {
+	return (s?.signals ?? []).filter((g) => g.kind === 'standby' && g.state !== 'cancelled')
+}
+
 export function deptState(s: Snapshot | null, dept: string): DeptState {
 	const mine = (s?.signals ?? []).filter((g) => g.target.toLowerCase() === dept.toLowerCase() && g.state !== 'cancelled')
 	const g = mine[mine.length - 1]
@@ -394,6 +400,8 @@ export function deriveVariables(s: Snapshot | null, connected: boolean, config: 
 		cues_waiting: open.filter((g) => g.state === 'sent').length,
 		cues_unanswered: open.filter((g) => g.escalated && g.state === 'sent').length,
 		last_cue: open.length ? `${open[open.length - 1].kind} ${open[open.length - 1].target}` : '',
+		standing_by: standingBy(s).length,
+		standing_by_list: standingBy(s).map((g) => g.target).join(', '),
 		// ---- presentation
 		slide: s.slides?.slide ?? 0,
 		slides: s.slides?.count ?? 0,
@@ -509,7 +517,7 @@ export function feedbacksAffected(prev: Snapshot | null, next: Snapshot | null, 
 	if (prev.mode !== next.mode) add('mode', 'running')
 	if (prev.offset !== next.offset) add('behind_schedule')
 	if (prev.messageAck !== next.messageAck) add('message_ack')
-	if (!same(prev.signals, next.signals)) add('cue_waiting', 'dept_state', 'message_ack')
+	if (!same(prev.signals, next.signals)) add('cue_waiting', 'dept_state', 'standing_by', 'message_ack')
 	if (prev.hardOutMargin !== next.hardOutMargin) add('hard_out_risk')
 	if (!same(prev.slides, next.slides)) add('pace')
 	if (!same(prev.playout, next.playout)) add('vt_running')

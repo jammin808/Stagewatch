@@ -209,7 +209,9 @@ public sealed class PowerPointSensor : PollingSensor<DeckState>
         ReleaseTouched();
         Release();
         // Wrappers created on this STA thread must be cleaned up before it exits.
+        #pragma warning disable RS0030 // the sensor STA thread must release every COM wrapper before it exits, or PowerPoint cannot close
         GC.Collect();
+        #pragma warning restore RS0030
         GC.WaitForPendingFinalizers();
     }
 

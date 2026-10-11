@@ -41,7 +41,7 @@ public sealed partial class MainViewModel
     public string? ScreenPresetPath(string name)
         => _screenPresets.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { Name: not null } hit && hit.Name.Length > 0 ? hit.Path : null;
 
-    IReadOnlyList<(string Name, string Path)> IShowControl.ScreenPresets => _screenPresets;
+    IReadOnlyList<(string Name, string Path)> IShowScreens.ScreenPresets => _screenPresets;
 
     /// <summary>Connected screens (empty when the web server is off).</summary>
     public IReadOnlyList<ScreenInfo> ListScreens() => _web?.ListScreens() ?? Array.Empty<ScreenInfo>();
@@ -101,25 +101,23 @@ public sealed partial class MainViewModel
         => ScreenPreset.ValidPath(target) ? target : ScreenPresetPath(target);
 
     /// <summary>The <c>screen …</c> command (from here, Companion, HTTP, OSC, triggers or the AI copilot).</summary>
-    private void ApplyScreenCommand(string text)
+    private void ApplyScreenCommand(ScreenArgs args)
     {
-        var parts = text.Split('\u0001');
-        if (parts.Length < 3) return;
-        var (action, arg, who) = (parts[0], parts[1], parts[2]);
-        if (_web is null) { StatusLine = "Screens: turn on Settings → Remote first"; return; }
+        var (action, arg, who) = (args.Action, args.Argument, args.Who);
+        if (_web is null) { Refuse("Screens: turn on Settings → Remote first"); return; }
         var screens = _web.ListScreens();
 
         if (action == "name")
         {
             var target = screens.FirstOrDefault(s => s.Id.Equals(who, StringComparison.OrdinalIgnoreCase));
-            if (target is null && !Screens.ValidId(who)) { StatusLine = $"Screens: no screen with id {who}"; return; }
+            if (target is null && !Screens.ValidId(who)) { Refuse($"Screens: no screen with id {who}"); return; }
             RenameScreen(target?.Id ?? who, arg);
             StatusLine = arg.Length > 0 ? $"Screen {who} is now \"{arg}\"" : $"Screen {who}: name cleared";
             return;
         }
 
         var hits = Screens.Match(screens, who);
-        if (hits.Count == 0) { StatusLine = $"Screens: nothing matches \"{who}\""; return; }
+        if (hits.Count == 0) { Refuse($"Screens: nothing matches \"{who}\""); return; }
         switch (action)
         {
             case "identify":
@@ -135,7 +133,7 @@ public sealed partial class MainViewModel
                 StatusLine = $"Disconnected {Count(hits.Count)}";
                 break;
             case "go":
-                if (ResolveScreenTarget(arg) is not { } path) { StatusLine = $"Screens: no saved setup called \"{arg}\""; return; }
+                if (ResolveScreenTarget(arg) is not { } path) { Refuse($"Screens: no saved setup called \"{arg}\""); return; }
                 _web.Redirect(hits.Select(h => h.Id), path);
                 StatusLine = $"Sent {Count(hits.Count)} to {arg}";
                 break;

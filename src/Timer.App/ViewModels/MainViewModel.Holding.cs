@@ -37,13 +37,12 @@ public partial class MainViewModel
     [ObservableProperty] private string _holdingLine = "";
     [ObservableProperty] private bool _holdingFill;
 
-    private string _holdingId = "";
-    private string _lastHoldingId = "";
+    private readonly HoldingSelection _holding = new();
     private readonly Dictionary<string, ImageSource> _holdingCache = new();
     private readonly List<string> _holdingCacheOrder = new();
 
     public bool HasHolding => HoldingItems.Count > 0;
-    public bool HoldingOnAir => _holdingId.Length > 0;
+    public bool HoldingOnAir => _holding.OnAir;
 
     private void InitHolding()
     {
@@ -113,12 +112,12 @@ public partial class MainViewModel
 
     public void RemoveHolding(HoldingItem item)
     {
-        if (item.Id == _holdingId) SetHolding(null);
+        if (item.Id == _holding.OnAirId) SetHolding(null);
         _store.Update(s => s.Holding.Images.RemoveAll(i => i.Id == item.Id));
         HoldingItems.Remove(item);
         _holdingCache.Remove(item.Id);
         _holdingCacheOrder.Remove(item.Id);
-        if (_lastHoldingId == item.Id) _lastHoldingId = "";
+        _holding.Forget(item.Id);
         var id = item.Id;
         _ = Task.Run(() => HoldingLibrary.Delete(id));
         BumpConfig();
@@ -130,7 +129,7 @@ public partial class MainViewModel
         var clean = HoldingLibrary.CleanName(name);
         _store.Update(_ => item.Image.Name = clean);
         item.Name = clean;
-        if (item.Id == _holdingId) { HoldingLine = "🖼  HOLDING · " + clean; MarkDirty(); }
+        if (item.Id == _holding.OnAirId) { HoldingLine = "🖼  HOLDING · " + clean; MarkDirty(); }
         BumpConfig();
     }
 
@@ -139,8 +138,9 @@ public partial class MainViewModel
     /// <summary>Click on a thumbnail: put it on air, or take it off if it already is.</summary>
     public void ToggleHoldingItem(HoldingItem item)
     {
-        RecordUi(item.Id == _holdingId ? "holding off" : $"holding {Q(item.Name)}");
-        SetHolding(item.Id == _holdingId ? null : item.Image);
+        var off = item.Id == _holding.OnAirId;
+        RecordUi(off ? "holding off" : $"holding {Q(item.Name)}");
+        SetHolding(off ? null : item.Image);
     }
 
     /// <summary>The H key and "holding toggle": take it off, or bring back the last one (or the first).</summary>
@@ -153,7 +153,7 @@ public partial class MainViewModel
     [CommunityToolkit.Mvvm.Input.RelayCommand]
     public void ClearHolding()
     {
-        if (_holdingId.Length == 0) return;
+        if (!_holding.OnAir) return;
         RecordUi("holding off");
         SetHolding(null);
     }
@@ -161,27 +161,16 @@ public partial class MainViewModel
     /// <summary>The command grammar's "holding &lt;n|name|id|off|toggle&gt;".</summary>
     private void SetHoldingByKey(string key)
     {
-        var images = _store.Settings.Holding.Images;
-        if (key.Equals("off", StringComparison.OrdinalIgnoreCase)) { SetHolding(null); return; }
-        if (key.Equals("toggle", StringComparison.OrdinalIgnoreCase))
-        {
-            if (_holdingId.Length > 0) { SetHolding(null); return; }
-            var again = images.FirstOrDefault(i => i.Id == _lastHoldingId) ?? images.FirstOrDefault();
-            if (again is null) { StatusLine = "Holding: no images yet — add some on the Holding tab"; return; }
-            SetHolding(again);
-            return;
-        }
-        if (HoldingLibrary.Resolve(images, key) is { } img) SetHolding(img);
-        else StatusLine = $"Holding: no image called \"{key}\"";
+        var img = _holding.Choose(_store.Settings.Holding.Images, key, out var error);
+        if (error is not null) Refuse("Holding: " + error);
+        else SetHolding(img);
     }
 
     private void SetHolding(HoldingImage? img)
     {
         if (img is not null && !Gate(FeatureGate.AllowsHolding(_license.Tier), "Holding images")) return;
-        var id = img?.Id ?? "";
-        if (id == _holdingId) return;
-        _holdingId = id;
-        if (img is not null) _lastHoldingId = img.Id;
+        if (!_holding.Set(img)) return;
+        var id = _holding.OnAirId;
         foreach (var item in HoldingItems) item.IsLive = item.Id == id;
         HoldingLine = img is null ? "" : "🖼  HOLDING · " + img.Name;
         OnPropertyChanged(nameof(HoldingOnAir));
@@ -204,11 +193,11 @@ public partial class MainViewModel
             {
                 if (bmp is null)
                 {
-                    if (_holdingId == id) StatusLine = $"Holding: couldn't open \"{img.Name}\" (unsupported or damaged image)";
+                    if (_holding.OnAirId == id) StatusLine = $"Holding: couldn't open \"{img.Name}\" (unsupported or damaged image)";
                     return;
                 }
                 CacheHolding(id, bmp);
-                if (_holdingId == id) _outputVm.HoldingImage = bmp;
+                if (_holding.OnAirId == id) _outputVm.HoldingImage = bmp;
             });
         }, TaskScheduler.Default);
     }

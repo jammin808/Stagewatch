@@ -1,0 +1,9 @@
+<Project>
+  <!-- Guard rails, as build failures (TreatWarningsAsErrors): calls that freeze a show thread or misbehave on a long
+       show are banned (src/BannedSymbols.txt). A deliberate use on a worker thread says why with
+       #pragma warning disable RS0030. SDK-style projects only (the PowerPoint add-in builds on its own). -->
+  <ItemGroup Condition="'$(UsingMicrosoftNETSdk)' == 'true'">
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="3.3.4" PrivateAssets="all" />
+    <AdditionalFiles Include="$(MSBuildThisFileDirectory)BannedSymbols.txt" />
+  </ItemGroup>
+</Project>

@@ -23,29 +23,30 @@ public sealed partial class MainViewModel
     private RoomBeacon? _rooms;
     private CloudAdvisor? _cloud;
     private readonly SpokenCues _voices = new();
-    private readonly Dictionary<string, string> _integrationSignatures = new();
+    // Starts and stops them as settings change; an old instance retires in the background (the show never waits).
+    private readonly IntegrationSupervisor _supervisor;
 
-    /// <summary>(Re)start whatever changed in Settings → Integrations. Owner thread.</summary>
+    /// <summary>(Re)start whatever changed in Settings → Integrations. Owner thread; also re-run when an old instance has retired.</summary>
     public void ApplyIntegrations()
     {
         var i = Settings.Integrations;
         var t = _license.Tier;
         var pro = FeatureGate.AllowsRunOfShow(t);
 
-        Reconcile("ppt", $"{i.PowerPoint && FeatureGate.AllowsPowerPointAddIn(_license.Tier)}", ref _ppt,
+        _supervisor.Reconcile("ppt", $"{i.PowerPoint && FeatureGate.AllowsPowerPointAddIn(_license.Tier)}", v => _ppt = v,
             () => { var s = new PowerPointSensor(); s.Start(); return s; });
-        Reconcile("vmix", $"{i.Vmix && FeatureGate.AllowsPlayout(t)}|{i.VmixHost}|{i.VmixPort}", ref _vmix,
+        _supervisor.Reconcile("vmix", $"{i.Vmix && FeatureGate.AllowsPlayout(t)}|{i.VmixHost}|{i.VmixPort}", v => _vmix = v,
             () => { var s = new VmixSource(i.VmixHost, i.VmixPort); s.Start(); return s; });
         var patternsToken = ProtectedKey.Unprotect(i.PatternsTokenProtected);
-        Reconcile("patterns", $"{i.Patterns && FeatureGate.AllowsPlayout(t)}|{i.PatternsHost}|{i.PatternsPort}|{patternsToken.GetHashCode()}", ref _patterns,
-            () => { var s = new PatternsLink(i.PatternsHost, i.PatternsPort, patternsToken); s.Start(); return s; });
-        Reconcile("ntp", $"{i.Ntp && FeatureGate.AllowsTimecode(t)}|{i.NtpServer}", ref _ntp,
+        _supervisor.Reconcile("patterns", $"{i.Patterns && FeatureGate.AllowsPlayout(t)}|{i.PatternsHost}|{i.PatternsPort}|{patternsToken.GetHashCode()}", v => _patterns = v,
+            () => { var s = new PatternsLink(i.PatternsHost, i.PatternsPort, patternsToken); s.Receipt += OnPatternsReceipt; s.Start(); return s; });
+        _supervisor.Reconcile("ntp", $"{i.Ntp && FeatureGate.AllowsTimecode(t)}|{i.NtpServer}", v => _ntp = v,
             () => { var s = new TimeSync(i.NtpServer); s.Start(); return s; });
-        Reconcile("ltc", $"{i.Ltc && FeatureGate.AllowsTimecode(t)}|{i.LtcDevice}|{i.LtcFps}|{i.LtcSource}", ref _ltc,
+        _supervisor.Reconcile("ltc", $"{i.Ltc && FeatureGate.AllowsTimecode(t)}|{i.LtcDevice}|{i.LtcFps}|{i.LtcSource}", v => _ltc = v,
             () => new LtcOutput(i.LtcDevice, i.LtcFps, LtcTimeSource(i.LtcSource)));
-        Reconcile("ltcin", $"{i.LtcIn && FeatureGate.AllowsTimecode(t)}|{i.LtcInDevice}", ref _ltcIn,
+        _supervisor.Reconcile("ltcin", $"{i.LtcIn && FeatureGate.AllowsTimecode(t)}|{i.LtcInDevice}", v => _ltcIn = v,
             () => new LtcInput(i.LtcInDevice));
-        Reconcile("lights", $"{(i.ArtNet || i.Sacn || i.Hue) && FeatureGate.AllowsCueLights(t)}|{i.ArtNet}|{i.ArtNetHost}|{i.Sacn}|{i.DmxUniverse}|{i.DmxAddress}|{i.DmxMode}|{i.Hue}|{i.HueBridge}|{i.HueUser}|{i.HueLights}", ref _lights,
+        _supervisor.Reconcile("lights", $"{(i.ArtNet || i.Sacn || i.Hue) && FeatureGate.AllowsCueLights(t)}|{i.ArtNet}|{i.ArtNetHost}|{i.Sacn}|{i.DmxUniverse}|{i.DmxAddress}|{i.DmxMode}|{i.Hue}|{i.HueBridge}|{i.HueUser}|{i.HueLights}", v => _lights = v,
             () =>
             {
                 var sinks = new List<ILightSink>();
@@ -54,25 +55,13 @@ public sealed partial class MainViewModel
                 if (i.Hue && i.HueBridge.Length > 0 && i.HueUser.Length > 0) sinks.Add(new HueSink(i.HueBridge, i.HueUser, i.HueLights));
                 return new CueLightOutput(() => _hub.Latest, sinks.ToArray());
             });
-        Reconcile("triggers", $"{pro && Settings.Triggers.Count > 0}", ref _triggers,
-            () => new TriggerRunner(() => Settings.Triggers, line => _ui.BeginInvoke(() => RunCommandLine(line))));
-        Reconcile("rooms", $"{i.Rooms && FeatureGate.AllowsMultiRoom(t)}|{i.RoomsPort}", ref _rooms,
+        _supervisor.Reconcile("triggers", $"{pro && Settings.Triggers.Count > 0}", v => _triggers = v,
+            () => new TriggerRunner(() => _store.Snapshot.Triggers, line => _ui.BeginInvoke(() => RunCommandLine(line))));   // its worker reads a snapshot
+        _supervisor.Reconcile("rooms", $"{i.Rooms && FeatureGate.AllowsMultiRoom(t)}|{i.RoomsPort}", v => _rooms = v,
             () => new RoomBeacon(i.RoomsPort, BeatFor));
         var key = i.AssistantCloud ? ProtectedKey.Unprotect(i.AssistantKeyProtected) : "";
-        Reconcile("cloud", $"{i.Assistant && i.AssistantCloud && FeatureGate.AllowsAssistant(t) && key.Length > 0}|{key.GetHashCode()}", ref _cloud,
+        _supervisor.Reconcile("cloud", $"{i.Assistant && i.AssistantCloud && FeatureGate.AllowsAssistant(t) && key.Length > 0}|{key.GetHashCode()}", v => _cloud = v,
             () => new CloudAdvisor(key));
-    }
-
-    private void Reconcile<T>(string name, string signature, ref T? current, Func<T> create) where T : class, IDisposable
-    {
-        if (_integrationSignatures.TryGetValue(name, out var old) && old == signature && (current is not null) == signature.StartsWith("True")) return;
-        _integrationSignatures[name] = signature;
-        var previous = current;
-        current = null;
-        try { previous?.Dispose(); } catch (Exception) { }
-        if (!signature.StartsWith("True", StringComparison.Ordinal)) return;
-        try { current = create(); }
-        catch (Exception ex) { StatusLine = $"{name}: couldn't start — {ex.Message}"; }
     }
 
     /// <summary>LTC follows the time of day (default) or the countdown itself as timecode.</summary>
@@ -104,7 +93,7 @@ public sealed partial class MainViewModel
         if (_triggers is null) return;
         var s = _hub.Latest;
         _triggers.Fire(ev, filter, new TriggerContext(
-            _rundownActive ? _currentItem + 1 : 0, s.Title, s.Phase.ToString().ToLowerInvariant(),
+            _show.RundownActive ? _show.CurrentItem + 1 : 0, s.Title, s.Phase.ToString().ToLowerInvariant(),
             TimerTick.FormatSeconds(Math.Max(0, s.Seconds)), detail, Settings.Integrations.RoomName));
     }
 
@@ -137,10 +126,8 @@ public sealed partial class MainViewModel
     {
         _slidesBeacon?.Dispose();
         _slidesBeacon = null;
-        foreach (var d in new IDisposable?[] { _ppt, _vmix, _patterns, _speech, _ntp, _ltc, _ltcIn, _lights, _triggers, _rooms, _cloud })
-        {
-            try { d?.Dispose(); } catch (Exception) { }
-        }
+        // In parallel, with a cap: closing the app never waits on one slow device for long.
+        _supervisor.StopAll(TimeSpan.FromSeconds(3), _speech);
         _ppt = null; _vmix = null; _patterns = null; _speech = null; _ntp = null; _ltc = null; _ltcIn = null; _lights = null; _triggers = null; _rooms = null; _cloud = null;
         _ = _journal.DisposeAsync();
     }

@@ -31,7 +31,8 @@ namespace Stagewatch.Companion;
 ///   STATE                        (request a one-shot STATE event)
 ///   SUBSCRIBE JSON               (v2: stream SNAPSHOT/CONFIG JSON instead of TICK/STATE)
 ///   SNAPSHOT | CONFIG            (v2: one-shot SNAPSHOT, or CONFIG + SNAPSHOT)
-///   PING [token]                 (→ PONG [token]; heartbeat)
+///   PING [token]                 (→ PONG [token]; heartbeat. A Unix-ms token gets "PONG t1 t2 t3" for the clock offset)
+///   @<id> <command>              (Show Bus receipt: → OK @<id> <stage> <effect> / ERROR @<id> <why>)
 ///   SUBSCRIBE                    (start streaming live events; default after connect)
 ///   UNSUBSCRIBE
 ///   QUIT

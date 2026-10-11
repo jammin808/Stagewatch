@@ -11,6 +11,7 @@ using Stagewatch.Core;
 using Stagewatch.Licensing;
 using Stagewatch.Output;
 using Stagewatch.Remote;
+using Stagewatch.Show;
 
 namespace Stagewatch.App.ViewModels;
 
@@ -43,19 +44,13 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     // Frame state (UI thread only).
     private TimerTick _lastTick;
     private bool _dirty = true;
-    private TimerState _prevState = TimerState.Idle;
     private bool _manualTimerFlash;
-    private string _activeTitle = "";
     private int _configVersion;
     private RemoteConfig _remoteConfig = new(Array.Empty<(int, string, int)>(), Array.Empty<(string, string, MessageUrgency, FlashRate)>(), Array.Empty<(string, string?, int)>());
 
-    // Running order (UI thread only).
-    private int _currentItem = -1;
-    private bool _rundownActive;
-    private bool _currentItemStarted;
-    // Schedule anchors, in UTC so midnight and daylight-saving changes can't shift the plan.
-    private DateTime? _showAnchorUtc;      // plan start when no "Starts" time is set (first item run)
-    private DateTime? _pinnedStartUtc;     // the "Starts HH:MM" occurrence, pinned once the show is live
+    // The show's core: the running-order cursor and every transition around it (UI-independent, owner thread).
+    private readonly ShowController _show;
+    public ShowController Show => _show;
 
     public TimerEngine Engine => _engine;
     public OutputViewModel OutputVm => _outputVm;
@@ -128,6 +123,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         _store = store;
         _license = license;
         _ui = Dispatcher.CurrentDispatcher;
+        _supervisor = new Stagewatch.Integrations.IntegrationSupervisor(work => _ui.BeginInvoke(work), () => { if (!_disposed) ApplyIntegrations(); }, m => StatusLine = m);
 
         Presets = new ObservableCollection<TimerPreset>(_store.Settings.Presets);
         MessageBank = new ObservableCollection<MessageBankEntry>(_store.Settings.MessageBank.Entries);
@@ -160,6 +156,9 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         });
 
         _hub.SubscriberFailed += ex => _ui.BeginInvoke(() => StatusLine = "Output error: " + ex.Message);
+        // A consumer that takes too long is reported in diagnostics; the show never waited for it.
+        _hub.SubscriberSlow += (name, took) => Interlocked.Exchange(ref _slowSubscriberNote, $"{name} took {took.TotalMilliseconds:0} ms on one frame at {DateTime.Now:HH:mm:ss}");
+        _show = new ShowController(_store, _engine, this);
 
         _engine.AllowOvertime = _store.Settings.AllowOvertime;
         // Latest-wins: the engine ticks every 50 ms on a timer thread; the UI thread only ever needs the newest
@@ -174,12 +173,6 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         _engine.SetDuration(TimeSpan.Zero);
 
         _companion = new CompanionServer(this);
-        // Started even in Free mode, so a connecting Companion is told *why* it can't control the show.
-        if (_store.Settings.Companion.Enabled)
-        {
-            try { _companion.Start(_store.Settings.Companion.Port, _store.Settings.Companion.BindAllInterfaces); }
-            catch (Exception ex) { StatusLine = $"Companion server failed: {ex.Message}"; }
-        }
 
         InitSystems();
         InitLtc();
@@ -203,8 +196,6 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         RebuildRemoteConfig();
         UpdateLicenseLine();
         UpdateOutputBackground();
-        ApplyRemoteSettings();
-        ApplyIntegrations();
         LoadPendingRecovery();
         UpdateWindowTitle();
         if (_license.IsLocked)
@@ -213,12 +204,39 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             StatusLine = notice;
     }
 
+    private string? _slowSubscriberNote;
+    /// <summary>The last time a frame consumer was slow (null = never), for diagnostics.</summary>
+    public string? SlowSubscriberNote => Volatile.Read(ref _slowSubscriberNote);
+
+    private bool _servicesStarted;
+
+    /// <summary>
+    /// Start what talks to the outside world: the Companion server, browser remotes and OSC, integrations, the LTC
+    /// poll. Kept out of the constructor so building a view model (in a test, a harness, a tool) opens no sockets and
+    /// starts no devices. The app calls this once its window exists. Idempotent.
+    /// </summary>
+    public void StartServices()
+    {
+        if (_servicesStarted) return;
+        _servicesStarted = true;
+        // Started even in Free mode, so a connecting Companion is told *why* it can't control the show.
+        if (_store.Settings.Companion.Enabled)
+        {
+            try { _companion.Start(_store.Settings.Companion.Port, _store.Settings.Companion.BindAllInterfaces); }
+            catch (Exception ex) { StatusLine = $"Companion server failed: {ex.Message}"; }
+        }
+        ApplyRemoteSettings();
+        ApplyIntegrations();
+        _ltcTimer?.Start();
+    }
+
     private bool Gate(bool allowed, string feature, FeatureTier needs = FeatureTier.Standard)
     {
         if (allowed) return true;
         StatusLine = _license.IsLocked && needs == FeatureTier.Standard
             ? $"{feature} needs a Stagewatch license (trial ended). Help → License."
             : $"{feature} {FeatureGate.Needs(needs)}. Help → License.";
+        ReceiptRefused(StatusLine);
         return false;
     }
 
@@ -260,14 +278,12 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         _outputVm.Progress = progress;
 
         CheckCueSounds(t);
-        var justExpired = _prevState == TimerState.Running && t.State == TimerState.Expired;
-        _prevState = t.State;
 
         if (t.DisplaySeconds != prev.DisplaySeconds || t.State != prev.State || t.Mode != prev.Mode || t.Total != prev.Total)
             _dirty = true;
         Publish();
 
-        if (justExpired) OnItemExpired();
+        _show.OnTick(t);   // a countdown that just reached zero moves the show on (loops, linked items)
     }
 
     private void MarkDirty() => _dirty = true;
@@ -280,6 +296,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
 
         var s = BuildSnapshot();
         if (!_hub.Publish(s)) return;
+        GoPublished();
         OnFramePublished(s);
 
         // Operator UI and the WPF output render the same frame the network gets.
@@ -294,17 +311,6 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         if (!BrushEquals(brush, TimerColorBrush)) TimerColorBrush = brush;
         _outputVm.Apply(s);
         PublishHolo(s);
-    }
-
-    private string ComputeEndTimeText()
-    {
-        var endsAt = _engine.EndsAtWallClock;
-        if (endsAt is null || _engine.Mode != TimerMode.Countdown) return "";
-        var explicitEnd = _engine.EndAt is not null;
-        if (!explicitEnd && !_store.Settings.Display.ShowEndTime) return "";
-        var label = explicitEnd ? "ENDS" : "ends";
-        if (endsAt.Value.Date != DateTime.Today) label += " " + endsAt.Value.ToString("ddd");
-        return $"{label} {Fmt(endsAt.Value)}";
     }
 
     private void UpdateStretchInfo()
@@ -360,26 +366,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     [RelayCommand] private void Stop() { RecordUi("pause"); _engine.Pause(); }
     [RelayCommand] private void Toggle() { RecordUi("toggle"); if (_engine.IsCounting) _engine.Pause(); else StartTimer(); }
 
-    private void StartTimer()
-    {
-        _engine.Start();
-        if (_rundownActive && _currentItem >= 0 && _engine.Mode == TimerMode.Countdown && !_currentItemStarted)
-        {
-            _currentItemStarted = true;
-            MarkItemStarted(_currentItem);
-            // The show is live: pin the planned start so midnight can't move it.
-            if (_pinnedStartUtc is null && ResolveScheduledStartUtc() is { } planned)
-                _pinnedStartUtc = planned;
-            // No planned start? The show's plan begins the first time an item actually runs.
-            if (_showAnchorUtc is null && _pinnedStartUtc is null)
-            {
-                var before = Settings.Rundown.Items.Take(_currentItem).Sum(i => (long)Math.Max(0, i.DurationSeconds));
-                _showAnchorUtc = DateTime.UtcNow.AddSeconds(-before);
-            }
-            RebuildRundownRows();
-        }
-        MarkDirty();
-    }
+    private void StartTimer() => _show.Start();
 
     [RelayCommand]
     private void Reset()
@@ -414,8 +401,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         _engine.SetMode(p.DurationSeconds < 0 ? TimerMode.CountUp : TimerMode.Countdown);
         _engine.LoadPreset(p);
         EndAtInput = "";
-        _rundownActive = false;
-        _activeTitle = p.Label;
+        _show.LeaveRundown(p.Label);
         if (!string.IsNullOrEmpty(p.Message))
         {
             MessageInput = p.Message;
@@ -439,8 +425,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     {
         if (!TryParseNudge(amount, out var ts)) return;
         RecordUi($"nudge {(long)ts.TotalSeconds}");
-        _engine.Nudge(ts);
-        RecordNudge(ts);
+        _show.Nudge(ts);
         StatusLine = (ts >= TimeSpan.Zero ? "+" : "") + amount;
     }
 
@@ -452,8 +437,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             RecordUi($"duration {(long)ts.TotalSeconds}");
             _engine.SetMode(TimerMode.Countdown);
             _engine.SetDuration(ts);
-            _rundownActive = false;
-            _activeTitle = "";
+            _show.LeaveRundown("");
             RefreshRundownHighlight();
             _store.Update(s => { s.LastDurationSeconds = (int)ts.TotalSeconds; });
             StatusLine = $"Duration: {ts}";
@@ -478,7 +462,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             // within the last 12 h is a slip, not "this time tomorrow": refuse it.
             if (Schedule.ResolveFinishAt(ts, DateTime.Now) is not { } target)
             {
-                StatusLine = $"{Fmt(DateTime.Today + ts, seconds: false)} has already passed — enter a later time.";
+                Refuse($"{Fmt(DateTime.Today + ts, seconds: false)} has already passed — enter a later time.");
                 return;
             }
             RecordUi($"endat {Q(EndAtInput.Trim())} {(EndAtRealTime ? "realtime" : "elastic")}");
@@ -523,8 +507,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         if (_engine.Mode == mode) return;
         RecordUi("mode " + SnapshotJson.ModeName(mode));
         _engine.SetMode(mode);
-        _rundownActive = false;
-        _activeTitle = mode == TimerMode.CountUp ? "Count up" : "";
+        _show.LeaveRundown(mode == TimerMode.CountUp ? "Count up" : "");
         RefreshRundownHighlight();
         MarkDirty();
     }
@@ -534,14 +517,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     [RelayCommand]
     private void NextItem()
     {
-        var items = Settings.Rundown.Items;
-        if (items.Count == 0) { StatusLine = "Running order is empty — add items with Edit…"; return; }
-        var target = _currentItem + 1;
-        if (target >= items.Count) { StatusLine = "End of running order"; return; }
-        RecordUi("next");
-        // While the show is live, Next rolls straight into the next item.
-        var live = _engine.IsCounting || _engine.State == TimerState.Expired;
-        GoToItem(target, start: live);
+        if (Settings.Rundown.Items.Count > 0 && _show.CurrentItem + 1 < Settings.Rundown.Items.Count) RecordUi("next");
+        _show.Next();
     }
 
     [RelayCommand]
@@ -549,7 +526,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     {
         if (Settings.Rundown.Items.Count == 0) return;
         RecordUi("previous");
-        GoToItem(Math.Max(0, _currentItem - 1), start: false);
+        _show.Previous();
     }
 
     [RelayCommand]
@@ -557,98 +534,25 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
 
     public void StartItem(RundownRow row) { RecordUi($"goto {row.Index} start"); GoToItem(row.Index - 1, start: true); }
 
-    private void GoToItem(int index, bool start)
-    {
-        if (!Gate(FeatureGate.AllowsRunOfShow(_license.Tier), "The running order", FeatureTier.Pro)) return;
-        var items = Settings.Rundown.Items;
-        if (index < 0 || index >= items.Count) return;
-
-        var item = items[index];
-        if (_rundownActive && _currentItemStarted) MarkItemEnded(_currentItem);
-        _currentItem = index;
-        _rundownActive = true;
-        _currentItemStarted = false;
-        _engine.SetMode(TimerMode.Countdown);
-        _engine.SetDuration(TimeSpan.FromSeconds(Math.Max(0, item.DurationSeconds)));
-        EndAtInput = "";
-        _activeTitle = item.DisplayTitle;
-        if (!string.IsNullOrWhiteSpace(item.Message))
-        {
-            MessageInput = item.Message;
-            SetMessage(item.Message, MessageUrgency.Info, FlashRate.Off);
-        }
-        if (start) StartTimer();
-        RefreshRundownHighlight();
-        StatusLine = $"{index + 1}/{items.Count}: {item.DisplayTitle}";
-        MarkDirty();
-        Publish();
-    }
-
-    /// <summary>The countdown just hit zero. Linked items roll on by themselves.</summary>
-    private void OnItemExpired()
-    {
-        if (!_rundownActive || _currentItem < 0 || RollMode) return;   // Roll decides what comes next by the clock
-        var items = Settings.Rundown.Items;
-        // A looping running order starts again from the top when its last item ends.
-        if (_currentItem == items.Count - 1 && (Settings.Rundown.Loop < 0 || _loopPass < Settings.Rundown.Loop))
-        {
-            _loopPass++;
-            _actuals.Clear();
-            _pinnedStartUtc = DateTime.UtcNow;     // this pass is planned from now
-            _journal.Add(DateTime.UtcNow, JournalKind.Note, -1, $"Loop: pass {_loopPass + 1}");
-            GoToItem(0, start: true);
-            return;
-        }
-        if (_currentItem < items.Count && items[_currentItem].AutoAdvance && _currentItem + 1 < items.Count)
-            GoToItem(_currentItem + 1, start: true);
-    }
+    private void GoToItem(int index, bool start) => _show.GoTo(index, start);
 
     [RelayCommand]
-    private void ApplyScheduledStart()
-    {
-        var text = ScheduledStartInput.Trim();
-        if (text.Length > 0 && !ShowClock.IsValidTimeText(text))
-        {
-            StatusLine = "Bad start time. Try HH:MM (or yyyy-MM-dd HH:MM)";
-            return;
-        }
-        _store.Update(s => s.Rundown.ScheduledStart = text.Length == 0 ? null : text);
-        // Re-resolve against now; if the show is already live, pin it straight away.
-        _pinnedStartUtc = null;
-        if (_currentItemStarted) _pinnedStartUtc = ResolveScheduledStartUtc();
-        StatusLine = text.Length == 0 ? "Show start cleared — plan starts when the first item runs" : $"Show planned to start at {text}";
-        RebuildRundownRows();
-        MarkDirty();
-        Publish();
-    }
-
-    /// <summary>"Starts HH:MM" as the occurrence nearest to now (19:00 seen at 00:30 = last night), in UTC.</summary>
-    private DateTime? ResolveScheduledStartUtc()
-        => ShowClock.TryResolve(Settings.Rundown.ScheduledStart, DateTime.UtcNow, out var utc) ? utc : null;
+    private void ApplyScheduledStart() => _show.SetScheduledStart(ScheduledStartInput);
 
     /// <summary>Planned start of item 1, in UTC.</summary>
-    private DateTime? ScheduleAnchor() => _pinnedStartUtc ?? ResolveScheduledStartUtc() ?? BackTimedStartUtc() ?? _showAnchorUtc;
+    private DateTime? ScheduleAnchor() => _show.ScheduleAnchor();
 
-    /// <summary>No planned start but a planned end: the plan is back-timed so it ends exactly then.</summary>
-    private DateTime? BackTimedStartUtc()
-        => ShowClock.TryResolve(Settings.Rundown.EndOfShow, DateTime.UtcNow, out var end)
-            ? ScheduleEngine.BackTimedAnchor(Settings.Rundown.Items, end, ShowClock) : null;
-
-    public bool BackTimed => _pinnedStartUtc is null && ResolveScheduledStartUtc() is null && BackTimedStartUtc() is not null;
+    public bool BackTimed => _show.BackTimed;
 
     /// <summary>Call after the running order is edited.</summary>
     public void OnRundownEdited()
     {
-        var count = Settings.Rundown.Items.Count;
-        if (_currentItem >= count) { _currentItem = count - 1; }
-        if (count == 0) { _currentItem = -1; _rundownActive = false; _showAnchorUtc = null; _pinnedStartUtc = null; }
+        _show.RundownEdited();
         ScheduledStartInput = Settings.Rundown.ScheduledStart ?? "";
         EndOfShowInput = Settings.Rundown.EndOfShow ?? "";
         RebuildRundownRows();
         BumpConfig();
     }
-
-    private int _loopPass;
 
     [ObservableProperty] private string _endOfShowInput = "";
 
@@ -657,33 +561,11 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
 
     private void SetEndOfShow(string text)
     {
-        if (text.Length > 0 && !ShowClock.IsValidTimeText(text)) { StatusLine = "Bad end time. Try HH:MM (or yyyy-MM-dd HH:MM)"; return; }
-        _store.Update(s => s.Rundown.EndOfShow = text.Length == 0 ? null : text);
-        EndOfShowInput = text;
-        StatusLine = text.Length == 0 ? "Show end cleared" : BackTimed ? $"Show ends at {text} — planned backwards from it" : $"Show ends at {text} — over/under and curfew aim at it";
-        RebuildRundownRows();
-        MarkDirty();
-        Publish();
+        if (_show.SetEndOfShow(text)) EndOfShowInput = text.Trim();
     }
 
     [RelayCommand]
-    private void ResetShow()
-    {
-        _loopPass = 0;
-        if (_rundownActive && _currentItemStarted) MarkItemEnded(_currentItem);
-        _actuals.Clear();
-        _pendingDelay = TimeSpan.Zero;
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, -1, "Running order reset");
-        _currentItem = -1;
-        _rundownActive = false;
-        _currentItemStarted = false;
-        _showAnchorUtc = null;
-        _pinnedStartUtc = null;
-        RebuildRundownRows();
-        StatusLine = "Running order reset — Next loads item 1";
-        MarkDirty();
-        Publish();
-    }
+    private void ResetShow() => _show.ResetShow();
 
     private static System.Windows.Media.Brush Brush(string hex)
     {
@@ -742,8 +624,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         foreach (var r in RundownRows)
         {
             var i = r.Index - 1;
-            r.IsCurrent = _rundownActive && i == _currentItem;
-            r.IsDone = _currentItem >= 0 && i < _currentItem;
+            r.IsCurrent = _show.RundownActive && i == _show.CurrentItem;
+            r.IsDone = _show.CurrentItem >= 0 && i < _show.CurrentItem;
         }
     }
 
@@ -757,7 +639,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         if (AckRequested && !string.IsNullOrWhiteSpace(MessageInput) && CrewCuesAllowed)
         {
             var s = _signals.Send(SignalKind.Message, "speaker", MessageInput, DateTime.UtcNow);
-            _journal.Add(DateTime.UtcNow, JournalKind.Signal, _rundownActive ? _currentItem : -1, $"Message speaker: {MessageInput}");
+            _journal.Add(DateTime.UtcNow, JournalKind.Signal, _show.RundownActive ? _show.CurrentItem : -1, $"Message speaker: {MessageInput}");
             SetMessage(MessageInput, SelectedUrgency, SelectedFlash, s.Id);
             StatusLine = "Message sent — waiting for the speaker to acknowledge";
             return;
@@ -823,7 +705,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         if (!_ui.CheckAccess()) { _ui.BeginInvoke(() => SetMessage(text, urgency, flash, signalId)); return; }
         if (_messageSignalId > 0 && _messageSignalId != signalId) _signals.Cancel(_messageSignalId, DateTime.UtcNow);
         _messageSignalId = string.IsNullOrEmpty(text) ? 0 : signalId;
-        if (text.Length > 0 && signalId == 0) _journal.Add(DateTime.UtcNow, JournalKind.Message, _rundownActive ? _currentItem : -1, text);
+        if (_messageSignalId > 0) ReceiptRef("messageId", _messageSignalId);
+        if (text.Length > 0 && signalId == 0) _journal.Add(DateTime.UtcNow, JournalKind.Message, _show.RundownActive ? _show.CurrentItem : -1, text);
         FireTrigger(TriggerEvent.Message, "speaker", text);
         _store.Update(s =>
         {
@@ -874,6 +757,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
 
     internal void ExecuteNow(ShowCommand c)
     {
+        MarkGo(c);
         switch (c.Kind)
         {
             case ShowCommandKind.Start: StartTimer(); break;
@@ -885,18 +769,16 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             case ShowCommandKind.GoTo: GoToItem((int)c.Number - 1, c.Flag); break;
             case ShowCommandKind.Preset:
                 var p = Presets.FirstOrDefault(x => x.Slot == (int)c.Number);
-                if (p is null) { StatusLine = $"No preset {(int)c.Number}"; break; }
+                if (p is null) { Refuse($"No preset {(int)c.Number}"); break; }
                 if (c.Flag) StartPreset(p); else LoadPreset(p);
                 break;
             case ShowCommandKind.Nudge:
-                _engine.Nudge(TimeSpan.FromSeconds(c.Number));
-                RecordNudge(TimeSpan.FromSeconds(c.Number));
+                _show.Nudge(TimeSpan.FromSeconds(c.Number));
                 break;
             case ShowCommandKind.SetDuration:
                 _engine.SetMode(TimerMode.Countdown);
                 _engine.SetDuration(TimeSpan.FromSeconds(c.Number));
-                _rundownActive = false;
-                _activeTitle = "";
+                _show.LeaveRundown("");
                 RefreshRundownHighlight();
                 break;
             case ShowCommandKind.EndAt:
@@ -909,7 +791,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
                 if (c.Flag && !string.IsNullOrEmpty(c.Text) && CrewCuesAllowed)
                 {
                     var sig = _signals.Send(SignalKind.Message, "speaker", c.Text, DateTime.UtcNow);
-                    _journal.Add(DateTime.UtcNow, JournalKind.Signal, _rundownActive ? _currentItem : -1, $"Message speaker: {c.Text}");
+                    _journal.Add(DateTime.UtcNow, JournalKind.Signal, _show.RundownActive ? _show.CurrentItem : -1, $"Message speaker: {c.Text}");
                     SetMessage(c.Text, c.Urgency, c.Flash, sig.Id);
                 }
                 else SetMessage(c.Text ?? "", c.Urgency, c.Flash);
@@ -934,25 +816,27 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
                 else if (c.Number == 1) SetThreeDScene(egg: false);
                 else SetHolographic(c.Number < 0 ? !Settings.Display.Holographic : false);
                 break;
-            case ShowCommandKind.Screen: ApplyScreenCommand(c.Text ?? ""); break;
-            case ShowCommandKind.Aux: ApplyAuxCommand(c.Number, c.Text ?? ""); break;
-            case ShowCommandKind.DeptNote: ApplyDeptNote((int)c.Number, c.Text ?? ""); break;
-            case ShowCommandKind.Roll: SetRoll(c.Number < 0 ? !RollMode : c.Number > 0); break;
+            case ShowCommandKind.Screen: ApplyScreenCommand(c.Get<ScreenArgs>()); break;
+            case ShowCommandKind.Aux: ApplyAuxCommand(c.Number, c.Get<AuxArgs>()); break;
+            case ShowCommandKind.DeptNote:
+            {
+                var note = c.Get<DeptNoteArgs>();
+                _show.SetDeptNote((int)c.Number, note.Department, note.Note);
+                break;
+            }
+            case ShowCommandKind.Roll: _show.SetRoll(c.Number < 0 ? !RollMode : c.Number > 0); break;
             case ShowCommandKind.Rundown: SwitchRundown(c.Text ?? ""); break;
-            case ShowCommandKind.Undo: if (c.Number < 0) RedoEdit(); else UndoEdit(); break;
+            case ShowCommandKind.Undo: if (c.Number < 0) _show.Redo(); else _show.Undo(); break;
             case ShowCommandKind.EndOfShow: SetEndOfShow(c.Text ?? ""); break;
             case ShowCommandKind.Patterns:
                 PatternsVideoCommand(c.Text ?? "end", (int)c.Number);
                 break;
-            case ShowCommandKind.Loop:
-                _store.Update(s => s.Rundown.Loop = (int)c.Number);
-                StatusLine = c.Number == 0 ? "Loop off" : c.Number < 0 ? "The running order loops until stopped" : $"The running order plays {(int)c.Number + 1} times";
-                break;
+            case ShowCommandKind.Loop: _show.SetLoop((int)c.Number); break;
             case ShowCommandKind.Ltc:
             {
-                var parts = (c.Text ?? "").Split('\u0001');
-                if (parts[0] == "chase") SetLtcChase(c.Number < 0 ? !Settings.Integrations.LtcChase : c.Number > 0);
-                else if (parts[0] == "end") SetLtcEnd(parts.Length > 1 ? parts[1] : "");
+                var ltc = c.Get<LtcArgs>();
+                if (ltc.Action == "chase") SetLtcChase(c.Number < 0 ? !Settings.Integrations.LtcChase : c.Number > 0);
+                else if (ltc.Action == "end") SetLtcEnd(ltc.Timecode);
                 break;
             }
             case ShowCommandKind.Holding:
@@ -1053,7 +937,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     {
         var r = Settings.Remote;
         var allowed = FeatureGate.AllowsRemote(_license.Tier);
-        var signature = $"{allowed}|{r.WebEnabled}|{r.WebPort}|{r.WebBindAll}|{r.OscEnabled}|{r.OscPort}|{r.OscBindAll}|{r.OscFeedbackHost}|{r.OscFeedbackPort}";
+        var signature = $"{allowed}|{r.WebEnabled}|{r.WebPort}|{r.WebBindAll}|{r.OscEnabled}|{r.OscPort}|{r.OscBindAll}|{r.OscFeedbackHost}|{r.OscFeedbackPort}|{r.Https}";
+        if (_web is not null) _web.RequireHttps = r.Https && r.RequireHttps && _web.Certificate is not null;
         if (signature == _remoteSignature) { UpdateRemoteLine(); return; }
         _remoteSignature = signature;
 
@@ -1063,8 +948,10 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         var problems = new List<string>();
         if (r.WebEnabled)
         {
-            var web = new WebServer(this, () => Settings.Remote.Pin);
+            var web = new WebServer(this, () => _store.Snapshot.Remote.Pin);   // web threads read the snapshot, never the live settings
             web.CommandRejected += m => _ui.BeginInvoke(() => StatusLine = m);
+            if (r.Https) web.Certificate = Certificate;
+            web.RequireHttps = r.Https && r.RequireHttps && web.Certificate is not null;
             try { web.Start(r.WebPort, r.WebBindAll); _web = web; }
             catch (Exception ex) when (ex is SocketException or ArgumentOutOfRangeException) { problems.Add($"web port {r.WebPort} is unavailable"); }
         }
@@ -1083,8 +970,24 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     {
         if (_web is null) { RemoteLine = _osc is null ? "" : $"OSC :{_osc.Port}"; return; }
         var host = Settings.Remote.WebBindAll ? LanAddresses().FirstOrDefault() ?? "localhost" : "localhost";
-        RemoteLine = $"Remote: http://{host}:{_web.Port}" + (_osc is null ? "" : $"  ·  OSC :{_osc.Port}");
+        RemoteLine = $"Remote: {(_web.RequireHttps ? "https" : "http")}://{host}:{_web.Port}" + (_osc is null ? "" : $"  ·  OSC :{_osc.Port}");
     }
+
+    private System.Security.Cryptography.X509Certificates.X509Certificate2? _certificate;
+    private bool _certificateTried;
+
+    /// <summary>This install's certificate, made on first use (null if it couldn't be — the web stays plain HTTP).</summary>
+    public System.Security.Cryptography.X509Certificates.X509Certificate2? Certificate
+    {
+        get
+        {
+            if (!_certificateTried) { _certificateTried = true; _certificate = NodeCertificate.LoadOrCreate(Settings.Integrations.RoomName); }
+            return _certificate;
+        }
+    }
+
+    /// <summary>"sha256:…" of this install's certificate, or null.</summary>
+    public string? CertificateFingerprint => Certificate is { } c ? TlsPins.Fingerprint(c.RawData) : null;
 
     private void StopRemote()
     {
@@ -1213,14 +1116,14 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
 
     private void StartNdi()
     {
-        if (_outputWindow is null) { StatusLine = "Open output window first"; return; }
+        if (_outputWindow is null) { Refuse("Open output window first"); return; }
         _ndi = new NdiSender(_outputWindow.Content as FrameworkElement ?? _outputWindow,
             _store.Settings.Display.NdiSourceName,
             fps: _store.Settings.Display.NdiFrameRate);
         if (!_ndi.IsAvailable)
         {
             _ndi = null;
-            StatusLine = "NDI needs the free NDI Runtime — install NDI Tools from ndi.video/tools, then try again.";
+            Refuse("NDI needs the free NDI Runtime — install NDI Tools from ndi.video/tools, then try again.");
             return;
         }
         try { _ndi.Start(); }
@@ -1347,8 +1250,11 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     }
 
     /// <summary>The operator closed Stagewatch on purpose: nothing to offer back next time.</summary>
+    private bool _disposed;
+
     public void Dispose()
     {
+        _disposed = true;
         _sessionTimer?.Stop();
         if (_pendingRecovery is null) SaveSession(cleanClose: true); // keep an unanswered recovery for next launch
         try { SetThreadExecutionState(EsContinuous); } catch (EntryPointNotFoundException) { }

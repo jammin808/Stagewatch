@@ -26,8 +26,7 @@ public sealed partial class MainViewModel
     private void InitLtc()
     {
         _ltcTimer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(100) };
-        _ltcTimer.Tick += (_, _) => PollLtc();
-        _ltcTimer.Start();
+        _ltcTimer.Tick += (_, _) => PollLtc();   // started by StartServices
     }
 
     private void PollLtc()
@@ -63,7 +62,7 @@ public sealed partial class MainViewModel
         {
             var s = _hub.Latest;
             _triggers.FireTimecode(prev, tc, reading.Fps, new TriggerContext(
-                _rundownActive ? _currentItem + 1 : 0, s.Title, s.Phase.ToString().ToLowerInvariant(),
+                _show.RundownActive ? _show.CurrentItem + 1 : 0, s.Title, s.Phase.ToString().ToLowerInvariant(),
                 TimerTick.FormatSeconds(Math.Max(0, s.Seconds)), reading.Text, Settings.Integrations.RoomName), reading.DropFrame);
         }
         _ltcPrevTime = reading.Running ? tc : null;

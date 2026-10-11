@@ -57,7 +57,9 @@ public static class WavePlayer
             {
                 var deadline = Environment.TickCount64 + data.Length * 1000L / (sampleRate * 2) + 2000;
                 while (Environment.TickCount64 < deadline && (Marshal.PtrToStructure<WinMM.WAVEHDR>(header).dwFlags & WinMM.WHDR_DONE) == 0)
+                    #pragma warning disable RS0030 // the audio worker thread waits for the device to finish a one-shot sound; never the show thread
                     Thread.Sleep(20);
+                    #pragma warning restore RS0030
             }
             WinMM.waveOutReset(wave);
             WinMM.waveOutUnprepareHeader(wave, header, headerSize);
@@ -192,7 +194,9 @@ public sealed class WaveStream : IDisposable
             while (!_cts.IsCancellationRequested)
             {
                 var h = Marshal.PtrToStructure<WavePlayer.WinMM.WAVEHDR>(headers[next]);
+                #pragma warning disable RS0030 // the audio worker thread polls the device buffer it owns; never the show thread
                 if ((h.dwFlags & WavePlayer.WinMM.WHDR_DONE) == 0) { Thread.Sleep(2); continue; }
+                #pragma warning restore RS0030
                 Submit(next);
                 next = (next + 1) % _buffers;
             }

@@ -19,6 +19,7 @@ public static class Program
     {
         var outDir = args.Length > 0 ? args[0] : Path.Combine(Path.GetTempPath(), "sw-uismoke");
         Directory.CreateDirectory(outDir);
+        App.Hosted = true;   // the harness owns startup: never touch (or wake) a Stagewatch running on this PC
         var app = new App();
         app.InitializeComponent();
         app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -34,7 +35,7 @@ public static class Program
         var settingsPath = Path.Combine(outDir, "settings.json");
         if (File.Exists(settingsPath)) File.Delete(settingsPath);
         var store = new SettingsStore(settingsPath);
-        store.Update(s => { s.Remote.WebPort = 19924; s.Remote.WebBindAll = false; s.Companion.Enabled = false; s.Remote.OscEnabled = false; });
+        store.Update(s => { s.Remote.WebPort = 19924; s.Remote.WebBindAll = false; s.Remote.Https = false; /* no certificate in the real AppData */ s.Companion.Enabled = false; s.Remote.OscEnabled = false; });
         var license = LicenseStatus.Trial(TimeSpan.FromDays(10));
         typeof(App).GetProperty("SettingsStore")!.SetValue(null, store);
         typeof(App).GetProperty("License")!.SetValue(null, license);
@@ -63,6 +64,109 @@ public static class Program
             }
             catch (Exception ex) { failures++; Console.WriteLine($"FAIL {name}: {ex}"); }
             finally { try { w.Hide(); } catch { } }
+        }
+
+        // A window rendered to a PNG as it is (already shown, off-screen).
+        void Save(Window w, string name)
+        {
+            Pump(300);
+            var width = (int)Math.Max(1, w.ActualWidth); var height = (int)Math.Max(1, w.ActualHeight);
+            var rtb = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            var bg = new DrawingVisual();
+            using (var dc = bg.RenderOpen()) dc.DrawRectangle(w.Background, null, new Rect(0, 0, width, height));
+            rtb.Render(bg);
+            rtb.Render((Visual)VisualTreeHelper.GetChild(w, 0));
+            var enc = new PngBitmapEncoder();
+            enc.Frames.Add(BitmapFrame.Create(rtb));
+            using var fs = File.Create(Path.Combine(outDir, name + ".png"));
+            enc.Save(fs);
+            Console.WriteLine($"OK   {name} ({width}x{height})");
+        }
+        void Expect(bool ok, string what) { Console.WriteLine((ok ? "OK   " : "FAIL ") + what); if (!ok) failures++; }
+
+        if (only == "panels")
+        {
+            // Draggable panels and ALL GO, on the real main window (off-screen).
+            try
+            {
+                var main = new MainWindow();
+                var vm = (MainViewModel)main.DataContext;
+                Shot(main, "panels-main", w =>
+                {
+                    w.Width = 1500; w.Height = 950;
+                    Pump(400);
+                    var dock = (PanelDock)typeof(MainWindow).GetField("_dock", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(w)!;
+                    var tabs = (TabControl)w.FindName("SideTabs");
+                    var sideCol = (ColumnDefinition)w.FindName("SideCol");
+                    var cuesTab = (TabItem)w.FindName("TabCues");
+                    Expect(tabs.Items.Count == 6, $"six panels docked to start ({tabs.Items.Count})");
+
+                    // Stand two departments by, then tear the Cues panel out into its own window.
+                    Run(vm, "signal standby Lighting LX_12");
+                    Run(vm, "signal standby Sound SQ_4");
+                    Pump(500);
+                    var lx = vm.DepartmentRows.FirstOrDefault(r => r.Name == "Lighting");
+                    Expect(vm.StandingByCount == 2 && lx is { StandingBy: true, State: "STANDBY" } && vm.AllGoText.Contains("(2)"),
+                           $"two departments standing by, shown on their rows ({vm.StandingByCount}, {lx?.State}, {vm.AllGoText})");
+                    dock.PopOut("cues");
+                    Pump(500);
+                    var panel = Application.Current.Windows.OfType<PanelWindow>().SingleOrDefault();
+                    Expect(panel is { PanelId: "cues" } && !tabs.Items.Contains(cuesTab) && tabs.Items.Count == 5 && vm.Settings.Panels.Floating.Any(f => f.Id == "cues"),
+                           "Cues & Q&A pops out into its own window (and the layout remembers)");
+                    if (panel is not null)
+                    {
+                        panel.Width = 440; panel.Height = 760;
+                        Save(panel, "panel-cues-standing-by");
+                    }
+                    Run(vm, "signal go all");
+                    Pump(500);
+                    var gos = vm.Snapshots.Latest.Signals.Where(g => g.Kind == SignalKind.Go).Select(g => g.Target + " " + g.Text).ToList();
+                    Expect(vm.StandingByCount == 0 && gos.Count == 2 && gos.Contains("Lighting LX_12") && gos.Contains("Sound SQ_4") && lx!.Gone,
+                           $"ALL GO fires every department standing by with its cue ({string.Join(", ", gos)})");
+                    if (panel is not null) Save(panel, "panel-cues-all-go");
+
+                    // Reorder, dock back where it was, fold the column away with everything out.
+                    dock.Nudge("timers", -10);
+                    Expect(((tabs.Items[0] as TabItem)?.Name) == "TabAux" && vm.Settings.Panels.Order[0] == "timers", "a panel moves along the strip, and the order is saved");
+                    dock.Dock("cues");
+                    Pump(300);
+                    Expect(tabs.Items.Count == 6 && tabs.SelectedItem == cuesTab && !Application.Current.Windows.OfType<PanelWindow>().Any() && vm.Settings.Panels.Floating.Count == 0,
+                           "docking puts the panel back in the strip and closes its window");
+                    foreach (var id in PanelLayout.Default) dock.PopOut(id);
+                    Pump(500);
+                    Expect(tabs.Items.Count == 0 && sideCol.ActualWidth < 1 && Application.Current.Windows.OfType<PanelWindow>().Count() == 6,
+                           $"with every panel out, the timer gets the whole window (side column {sideCol.ActualWidth:0})");
+                    Save(w, "panels-all-out");
+                    dock.Reset();
+                    Pump(300);
+                    Expect(tabs.Items.Count == 6 && sideCol.ActualWidth > 299 && !Application.Current.Windows.OfType<PanelWindow>().Any(), "reset docks everything at the standard width");
+
+                    // A saved layout comes back as it was left (what a restart does).
+                    App.SettingsStore.Update(s => { PanelLayout.Move(s.Panels, "running", 0); PanelLayout.Float(s.Panels, "producer", -30000, 0, 420, 700); s.Panels.SideWidth = 480; });
+                    dock.Restore();
+                    Pump(400);
+                    Expect((tabs.Items[0] as TabItem)?.Name == "TabRunning" && Application.Current.Windows.OfType<PanelWindow>().Any(p => p.PanelId == "producer")
+                           && Math.Abs(sideCol.ActualWidth - 480) < 2, $"a saved layout is restored (first {(tabs.Items[0] as TabItem)?.Name}, width {sideCol.ActualWidth:0})");
+                    dock.Reset();
+
+                    // Show network: another app posts its context; Producer lists it with its light, headline and problems.
+                    var agm = "{\"v\":1,\"node\":{\"t\":\"messenger\",\"id\":\"agm01\",\"name\":\"AGM backchannel\"},\"light\":\"amber\",\"headline\":\"Board room live · 2 action prompts open\"," +
+                              "\"items\":[{\"id\":\"prompts\",\"kind\":\"prompts\",\"label\":\"Action prompts\",\"light\":\"amber\",\"state\":\"2 waiting for the chair\"}]}";
+                    var pat = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"Patterns FOH\"},\"light\":\"red\",\"headline\":\"14 things · 1 red — Projector 1 MISMATCH\"," +
+                              "\"items\":[{\"id\":\"screen:1\",\"kind\":\"screen\",\"label\":\"Projector 1\",\"light\":\"red\",\"state\":\"MISMATCH: carries 1080p60 against a 50 contract\"}]}";
+                    Expect(vm.AcceptPeerContext(agm, "10.0.0.7") is null && vm.AcceptPeerContext(pat, "10.0.0.5") is null, "two show apps post their context");
+                    Pump(1600);
+                    Expect(vm.PeerRows.Any(r => r is { Name: "Patterns FOH", Kind: "Patterns", Light: "red" }) && vm.PeerRows.Any(r => r is { Name: "AGM backchannel", Light: "amber" }) && vm.ContextJson() is { } ctx && ctx.Contains("AGM backchannel"),
+                           $"Producer lists them, and this Stagewatch's context names them ({vm.PeerRows.Count})");
+                    tabs.SelectedItem = (TabItem)w.FindName("TabProducer");
+                    Pump(400);
+                    Save(w, "producer-show-network");
+                });
+                vm.Dispose();
+            }
+            catch (Exception ex) { failures++; Console.WriteLine("FAIL panels: " + ex); }
+            Console.WriteLine(failures == 0 ? "ALL OK" : $"{failures} FAILED");
+            return failures;
         }
 
         if (only == "review")
@@ -191,6 +295,32 @@ public static class Program
             var okR = sim is not null && after == -plan.Applied && back == 0;
             Console.WriteLine((okR ? "OK   " : "FAIL ") + $"recovery applies as one undoable step ({after} → {back})");
             if (!okR) failures++;
+            // Receipts tell the truth: a refused action is ok:false with why, not "applied" with the failure as its effect.
+            ShowCommand Cmd(string line) { var tk = line.Split(' '); ShowCommandParser.TryParse(tk[0], tk.Skip(1).ToList(), out var cc, out _); return cc; }
+            var missing = vm.ExecuteWithReceiptAsync(Cmd("rundown Nowhere"), "r1", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            var noPatterns = vm.ExecuteWithReceiptAsync(Cmd("patterns end 10"), "r2", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            var fine = vm.ExecuteWithReceiptAsync(Cmd("note hello"), "r3", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            var okR2 = !missing.Ok && missing.Error!.Contains("Nowhere") && !noPatterns.Ok && noPatterns.Error!.Contains("Patterns") && fine is { Ok: true, Stage: "applied" };
+            Console.WriteLine((okR2 ? "OK   " : "FAIL ") + $"receipts: refusals are refusals ({missing.Ok}/{missing.Error} · {noPatterns.Ok}/{noPatterns.Error} · {fine.Stage})");
+            if (!okR2) failures++;
+
+            // The shared approval queue: another app's proposal lands in the Copilot list; approving it here lets that app
+            // collect it; one aimed at this Stagewatch runs here with a receipt.
+            var forPatterns = vm.SubmitProposal("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"line\":\"EYE FOCUS screen 2\",\"reason\":\"Projector 1 is on the wrong mode\"}", "keyP");
+            var forUs = vm.SubmitProposal("{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\",\"name\":\"AGM\"},\"target\":{\"t\":\"main\"},\"line\":\"note From the board\",\"reason\":\"log it\"}", "keyA");
+            Pump(300);
+            var pPat = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("Patterns FOH"));
+            var pUs = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("AGM"));
+            var queued = forPatterns.Status == 201 && forUs.Status == 201 && pPat is { IsPending: true } && pUs is { IsPending: true } && pPat.Steps[0].Risk == Stagewatch.Integrations.CopilotRisk.High;
+            vm.ApproveProposalCommand.Execute(pPat);
+            vm.ApproveProposalCommand.Execute(pUs);
+            Pump(300);
+            var collected = vm.CollectApproved("pat1", "keyP");
+            var stolen = vm.CollectApproved("pat1", "keyA");
+            var okD = queued && collected.Json.Contains("EYE FOCUS screen 2") && stolen.Status == 403 && pUs!.Steps[0].Result.StartsWith("done");
+            Console.WriteLine((okD ? "OK   " : "FAIL ") + $"approval desk: queued, approved, collected by its own app only; ours ran here ({forPatterns.Status}/{forUs.Status}, {pUs?.Steps[0].Result})");
+            if (!okD) failures++;
+
             Run(vm, "rundown Day 2");
             Pump(400);
             var g = vm.Snapshots.Latest;

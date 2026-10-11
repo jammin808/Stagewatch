@@ -13,6 +13,11 @@ public enum ApiKeyScope
     Control,
     /// <summary>Read, and the MCP endpoint for AI agents (whose changes can still wait for approval).</summary>
     Mcp,
+    /// <summary>
+    /// Another show app (a messenger such as AGMessage): read, put a message on the stage, and post its own context
+    /// (Show Bus 1.1). Nothing else — it can't run the show.
+    /// </summary>
+    Node,
 }
 
 /// <summary>
@@ -73,12 +78,17 @@ public static class ApiKeys
     }
 
     /// <summary>Whether a key's scope covers what's asked. Every scope may read.</summary>
-    public static bool Allows(ApiKeyScope have, ApiKeyScope need) => need == ApiKeyScope.Read || have == need;
+    public static bool Allows(ApiKeyScope have, ApiKeyScope need)
+        => need == ApiKeyScope.Read || have == need || (need == ApiKeyScope.Node && have == ApiKeyScope.Control);
+
+    /// <summary>What a node key may run: stage messages only.</summary>
+    public static bool NodeMayRun(ShowCommandKind kind) => kind is ShowCommandKind.Message or ShowCommandKind.ClearMessage;
 
     public static string Describe(ApiKeyScope s) => s switch
     {
         ApiKeyScope.Read => "read only",
         ApiKeyScope.Control => "read + commands",
+        ApiKeyScope.Node => "read + stage messages + its context (another show app)",
         _ => "read + MCP (AI agents)",
     };
 

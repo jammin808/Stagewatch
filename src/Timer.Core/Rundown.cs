@@ -7,6 +7,25 @@ namespace Stagewatch.Core;
 /// <summary>The running order: an ordered agenda the operator steps through with Next.</summary>
 public sealed class Rundown
 {
+    /// <summary>
+    /// Stable identity, so history (the journal, reports) never confuses two running orders: names can change and a
+    /// position in a list means nothing once another running order is live. Assigned on load when missing.
+    /// </summary>
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    public static string NewId() => "r" + Guid.NewGuid().ToString("N")[..10];
+
+    /// <summary>Give this running order (and any item without one) a stable id. True when anything was assigned — save it.</summary>
+    public bool EnsureIds()
+    {
+        var changed = false;
+        if (string.IsNullOrWhiteSpace(Id) || Id.Length > 40) { Id = NewId(); changed = true; }
+        foreach (var i in Items)
+            if (string.IsNullOrWhiteSpace(i.Id)) { i.Id = Guid.NewGuid().ToString("N")[..10]; changed = true; }
+        return changed;
+    }
+
     [JsonPropertyName("items")]
     public List<RundownItem> Items { get; set; } = new();
 
@@ -47,6 +66,7 @@ public sealed class Rundown
     /// <summary>A deep copy (items, targets and all) — for show files, duplicates and switching.</summary>
     public Rundown Clone() => new()
     {
+        Id = Id,
         Items = Items.Select(i => i.Clone()).ToList(),
         ScheduledStart = ScheduledStart,
         TimeZoneId = TimeZoneId,

@@ -20,8 +20,16 @@ public partial class MainWindow : Window, IContextActions
         _showToOpen = showToOpen;
         InitializeComponent();
         _vm = new MainViewModel(App.SettingsStore, App.License);
+        _vm.StartServices();
         DataContext = _vm;
         Loaded += (_, _) => SyncRundownPicker();
+        _dock = new PanelDock(this, SideTabs, new Dictionary<string, TabItem>
+        {
+            ["presets"] = TabPresets, ["running"] = TabRunning, ["cues"] = TabCues,
+            ["producer"] = TabProducer, ["holding"] = TabHolding, ["timers"] = TabAux,
+        }, SideCol, SplitCol, SideSplitter, SidePlate, SidePanel, DockHint, App.SettingsStore);
+        // Torn-out panels need the main window up first (they're owned by it).
+        Loaded += (_, _) => _dock.Restore();
         _vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(MainViewModel.LiveRundownName)) SyncRundownPicker(); };
 
         if (App.SettingsStore.Settings.MainWindowBounds is { } b)
@@ -41,7 +49,13 @@ public partial class MainWindow : Window, IContextActions
     {
         ContentRendered -= OnFirstRender;
         var what = _vm.RecoveryDescription;
-        if (what is null)
+        if (App.RestartNote is { } note)
+        {
+            // The watchdog restarted us after a fault: put the show straight back — nobody should be asked mid-show.
+            _vm.ResolveRecovery(restore: what is not null);
+            _vm.StatusLine = note + (what is not null ? " — the show is back where it was" : "");
+        }
+        else if (what is null)
         {
             _vm.ResolveRecovery(restore: false);
         }
@@ -52,9 +66,18 @@ public partial class MainWindow : Window, IContextActions
                 "Restore show?", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
             _vm.ResolveRecovery(answer == MessageBoxResult.Yes);
         }
+        if (SettingsStore.LoadedFromBackup)
+            _vm.StatusLine = "The settings file was damaged — Stagewatch loaded the last good copy (nothing else was lost)";
         // Launched by double-clicking a .stagewatch file.
         if (_showToOpen is not null) OpenShowFile(_showToOpen);
     }
+
+    /// <summary>For the watchdog's heartbeat: a show is live (hang detection is quicker then).</summary>
+    public bool ShowLive => _vm.IsShowLive;
+
+    /// <summary>A UI fault was contained: say so (once per kind) and carry on.</summary>
+    public void ReportFault(Exception ex)
+        => _vm.StatusLine = $"Something went wrong ({ex.GetType().Name}: {ex.Message}) — logged; the show carries on";
 
     /// <summary>A second launch of Stagewatch hands over to this window instead of starting again.</summary>
     public void BringToFront()
@@ -77,6 +100,7 @@ public partial class MainWindow : Window, IContextActions
                 "Close Stagewatch?", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
             if (answer != MessageBoxResult.Yes) { e.Cancel = true; return; }
         }
+        _dock.Shutdown();
         App.SettingsStore.Update(s => s.MainWindowBounds = new WindowBounds
         {
             X = (int)Left, Y = (int)Top, Width = (int)Width, Height = (int)Height
@@ -85,6 +109,13 @@ public partial class MainWindow : Window, IContextActions
     }
 
     /// <summary>Push-to-talk: hold F9, speak a request, let go. The copilot window opens to show what it heard and the plan.</summary>
+    private PanelDock _dock = null!;
+
+    private TabItem TabFor(string panel) => panel switch
+    {
+        "presets" => TabPresets, "running" => TabRunning, "cues" => TabCues, "producer" => TabProducer, "holding" => TabHolding, _ => TabAux,
+    };
+
     private void OnKeyUp(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.F9 && _vm.Talking) { _ = _vm.EndTalk(); e.Handled = true; }
@@ -143,6 +174,8 @@ public partial class MainWindow : Window, IContextActions
             // Undo / redo live edits — but inside a text box they belong to the text box.
             if (Keyboard.FocusedElement is not TextBox && e.Key == Key.Z) { _vm.UndoCommand.Execute(null); e.Handled = true; return; }
             if (Keyboard.FocusedElement is not TextBox && e.Key == Key.Y) { _vm.RedoCommand.Execute(null); e.Handled = true; return; }
+            // ALL GO: every department standing by, at once.
+            if (Keyboard.FocusedElement is not TextBox && e.Key == Key.G && !e.IsRepeat) { _vm.AllGoCommand.Execute(null); e.Handled = true; return; }
             if (e.Key == Key.S)
             {
                 SaveShow(saveAs: Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
@@ -235,8 +268,11 @@ public partial class MainWindow : Window, IContextActions
 
     private void OnTimerWheel(object sender, MouseWheelEventArgs e)
     {
-        var step = Keyboard.IsKeyDown(Key.LeftShift) ? TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(10);
-        if (Keyboard.IsKeyDown(Key.LeftCtrl)) step = TimeSpan.FromHours(1);
+        // 10 s per notch; Shift = 1 min; Ctrl = 5 min (either side). No hour step: one stray notch must never cost an hour.
+        var mods = Keyboard.Modifiers;
+        var step = mods.HasFlag(ModifierKeys.Control) ? TimeSpan.FromMinutes(5)
+                 : mods.HasFlag(ModifierKeys.Shift) ? TimeSpan.FromMinutes(1)
+                 : TimeSpan.FromSeconds(10);
         var delta = e.Delta > 0 ? step : -step;
         _vm.NudgeFromWheel(delta);
         e.Handled = true;
@@ -524,7 +560,7 @@ public partial class MainWindow : Window, IContextActions
 
     private void OnOpenSettings(object sender, RoutedEventArgs e)
     {
-        var dlg = new SettingsDialog(App.SettingsStore, App.License, _vm.BuildDiagnostics, _vm.IntegrationStatus, _vm.PresenterPcs)
+        var dlg = new SettingsDialog(App.SettingsStore, App.License, _vm.BuildDiagnostics, _vm.IntegrationStatus, _vm.PresenterPcs, () => _vm.CertificateFingerprint)
         {
             Owner = this,
             Sounds = new SettingsDialog.SoundHooks(_vm.AddSound, _vm.RemoveSound, _vm.PreviewChime),
@@ -557,7 +593,11 @@ public partial class MainWindow : Window, IContextActions
 
     private void OpenLicense() => new LicenseDialog(App.LicenseManager) { Owner = this }.ShowDialog();
 
-    private void ShowTab(TabItem tab) => SideTabs.SelectedItem = tab;
+    private void ShowTab(TabItem tab) { if (_dock.IdOf(tab) is { } id) _dock.Show(id); }
+
+    /// <summary>Shortcuts pressed in a torn-out panel window act as they would here.</summary>
+    internal void HandleShortcut(KeyEventArgs e) => OnKeyDown(this, e);
+    internal void HandleShortcutUp(KeyEventArgs e) => OnKeyUp(this, e);
 
     /// <summary>Right-click actions for each tagged element (see ContextHelp). Every action goes through the
     /// same commands as the buttons, so remotes, Companion's recorder and the journal see it the same way.</summary>
@@ -635,9 +675,28 @@ public partial class MainWindow : Window, IContextActions
                 yield return I("Edit all presets…", () => OnEditAllPresets(this, new RoutedEventArgs()));
                 break;
 
-            case "department" when element.DataContext is string dept:
-                yield return I($"Standby {dept}", () => _vm.DepartmentStandbyCommand.Execute(dept));
-                yield return I($"GO {dept}", () => _vm.DepartmentGoCommand.Execute(dept));
+            case "department" when element.DataContext is DepartmentRow row:
+                yield return I($"Standby {row.Name}", () => _vm.DepartmentStandbyCommand.Execute(row.Name));
+                yield return I($"GO {row.Name}", () => _vm.DepartmentGoCommand.Execute(row.Name));
+                yield return I($"Clear {row.Name}'s cue", () => _vm.RunOperatorLine($"signal clear \"{row.Name}\""), row.State.Length > 0);
+                yield return I($"ALL GO ({_vm.StandingByCount} standing by)", () => _vm.AllGoCommand.Execute(null), _vm.HasStandingBy);
+                break;
+
+            case "panel" when element is FrameworkElement header && PanelDock.IdOf(header) is { Length: > 0 } panel:
+                yield return I($"Pop out \"{_dock.Title(panel)}\" into its own window", () => _dock.PopOut(panel));
+                yield return I("Move left", () => _dock.Nudge(panel, -1), SideTabs.Items.IndexOf(TabFor(panel)) > 0);
+                yield return I("Move right", () => _dock.Nudge(panel, +1), SideTabs.Items.IndexOf(TabFor(panel)) < SideTabs.Items.Count - 1);
+                yield return I("Reset panel layout", () => _dock.Reset());
+                break;
+
+            case "panel-splitter":
+                yield return I("Standard width", () => { App.SettingsStore.Update(s => s.Panels.SideWidth = PanelLayout.DefaultSideWidth); SideCol.Width = new GridLength(PanelLayout.DefaultSideWidth); });
+                yield return I("Reset panel layout", () => _dock.Reset());
+                break;
+
+            case "all-go":
+                yield return I("ALL GO", () => _vm.AllGoCommand.Execute(null), _vm.HasStandingBy);
+                yield return I("Clear all cues", () => _vm.RunOperatorLine("signal clear"), _vm.HasStandingBy);
                 break;
 
             case "signal" when element.DataContext is SignalView sig:

@@ -109,6 +109,7 @@
       : s.messageAck ? '✓ Speaker acknowledged “' + s.message + '”' + (s.messageAckBy ? ' (' + s.messageAckBy + ')' : '') : (s.message ? 'On screen: “' + s.message + '”' : '');
 
     renderSignals(s);
+    renderStandby(s);
     renderQuestions(s);
     renderAdvice(s);
     renderRows(s);
@@ -167,6 +168,18 @@
       box.appendChild(sb);
       box.appendChild(go);
     });
+  }
+
+  // ALL GO: every department standing by gets its GO at once (a cue that spans departments).
+  $('allGo').onclick = function () { send('signal', 'go', 'all'); };
+  function renderStandby(s) {
+    var standing = (s.signals || []).filter(function (g) { return g.kind === 'standby' && g.state !== 'cancelled'; });
+    var btn = $('allGo');
+    btn.disabled = standing.length === 0;
+    btn.textContent = standing.length ? 'ALL GO (' + standing.length + ')' : 'ALL GO';
+    $('standing').textContent = standing.length
+      ? 'Standing by: ' + standing.map(function (g) { return g.target + (g.text ? ' ' + g.text : ''); }).join(' · ')
+      : '';
   }
 
   function renderSignals(s) {

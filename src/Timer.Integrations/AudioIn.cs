@@ -117,7 +117,9 @@ public sealed class WaveCapture : IDisposable
             while (!_cts.IsCancellationRequested)
             {
                 var h = Marshal.PtrToStructure<WavePlayer.WinMM.WAVEHDR>(headers[next]);
+                #pragma warning disable RS0030 // the capture worker thread polls the device buffer it owns; never the show thread
                 if ((h.dwFlags & WavePlayer.WinMM.WHDR_DONE) == 0) { Thread.Sleep(2); continue; }
+                #pragma warning restore RS0030
                 var count = (int)Math.Min(h.dwBytesRecorded / 2, (uint)_samplesPerBuffer);
                 if (count > 0)
                 {

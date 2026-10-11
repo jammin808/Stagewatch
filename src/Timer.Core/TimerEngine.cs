@@ -23,8 +23,11 @@ namespace Stagewatch.Core;
 public sealed class TimerEngine : IDisposable
 {
     private readonly object _lock = new();
-    private readonly System.Threading.Timer _ticker;
-    private readonly Stopwatch _wallClock = Stopwatch.StartNew();
+    private readonly ITimer _ticker;
+    private readonly TimeProvider _time;
+    private readonly long _startedTs;
+    /// <summary>Monotonic milliseconds since this engine was made (never the wall clock).</summary>
+    private long ElapsedMs => (long)_time.GetElapsedTime(_startedTs).TotalMilliseconds;
 
     // Countdown:
     private TimeSpan _baseDuration;          // configured duration; can be zero
@@ -43,13 +46,21 @@ public sealed class TimerEngine : IDisposable
     private bool _endAtRealTime;             // count the real time left at 1× instead of stretching
 
     // Wall clock source (UTC). Injectable so tests can cross midnight / DST instantly.
-    // Countdowns themselves never read it: they run on the monotonic Stopwatch.
+    // Countdowns themselves never read it: they run on the time provider's monotonic timestamp.
     private readonly Func<DateTime> _utcNow;
 
-    public TimerEngine(Func<DateTime>? utcNow = null)
+    public TimerEngine(Func<DateTime>? utcNow = null) : this(TimeProvider.System, utcNow) { }
+
+    /// <summary>
+    /// With a <see cref="TimeProvider"/>: monotonic time, the wall clock and the tick timer all come from it, so a test
+    /// clock drives the engine deterministically (no sleeping). <paramref name="utcNow"/> overrides the wall clock alone.
+    /// </summary>
+    public TimerEngine(TimeProvider time, Func<DateTime>? utcNow = null)
     {
-        _utcNow = utcNow ?? (() => DateTime.UtcNow);
-        _ticker = new System.Threading.Timer(_ => RaiseTick(), null, Timeout.Infinite, Timeout.Infinite);
+        _time = time;
+        _startedTs = time.GetTimestamp();
+        _utcNow = utcNow ?? (() => time.GetUtcNow().UtcDateTime);
+        _ticker = time.CreateTimer(_ => RaiseTick(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>Local wall-clock time as this engine sees it.</summary>
@@ -151,7 +162,7 @@ public sealed class TimerEngine : IDisposable
                 StopInternal();
             }
         }
-        if (needTick) _ticker.Change(0, TickIntervalMs);
+        if (needTick) _ticker.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(TickIntervalMs));
         else RaiseTick();
         ModeChanged?.Invoke(mode);
     }
@@ -253,9 +264,9 @@ public sealed class TimerEngine : IDisposable
                     _remainingAtPause = left > TimeSpan.Zero ? left : TimeSpan.Zero;
                     if (_remainingAtPause > _baseDuration) _baseDuration = _remainingAtPause;
                 }
-                _runStartedAtMs = _wallClock.ElapsedMilliseconds - (long)(_baseDuration - _remainingAtPause).TotalMilliseconds;
+                _runStartedAtMs = ElapsedMs - (long)(_baseDuration - _remainingAtPause).TotalMilliseconds;
                 ChangeState(TimerState.Running);
-                _ticker.Change(0, TickIntervalMs);
+                _ticker.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(TickIntervalMs));
 
                 // Re-anchor the stretch from current nominal at the moment of Start.
                 // If duration is zero (end-at-only mode), anchor from "target - now".
@@ -270,14 +281,14 @@ public sealed class TimerEngine : IDisposable
             else if (Mode == TimerMode.CountUp)
             {
                 if (State == TimerState.Running) return;
-                _runStartedAtMs = _wallClock.ElapsedMilliseconds - (long)_elapsedAtPause.TotalMilliseconds;
+                _runStartedAtMs = ElapsedMs - (long)_elapsedAtPause.TotalMilliseconds;
                 ChangeState(TimerState.Running);
-                _ticker.Change(0, TickIntervalMs);
+                _ticker.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(TickIntervalMs));
             }
             else
             {
                 ChangeState(TimerState.Running);
-                _ticker.Change(0, TickIntervalMs);
+                _ticker.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(TickIntervalMs));
             }
         }
     }
@@ -310,7 +321,7 @@ public sealed class TimerEngine : IDisposable
             else return;
 
             ChangeState(TimerState.Paused);
-            _ticker.Change(Timeout.Infinite, Timeout.Infinite);
+            _ticker.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
         RaiseTick();
     }
@@ -338,7 +349,7 @@ public sealed class TimerEngine : IDisposable
                 _endAtUtc = null;
                 _endAtRealTime = false;
                 ChangeState(TimerState.Idle);
-                _ticker.Change(Timeout.Infinite, Timeout.Infinite);
+                _ticker.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             }
         }
         RaiseTick();
@@ -355,7 +366,7 @@ public sealed class TimerEngine : IDisposable
                     // Shift the start so elapsed moves by delta, never below zero.
                     var elapsed = ComputeNominalRemainingLocked() + delta;
                     if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
-                    _runStartedAtMs = _wallClock.ElapsedMilliseconds - (long)elapsed.TotalMilliseconds;
+                    _runStartedAtMs = ElapsedMs - (long)elapsed.TotalMilliseconds;
                 }
                 else
                 {
@@ -388,9 +399,9 @@ public sealed class TimerEngine : IDisposable
                 {
                     // Held at zero → restart the clock from the nudged value. In overtime it never stopped.
                     if (!_inOvertime)
-                        _runStartedAtMs = _wallClock.ElapsedMilliseconds - (long)(_baseDuration - _remainingAtPause).TotalMilliseconds;
+                        _runStartedAtMs = ElapsedMs - (long)(_baseDuration - _remainingAtPause).TotalMilliseconds;
                     ChangeState(TimerState.Running);
-                    _ticker.Change(0, TickIntervalMs);
+                    _ticker.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(TickIntervalMs));
                 }
             }
             else return;
@@ -433,7 +444,7 @@ public sealed class TimerEngine : IDisposable
             var passed = s.Counting ? _utcNow() - s.CapturedAtUtc : TimeSpan.Zero;
             if (passed < TimeSpan.Zero) passed = TimeSpan.Zero;
             var value = TimeSpan.FromSeconds(s.ValueSeconds);
-            var nowMs = _wallClock.ElapsedMilliseconds;
+            var nowMs = ElapsedMs;
 
             if (s.Mode == TimerMode.TimeOfDay)
             {
@@ -472,8 +483,8 @@ public sealed class TimerEngine : IDisposable
                 needTicker = s.Counting;
             }
         }
-        if (needTicker) _ticker.Change(0, TickIntervalMs);
-        else _ticker.Change(Timeout.Infinite, Timeout.Infinite);
+        if (needTicker) _ticker.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(TickIntervalMs));
+        else _ticker.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         RaiseTick();
         ModeChanged?.Invoke(s.Mode);
     }
@@ -486,7 +497,7 @@ public sealed class TimerEngine : IDisposable
 
     private void StopInternal()
     {
-        _ticker.Change(Timeout.Infinite, Timeout.Infinite);
+        _ticker.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         ResetCountersLocked();
         ChangeState(TimerState.Idle);
     }
@@ -505,10 +516,10 @@ public sealed class TimerEngine : IDisposable
         return Mode switch
         {
             TimerMode.Countdown => IsCountingLocked()
-                ? _baseDuration - TimeSpan.FromMilliseconds(_wallClock.ElapsedMilliseconds - _runStartedAtMs)
+                ? _baseDuration - TimeSpan.FromMilliseconds(ElapsedMs - _runStartedAtMs)
                 : _remainingAtPause,
             TimerMode.CountUp => State == TimerState.Running
-                ? TimeSpan.FromMilliseconds(_wallClock.ElapsedMilliseconds - _runStartedAtMs)
+                ? TimeSpan.FromMilliseconds(ElapsedMs - _runStartedAtMs)
                 : _elapsedAtPause,
             TimerMode.TimeOfDay => LocalNow.TimeOfDay,
             _ => TimeSpan.Zero
@@ -593,7 +604,7 @@ public sealed class TimerEngine : IDisposable
                     _inOvertime = false;
                     _remainingAtPause = TimeSpan.Zero;
                     ChangeState(TimerState.Expired);
-                    _ticker.Change(Timeout.Infinite, Timeout.Infinite);
+                    _ticker.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
                     t = t with { State = TimerState.Expired, Remaining = TimeSpan.Zero };
                 }
             }

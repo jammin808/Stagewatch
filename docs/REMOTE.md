@@ -87,6 +87,7 @@ One grammar is shared by every transport — HTTP, WebSocket, OSC and the Compan
 | `holding` | `<number \| name \| id \| off \| toggle>` | Put a holding image full screen on every output, NDI and browser screen (`holding 2`, `holding Sponsors`, `holding off`) |
 | `message … ack` | `<text> [urgency] [flash] ack` | As `message`, and ask the speaker to acknowledge ("Got it") |
 | `signal` | `<message\|standby\|go\|call\|nudge> <target> [text] [noack]` | Send a cue the target confirms. Targets: `speaker`, `moderator`, `backstage`, `interpreter` or a department (`Lighting`) |
+| `signal go all` | | ALL GO: a GO to every department standing by, at once (each with the cue its standby named) |
 | `signal clear` / `signal resend` | `<target\|id>` / `<id>` | Cancel cues / send one again |
 | `ack` | `<id> [seen\|done] [name]` | Acknowledge a cue (**no PIN needed**: speaker tablets and phones) |
 | `trim` | `<item> <±seconds>` | Cut or extend a running-order item (kept apart from the plan for the report) |
@@ -225,3 +226,25 @@ slow or malicious client is timed out or dropped without touching the timer.
   `screen disconnect [screen]`, `patterns end [seconds]` (the clip on air in Patterns jumps to its last seconds,
   default 10), `patterns restart`, and with Patterns Round 86 `patterns play`, `patterns pause`, `patterns stop` (the
   clip back to its top — never outputs off) and `patterns seek <m:ss>`.
+
+## 2.15: Show Bus 1.1 — receipts, context, node keys
+
+The contract between Stagewatch, Patterns, AGMessage and the micro-apps is `docs/SHOWBUS.md`. What Stagewatch serves:
+
+| | |
+|---|---|
+| **Receipts** | HTTP: send `X-Request-Id: a1` with any `/api/...` command → `{"type":"receipt","id":"a1","ok":true,"stage":"applied","effect":"…","refs":{"messageId":12}}` (409 with `error` when refused; `stage:"accepted"` if the show thread didn't confirm within 3 s). WebSocket: `{"cmd":"next","args":[],"id":"a1"}` → the same receipt message. Companion TCP: `@a1 NEXT` → `OK @a1 applied <effect>` / `ERROR @a1 <why>`. MCP `run_command` (acting directly) reports what happened; `get_proposal {id}` says what became of a queued proposal. |
+| **Frames** | Every state frame carries `"v":1` and `"seq"` (rises with each published change; smaller after a reconnect = Stagewatch restarted). |
+| **Clock** | WebSocket `{"cmd":"ping","t":<unix ms>}` → `{"type":"pong","t":…,"t2":…,"t3":…}`; Companion `PING <unix ms>` → `PONG t1 t2 t3`. Offset = ((t2−t1)+(t3−t4))/2. |
+| **Context** | `GET /api/context` (PIN or any key) — the room in one JSON: light, headline, parts, recent events, verbs with risk, the peers it hears. MCP `get_context` returns the same. `POST /api/peers/context` (a `node` or control key, or the PIN) — another app's context, kept 30 s. |
+| **Keys** | New scope **node**: read + stage messages + post its context (for AGMessage and similar). Keys now work everywhere the PIN does (slides script, holding upload, WebSocket via `Authorization: Bearer` — never in a URL); a key is never counted as a wrong PIN. |
+| **Discovery** | The UDP 9928 hello now carries a stable `id`, `ports` (`http`, `ws`, `companion`, `osc`), `clock` and `host`; Stagewatch hears every kind of node (patterns, messenger, …) and shows them in Producer → Show network. |
+| **Patterns** | The link pairs by proof (`NONCE` → `AUTH-PROOF` = HMAC-SHA256(token, nonce + "Stagewatch")) with 1.1 desks and sends ids, timed pings and `CONTEXT`; older desks get the plain lines they know. A clip ending fires the **Clip ends** trigger and, if set, moves a video item on. |
+
+## 2.16: Show Bus 1.2 — HTTPS and the shared approval queue
+
+| | |
+|---|---|
+| **HTTPS** | The web port (9924) also speaks TLS with this install's own certificate (self-signed ECDSA P-256, 825 days, renewed automatically; key protected for this Windows user). A connection that starts with a TLS handshake is HTTPS/WSS, anything else plain HTTP — existing screens keep working. `GET /tls` shows the fingerprint and how to trust the certificate on Windows, macOS, iPhone/iPad and Android; `GET /tls.cer` downloads it. The hello carries `"tls":"sha256:…"` and `ports.https`. **Require HTTPS** (Settings → Remote) sends plain HTTP from other devices to `https://` and refuses plain WebSockets; this PC and the certificate pages stay reachable. |
+| **Pinning** | Apps connecting to each other trust a certificate by its fingerprint, pinned on the first authenticated success; a different one later is refused ("CERTIFICATE CHANGED") until the operator accepts it. Stagewatch Slides on presenter PCs does this (pins in `%APPDATA%\Stagewatch\slides-pins.json`; "Trust new certificate" after a reinstall). |
+| **Approval queue** | Stagewatch is the show's approval desk (hello cap `approvals`). `POST /api/proposals` (node, MCP or control key, or the PIN) `{"from":{t,id,name},"target":{t,id},"line","reason"}` → `{"id":"p1","state":"pending"}`. The proposal appears in Copilot beside Stagewatch's own, with the target's own risk for that verb (unknown = high). Approve or discard once. Aimed at Stagewatch, it runs here with a receipt; aimed at another app, that app collects it — `GET /api/proposals?target=<its id>&state=approved` with its node key — runs it through its own checks and reports `POST /api/proposals/<id>/result {"ok","words"}`. `GET /api/proposals/<id>` (read) → state (`pending`, `approved`, `rejected`, `done`, `failed`, `undelivered` after 60 s uncollected), `ok`, `words`, who decided. A node key is bound to the node it first spoke for; one app's key can't collect another's. Everything is in the show log. |

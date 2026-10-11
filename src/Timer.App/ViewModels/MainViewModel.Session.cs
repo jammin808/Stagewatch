@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows.Threading;
 using Stagewatch.Core;
+using Stagewatch.Show;
 
 namespace Stagewatch.App.ViewModels;
 
@@ -69,17 +70,11 @@ public sealed partial class MainViewModel
         if (restore && s?.Engine is { } e)
         {
             _engine.Restore(e);
-            _activeTitle = s.Title;
-            _currentItem = Math.Min(s.CurrentItem, Settings.Rundown.Items.Count - 1);
-            _rundownActive = s.RundownActive && _currentItem >= 0;
-            _currentItemStarted = s.CurrentItemStarted;
-            _showAnchorUtc = s.ShowAnchorUtc;
-            _pinnedStartUtc = s.PinnedStartUtc;
+            // The cursor is restored only into the same running order (by id); the controller checks.
+            _show.Restore(new ShowCursor(s.Title, s.CurrentItem, s.RundownActive, s.CurrentItemStarted, s.ShowAnchorUtc, s.PinnedStartUtc,
+                s.Actuals ?? new Dictionary<int, ItemActual>(), s.PendingDelaySeconds, s.RundownId, s.Execution, s.CurrentItemId, s.ActualIds));
             _manualTimerFlash = s.ManualTimerFlash;
             Blackout = s.Blackout;
-            _actuals.Clear();
-            foreach (var (k, v) in s.Actuals ?? new()) _actuals[k] = v;
-            _pendingDelay = TimeSpan.FromSeconds(Math.Max(0, s.PendingDelaySeconds));
             if (s.JournalPath is { Length: > 0 } jp && System.IO.File.Exists(jp)) OpenJournal(jp);
             if (s.MessageText.Length > 0)
             {
@@ -115,18 +110,24 @@ public sealed partial class MainViewModel
 
     private SessionState BuildSession(bool cleanClose)
     {
+        var cursor = _show.Capture();
         var msg = Settings.MessageState;
         return new SessionState
         {
+            Sequence = ++_sessionSequence,   // captured on the show thread, in order
             SavedAtUtc = DateTime.UtcNow,
             ClosedCleanly = cleanClose,
             Engine = _engine.Capture(),
-            Title = _activeTitle,
-            CurrentItem = _currentItem,
-            RundownActive = _rundownActive,
-            CurrentItemStarted = _currentItemStarted,
-            ShowAnchorUtc = _showAnchorUtc,
-            PinnedStartUtc = _pinnedStartUtc,
+            Title = cursor.Title,
+            CurrentItem = cursor.CurrentItem,
+            RundownActive = cursor.RundownActive,
+            CurrentItemStarted = cursor.ItemStarted,
+            ShowAnchorUtc = cursor.ShowAnchorUtc,
+            PinnedStartUtc = cursor.PinnedStartUtc,
+            RundownId = cursor.RundownId,
+            Execution = cursor.Execution,
+            CurrentItemId = cursor.CurrentItemId,
+            ActualIds = cursor.ActualIds is { } ids ? new Dictionary<int, string>(ids) : null,
             MessageText = msg.Text,
             Urgency = msg.Urgency,
             Flash = msg.Flash,
@@ -134,11 +135,13 @@ public sealed partial class MainViewModel
             Blackout = Blackout,
             OutputMode = _outputWindow is null ? OutputMode.Closed : Settings.Display.OutputMode,
             NdiOn = _ndi is not null,
-            Actuals = new Dictionary<int, ItemActual>(_actuals),
-            PendingDelaySeconds = _pendingDelay.TotalSeconds,
+            Actuals = new Dictionary<int, ItemActual>(cursor.Actuals),
+            PendingDelaySeconds = cursor.PendingDelaySeconds,
             JournalPath = _journal.Path
         };
     }
+
+    private long _sessionSequence;
 
     private void SaveSession(bool cleanClose)
     {

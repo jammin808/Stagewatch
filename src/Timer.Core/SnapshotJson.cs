@@ -38,6 +38,8 @@ public static class SnapshotJson
         {
             w.WriteStartObject();
             w.WriteString("type", "state");
+            w.WriteNumber("v", ShowSnapshot.FormatVersion);
+            w.WriteNumber("seq", s.Seq.Value);
             w.WriteString("mode", ModeName(s.Mode));
             w.WriteString("state", s.State.ToString().ToLowerInvariant());
             w.WriteNumber("seconds", s.Seconds);

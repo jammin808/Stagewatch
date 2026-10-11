@@ -25,23 +25,59 @@ public sealed class SettingsStore : IDisposable
     {
         _path = path;
         _current = Load(path);
+        // Persist identities assigned on load at once, so a crash before the next save can't change them.
+        if (File.Exists(path) && (_current.Rundown.Id.Length > 0) && !File.ReadAllText(path).Contains(_current.Rundown.Id, StringComparison.Ordinal))
+            SaveNow();
         _debounceTimer = new System.Threading.Timer(_ => SaveNow(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
+    /// <summary>
+    /// The live settings. <b>Owner thread only</b> (the UI thread in the app): read them there, and change them only
+    /// through <see cref="Update"/>. Other threads use <see cref="Snapshot"/>.
+    /// </summary>
     public AppSettings Settings
     {
         get { lock (_lock) return _current; }
     }
 
+    private long _version;
+    private long _snapshotVersion = -1;
+    private AppSettings? _snapshot;
+
+    /// <summary>
+    /// A private copy of the settings as they were after the last change, for readers on other threads (web requests,
+    /// trigger workers). Never the live object, so a reader can't see a half-made change or trip over a list being edited.
+    /// Rebuilt on the first read after a change; treat it as read-only (changing it changes nothing).
+    /// </summary>
+    public AppSettings Snapshot
+    {
+        get
+        {
+            lock (_lock)
+            {
+                if (_snapshot is null || _snapshotVersion != _version)
+                {
+                    _snapshot = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(_current, JsonOpts), JsonOpts) ?? new AppSettings();
+                    _snapshotVersion = _version;
+                }
+                return _snapshot;
+            }
+        }
+    }
+
     /// <summary>Mutate settings under the lock and queue a debounced save.</summary>
     public void Update(Action<AppSettings> mutate)
     {
-        lock (_lock) { mutate(_current); }
+        lock (_lock) { mutate(_current); _version++; }
         ScheduleSave();
     }
 
-    /// <summary>Defer a save by 500ms — repeated calls coalesce.</summary>
-    public void ScheduleSave() => _debounceTimer.Change(500, Timeout.Infinite);
+    /// <summary>Defer a save by 500ms — repeated calls coalesce. (Also marks the snapshot stale.)</summary>
+    public void ScheduleSave()
+    {
+        Interlocked.Increment(ref _version);
+        _debounceTimer.Change(500, Timeout.Infinite);
+    }
 
     /// <summary>Force an immediate write (e.g. on shutdown).</summary>
     public void SaveNow()
@@ -66,26 +102,16 @@ public sealed class SettingsStore : IDisposable
             }
 
             if (json == _lastWritten) return;
-            var tmp = $"{_path}.{Environment.CurrentManagedThreadId}.{Guid.NewGuid():N}.tmp";
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-                File.WriteAllText(tmp, json);
-                // Atomic replace: a crash leaves the old file or the new one, never half of either.
-                // Retry briefly: antivirus or backup tools sometimes hold the file for a moment.
-                for (var attempt = 0; ; attempt++)
-                {
-                    try { File.Move(tmp, _path, overwrite: true); break; }
-                    catch (IOException) when (attempt < 4) { Thread.Sleep(25 * (attempt + 1)); }
-                    catch (UnauthorizedAccessException) when (attempt < 4) { Thread.Sleep(25 * (attempt + 1)); }
-                }
+                // Flushed to the disk and swapped in; the last whole file is kept as .bak (see AtomicFile).
+                AtomicFile.Write(_path, json, AtomicFile.IsJson);
                 _lastWritten = json;
             }
             catch (Exception ex)
             {
                 // Settings save failure must not crash the app mid-show.
                 // Surface via SettingsSaveFailed for UI to log.
-                try { File.Delete(tmp); } catch { }
                 SettingsSaveFailed?.Invoke(ex);
             }
         }
@@ -96,6 +122,9 @@ public sealed class SettingsStore : IDisposable
 
     public event Action<Exception>? SettingsSaveFailed;
 
+    /// <summary>True when the settings file was damaged and the last whole copy (.bak) was loaded instead.</summary>
+    public static bool LoadedFromBackup { get; private set; }
+
     public static string DefaultPath()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -104,18 +133,36 @@ public sealed class SettingsStore : IDisposable
 
     private static AppSettings Load(string path)
     {
+        LoadedFromBackup = false;
         try
         {
+            // No file is a fresh start (someone reset it on purpose) — never a reason to bring back an old backup.
             if (!File.Exists(path)) return Migrate(new AppSettings());
-            var json = File.ReadAllText(path);
+            // A damaged file falls back to the last whole one (.bak) before ever starting from nothing.
+            var json = AtomicFile.ReadWithBackup(path, IsSettings, out var fromBackup);
+            if (fromBackup && File.Exists(path)) Quarantine(path);
+            if (json is null) throw new JsonException("no readable settings");
             var s = JsonSerializer.Deserialize<AppSettings>(json, JsonOpts) ?? new AppSettings();
+            LoadedFromBackup = fromBackup;
             return Migrate(s);
         }
         catch
         {
-            // Corrupted file — back it up and start fresh, never block startup.
-            try { File.Copy(path, path + ".corrupt-" + DateTime.UtcNow.Ticks, overwrite: true); } catch { }
+            // Corrupted file and no good backup — keep it for inspection and start fresh, never block startup.
+            Quarantine(path);
             return Migrate(new AppSettings());
+        }
+
+        static bool IsSettings(string text)
+        {
+            try { return JsonSerializer.Deserialize<AppSettings>(text, JsonOpts) is not null; }
+            catch (JsonException) { return false; }
+            catch (NotSupportedException) { return false; }
+        }
+
+        static void Quarantine(string p)
+        {
+            try { if (File.Exists(p)) File.Copy(p, p + ".corrupt-" + DateTime.UtcNow.Ticks, overwrite: true); } catch { }
         }
     }
 
@@ -141,12 +188,19 @@ public sealed class SettingsStore : IDisposable
             s.Remote.Pin = System.Security.Cryptography.RandomNumberGenerator.GetInt32(1000, 10000).ToString();
         s.Rundown ??= new Rundown();
         s.Rundown.Items ??= new List<RundownItem>();
+        // Stable identities for history (journal, reports): assigned once, then saved.
+        s.Rundown.EnsureIds();
+        foreach (var other in s.OtherRundowns ?? new()) other.Rundown?.EnsureIds();
         // 2.0 sections: absent in older files, or nulled by hand edits.
         s.Integrations ??= new IntegrationSettings();
         s.Signals ??= new SignalSettings();
         s.Signals.Departments ??= new List<string>();
         s.Triggers ??= new List<TriggerRule>();
         s.Holding ??= new HoldingSettings();
+        s.Panels ??= new PanelLayoutSettings();
+        if (s.NodeId is not { Length: 12 } || !s.NodeId.All(char.IsAsciiHexDigitLower))
+            s.NodeId = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(6)).ToLowerInvariant();
+        PanelLayout.Normalize(s.Panels);
         s.Holding.Images ??= new List<HoldingImage>();
         s.Holding.Images.RemoveAll(i => i is null || !HoldingLibrary.IsValidId(i.Id));
         s.Display ??= new DisplaySettings();

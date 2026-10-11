@@ -1364,6 +1364,283 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     listener2.Stop();
 }
 
+// ---------------------------------------------------------------- ALL GO (cues spanning departments)
+{
+    var board = new SignalBoard { KeepDoneFor = TimeSpan.FromSeconds(30) };
+    var t0 = new DateTime(2026, 10, 10, 19, 0, 0, DateTimeKind.Utc);
+    var lx = board.Send(SignalKind.Standby, "lighting", "LX 12", t0);
+    var snd = board.Send(SignalKind.Standby, "Sound", "SQ 4", t0.AddSeconds(2));
+    board.Send(SignalKind.Message, "speaker", "Wrap up", t0.AddSeconds(3));
+    Check(board.StandingBy().Select(x => x.Target).SequenceEqual(new[] { "Lighting", "Sound" }), "all go: departments on standby, in the order they were stood by");
+    board.Ack(lx.Id, "Sam", "seen", t0.AddSeconds(4));
+    board.Ack(lx.Id, "Sam", "done", t0.AddSeconds(5));   // in position
+    board.Update(t0.AddMinutes(10));
+    Check(board.StandingBy().Count == 2 && board.Views(t0.AddMinutes(10)).Any(v => v.Target == "Lighting" && v.State == SignalState.Done),
+          "all go: a department in position stays standing by until its GO (it doesn't time out like a finished cue)");
+    var go = board.Send(SignalKind.Go, "Lighting", "LX 12", t0.AddMinutes(10));
+    Check(board.StandingBy().Select(x => x.Target).SequenceEqual(new[] { "Sound" }) && board.Find(lx.Id)!.State == SignalState.Cancelled,
+          "all go: a GO answers that department's standby, even once it's in position");
+    board.ClearTarget("*", t0.AddMinutes(11));
+    Check(board.StandingBy().Count == 0, "all go: clearing all cues stands everyone down");
+    board.Send(SignalKind.Standby, "Video", "", t0.AddMinutes(12));
+    var vStandby = board.StandingBy()[0];
+    board.Ack(vStandby.Id, "", "done", t0.AddMinutes(12));
+    board.Cancel(vStandby.Id, t0.AddMinutes(13));
+    Check(board.StandingBy().Count == 0, "all go: clearing one standby that's in position works too");
+
+    ShowCommand Line(string line) { var t = line.Split(' '); return ShowCommandParser.TryParse(t[0], t.Skip(1).ToList(), out var c, out _) ? c : new ShowCommand(ShowCommandKind.Note); }
+    Check(Line("signal go all").Kind == ShowCommandKind.SignalGoAll && Line("cue go *").Kind == ShowCommandKind.SignalGoAll && Line("signal go Lighting").Kind == ShowCommandKind.Signal,
+          "all go: \"signal go all\" is one command; a named department is still its own GO");
+    Check(Copilot.Classify(Line("signal go all")) == CopilotRisk.High, "all go: the copilot never pre-ticks an ALL GO");
+}
+
+// ---------------------------------------------------------------- Resilience (lessons from Patterns)
+{
+    // Watchdog policy: a stage timer comes back at once, slows down only if it keeps failing, gives up on a loop.
+    var wp = new WatchdogPolicy();
+    var t0 = new DateTime(2026, 10, 10, 19, 0, 0, DateTimeKind.Utc);
+    Check(wp.OnExit(0, TimeSpan.FromMinutes(30), t0).Action == WatchdogAction.Stop, "watchdog: a normal close stops watching");
+    var first = wp.OnExit(-532462766, TimeSpan.FromMinutes(1), t0);
+    Check(first is { Action: WatchdogAction.Restart } && first.Delay == TimeSpan.Zero, "watchdog: the first crash restarts at once");
+    var second = wp.OnExit(1, TimeSpan.FromSeconds(5), t0.AddSeconds(10), hung: true);
+    Check(second.Action == WatchdogAction.Restart && second.Delay > TimeSpan.Zero && second.Reason.Contains("stopped answering"), "watchdog: a hang restarts, after a short wait the second time");
+    for (int i = 0; i < 4; i++) wp.OnExit(1, TimeSpan.FromSeconds(5), t0.AddSeconds(20 + i));
+    Check(wp.OnExit(1, TimeSpan.FromSeconds(5), t0.AddSeconds(30)).Action == WatchdogAction.GiveUp, "watchdog: gives up after too many failures in ten minutes");
+    var calm = new WatchdogPolicy();
+    calm.OnExit(1, TimeSpan.FromSeconds(1), t0); calm.OnExit(1, TimeSpan.FromSeconds(1), t0.AddSeconds(1));
+    Check(calm.OnExit(1, WatchdogPolicy.GoodRun, t0.AddMinutes(20)).Delay == TimeSpan.Zero, "watchdog: a long good run resets the backoff");
+    Check(wp.OnExit(WatchdogPolicy.RestartCode, TimeSpan.FromSeconds(1), t0.AddMinutes(1)).Action == WatchdogAction.Restart, "watchdog: the app can ask for a restart");
+    Check(WatchdogPolicy.IsHung(TimeSpan.FromSeconds(11), live: true, hadFirstBeat: true) && !WatchdogPolicy.IsHung(TimeSpan.FromSeconds(11), live: false, hadFirstBeat: true)
+          && !WatchdogPolicy.IsHung(TimeSpan.FromSeconds(60), live: false, hadFirstBeat: false), "watchdog: quick to call a hang while live, patient otherwise and at start");
+
+    // Faults: contained unless fatal or a storm.
+    var faults = new FaultCounter();
+    Check(faults.Contain(new InvalidOperationException("x"), t0) && !faults.Contain(new OutOfMemoryException(), t0), "faults: a stray error is contained, a fatal one is not");
+    var stormed = false;
+    for (int i = 0; i < FaultCounter.StormCount; i++) stormed |= !faults.Contain(new InvalidOperationException("again"), t0.AddSeconds(1));
+    Check(stormed && faults.Contain(new InvalidOperationException("later"), t0.AddMinutes(5)), "faults: a storm ends the process (for the watchdog), a later one is contained again");
+
+    // Crash-safe files: the old whole file is kept; a damaged file falls back to it.
+    var dir = Path.Combine(Path.GetTempPath(), "sw-atomic-" + Guid.NewGuid().ToString("N")[..8]);
+    var f = Path.Combine(dir, "x.json");
+    AtomicFile.Write(f, "{\"a\":1}", AtomicFile.IsJson);
+    AtomicFile.Write(f, "{\"a\":2}", AtomicFile.IsJson);
+    Check(File.ReadAllText(f) == "{\"a\":2}" && File.ReadAllText(f + ".bak") == "{\"a\":1}" && Directory.GetFiles(dir, "*.tmp").Length == 0, "files: written whole, the previous one kept as .bak, no temp left");
+    File.WriteAllText(f, "{\"a\":");   // torn
+    AtomicFile.Write(f, "{\"a\":3}", AtomicFile.IsJson);
+    Check(File.ReadAllText(f + ".bak") == "{\"a\":1}", "files: a torn file never replaces a good backup");
+    File.WriteAllText(f, "garbage");
+    Check(AtomicFile.ReadWithBackup(f, AtomicFile.IsJson, out var fromBak) == "{\"a\":1}" && fromBak, "files: a damaged file reads its backup");
+    var sp = Path.Combine(dir, "settings.json");
+    using (var st = new SettingsStore(sp)) { st.Update(x => x.RundownName = "Gala"); st.SaveNow(); st.Update(x => x.RundownName = "Gala 2"); st.SaveNow(); }
+    File.WriteAllText(sp, "{ torn");
+    using (var st2 = new SettingsStore(sp))
+        Check(st2.Settings.RundownName == "Gala" && SettingsStore.LoadedFromBackup, $"settings: a damaged settings file loads the last good copy ({st2.Settings.RundownName})");
+    File.Delete(sp);
+    using (var st3 = new SettingsStore(sp))
+        Check(st3.Settings.RundownName == "Main" && !SettingsStore.LoadedFromBackup, "settings: a deleted settings file is a fresh start, not the old backup");
+    try { Directory.Delete(dir, true); } catch { }
+
+    // GO latency ring.
+    var go = new GoLatency();
+    Check(go.Describe().Contains("no GO"), "go latency: says when nothing was measured");
+    for (int i = 1; i <= 100; i++) go.Add(i / 2.0, i);
+    Check(go.Count == GoLatency.Size && go.Last == 100 && go.Percentile(0.5) == 70 && go.Percentile(0.95) >= 97 && go.Describe().Contains("slower"),
+          $"go latency: a ring of the last {GoLatency.Size}, with percentiles ({go.Describe()})");
+}
+
+// ---------------------------------------------------------------- Checkpoint order (review 2026-10-11)
+{
+    var spath = Path.Combine(Path.GetTempPath(), "sw-session-" + Guid.NewGuid().ToString("N")[..8] + ".json");
+    var store = new SessionStore(spath);
+    var now = DateTime.UtcNow;
+    SessionState Live(long seq, string title) => new() { Sequence = seq, SavedAtUtc = now, Title = title, RundownActive = true, CurrentItem = 0,
+        Engine = new EngineState(TimerMode.Countdown, TimerState.Running, 300, 300, true, null, now, 300, null, now) };
+    store.Save(Live(1, "older"));
+    store.Save(new SessionState { Sequence = 3, SavedAtUtc = now, ClosedCleanly = true });
+    store.Save(Live(2, "delayed older save"));   // captured before the clean close, written after it
+    Check(store.LoadRecoverable(now) is null, "session: a delayed older checkpoint can't undo a clean close");
+    var store2 = new SessionStore(spath + "2");
+    store2.Save(Live(5, "newer"));
+    store2.Save(Live(4, "older"));
+    Check(store2.LoadRecoverable(now)?.Title == "newer", "session: the newest capture wins whatever order the saves land in");
+    try { File.Delete(spath); File.Delete(spath + "2"); } catch { }
+}
+
+// ---------------------------------------------------------------- Panel layout (draggable panels)
+{
+    var p = new PanelLayoutSettings();
+    Check(PanelLayout.Docked(p).SequenceEqual(PanelLayout.Default) && p.SideWidth == PanelLayout.DefaultSideWidth, "panels: everything docked in the default order");
+    PanelLayout.Move(p, "cues", 0);
+    Check(PanelLayout.Docked(p).Take(2).SequenceEqual(new[] { "cues", "presets" }), "panels: drag a tab to the front");
+    PanelLayout.Float(p, "running", 1900, 100, 120, 100);
+    Check(!PanelLayout.Docked(p).Contains("running") && p.Floating.Single().Width == PanelLayout.MinPanelWidth && p.Floating.Single().Height == PanelLayout.MinPanelHeight,
+          "panels: a torn-out panel leaves the strip and keeps a usable size");
+    PanelLayout.Move(p, "timers", 1);
+    PanelLayout.Dock(p, "running");
+    Check(PanelLayout.Docked(p).SequenceEqual(new[] { "cues", "timers", "presets", "running", "producer", "holding" }),
+          $"panels: docking without a place puts it back where it was ({string.Join(",", PanelLayout.Docked(p))})");
+    PanelLayout.Float(p, "producer", 0, 0, 500, 700);
+    PanelLayout.Dock(p, "producer", 0);
+    Check(PanelLayout.Docked(p)[0] == "producer" && p.Floating.Count == 0, "panels: dropping onto the strip docks at that place");
+    foreach (var id in PanelLayout.Default) PanelLayout.Float(p, id, 0, 0, 400, 600);
+    Check(PanelLayout.Docked(p).Count == 0 && p.Order.Count == 6, "panels: every panel can be torn out, and none is lost");
+
+    // From disk: unknown, duplicate and missing panels, a silly width.
+    var bad = new PanelLayoutSettings
+    {
+        Order = new List<string> { "timers", "bogus", "timers", "cues" },
+        Floating = new List<FloatingPanel> { new() { Id = "cues", Width = double.NaN, Height = 10 }, new() { Id = "nope" } },
+        SideWidth = 5000,
+    };
+    PanelLayout.Normalize(bad);
+    Check(bad.Order.Count == 6 && bad.Order.Distinct().Count() == 6 && bad.Order[0] == "timers" && !bad.Order.Contains("bogus"),
+          $"panels: a damaged order is repaired, keeping the operator's choices ({string.Join(",", bad.Order)})");
+    Check(bad.Floating.Count == 1 && bad.Floating[0].Width >= PanelLayout.MinPanelWidth && bad.Floating[0].Height >= PanelLayout.MinPanelHeight && bad.SideWidth == PanelLayout.MaxSideWidth,
+          "panels: unknown windows dropped, sizes made usable");
+    PanelLayout.Reset(bad);
+    Check(bad.Order.SequenceEqual(PanelLayout.Default) && bad.Floating.Count == 0 && bad.SideWidth == PanelLayout.DefaultSideWidth, "panels: reset puts everything back");
+
+    // Old settings files have no panels section.
+    var ppath = Path.Combine(Path.GetTempPath(), "sw-panels-" + Guid.NewGuid().ToString("N")[..8] + ".json");
+    File.WriteAllText(ppath, "{\"schemaVersion\":1,\"panels\":null}");
+    using (var pstore = new SettingsStore(ppath))
+        Check(pstore.Settings.Panels is { Order.Count: 6 }, "panels: an old settings file gets the default layout");
+    try { File.Delete(ppath); } catch { }
+}
+
+// ---------------------------------------------------------------- Narrower contracts (architecture review)
+{
+    ShowCommand Parse(string line) { var t = line.Split(' '); return ShowCommandParser.TryParse(t[0], t.Skip(1).ToList(), out var c, out _) ? c : default; }
+    Check(Parse("deptnote 3 Lighting Blue wash").Args is DeptNoteArgs { Department: "Lighting", Note: "Blue wash" }, "contracts: the parser gives typed arguments");
+    Check(ShowCommandParser.TryParse("signal", new List<string> { "go", "lighting", "LX 12" }, out var sig, out _) && sig.Get<SignalArgs>() is { Target: "lighting", Text: "LX 12" },
+          "contracts: signal arguments typed");
+    Check(Parse("screen go lobby Stage").Get<ScreenArgs>() is { Action: "go", Argument: "lobby", Who: "Stage" }
+          && Parse("screen identify").Get<ScreenArgs>() is { Action: "identify", Who: "all" }, "contracts: screen arguments typed");
+    Check(Parse("aux 2 set 3:00").Get<AuxArgs>() is { Action: "set", Argument: "180" } && Parse("ltc end 01:00:00:00").Get<LtcArgs>() is { Action: "end", Timecode: "01:00:00:00" },
+          "contracts: aux and LTC arguments typed");
+    var made = ShowCommand.DeptNote(2, "Sound", "Lapel 3");
+    Check(made.Get<DeptNoteArgs>() == new DeptNoteArgs("Sound", "Lapel 3") && made.Text == "Sound\u0001Lapel 3", "contracts: factories set typed arguments and keep the packed text compatible");
+    var legacy = new ShowCommand(ShowCommandKind.Question, Text: "Why?\u0001Sam");
+    Check(legacy.Get<QuestionArgs>() == new QuestionArgs("Why?", "Sam"), "contracts: a command built the old way still reads typed");
+    Check(ShowCommand.Signal(SignalKind.Go, "lx\u0001evil", "GO", true).Get<SignalArgs>().Target == "lx\u0001evil" && ShowArgs.Pack("a\u0001b", "c") == "a b\u0001c",
+          "contracts: a separator inside a value can't split it into two arguments");
+
+    // EquatableArray copies what it's given: a published frame can't change under its readers.
+    var source = new[] { 1, 2, 3 };
+    var frozen = new EquatableArray<int>(source);
+    source[0] = 99;
+    Check(frozen[0] == 1, "contracts: EquatableArray keeps its own copy");
+
+    // Settings: other threads read a snapshot, never the live object.
+    var spath = Path.Combine(Path.GetTempPath(), "sw-snap-" + Guid.NewGuid().ToString("N")[..8] + ".json");
+    using (var store = new SettingsStore(spath))
+    {
+        store.Update(s => s.Triggers.Clear());
+        var before = store.Snapshot;
+        Check(!ReferenceEquals(before, store.Settings) && ReferenceEquals(before, store.Snapshot), "contracts: the snapshot is a separate object, reused until something changes");
+        store.Update(s => s.Triggers.Add(new TriggerRule { Name = "hello" }));
+        var after = store.Snapshot;
+        Check(before.Triggers.Count == 0 && after.Triggers.Count == 1 && !ReferenceEquals(after.Triggers, store.Settings.Triggers),
+              "contracts: a change gives readers a new snapshot; the old one never changes under them");
+        // A reader enumerating the snapshot while the owner edits the live list: no "collection was modified".
+        var errors = 0;
+        var reader = Task.Run(() => { for (int i = 0; i < 2000; i++) { try { foreach (var _ in store.Snapshot.Triggers) { } } catch (InvalidOperationException) { errors++; } } });
+        for (int i = 0; i < 2000; i++) store.Update(s => { s.Triggers.Add(new TriggerRule { Name = "x" }); if (s.Triggers.Count > 5) s.Triggers.RemoveAt(0); });
+        reader.Wait();
+        Check(errors == 0, $"contracts: background readers never see a list mid-edit ({errors} errors)");
+    }
+    try { File.Delete(spath); } catch { }
+
+    // Narrow consumers depend on narrow contracts.
+    Check(typeof(OscServer).GetConstructors().Single().GetParameters()[0].ParameterType == typeof(IShowCommands), "contracts: OSC needs only commands and frames");
+    Check(typeof(IShowControl).GetInterfaces().Length >= 7, "contracts: IShowControl is the union of focused contracts");
+}
+
+// ---------------------------------------------------------------- Latency boundaries (architecture review)
+{
+    var hub = new SnapshotHub();
+    var fast = new System.Collections.Concurrent.ConcurrentQueue<int>();
+    var slow = new System.Collections.Concurrent.ConcurrentQueue<int>();
+    var slowReports = 0;
+    var hubFailures = 0;
+    hub.SubscriberSlow += (_, _) => Interlocked.Increment(ref slowReports);
+    hub.SubscriberFailed += _ => Interlocked.Increment(ref hubFailures);
+    hub.Subscribe(f => { Thread.Sleep(250); slow.Enqueue((int)f.Seconds); }, "slow socket");
+    hub.Subscribe(f => fast.Enqueue((int)f.Seconds), "fast");
+    hub.Subscribe(f => { if (f.Seconds == 3) throw new InvalidOperationException("boom"); }, "throws");
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    for (int k = 1; k <= 40; k++) hub.Publish(new ShowSnapshot { Seconds = k, Text = k.ToString() });
+    var publishMs = sw.Elapsed.TotalMilliseconds;
+    Check(publishMs < 100, $"latency: publishing 40 frames with a 250 ms consumer attached takes {publishMs:0} ms (the show never waits)");
+    var fastDone = SpinWait.SpinUntil(() => fast.Contains(40), 2000);
+    Check(fastDone && fast.Count >= 1, $"latency: a fast consumer isn't held up by the slow one ({fast.Count} frames, slow had {slow.Count})");
+    Check(hub.WaitIdle(TimeSpan.FromSeconds(5)), "latency: every consumer catches up");
+    var slowSeen = slow.ToArray();
+    Check(slowSeen.Length < 10 && slowSeen[^1] == 40, $"latency: the slow consumer skips to the newest frame instead of queuing a backlog ({string.Join(",", slowSeen)})");
+    Check(slowSeen.SequenceEqual(slowSeen.OrderBy(x => x)) && fast.ToArray().SequenceEqual(fast.ToArray().OrderBy(x => x)), "latency: each consumer sees frames in order");
+    Check(slowReports >= 1, "latency: a consumer slower than 100 ms on a frame is reported");
+    Check(hubFailures <= 1 && fast.Contains(40), "latency: a consumer that throws affects nobody else");
+    Check(!hub.Publish(new ShowSnapshot { Seconds = 40, Text = "40" }), "latency: an unchanged frame isn't published");
+}
+
+// ---------------------------------------------------------------- Historical identity (architecture review)
+{
+    var t0 = new DateTime(2026, 10, 10, 9, 0, 0, DateTimeKind.Utc);
+    var day1 = new Rundown { Id = "rDay1", Items = { new RundownItem { Id = "talkA", Title = "Opening", DurationSeconds = 120 } } };
+    var day2 = new Rundown { Id = "rDay2", Items = { new RundownItem { Id = "talkB", Title = "New talk", DurationSeconds = 300 } } };
+    var live = day1;
+    var journal = new ShowJournal(null);
+    var execution = "x1";
+    journal.Identify = i => i >= 0 && i < live.Items.Count ? new JournalIdentity(live.Id, live.Items[i].Id, execution) : default;
+    journal.Add(t0, JournalKind.ItemStart, 0);
+    journal.Add(t0.AddSeconds(120), JournalKind.ItemEnd, 0);
+    live = day2;                                                   // switch to a Day 2 that never starts
+    Check(journal.Entries[0] is { RundownId: "rDay1", ItemId: "talkA", Execution: "x1" }, "identity: journal entries carry running order, item and run");
+    var report2 = ShowReport.Build("Show", day2, journal.Entries, null, ShowClock.Local, t0.AddHours(1));
+    Check(report2.Rows.Single().ActualSeconds is null && report2.Rows.Single().Title == "New talk",
+          "identity: Day 1's 120 s never lands on Day 2's \"New talk\" (the review's probe)");
+    var report1 = ShowReport.Build("Show", day1, journal.Entries, null, ShowClock.Local, t0.AddHours(1));
+    Check(report1.Rows.Single().ActualSeconds == 120, "identity: Day 1's report still has its own run");
+
+    // Loop passes are separate runs, not one long run from the first start to the last end.
+    var loop = new Rundown { Id = "rLoop", Items = { new RundownItem { Id = "clip", Title = "Loop clip", DurationSeconds = 60 } } };
+    live = loop;
+    foreach (var (pass, at) in new[] { ("p1", 0), ("p2", 60), ("p3", 120) })
+    {
+        execution = pass;
+        journal.Add(t0.AddHours(2).AddSeconds(at), JournalKind.ItemStart, 0);
+        journal.Add(t0.AddHours(2).AddSeconds(at + 58), JournalKind.ItemEnd, 0);
+    }
+    var loopReport = ShowReport.Build("Show", loop, journal.Entries, null, ShowClock.Local, t0.AddHours(3));
+    Check(loopReport.Rows.Count == 3 && loopReport.Rows.All(r => r.ActualSeconds == 58) && loopReport.Rows[2].Title == "Loop clip (run 3)",
+          $"identity: each loop pass is its own row ({string.Join(", ", loopReport.Rows.Select(r => r.Title + "=" + r.ActualSeconds))})");
+
+    // A same-titled item in a duplicated running order is a different item.
+    var copy = day1.Clone(); copy.Id = "rCopy"; copy.Items[0].Id = "talkA2";
+    Check(ShowReport.Build("Show", copy, journal.Entries, null, ShowClock.Local, t0).Rows.Single().ActualSeconds is null,
+          "identity: a duplicated running order doesn't inherit the original's history");
+
+    // Journals written before identities existed still read by position.
+    var legacy = new List<JournalEntry> { new(t0, JournalKind.ItemStart, 0), new(t0.AddSeconds(90), JournalKind.ItemEnd, 0) };
+    Check(ShowReport.Build("Show", day1, legacy, null, ShowClock.Local, t0).Rows.Single().ActualSeconds == 90, "identity: old journals still report by position");
+
+    // Identities survive the file.
+    var jpath = Path.Combine(Path.GetTempPath(), "sw-ident-" + Guid.NewGuid().ToString("N")[..6] + ".jsonl");
+    var onDisk = new ShowJournal(jpath) { Identify = _ => new JournalIdentity("rDay1", "talkA", "x9") };
+    onDisk.Add(t0, JournalKind.ItemStart, 0);
+    onDisk.DisposeAsync().AsTask().Wait();
+    var readBack = ShowJournal.Load(jpath).Single();
+    Check(readBack is { RundownId: "rDay1", ItemId: "talkA", Execution: "x9" } && File.ReadAllText(jpath).Contains("\"ii\":\"talkA\""), "identity: written to and read from the journal file");
+    File.Delete(jpath);
+
+    // Stable ids are assigned once and kept.
+    var unnamed = new Rundown { Id = "", Items = { new RundownItem { Title = "x" } } };
+    Check(unnamed.EnsureIds() && unnamed.Id.StartsWith("r") && !unnamed.EnsureIds(), "identity: a running order gets a stable id once");
+    var roundTrip = System.Text.Json.JsonSerializer.Deserialize<Rundown>(System.Text.Json.JsonSerializer.Serialize(unnamed))!;
+    Check(roundTrip.Id == unnamed.Id, "identity: the id is saved with the running order");
+}
+
 // ---------------------------------------------------------------- Review fixes (2.11.1)
 {
     // Recovery never goes below a declared minimum, even after rounding to 15 s.
@@ -1636,7 +1913,7 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
         new(DateTime.UtcNow, JournalKind.Note, -1, ShowReport.SummaryPrefix + "We finished 2 minutes early.\n- The panel ran short"),
         new(DateTime.UtcNow, JournalKind.Note, -1, "Operator note"),
     };
-    var rep = ShowReport.Build("Summit", new List<RundownItem>(), j, null, ShowClock.Local, DateTime.UtcNow);
+    var rep = ShowReport.Build("Summit", new Rundown(), j, null, ShowClock.Local, DateTime.UtcNow);
     var html = rep.ToHtml(ShowClock.Local);
     Check(rep.AiDecisions.Count == 2 && html.Contains("We finished 2 minutes early.") && html.Contains("&bull; The panel ran short")
           && html.Contains("AI suggestions and decisions") && !html.Contains("Operator note"), "report: the reviewed summary and the AI decision log");
@@ -1836,6 +2113,16 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
 
     await writer.WriteLineAsync("PING 42");
     Check((await LineStarting("PONG")) == "PONG 42", "companion: PING token echoed");
+    // Show Bus 1.1: a Unix-ms PING gets our times back (clock offset); "@id" commands get a receipt.
+    var busT1 = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    await writer.WriteLineAsync("PING " + busT1);
+    var timedPong = (await LineStarting("PONG " + busT1)) ?? "";
+    Check(timedPong.Split(' ').Length >= 4 && long.Parse(timedPong.Split(' ')[2]) >= busT1 - 5000, $"companion: a timed PING gets t2 and t3 ({timedPong})");
+    await writer.WriteLineAsync("@n1 NEXT");
+    Check((await LineStarting("OK @n1")) is { } receiptLine && receiptLine.StartsWith("OK @n1 accepted"), "companion: an @id command gets its receipt");
+    await writer.WriteLineAsync("@n2 BOGUSVERB");
+    Check((await LineStarting("ERROR @n2")) is not null, "companion: an @id command that fails says so with its id");
+    lock (bridge.Commands) bridge.Commands.Clear();   // the routing check below counts only its own verbs
 
     foreach (var cmd in new[] { "START", "NEXT", "GOTO 3 start", "BLACKOUT toggle", "NUDGE -30", "TOGGLE", "SET 05:00", "MODE countup", "MESSAGE \"Say \\\"hi\\\"\" warn slow" })
         await writer.WriteLineAsync(cmd);
@@ -1883,8 +2170,12 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
 
 // ---------------------------------------------------------------- 2.0 systems
 V2Tests.Run(Check);
+ShowWorkflowTests.Run(Check);
+SupervisorTests.Run(Check);
+SupervisorTests.Holding(Check);
 await IntegrationTests.Run(Check);
 await WebV2Tests.Run(Check);
+await ShowBusTests.Run(Check);
 await CompanionV2Tests.Run(Check);
 if (args.Contains("--powerpoint")) await PowerPointLiveTest.Run(Check);
 

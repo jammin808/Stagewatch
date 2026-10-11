@@ -56,7 +56,7 @@ public sealed partial class MainViewModel
             var context = CopilotContext();
             var typed = MessageInput ?? "";
             var drafts = await Task.Run(() => copilot.DraftMessagesAsync(context, typed));
-            _journal.Add(DateTime.UtcNow, JournalKind.Note, _rundownActive ? _currentItem : -1, $"Copilot suggested messages: {string.Join(" | ", drafts)}");
+            _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, $"Copilot suggested messages: {string.Join(" | ", drafts)}");
             if (drafts.Count == 0) StatusLine = "The copilot had no suggestions — try again";
             return drafts;
         }

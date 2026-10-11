@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Text;
@@ -28,7 +29,15 @@ public sealed class SlidesAgent : IDisposable
     private readonly Func<IReadOnlyList<AgentTarget>> _targets;
     private readonly PowerPointSensor _ppt = new();
     private readonly SlidesBeacon _beacon;
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(3) };
+    private readonly HttpClient _http;
+    /// <summary>
+    /// Pinned certificates of the Stagewatches this PC sends to (Show Bus §10): a Stagewatch that says it has one is
+    /// reached over HTTPS, and its certificate must be the one it had the first time it took our feed.
+    /// </summary>
+    private readonly TlsPins _pins;
+    private readonly string? _pinsPath;
+    /// <summary>What each Stagewatch's hello says its certificate is, by host:port (for the request in flight).</summary>
+    private readonly ConcurrentDictionary<string, (string NodeId, string Fingerprint)> _expected = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentDictionary<string, TargetState> _state = new();
     private long _seq;
@@ -45,8 +54,13 @@ public sealed class SlidesAgent : IDisposable
     private readonly Func<DeckState?> _deck;
 
     /// <param name="deckSource">Where the slideshow comes from; default this PC's PowerPoint (tests pass their own).</param>
-    public SlidesAgent(string agentId, Func<string> name, Func<IReadOnlyList<AgentTarget>> targets, Func<DeckState?>? deckSource = null, int beaconPort = SlidesBeacon.Port)
+    public SlidesAgent(string agentId, Func<string> name, Func<IReadOnlyList<AgentTarget>> targets, Func<DeckState?>? deckSource = null, int beaconPort = SlidesBeacon.Port,
+        string? pinsPath = null)
     {
+        _pinsPath = pinsPath;
+        _pins = new TlsPins(LoadPins(pinsPath));
+        _http = new HttpClient(new HttpClientHandler { ServerCertificateCustomValidationCallback = (req, cert, _, _) => CertificateOk(req, cert) })
+        { Timeout = TimeSpan.FromSeconds(3) };
         _id = agentId;
         _name = name;
         _targets = targets;
@@ -117,7 +131,8 @@ public sealed class SlidesAgent : IDisposable
     {
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, $"http://{t.Host.Trim()}:{t.Port}/api/slides/feed")
+            var scheme = Scheme(t);
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{scheme}://{t.Host.Trim()}:{t.Port}/api/slides/feed")
             {
                 Content = new ByteArrayContent(feed.ToJson()),
             };
@@ -131,13 +146,18 @@ public sealed class SlidesAgent : IDisposable
                 st.LastSent = "";   // retry promptly once fixed
                 return;
             }
-            st.Status = new AgentTargetStatus(t.Key, true, feed.Presenting ? $"sending slide {feed.Slide}/{feed.Count}" : "connected — no slideshow running");
+            if (scheme == "https" && _expected.TryGetValue(t.Key, out var exp) && _pins.Check(exp.NodeId, exp.Fingerprint) == TlsPins.Verdict.FirstUse)
+            {
+                _pins.Pin(exp.NodeId, exp.Fingerprint);   // first authenticated success: this is the certificate from now on
+                SavePins();
+            }
+            st.Status = new AgentTargetStatus(t.Key, true, (scheme == "https" ? "🔒 " : "") + (feed.Presenting ? $"sending slide {feed.Slide}/{feed.Count}" : "connected — no slideshow running"));
             // Whenever Stagewatch says it needs the script, it gets it — it may have restarted and lost it. Rate-limited so a
             // failing upload can't turn into one per second.
             if (body.Contains("\"needScript\":true", StringComparison.Ordinal) && deck is not null && feed.ScriptHash.Length > 0
                 && Environment.TickCount64 - st.ScriptSentMs > 5000)
             {
-                using var sreq = new HttpRequestMessage(HttpMethod.Post, $"http://{t.Host.Trim()}:{t.Port}/api/slides/script?hash={feed.ScriptHash}")
+                using var sreq = new HttpRequestMessage(HttpMethod.Post, $"{scheme}://{t.Host.Trim()}:{t.Port}/api/slides/script?hash={feed.ScriptHash}")
                 {
                     Content = new ByteArrayContent(Encoding.UTF8.GetBytes(deck.Script)),
                 };
@@ -153,11 +173,66 @@ public sealed class SlidesAgent : IDisposable
         }
         catch (HttpRequestException ex)
         {
-            st.Status = new AgentTargetStatus(t.Key, false, "can't reach it: " + ex.Message);
+            var changed = _expected.TryGetValue(t.Key, out var e) && _pins.Check(e.NodeId, e.Fingerprint) == TlsPins.Verdict.Changed;
+            st.Status = new AgentTargetStatus(t.Key, false, changed
+                ? "CERTIFICATE CHANGED — this Stagewatch's certificate isn't the one it had before. If it was reinstalled, press Trust new certificate."
+                : "can't reach it: " + ex.Message);
             st.LastSent = "";
         }
         catch (Exception) when (ct.IsCancellationRequested) { }
         finally { Volatile.Write(ref st.InFlight, 0); }
+    }
+
+    /// <summary>https when the target's hello names a certificate (Show Bus §10), else http.</summary>
+    private string Scheme(AgentTarget t)
+    {
+        var host = t.Host.Trim();
+        var peer = _beacon.Peers().FirstOrDefault(p => p.Hello.Kind == "main" && p.Hello.HttpPort == t.Port
+            && (p.Address == host || string.Equals(p.Hello.Machine, host, StringComparison.OrdinalIgnoreCase) || string.Equals(p.Hello.Host, host, StringComparison.OrdinalIgnoreCase)
+                || (host is "localhost" or "127.0.0.1" && p.Hello.Machine.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase))));
+        if (peer?.Hello.Tls is { } fp && TlsPins.IsFingerprint(fp))
+        {
+            _expected[t.Key] = (peer.Hello.Id, fp);
+            return "https";
+        }
+        _expected.TryRemove(t.Key, out _);
+        return "http";
+    }
+
+    /// <summary>The server's certificate is the pinned one (or, before the first success, the one its hello names).</summary>
+    private bool CertificateOk(HttpRequestMessage req, System.Security.Cryptography.X509Certificates.X509Certificate2? cert)
+    {
+        if (cert is null || req.RequestUri is not { } uri) return false;
+        var key = $"{uri.Host.ToLowerInvariant()}:{uri.Port}";
+        if (!_expected.TryGetValue(key, out var exp)) return false;
+        var actual = TlsPins.Fingerprint(cert.RawData);
+        return _pins.Check(exp.NodeId, actual) switch
+        {
+            TlsPins.Verdict.Trusted => true,
+            TlsPins.Verdict.FirstUse => actual == exp.Fingerprint,
+            _ => false,   // CERTIFICATE CHANGED: refused until the operator accepts it
+        };
+    }
+
+    /// <summary>The operator accepts a Stagewatch's new certificate (after a reinstall): the next one it presents is pinned.</summary>
+    public void TrustNewCertificate(AgentTarget t)
+    {
+        if (!_expected.TryGetValue(t.Key, out var exp)) return;
+        _pins.Pin(exp.NodeId, exp.Fingerprint);
+        SavePins();
+    }
+
+    private static Dictionary<string, string>? LoadPins(string? path)
+    {
+        try { return path is not null && File.Exists(path) ? JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(path)) : null; }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { return null; }
+    }
+
+    private void SavePins()
+    {
+        if (_pinsPath is null) return;
+        try { AtomicFile.Write(_pinsPath, JsonSerializer.Serialize(_pins.Snapshot())); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     private static string Reason(int status, string body)

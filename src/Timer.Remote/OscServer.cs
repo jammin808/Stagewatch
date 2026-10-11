@@ -14,7 +14,7 @@ namespace Stagewatch.Remote;
 /// </summary>
 public sealed class OscServer : IDisposable
 {
-    private readonly IShowControl _control;
+    private readonly IShowCommands _control;
     private UdpClient? _listener;
     private UdpClient? _sender;
     private IPEndPoint? _feedback;
@@ -22,7 +22,7 @@ public sealed class OscServer : IDisposable
     private ShowSnapshot? _lastSent;
     private readonly object _feedbackLock = new();
 
-    public OscServer(IShowControl control) { _control = control; }
+    public OscServer(IShowCommands control) { _control = control; }
 
     public bool IsRunning => _listener is not null;
     public int Port { get; private set; }

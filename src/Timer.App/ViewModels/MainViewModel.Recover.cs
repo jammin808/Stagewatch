@@ -32,7 +32,7 @@ public sealed partial class MainViewModel
     public long CurrentLateness => _projection.OffsetSeconds is { } o ? Math.Max(0, o) : 0;
 
     /// <summary>The first item a recovery may change: after the live one (it keeps its own clock), or the loaded one.</summary>
-    public int RecoverFirstItem => !_rundownActive || _currentItem < 0 ? 0 : _currentItemStarted ? _currentItem + 1 : _currentItem;
+    public int RecoverFirstItem => !_show.RundownActive || _show.CurrentItem < 0 ? 0 : _show.ItemStarted ? _show.CurrentItem + 1 : _show.CurrentItem;
 
     /// <summary>Last item for a scope: "rest", "curfew" (the item carrying the next curfew) or "group" (end of the first item's group).</summary>
     public int RecoverLastItem(string scope)
@@ -54,14 +54,7 @@ public sealed partial class MainViewModel
     /// <summary>Apply a recovery as one undoable step.</summary>
     public void ApplyRecovery(Recovery.Plan plan, string label)
     {
-        if (plan.Trims.Count == 0) return;
-        BeginEditBatch(label);
-        try { foreach (var (item, delta) in plan.Trims) TrimItem(item, delta); }
-        finally { EndEditBatch(); }
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, _rundownActive ? _currentItem : -1, label);
-        StatusLine = label + " — Undo (Ctrl+Z) puts it back";
-        MarkDirty();
-        Publish();
+        _show.ApplyTrims(plan.Trims, label);
     }
 
     /// <summary>
@@ -74,9 +67,9 @@ public sealed partial class MainViewModel
         if (items.Count == 0 || ScheduleAnchor() is not { } anchor) return null;
         var clock = ShowClock;
         var now = DateTime.UtcNow;
-        var cur = _rundownActive ? _currentItem : -1;
+        var cur = _show.RundownActive ? _show.CurrentItem : -1;
         var rem = cur >= 0 && _engine.Mode == TimerMode.Countdown ? _lastTick.Remaining : TimeSpan.Zero;
-        var before = ScheduleEngine.Project(new ScheduleEngine.Input(items, anchor, cur, _currentItemStarted, rem, _actuals, now, clock, _pendingDelay,
+        var before = ScheduleEngine.Project(new ScheduleEngine.Input(items, anchor, cur, _show.ItemStarted, rem, _show.Actuals, now, clock, _show.PendingDelay,
             EndOfShow: Settings.Rundown.EndOfShow));
 
         var changed = items.Select(i => i.Clone()).ToList();
@@ -92,8 +85,8 @@ public sealed partial class MainViewModel
             if (i == cur) rem += TimeSpan.FromSeconds(applied);       // the live item's clock moves with it
         }
         rem += TimeSpan.FromSeconds(nudgeSeconds);
-        var delay = delaySeconds is { } ds ? TimeSpan.FromSeconds(Math.Max(0, ds)) : _pendingDelay;
-        var after = ScheduleEngine.Project(new ScheduleEngine.Input(changed, anchor, cur, _currentItemStarted, rem, _actuals, now, clock, delay,
+        var delay = delaySeconds is { } ds ? TimeSpan.FromSeconds(Math.Max(0, ds)) : _show.PendingDelay;
+        var after = ScheduleEngine.Project(new ScheduleEngine.Input(changed, anchor, cur, _show.ItemStarted, rem, _show.Actuals, now, clock, delay,
             EndOfShow: Settings.Rundown.EndOfShow));
 
         string Hm(DateTime utc) => Clock.Time(clock.ToShow(utc), Settings.Display.Use12HourClock, seconds: false);

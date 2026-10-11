@@ -13,15 +13,38 @@ public sealed partial class MainViewModel
 {
     private readonly RemoteDecks _remoteDecks = new();
     private SlidesBeacon? _slidesBeacon;
-    private readonly string _nodeId = Guid.NewGuid().ToString("N")[..12];
+    /// <summary>This install's stable Show Bus id (a renamed Stagewatch is still the same node).</summary>
+    private string _nodeId => Settings.NodeId;
 
     private void InitSlides()
     {
-        _slidesBeacon = new SlidesBeacon(() => _web is null ? null : new SlidesBeacon.Hello(
+        _slidesBeacon = new SlidesBeacon(() => _web is not { } web ? null : new SlidesBeacon.Hello(
             "main", 1, _nodeId,
             Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
-            Environment.MachineName, _web.Port, false,
-            new[] { "timer", "screens", "aux", "slides-in", "copilot", "mcp" }));
+            Environment.MachineName, web.Port, false,
+            HelloCaps(),
+            Proto: 1,
+            Ports: HelloPorts(web.Port),
+            Clock: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Host: Environment.MachineName,
+            Tls: _web?.Fingerprint));
+    }
+
+    /// <summary>What this Stagewatch offers on the Show Bus (only what is switched on).</summary>
+    private string[] HelloCaps()
+    {
+        var caps = new List<string> { "timer", "cues", "messages", "context", "receipts", "clock", "screens", "aux", "slides-in", "copilot", "approvals" };
+        if (McpAllowed) caps.Add("mcp");
+        return caps.ToArray();
+    }
+
+    private Dictionary<string, int> HelloPorts(int web)
+    {
+        var ports = new Dictionary<string, int> { ["http"] = web, ["ws"] = web };
+        if (_web?.Certificate is not null) ports["https"] = web;   // the same port: TLS is recognised by its first byte
+        if (_companion.IsRunning) ports["companion"] = _companion.Port;
+        if (_osc is not null) ports["osc"] = _osc.Port;
+        return ports;
     }
 
     /// <summary>The deck the show follows right now (this PC's PowerPoint or a presenter PC), or null.</summary>

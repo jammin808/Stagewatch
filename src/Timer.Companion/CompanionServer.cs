@@ -210,10 +210,21 @@ public sealed class CompanionServer : IAsyncDisposable
                 {
                     var tokens = CompanionProtocol.Tokenize(line);
                     if (tokens.Count == 0) continue;
-                    try { Handle(tokens); }
+                    // Show Bus receipts: "@a1 NEXT" is answered "OK @a1 <effect>" or "ERROR @a1 <why>" once it has run.
+                    string? requestId = null;
+                    if (tokens[0].StartsWith('@') && CommandReceipt.CleanId(tokens[0][1..]) is { } rid && tokens.Count > 1)
+                    {
+                        requestId = rid;
+                        tokens.RemoveAt(0);
+                    }
+                    try
+                    {
+                        if (requestId is null) Handle(tokens);
+                        else HandleWithReceipt(tokens, requestId);
+                    }
                     catch (Exception ex) when (ex is FormatException or OverflowException or ArgumentException)
                     {
-                        Enqueue("ERROR " + ex.Message);
+                        Enqueue(requestId is null ? "ERROR " + ex.Message : $"ERROR @{requestId} {ex.Message}");
                     }
                 }
             }
@@ -267,6 +278,38 @@ public sealed class CompanionServer : IAsyncDisposable
                 Enqueue(_server.ConfigLine(snap.ConfigVersion));
             }
             Enqueue(SnapshotLine(snap));
+        }
+
+        private string? _rid;
+        private bool _ridFailed;
+
+        /// <summary>An error for the command being handled — with its request id when it came with one.</summary>
+        private void Fail(string error)
+        {
+            if (_rid is { } id) { _ridFailed = true; Enqueue($"ERROR @{id} {error}"); }
+            else Enqueue("ERROR " + error);
+        }
+
+        /// <summary>A command with a request id: through the shared grammar with a receipt, else as before ("accepted").</summary>
+        private void HandleWithReceipt(List<string> t, string id)
+        {
+            if (ShowCommandParser.TryParse(t[0], t.Skip(1).ToList(), out var cmd, out _))
+            {
+                _ = ReplyAsync(_server._bridge.ExecuteWithReceiptAsync(cmd, id, TimeSpan.FromSeconds(3)));
+                return;
+            }
+            _rid = id;
+            _ridFailed = false;
+            try { Handle(t); }
+            finally { _rid = null; }
+            if (!_ridFailed) Enqueue($"OK @{id}");
+
+            async Task ReplyAsync(Task<CommandReceipt> receipt)
+            {
+                var r = await receipt.ConfigureAwait(false);
+                var words = (r.Ok ? r.Effect : r.Error ?? "refused").Replace('\n', ' ').Replace('\r', ' ');
+                Enqueue(r.Ok ? $"OK @{id} {r.Stage}{(words.Length > 0 ? " " + words : "")}" : $"ERROR @{id} {words}");
+            }
         }
 
         private void Handle(List<string> t)
@@ -347,6 +390,12 @@ public sealed class CompanionServer : IAsyncDisposable
                     // The link answering isn't proof the show is: if the show thread has stopped turning over, say so,
                     // so keys don't keep showing a frozen time as if it were live.
                     var pong = t.Count >= 2 ? "PONG " + t[1] : "PONG";
+                    // Show Bus §5: "PING <unix ms>" also gets our receive and send times, for the clock offset.
+                    if (t.Count >= 2 && long.TryParse(t[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var t1) && t1 > 1_000_000_000_000)
+                    {
+                        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                        pong = FormattableString.Invariant($"PONG {t1} {now} {now}");
+                    }
                     Enqueue(_server._bridge.Snapshots.ProducerStuck ? pong + " STUCK" : pong);
                     break;
                 case "QUIT":
@@ -358,7 +407,7 @@ public sealed class CompanionServer : IAsyncDisposable
                     if (ShowCommandParser.TryParse(verb, t.Skip(1).ToList(), out var cmd, out var error))
                         bridge.Execute(cmd);
                     else
-                        Enqueue("ERROR " + error);
+                        Fail(error);
                     break;
             }
         }

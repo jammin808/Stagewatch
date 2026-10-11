@@ -105,7 +105,7 @@ public sealed class SlidesBeacon : IDisposable
     public const int Port = 9928;
 
     public sealed record Hello(
-        [property: JsonPropertyName("t")] string Kind,      // "main" (a Stagewatch) or "agent" (a presenter PC)
+        [property: JsonPropertyName("t")] string Kind,      // "main" (a Stagewatch), "agent" (a presenter PC), "patterns", "messenger"…
         [property: JsonPropertyName("v")] int Version,
         [property: JsonPropertyName("id")] string Id,
         [property: JsonPropertyName("name")] string Name,
@@ -115,7 +115,21 @@ public sealed class SlidesBeacon : IDisposable
         /// <summary>What this node offers, for anything listening (Patterns, other tools): e.g. "slides", "timer", "screens".</summary>
         [property: JsonPropertyName("caps")] string[]? Caps = null,
         /// <summary>Protocol version of the slide feed this node speaks.</summary>
-        [property: JsonPropertyName("proto")] int Proto = 1);
+        [property: JsonPropertyName("proto")] int Proto = 1,
+        /// <summary>Show Bus 1.1: where to connect ("http", "ws", "wire", "osc", "companion").</summary>
+        [property: JsonPropertyName("ports")] Dictionary<string, int>? Ports = null,
+        /// <summary>Show Bus 1.1: the sender's Unix time in ms (a first, rough clock offset).</summary>
+        [property: JsonPropertyName("clock")] long Clock = 0,
+        [property: JsonPropertyName("host")] string? Host = null,
+        /// <summary>Show Bus 1.2: "sha256:&lt;hex&gt;" of the node's TLS certificate (pinned by peers on first authenticated use).</summary>
+        [property: JsonPropertyName("tls")] string? Tls = null)
+    {
+        /// <summary>The node's web port: "ports.http", or the older "web".</summary>
+        public int HttpPort => Ports is not null && Ports.TryGetValue("http", out var p) && p is > 0 and < 65536 ? p : WebPort;
+    }
+
+    /// <summary>A node kind or id as the Show Bus allows it: short, letters, digits, '-' and '_'.</summary>
+    public static bool ValidToken(string? s, int max) => s is { Length: > 0 } && s.Length <= max && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 
     public sealed record Peer(Hello Hello, string Address, double AgeSeconds);
 
@@ -168,8 +182,15 @@ public sealed class SlidesBeacon : IDisposable
             try
             {
                 var h = JsonSerializer.Deserialize<Hello>(r.Buffer);
-                if (h is null || h.Version != 1 || h.Kind is not ("main" or "agent") || !SlideFeed.Valid(h.Id)) continue;
-                h = h with { Name = h.Name ?? "", Machine = h.Machine ?? "", Caps = h.Caps?.Where(c => c is not null).Take(16).ToArray() };
+                // Every kind of show node is heard (Show Bus 1.1 discovery); presenter PCs still need a valid feed id.
+                if (h is null || h.Version != 1 || !ValidToken(h.Kind, 16) || !ValidToken(h.Id, 40)) continue;
+                if (h.Kind == "agent" && !SlideFeed.Valid(h.Id)) continue;
+                h = h with
+                {
+                    Name = h.Name ?? "", Machine = h.Machine ?? h.Host ?? "", Caps = h.Caps?.Where(c => c is not null).Take(16).Select(Cap).ToArray(),
+                    Ports = h.Ports?.Where(kv => ValidToken(kv.Key, 16) && kv.Value is > 0 and < 65536).Take(8).ToDictionary(kv => kv.Key, kv => kv.Value),
+                    Host = h.Host is null ? null : Cap(h.Host),
+                };
                 if (_hello() is { } me && me.Id == h.Id) continue;
                 if (_peers.Count > 128 && !_peers.ContainsKey(h.Id)) continue;
                 var clean = h with { Name = Cap(h.Name), Machine = Cap(h.Machine), WebPort = Math.Clamp(h.WebPort, 0, 65535) };

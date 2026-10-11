@@ -231,7 +231,8 @@ public sealed class Copilot
                 or ShowCommandKind.Next or ShowCommandKind.Previous or ShowCommandKind.GoTo or ShowCommandKind.Preset
                 or ShowCommandKind.Blackout or ShowCommandKind.Mode or ShowCommandKind.Screen or ShowCommandKind.Style
                 or ShowCommandKind.Holding or ShowCommandKind.Ndi or ShowCommandKind.Output or ShowCommandKind.Ltc
-                or ShowCommandKind.Preview or ShowCommandKind.Roll or ShowCommandKind.Rundown => CopilotRisk.High,
+                or ShowCommandKind.Preview or ShowCommandKind.Roll or ShowCommandKind.Rundown
+                or ShowCommandKind.SignalGoAll => CopilotRisk.High,
             _ => CopilotRisk.Review,
         };
     }

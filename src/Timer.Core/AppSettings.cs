@@ -13,6 +13,10 @@ public sealed class AppSettings
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
+    /// <summary>This install's Show Bus node id: random, made once, never shown as a secret (it isn't one).</summary>
+    [JsonPropertyName("nodeId")]
+    public string NodeId { get; set; } = "";
+
     [JsonPropertyName("lastMode")]
     public TimerMode LastMode { get; set; } = TimerMode.Countdown;
 
@@ -50,6 +54,10 @@ public sealed class AppSettings
 
     [JsonPropertyName("mainWindowBounds")]
     public WindowBounds? MainWindowBounds { get; set; }
+
+    /// <summary>The main window's panels: order, torn-out windows and the side column's width.</summary>
+    [JsonPropertyName("panels")]
+    public PanelLayoutSettings Panels { get; set; } = new();
 
     [JsonPropertyName("allowOvertime")]
     public bool AllowOvertime { get; set; } = true;
@@ -141,6 +149,8 @@ public sealed class IntegrationSettings
     [JsonPropertyName("patternsPort")] public int PatternsPort { get; set; } = 9697;
     /// <summary>Patterns' pairing token, DPAPI-protected (see ProtectedKey). Empty = the desk asks for none.</summary>
     [JsonPropertyName("patternsToken")] public string PatternsTokenProtected { get; set; } = "";
+    /// <summary>When Patterns' clip ends and the live item is a video (kind Video, or labelled VT), go to the next item.</summary>
+    [JsonPropertyName("patternsNextOnEnd")] public bool PatternsNextOnEnd { get; set; }
 
     // Speech-to-script
     [JsonPropertyName("speech")] public bool Speech { get; set; }
@@ -200,7 +210,7 @@ public sealed class IntegrationSettings
 
 public enum DmxMode { Rgb, Rgbw, RgbDimmer, Dimmer }
 
-public enum TriggerEvent { ItemStart, ItemEnd, Phase, Overtime, Message, Ack, Escalated, ShowStart, HardOutRisk, Blackout, Timecode }
+public enum TriggerEvent { ItemStart, ItemEnd, Phase, Overtime, Message, Ack, Escalated, ShowStart, HardOutRisk, Blackout, Timecode, ClipEnd }
 
 public enum TriggerAction { Osc, Http, CompanionPress, Command }
 
@@ -245,6 +255,10 @@ public sealed class RemoteSettings
     [JsonPropertyName("webPort")]    public int WebPort { get; set; } = 9924;
     /// <summary>Listen on the LAN (all interfaces). Off = this PC only.</summary>
     [JsonPropertyName("webBindAll")] public bool WebBindAll { get; set; } = true;
+    /// <summary>Also speak HTTPS on the web port, with this install's certificate (Show Bus §10). On by default: plain HTTP keeps working.</summary>
+    [JsonPropertyName("https")]      public bool Https { get; set; } = true;
+    /// <summary>Refuse plain HTTP / WebSockets from other machines (they're sent to https://).</summary>
+    [JsonPropertyName("requireHttps")] public bool RequireHttps { get; set; }
     /// <summary>Required for control (not viewing). Empty = no PIN. Generated on first run.</summary>
     [JsonPropertyName("pin")]        public string? Pin { get; set; }
     /// <summary>Secret behind the crew link keys (see <see cref="CrewKeys"/>). A new one revokes every crew link.</summary>

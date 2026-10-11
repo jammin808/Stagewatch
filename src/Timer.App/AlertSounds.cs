@@ -85,7 +85,9 @@ public sealed class AlertSounds : IDisposable
                 var deadline = Environment.TickCount64 + data.Length * 1000L / (SampleRate * 2) + 2000;
                 while (Environment.TickCount64 < deadline &&
                        (Marshal.PtrToStructure<WinMM.WAVEHDR>(header).dwFlags & WinMM.WHDR_DONE) == 0)
+                    #pragma warning disable RS0030 // the alert worker thread waits for the device to finish the sound; never the show thread
                     Thread.Sleep(20);
+                    #pragma warning restore RS0030
             }
             WinMM.waveOutReset(wave);
             WinMM.waveOutUnprepareHeader(wave, header, headerSize);

@@ -34,6 +34,17 @@ public sealed class SessionState
     // 2.0: running-order truth and the journal, so a crash mid-show loses nothing for the report.
     public Dictionary<int, ItemActual>? Actuals { get; set; }
     public double PendingDelaySeconds { get; set; }
+    /// <summary>Which running order the cursor belongs to, and which run of the item was live (history identity).</summary>
+    public string? RundownId { get; set; }
+    public string? Execution { get; set; }
+    /// <summary>The live item and the items with recorded times, by identity (positions change when the order is edited).</summary>
+    public string? CurrentItemId { get; set; }
+    public Dictionary<int, string>? ActualIds { get; set; }
+    /// <summary>
+    /// The order the checkpoint was captured in. Saves run in the background, so an older capture can reach the disk after
+    /// a newer one — the store keeps the newest and never lets an older one replace it (a clean-close checkpoint stays).
+    /// </summary>
+    public long Sequence { get; set; }
     public string? JournalPath { get; set; }
 
     /// <summary>Is there a show in progress worth offering back? (A loaded-but-idle timer isn't.)</summary>
@@ -57,6 +68,8 @@ public sealed class SessionStore
     private readonly string _path;
     private readonly object _writeLock = new();
     private string _lastWritten = "";
+    private long _lastSequence;
+    private bool _closed;
 
     public SessionStore() : this(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Stagewatch", "session.json")) { }
@@ -90,23 +103,29 @@ public sealed class SessionStore
             // show isn't rewritten every couple of seconds.
             var saved = s.SavedAtUtc;
             var engine = s.Engine;
+            var sequence = s.Sequence;
             s.SavedAtUtc = default;
+            s.Sequence = 0;   // the capture number isn't a change either
             if (engine is not null && !engine.Counting) s.Engine = engine with { CapturedAtUtc = default };
             key = JsonSerializer.Serialize(s, Json);
             s.SavedAtUtc = saved;
             s.Engine = engine;
+            s.Sequence = sequence;
             text = JsonSerializer.Serialize(s, Json);
         }
         catch (NotSupportedException) { return; }
         lock (_writeLock)
         {
+            // Newest capture wins: a delayed older save never replaces a newer checkpoint, and after the clean-close
+            // checkpoint nothing but another clean close may be written (or a crash would look like a live show).
+            if (s.Sequence > 0 && s.Sequence <= _lastSequence) return;
+            if (_closed && !s.ClosedCleanly) return;
+            if (s.Sequence > 0) _lastSequence = s.Sequence;
+            if (s.ClosedCleanly) _closed = true;
             if (key == _lastWritten && !s.ClosedCleanly) return;
             try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-                var tmp = _path + ".tmp";
-                File.WriteAllText(tmp, text);
-                File.Move(tmp, _path, overwrite: true);
+                AtomicFile.Write(_path, text);   // flushed to the disk: the session is what a crash restores
                 _lastWritten = key;
             }
             catch (IOException) { }

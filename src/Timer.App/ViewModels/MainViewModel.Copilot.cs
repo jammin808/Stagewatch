@@ -7,6 +7,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Stagewatch.Core;
 using Stagewatch.Integrations;
+using Stagewatch.Remote;
+using Stagewatch.Show;
 
 namespace Stagewatch.App.ViewModels;
 
@@ -38,6 +40,8 @@ public sealed partial class CopilotProposal : ObservableObject
     public int Id { get; } = Interlocked.Increment(ref _next);
     public required string Source { get; init; }
     public required string Request { get; init; }
+    /// <summary>Another app's proposal on the shared queue (Show Bus §11), by its desk id; null for Stagewatch's own.</summary>
+    public string? SharedId { get; init; }
     public DateTime Created { get; } = DateTime.Now;
     public string CreatedText => Created.ToString("HH:mm");
     public ObservableCollection<CopilotStepItem> Steps { get; } = new();
@@ -121,7 +125,7 @@ public sealed partial class MainViewModel
         CopilotInput = "";
         var proposal = new CopilotProposal { Source = source, Request = request, State = ProposalState.Thinking };
         Proposals.Insert(0, proposal);
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, _rundownActive ? _currentItem : -1, "Copilot asked: " + Trunc(request, 200));
+        _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, "Copilot asked: " + Trunc(request, 200));
         CopilotBusy = true;
         CopilotStatus = "Thinking…";
         _copilotCts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
@@ -158,7 +162,8 @@ public sealed partial class MainViewModel
     private void ApproveProposal(CopilotProposal? p)
     {
         if (p is null || p.State != ProposalState.Pending) return;
-        var item = _rundownActive ? _currentItem : -1;
+        if (p.SharedId is not null) { ApproveShared(p); return; }
+        var item = _show.RundownActive ? _show.CurrentItem : -1;
         var ran = 0;
         BeginEditBatch($"Copilot: {Trunc(p.Request, 60)}");
         foreach (var step in p.Steps)
@@ -180,8 +185,9 @@ public sealed partial class MainViewModel
     private void DiscardProposal(CopilotProposal? p)
     {
         if (p is null || p.State is ProposalState.Done or ProposalState.Discarded) return;
+        DiscardShared(p);
         p.State = ProposalState.Discarded;
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, _rundownActive ? _currentItem : -1, $"Copilot proposal discarded ({p.Source}): " + Trunc(p.Request, 160));
+        _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, $"Copilot proposal discarded ({p.Source}): " + Trunc(p.Request, 160));
         UpdatePendingCount();
     }
 
@@ -209,73 +215,46 @@ public sealed partial class MainViewModel
             Fill(proposal, new CopilotPlan(reason.Length > 0 ? reason : "An AI agent wants to run this.", new[] { step }, Array.Empty<string>(), null));
             proposal.Consequence = PlanConsequence(new[] { step.Command });
             Proposals.Insert(0, proposal);
-            _journal.Add(DateTime.UtcNow, JournalKind.Note, _rundownActive ? _currentItem : -1, "AI agent proposed: " + Trunc(line, 200));
+            _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, "AI agent proposed: " + Trunc(line, 200));
             UpdatePendingCount();
             StatusLine = "An AI agent proposed a change — see Copilot";
         });
         return $"Queued for the operator's approval (proposal #{proposal.Id}). It runs only if they approve it in Stagewatch → Copilot.";
     }
 
-    /// <summary>Everything the copilot may reason about: the operator frame, presets and messages, screens, timers.</summary>
-    private string CopilotContext()
+    /// <summary>IShowAgents: a proposal's fate for the agent that made it (network thread; read on the owner thread).</summary>
+    public string? ProposalJson(int id)
     {
-        var frame = SnapshotJson.Serialize(_hub.Latest, FrameAccess.Operator);
-        var config = SnapshotJson.SerializeConfig(GetRemoteConfig());
-        var screens = ListScreens().Select(s => new { id = s.Id, name = s.Name, page = s.Page, device = s.Device, control = s.Control });
-        var setups = Settings.Remote.ScreenPresets.Select(p => new { name = p.Name, page = p.Path });
-        using var ms = new MemoryStream();
-        using (var w = new Utf8JsonWriter(ms))
+        string? Read()
         {
-            w.WriteStartObject();
-            w.WriteString("now", ShowClock.ToShow(DateTime.UtcNow).ToString("yyyy-MM-dd HH:mm:ss"));
-            w.WritePropertyName("show");
-            w.WriteRawValue(frame);
-            w.WritePropertyName("config");
-            w.WriteRawValue(config);
-            w.WritePropertyName("screens");
-            JsonSerializer.Serialize(w, screens);
-            w.WritePropertyName("screen_setups");
-            JsonSerializer.Serialize(w, setups);
-            // How each link is doing, so "why isn't OBS switching?" has an answer.
-            w.WritePropertyName("integrations");
-            JsonSerializer.Serialize(w, IntegrationStatus().Select(x => new { name = x.Name, health = x.Health.ToString(), status = x.Status }));
-            // This operator's history: how much each item is likely to run over, learned from their past shows.
-            w.WritePropertyName("history");
-            JsonSerializer.Serialize(w, new
+            var p = Proposals.FirstOrDefault(x => x.Id == id);
+            return p is null ? null : JsonSerializer.Serialize(new
             {
-                items_learned_from = _history.Records.Count,
-                items = Settings.Rundown.Items.Select((it, i) =>
-                {
-                    var (mu, sigma) = _model.For(it.Kind, it.Speaker);
-                    return new
-                    {
-                        n = i + 1, title = it.Title, kind = it.Kind.ToString(), speaker = it.Speaker ?? "",
-                        planned_min = Math.Round(it.DurationSeconds / 60.0, 1),
-                        expected_overrun_pct = Math.Round((Math.Exp(mu) - 1) * 100),
-                        p90_overrun_pct = Math.Round((Math.Exp(mu + 1.2816 * sigma) - 1) * 100),
-                    };
-                }),
+                id = p.Id, source = p.Source, request = p.Request,
+                state = p.State switch { ProposalState.Pending => "waiting for the operator", ProposalState.Done => "approved", ProposalState.Discarded => "discarded", _ => "being prepared" },
+                steps = p.Steps.Select(s => new { command = s.Command, ticked = s.Selected, result = s.Result }),
             });
-            // The latest journal lines: refused commands, link drops, what just happened.
-            w.WritePropertyName("recent");
-            JsonSerializer.Serialize(w, _journal.Entries.TakeLast(30).Select(e => $"{ShowClock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}"));
-            w.WriteEndObject();
         }
-        return Encoding.UTF8.GetString(ms.ToArray());
+        if (_ui.CheckAccess()) return Read();
+        var op = _ui.InvokeAsync(Read);
+        return op.Task.Wait(TimeSpan.FromSeconds(2)) ? op.Result : null;
     }
+
+    /// <summary>Everything the copilot may reason about, gathered here; the JSON is <see cref="AiContext"/>'s.</summary>
+    private string CopilotContext() => AiContext.Copilot(new CopilotFacts(
+        DateTime.UtcNow, ShowClock,
+        SnapshotJson.Serialize(_hub.Latest, FrameAccess.Operator),
+        SnapshotJson.SerializeConfig(GetRemoteConfig()),
+        ListScreens().Select(x => new ScreenFact(x.Id, x.Name, x.Page, x.Device, x.Control)).ToList(),
+        Settings.Remote.ScreenPresets,
+        IntegrationStatus().Select(x => new IntegrationFact(x.Name, x.Health.ToString(), x.Status)).ToList(),
+        _history.Records.Count, _model, Settings.Rundown.Items, _journal.Entries, PeerFacts(DateTime.UtcNow)));
 
     /// <summary>Draft the narrative for the show report from the journal (the operator edits it before it's kept).</summary>
     public async Task<string> DraftShowSummaryAsync()
     {
         if (CopilotClient() is not { } copilot) return "";
-        var entries = _journal.Entries.TakeLast(1500).Select(e => new
-        {
-            t = ShowClock.ToShow(e.Utc).ToString("HH:mm:ss"), k = e.Kind.ToString(),
-            item = e.Item >= 0 && e.Item < Settings.Rundown.Items.Count ? $"{e.Item + 1}. {Settings.Rundown.Items[e.Item].Title}" : "",
-            x = e.Text, v = e.Value
-        });
-        var plan = Settings.Rundown.Items.Select((it, i) => new { n = i + 1, title = it.Title, planned_min = it.DurationSeconds / 60.0, kind = it.Kind.ToString() });
-        var json = JsonSerializer.Serialize(new { running_order = plan, journal = entries });
+        var json = AiContext.SummaryInput(Settings, _journal.Entries, ShowClock);
         return await Task.Run(() => copilot.DraftSummaryAsync(json));
     }
 

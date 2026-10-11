@@ -32,7 +32,7 @@ IrisDown's CountdownTimer is a long-standing standard for corporate event countd
 
 ### 3. Live adjustment — parity, not an advantage
 - **Theirs**: Jog buttons add or subtract time while running (also over the network).
-- **Ours**: dedicated **Nudge** panel with ±1h, ±5m, ±1m, ±10s, ±1s buttons, and a global modifier key (Shift = ×5, Ctrl = ×10). Nudge applies live without stopping the clock. Mouse-wheel over the timer also nudges.
+- **Ours**: dedicated **Nudge** panel with ±10m, ±5m, ±1m, ±10s, ±1s buttons, and a global modifier key (Shift = ×5, Ctrl = ×10). Nudge applies live without stopping the clock. Mouse-wheel over the timer also nudges.
 
 ### 4. Messaging — they flash; we add urgency, acknowledgement and placeholders
 - **Theirs**: messages flash briefly on the output, then stay until cleared.

@@ -8,8 +8,28 @@ namespace Stagewatch.Core;
 /// OSC feedback — so they can never disagree. Value equality is the "did anything
 /// visible change" test, which keeps network traffic to roughly one frame per second.
 /// </summary>
+/// <summary>
+/// A frame's place in the stream (Show Bus <c>seq</c>). It compares equal to every other stamp, so a frame's equality —
+/// "did anything visible change?" — never depends on its number.
+/// </summary>
+public readonly struct FrameSeq : IEquatable<FrameSeq>
+{
+    public FrameSeq(long value) => Value = value;
+    public long Value { get; }
+    public bool Equals(FrameSeq other) => true;
+    public override bool Equals(object? obj) => obj is FrameSeq;
+    public override int GetHashCode() => 0;
+    public override string ToString() => Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
 public sealed record ShowSnapshot
 {
+    /// <summary>Show Bus frame format version.</summary>
+    public const int FormatVersion = 1;
+
+    /// <summary>Stamped by <see cref="SnapshotHub.Publish"/>: increases with every published frame.</summary>
+    public FrameSeq Seq { get; init; }
+
     public TimerMode Mode { get; init; }
     public TimerState State { get; init; }
     /// <summary>Whole seconds on the display (negative in overtime).</summary>
@@ -177,7 +197,6 @@ public readonly record struct RoomView(
 public sealed class SnapshotHub
 {
     private ShowSnapshot _latest = new();
-    private Action<ShowSnapshot>[] _subscribers = Array.Empty<Action<ShowSnapshot>>();
     private readonly object _subLock = new();
 
     public ShowSnapshot Latest => Volatile.Read(ref _latest);
@@ -210,30 +229,90 @@ public sealed class SnapshotHub
     /// <summary>Reports a subscriber failure (for logging). Never throws back into Publish.</summary>
     public event Action<Exception>? SubscriberFailed;
 
-    public void Subscribe(Action<ShowSnapshot> onPublished)
+    /// <summary>A subscriber took longer than <see cref="SlowAfter"/> to handle one frame (diagnostics; the show didn't wait).</summary>
+    public event Action<string, TimeSpan>? SubscriberSlow;
+
+    public static readonly TimeSpan SlowAfter = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// One subscriber's mailbox: a single slot holding the newest frame, drained by at most one worker at a time. The
+    /// publisher only swaps a reference and, if the subscriber is idle, queues one work item — it never runs subscriber
+    /// code, so a slow consumer (a stalled socket, a busy encoder) can't delay the show loop or the other consumers.
+    /// A consumer that falls behind skips straight to the newest frame (latest-wins); each consumer sees frames in order.
+    /// </summary>
+    private sealed class Mailbox(Action<ShowSnapshot> handler, string name)
     {
-        lock (_subLock) _subscribers = _subscribers.Append(onPublished).ToArray();
+        public readonly Action<ShowSnapshot> Handler = handler;
+        public readonly string Name = name;
+        public ShowSnapshot? Pending;
+        public int Scheduled;
+        public int Busy;
+    }
+
+    private Mailbox[] _mailboxes = Array.Empty<Mailbox>();
+
+    /// <summary>Subscribe to published frames. Handlers run on a worker, never on the publishing (show) thread.</summary>
+    public void Subscribe(Action<ShowSnapshot> onPublished, string? name = null)
+    {
+        lock (_subLock)
+        {
+            _mailboxes = _mailboxes.Append(new Mailbox(onPublished, name ?? onPublished.Method.DeclaringType?.Name ?? "subscriber")).ToArray();
+        }
     }
 
     public void Unsubscribe(Action<ShowSnapshot> onPublished)
     {
-        lock (_subLock) _subscribers = _subscribers.Where(s => s != onPublished).ToArray();
+        lock (_subLock)
+        {
+            _mailboxes = _mailboxes.Where(m => m.Handler != onPublished).ToArray();
+        }
     }
 
     /// <returns>True if the snapshot differed from the previous one and was published.</returns>
     public bool Publish(ShowSnapshot snapshot)
     {
-        if (snapshot.Equals(Volatile.Read(ref _latest))) return false;
+        var latest = Volatile.Read(ref _latest);
+        if (snapshot.Equals(latest)) return false;
+        snapshot = snapshot with { Seq = new FrameSeq(latest.Seq.Value + 1) };   // one owner thread publishes: no race on the count
         Volatile.Write(ref _latest, snapshot);
-        foreach (var s in Volatile.Read(ref _subscribers))
+        foreach (var m in Volatile.Read(ref _mailboxes))
         {
-            try { s(snapshot); }
-            catch (Exception ex)
-            {
-                try { SubscriberFailed?.Invoke(ex); } catch { }
-            }
+            Volatile.Write(ref m.Pending, snapshot);
+            if (Interlocked.Exchange(ref m.Scheduled, 1) == 0)
+                ThreadPool.UnsafeQueueUserWorkItem(Drain, m, preferLocal: false);
         }
         return true;
+    }
+
+    private void Drain(Mailbox m)
+    {
+        Interlocked.Exchange(ref m.Busy, 1);
+        try
+        {
+            while (true)
+            {
+                var frame = Interlocked.Exchange(ref m.Pending, null);
+                if (frame is null)
+                {
+                    Volatile.Write(ref m.Scheduled, 0);
+                    // A frame may have landed after the read above and before Scheduled was cleared: take it now.
+                    if (Volatile.Read(ref m.Pending) is null || Interlocked.Exchange(ref m.Scheduled, 1) != 0) return;
+                    continue;
+                }
+                var started = Environment.TickCount64;
+                try { m.Handler(frame); }
+                catch (Exception ex) { try { SubscriberFailed?.Invoke(ex); } catch { } }
+                var took = Environment.TickCount64 - started;
+                if (took > (long)SlowAfter.TotalMilliseconds) { try { SubscriberSlow?.Invoke(m.Name, TimeSpan.FromMilliseconds(took)); } catch { } }
+            }
+        }
+        finally { Interlocked.Exchange(ref m.Busy, 0); }
+    }
+
+    /// <summary>Wait until every subscriber has handled the newest frame (tests, orderly shutdown). False on timeout.</summary>
+    public bool WaitIdle(TimeSpan timeout)
+    {
+        return SpinWait.SpinUntil(() => Volatile.Read(ref _mailboxes).All(m => Volatile.Read(ref m.Scheduled) == 0 && Volatile.Read(ref m.Busy) == 0), timeout);
     }
 }
 
@@ -305,7 +384,9 @@ public enum ShowCommandKind
     /// <summary>Loop the running order. Number = extra passes (0 off, -1 forever).</summary>
     Loop,
     /// <summary>The clip on air in Patterns: Text "end" (Number = seconds before its end) or "restart".</summary>
-    Patterns
+    Patterns,
+    /// <summary>GO every department standing by, at once ("signal go all").</summary>
+    SignalGoAll
 }
 
 /// <summary>
@@ -320,91 +401,231 @@ public readonly record struct ShowCommand(
     bool Flag = false,
     MessageUrgency Urgency = MessageUrgency.Info,
     FlashRate Flash = FlashRate.Off,
-    TimerMode Mode = TimerMode.Countdown);
+    TimerMode Mode = TimerMode.Countdown)
+{
+    /// <summary>
+    /// The arguments of a command that takes several (a signal's target and text, a department and its note...), typed.
+    /// Set by the parser and the factories below; read through <see cref="Get{T}"/>. <see cref="Text"/> still carries
+    /// the older packed form for compatibility, but nothing should split it by hand.
+    /// </summary>
+    public ShowArgs? Args { get; init; }
 
-/// <summary>Anything that can take operator commands and expose live state.</summary>
-public interface IShowControl
+    /// <summary>This command's typed arguments (parsed from the packed text if it was built without them).</summary>
+    public T Get<T>() where T : ShowArgs
+        => Args as T ?? ShowArgs.From(this) as T ?? throw new InvalidOperationException($"{Kind} has no {typeof(T).Name}");
+
+    public static ShowCommand Signal(SignalKind kind, string target, string text, bool ackRequired)
+        => new ShowCommand(ShowCommandKind.Signal, Number: (int)kind, Text: ShowArgs.Pack(target, text), Flag: ackRequired) { Args = new SignalArgs(target, text) };
+
+    public static ShowCommand DeptNote(int item, string department, string note)
+        => new ShowCommand(ShowCommandKind.DeptNote, Number: item, Text: ShowArgs.Pack(department, note)) { Args = new DeptNoteArgs(department, note) };
+
+    public static ShowCommand Question(string text, string name)
+        => new ShowCommand(ShowCommandKind.Question, Text: ShowArgs.Pack(text, name)) { Args = new QuestionArgs(text, name) };
+}
+
+/// <summary>Typed arguments for the commands that take more than one value.</summary>
+public abstract record ShowArgs
+{
+    internal const char Separator = '\u0001';
+
+    /// <summary>The older packed text form (still on <see cref="ShowCommand.Text"/> for compatibility).</summary>
+    public static string Pack(params string[] parts) => string.Join(Separator, parts.Select(p => (p ?? "").Replace(Separator, ' ')));
+
+    /// <summary>The one place the packed form is read.</summary>
+    public static ShowArgs? From(ShowCommand c)
+    {
+        var p = (c.Text ?? "").Split(Separator);
+        var bar = (c.Text ?? "|seen").Split('|');   // acknowledgements use "who|state"
+        string At(int i) => i < p.Length ? p[i] : "";
+        return c.Kind switch
+        {
+            ShowCommandKind.Signal => new SignalArgs(At(0), At(1)),
+            ShowCommandKind.Question => new QuestionArgs(At(0), At(1)),
+            ShowCommandKind.Screen => new ScreenArgs(At(0), At(1), At(2).Length == 0 ? "all" : At(2)),
+            ShowCommandKind.Aux => new AuxArgs(At(0), At(1)),
+            ShowCommandKind.DeptNote => new DeptNoteArgs(At(0).Trim(), At(1)),
+            ShowCommandKind.Ltc => new LtcArgs(At(0), At(1)),
+            ShowCommandKind.Ack => new AckArgs(bar[0], bar.Length > 1 && bar[1].Length > 0 ? bar[1] : "seen"),
+            _ => null,
+        };
+    }
+}
+
+/// <summary>A cue to a target (a department, "speaker", "backstage") with its words.</summary>
+public sealed record SignalArgs(string Target, string Text) : ShowArgs;
+/// <summary>An audience question and who asked.</summary>
+public sealed record QuestionArgs(string Text, string Name) : ShowArgs;
+/// <summary>A screen action ("go", "identify", "name", "save", "reload", "disconnect"), its argument, and which screens.</summary>
+public sealed record ScreenArgs(string Action, string Argument, string Who) : ShowArgs;
+/// <summary>An extra timer action ("toggle", "set", "nudge", "name"...) and its argument.</summary>
+public sealed record AuxArgs(string Action, string Argument) : ShowArgs;
+/// <summary>A department and its note ("" clears it).</summary>
+public sealed record DeptNoteArgs(string Department, string Note) : ShowArgs;
+/// <summary>An LTC-in action ("chase" or "end") and, for "end", the timecode ("" clears).</summary>
+public sealed record LtcArgs(string Action, string Timecode) : ShowArgs;
+/// <summary>Who acknowledged ("" = unknown) and how ("seen" or "done").</summary>
+public sealed record AckArgs(string By, string State) : ShowArgs;
+
+/// <summary>The show's core contract: run commands, publish frames, and the static data remotes build buttons from.</summary>
+public interface IShowCommands
 {
     SnapshotHub Snapshots { get; }
 
     /// <summary>Thread-safe. Queues the command onto the owner thread and returns immediately.</summary>
     void Execute(ShowCommand command);
 
+    /// <summary>
+    /// Thread-safe (never call it on the owner thread and wait). Runs the command on the owner thread and says what
+    /// happened (Show Bus receipt): applied with its effect, refused with why, or only accepted when the owner thread
+    /// didn't get to it within <paramref name="timeout"/>.
+    /// </summary>
+    Task<CommandReceipt> ExecuteWithReceiptAsync(ShowCommand command, string id, TimeSpan timeout)
+    {
+        Execute(command);
+        return Task.FromResult(CommandReceipt.Accepted(id));
+    }
+
     /// <summary>Static-ish data remotes need for their buttons: presets, quick messages, running order.</summary>
     RemoteConfig GetRemoteConfig();
+}
 
-    /// <summary>The planned-vs-actual show report ("html" | "csv"), or null when there's nothing to report. Thread-safe.</summary>
-    string? Report(string format) => null;
-
-    /// <summary>Whether the MCP endpoint may answer (enabled in settings and licensed). Thread-safe.</summary>
+/// <summary>Who may do what: API keys, the viewing code, and whether AI agents may connect. Thread-safe.</summary>
+public interface IShowAccess
+{
+    /// <summary>Whether the MCP endpoint may answer (enabled in settings and licensed).</summary>
     bool McpAllowed => true;
 
-    /// <summary>Crew link policy: the secret behind crew keys, and whether public acknowledgements need one. Thread-safe.</summary>
+    /// <summary>The API keys in force (an immutable copy; revoking swaps in a new one).</summary>
+    IReadOnlyList<ApiKey> ApiKeys => Array.Empty<ApiKey>();
+
+    /// <summary>The code browser screens need to view the show, or null/empty when screens are open.</summary>
+    string? ViewCode => null;
+}
+
+/// <summary>Crew pages: crew links and each department's notes. Thread-safe.</summary>
+public interface IShowCrew
+{
+    /// <summary>Crew link policy: the secret behind crew keys, and whether public acknowledgements need one.</summary>
     (string? Secret, bool Required) CrewKeyPolicy => (null, false);
 
-    /// <summary>Departments, for the crew link list. Thread-safe.</summary>
-    IReadOnlyList<string> CrewDepartments => GetRemoteConfig().Departments ?? Array.Empty<string>();
+    /// <summary>Departments, for the crew link list.</summary>
+    IReadOnlyList<string> CrewDepartments => Array.Empty<string>();
 
-    /// <summary>A holding image's bytes for screens to show. Thread-safe.</summary>
-    (byte[] Data, string ContentType)? HoldingImageData(string id) => null;
+    /// <summary>A department's notes for every item (index, title, note), or null when there's no running order.</summary>
+    IReadOnlyList<(int Index, string Title, string Note)>? DeptNotesFor(string dept) => null;
+}
 
-    /// <summary>Add an uploaded holding image. Returns its id, or an error for the uploader. Thread-safe.</summary>
-    (string? Id, string? Error) AddHoldingImage(string name, byte[] data) => (null, "not supported");
-
-    /// <summary>The name the operator gave a browser screen, by its id, or null. Thread-safe.</summary>
+/// <summary>What browser screens show besides the frame: names, setups, styling, designs, images and sounds. Thread-safe.</summary>
+public interface IShowScreens
+{
+    /// <summary>The name the operator gave a browser screen, by its id, or null.</summary>
     string? ScreenName(string screenId) => null;
 
-    /// <summary>A saved screen setup's page ("/viewer?…") by its name, or null. Thread-safe.</summary>
+    /// <summary>A saved screen setup's page ("/viewer?…") by its name, or null.</summary>
     string? ScreenPresetPath(string name) => null;
 
-    /// <summary>
-    /// An AI agent (MCP) wants to run a command. Returns what to tell the agent when it was queued for the operator's
-    /// approval (or refused), or null when agents may act directly. Thread-safe.
-    /// </summary>
-    string? ProposeFromAgent(string commandLine, string reason) => null;
+    /// <summary>All saved screen setups, for the operator's lists.</summary>
+    IReadOnlyList<(string Name, string Path)> ScreenPresets => Array.Empty<(string, string)>();
 
-    /// <summary>
-    /// A presenter PC (Stagewatch Slides) reports its slideshow. Returns an error for the agent, or null when taken;
-    /// <paramref name="needScript"/> asks the agent to send this deck's script once. Thread-safe.
-    /// </summary>
-    string? AcceptSlideFeed(SlideFeed feed, string address, out bool needScript) { needScript = false; return "not supported"; }
+    /// <summary>The operator's custom CSS for browser screens ("" = none).</summary>
+    string CustomCss => "";
 
-    /// <summary>A presenter PC's whole-deck script (speaker notes), sent once per deck. Thread-safe.</summary>
-    void AcceptSlideScript(string hash, string script) { }
-
-    /// <summary>A department's notes for every item (index, title, note), or null when there's no running order. Thread-safe.</summary>
-    IReadOnlyList<(int Index, string Title, string Note)>? DeptNotesFor(string dept) => null;
-
-    /// <summary>A chime library sound as WAV (for screens that play sound), or null. Thread-safe.</summary>
-    byte[]? SoundData(string id) => null;
-
-    /// <summary>A designed screen's JSON, or null. Thread-safe.</summary>
+    /// <summary>A designed screen's JSON, or null.</summary>
     string? LayoutJson(string name) => null;
 
-    /// <summary>The designed screens' names. Thread-safe.</summary>
+    /// <summary>The designed screens' names.</summary>
     IReadOnlyList<string> LayoutNames => Array.Empty<string>();
 
-    /// <summary>Save a designed screen (from the designer page). Null = saved, else why not. Thread-safe.</summary>
+    /// <summary>Save a designed screen (from the designer page). Null = saved, else why not.</summary>
     string? SaveLayout(string json) => "Layouts aren't available here.";
 
-    /// <summary>Delete a designed screen. Thread-safe.</summary>
+    /// <summary>Delete a designed screen.</summary>
     void DeleteLayout(string name) { }
 
-    /// <summary>The copilot designs (or changes) a layout from a sentence. Nothing is saved: the designer previews it. Thread-safe.</summary>
+    /// <summary>The copilot designs (or changes) a layout from a sentence. Nothing is saved: the designer previews it.</summary>
     Task<(string? Json, IReadOnlyList<string> Notes)> DesignLayoutAsync(string request, string? currentJson)
         => Task.FromResult<(string?, IReadOnlyList<string>)>((null, new[] { "The copilot isn't available here." }));
 
-    /// <summary>The API keys in force (an immutable copy; revoking swaps in a new one). Thread-safe.</summary>
-    IReadOnlyList<ApiKey> ApiKeys => Array.Empty<ApiKey>();
+    /// <summary>A holding image's bytes for screens to show.</summary>
+    (byte[] Data, string ContentType)? HoldingImageData(string id) => null;
 
-    /// <summary>The code browser screens need to view the show, or null/empty when screens are open. Thread-safe.</summary>
-    string? ViewCode => null;
+    /// <summary>Add an uploaded holding image. Returns its id, or an error for the uploader.</summary>
+    (string? Id, string? Error) AddHoldingImage(string name, byte[] data) => (null, "not supported");
 
-    /// <summary>The operator's custom CSS for browser screens ("" = none). Thread-safe.</summary>
-    string CustomCss => "";
+    /// <summary>A chime library sound as WAV (for screens that play sound), or null.</summary>
+    byte[]? SoundData(string id) => null;
+}
 
-    /// <summary>All saved screen setups, for the operator's lists. Thread-safe.</summary>
-    IReadOnlyList<(string Name, string Path)> ScreenPresets => Array.Empty<(string, string)>();
+/// <summary>
+/// What this node tells other apps and their AI about itself, and what it hears from them (Show Bus §6). Thread-safe.
+/// </summary>
+public interface IShowContext
+{
+    /// <summary>This node's context (the §6 JSON), or null when there isn't one.</summary>
+    string? ContextJson() => null;
+
+    /// <summary>A peer posted its context. Null = taken, else why not.</summary>
+    string? AcceptPeerContext(string json, string address) => "not supported";
+
+    /// <summary>As <see cref="AcceptPeerContext(string, string)"/>, from a node key (bound to the node it speaks for).</summary>
+    string? AcceptPeerContext(string json, string address, string? nodeKeyId) => AcceptPeerContext(json, address);
+}
+
+/// <summary>
+/// The shared approval queue (Show Bus §11): this node is the desk. Thread-safe. Each returns an HTTP status and a JSON
+/// body. <c>nodeKeyId</c> is the node key that made the request (null for the PIN or another kind of key).
+/// </summary>
+public interface IShowApprovals
+{
+    (int Status, string Json) SubmitProposal(string body, string? nodeKeyId) => (404, "{\"ok\":false,\"error\":\"no approval desk here\"}");
+    (int Status, string Json) GetProposal(string id) => (404, "{\"ok\":false,\"error\":\"no such proposal\"}");
+    (int Status, string Json) ProposalsFrom(string nodeId) => (200, "{\"proposals\":[]}");
+    (int Status, string Json) CollectApproved(string targetId, string? nodeKeyId) => (200, "{\"proposals\":[]}");
+    (int Status, string Json) ProposalResult(string id, string body, string? nodeKeyId) => (404, "{\"ok\":false,\"error\":\"no such proposal\"}");
+}
+
+/// <summary>The planned-vs-actual show report. Thread-safe.</summary>
+public interface IShowReports
+{
+    /// <summary>The report ("html" | "csv"), or null when there's nothing to report.</summary>
+    string? Report(string format) => null;
+}
+
+/// <summary>AI agents (MCP): their commands can wait for the operator's approval. Thread-safe.</summary>
+public interface IShowAgents
+{
+    /// <summary>
+    /// An agent wants to run a command. Returns what to tell the agent when it was queued for the operator's
+    /// approval (or refused), or null when agents may act directly.
+    /// </summary>
+    string? ProposeFromAgent(string commandLine, string reason) => null;
+
+    /// <summary>A proposal's fate as JSON (state, and each step's command and result), or null when there's no such proposal.</summary>
+    string? ProposalJson(int id) => null;
+}
+
+/// <summary>Presenter PCs (Stagewatch Slides) reporting their slideshows. Thread-safe.</summary>
+public interface ISlideFeeds
+{
+    /// <summary>
+    /// A presenter PC reports its slideshow. Returns an error for the agent, or null when taken;
+    /// <paramref name="needScript"/> asks the agent to send this deck's script once.
+    /// </summary>
+    string? AcceptSlideFeed(SlideFeed feed, string address, out bool needScript) { needScript = false; return "not supported"; }
+
+    /// <summary>A presenter PC's whole-deck script (speaker notes), sent once per deck.</summary>
+    void AcceptSlideScript(string hash, string script) { }
+}
+
+/// <summary>
+/// Everything a full remote surface (the web server) needs: the union of the focused contracts above. Consumers that
+/// need less depend on less — OSC on <see cref="IShowCommands"/>, MCP on commands, reports and agents.
+/// </summary>
+public interface IShowControl : IShowCommands, IShowAccess, IShowCrew, IShowScreens, IShowReports, IShowAgents, ISlideFeeds, IShowContext, IShowApprovals
+{
+    /// <summary>A full surface has the remote config, so its departments come from there unless the host says otherwise.</summary>
+    IReadOnlyList<string> IShowCrew.CrewDepartments => GetRemoteConfig().Departments ?? Array.Empty<string>();
 }
 
 public sealed record RemoteConfig(
@@ -449,6 +670,14 @@ public static class ShowCommandParser
         "q <id|next|clear> [approve|star|live|answered|dismiss] | rehearse [on|off] | listen [on|off] | report [html|csv] | note <text>";
 
     public static bool TryParse(string verb, IReadOnlyList<string> args, out ShowCommand cmd, out string error)
+    {
+        if (!TryParseCore(verb, args, out cmd, out error)) return false;
+        // Commands with several arguments carry them typed (read with Get<T>), not just packed in Text.
+        if (ShowArgs.From(cmd) is { } typed) cmd = cmd with { Args = typed };
+        return true;
+    }
+
+    private static bool TryParseCore(string verb, IReadOnlyList<string> args, out ShowCommand cmd, out string error)
     {
         cmd = default;
         error = "";
@@ -544,6 +773,12 @@ public static class ShowCommandParser
                         _ => throw new FormatException("signal takes message|standby|go|call|nudge|clear|resend")
                     };
                     var who = Arg(1);
+                    // "signal go all": one GO to every department standing by — a cue that spans departments.
+                    if (kind == SignalKind.Go && who.Trim().ToLowerInvariant() is "all" or "*")
+                    {
+                        cmd = new(ShowCommandKind.SignalGoAll);
+                        return true;
+                    }
                     if (who.Length == 0) who = kind == SignalKind.Call ? "backstage" : "speaker";
                     var body = Arg(2);
                     if (body.Length > 200) body = body[..200];
@@ -929,4 +1164,25 @@ public static class ShowCommandParser
         "fast" => FlashRate.Fast,
         _ => throw new FormatException("flash must be off|slow|fast")
     };
+}
+
+/// <summary>
+/// What became of a command (Show Bus §3): <c>accepted</c> (queued — the owner thread didn't confirm in time) or
+/// <c>applied</c> (run; <see cref="Effect"/> says what changed), or refused (<see cref="Ok"/> false, <see cref="Error"/>).
+/// <see cref="Refs"/> names what it made: a message's signal id, an AI agent's proposal id.
+/// </summary>
+public sealed record CommandReceipt(string Id, bool Ok, string Stage, string Effect, string? Error, IReadOnlyDictionary<string, long>? Refs = null)
+{
+    public static CommandReceipt Accepted(string id) => new(id, true, "accepted", "", null);
+    public static CommandReceipt Refused(string id, string error) => new(id, false, "applied", "", error);
+
+    /// <summary>A request id as the Show Bus allows it: 1–32 of letters, digits, '-' and '_'. Null when not.</summary>
+    public static string? CleanId(string? id)
+        => id is { Length: > 0 and <= 32 } && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? id : null;
+
+    public byte[] ToJson() => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
+    {
+        ["type"] = "receipt", ["id"] = Id, ["ok"] = Ok, ["stage"] = Stage, ["effect"] = Effect,
+        ["error"] = Error, ["refs"] = Refs ?? new Dictionary<string, long>(),
+    });
 }

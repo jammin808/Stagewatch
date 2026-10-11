@@ -15,8 +15,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 
-    <Version>2.11.1</Version>
-    <FileVersion>2.11.1.0</FileVersion>
+    <Version>2.16.0</Version>
+    <FileVersion>2.16.0.0</FileVersion>
     <Company>Stagewatch</Company>
     <Product>Stagewatch Countdown Timer</Product>
     <Copyright>© 2026</Copyright>
@@ -25,10 +25,32 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- Low latency: compiled ahead of time on publish (the first GO doesn't wait for the JIT); the collector keeps
+         its memory between collections and runs concurrently. While a show is live it also avoids blocking
+         collections (MainViewModel.GovernGc). -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <RetainVMGarbageCollection>true</RetainVMGarbageCollection>
   </PropertyGroup>
+
+  <!-- The watchdog keeps a mini-dump of a native crash: a single-file exe needs createdump.exe beside it, copied from
+       the exact runtime pack this publish used. -->
+  <Target Name="PlaceCreatedumpBesideTheExe" AfterTargets="Publish" Condition="'$(SelfContained)' == 'true'">
+    <ItemGroup>
+      <_SwRuntimePack Include="@(ResolvedRuntimePack)" Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App'" />
+    </ItemGroup>
+    <PropertyGroup>
+      <_SwRuntimePackDir>@(_SwRuntimePack->'%(PackageDirectory)')</_SwRuntimePackDir>
+      <_SwCreatedump>$(_SwRuntimePackDir)/runtimes/$(RuntimeIdentifier)/native/createdump.exe</_SwCreatedump>
+    </PropertyGroup>
+    <Copy SourceFiles="$(_SwCreatedump)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(_SwRuntimePackDir)' != '' And Exists('$(_SwCreatedump)')" />
+    <Warning Text="createdump.exe was not found in the runtime pack: a native crash will leave no mini-dump (watchdog.log and crash.log still say what happened)." Condition="'$(_SwRuntimePackDir)' == '' Or !Exists('$(_SwCreatedump)')" />
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\Timer.Core\Timer.Core.csproj" />
+    <ProjectReference Include="..\Timer.Show\Timer.Show.csproj" />
     <ProjectReference Include="..\Timer.Licensing\Timer.Licensing.csproj" />
     <ProjectReference Include="..\Timer.Companion\Timer.Companion.csproj" />
     <ProjectReference Include="..\Timer.Output\Timer.Output.csproj" />

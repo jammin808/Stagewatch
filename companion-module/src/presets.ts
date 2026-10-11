@@ -312,6 +312,14 @@ export function UpdatePresets(self: ModuleInstance): void {
 		],
 		localVariables: [{ variableType: 'simple', variableName: 'dept', startupValue: 'Lighting' }],
 	}
+	presets['all_go'] = {
+		type: 'simple',
+		name: 'ALL GO (every department standing by)',
+		style: style(`ALL GO
+${v('standing_by')} SB`, { size: '14', bgcolor: COLORS.darkgrey }),
+		steps: [{ down: [{ actionId: 'all_go', options: {} }], up: [] }],
+		feedbacks: [{ feedbackId: 'standing_by', options: { count: 1 }, style: { bgcolor: COLORS.green, color: COLORS.white } }],
+	}
 	const deptValues = (cfg.departments?.length ? cfg.departments : ['Lighting', 'Sound', 'Video', 'Stage']).map((d) => ({ name: d, value: d }))
 
 	// ---------------------------------------------------------------- schedule recovery & assistant
@@ -568,7 +576,7 @@ ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
 			p.feedbacks = [...(p.feedbacks ?? []), { feedbackId: 'feature_locked', options: { feature }, style: { bgcolor: COLORS.darkgrey, color: COLORS.grey } }]
 		}
 	}
-	lockAll(['cue_wrap', 'cue_finish', 'cue_slow', 'cue_buzz', 'cue_call_next', 'cue_podium_ack', 'cue_waiting', 'dept_standby_t', 'dept_go_t'], 'crewcues')
+	lockAll(['cue_wrap', 'cue_finish', 'cue_slow', 'cue_buzz', 'cue_call_next', 'cue_podium_ack', 'cue_waiting', 'dept_standby_t', 'dept_go_t', 'all_go'], 'crewcues')
 	lockAll(['show_forecast'], 'forecast')
 	lockAll(['advice_1', 'advice_2', 'advice_3'], 'assistant')
 	lockAll(['show_vt'], 'vmix')
@@ -653,6 +661,7 @@ ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
 					templateValues: deptValues,
 				},
 				{ id: 'dept_go', type: 'template', name: 'Department GO', presetId: 'dept_go_t', templateVariableName: 'dept', templateValues: deptValues },
+				{ id: 'all_go', type: 'simple', name: 'ALL GO (every department standing by)', presets: ['all_go'] },
 			],
 		},
 		{

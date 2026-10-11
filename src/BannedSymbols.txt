@@ -1,0 +1,7 @@
+M:System.Threading.Thread.Sleep(System.Int32);Blocks the thread: on the show thread the stage freezes. Use a timer or await Task.Delay; a worker loop that must poll says why (#pragma warning disable RS0030).
+M:System.Threading.Thread.Sleep(System.TimeSpan);Blocks the thread: on the show thread the stage freezes. Use a timer or await Task.Delay; a worker loop that must poll says why (#pragma warning disable RS0030).
+M:System.GC.Collect;Forced collections pause every thread. Only the PowerPoint COM release needs one, and says why.
+M:System.GC.Collect(System.Int32);Forced collections pause every thread.
+M:System.Threading.Tasks.Task.Wait;An unbounded wait can hang forever: pass a timeout, or await.
+M:System.Threading.Tasks.Task.WaitAll(System.Threading.Tasks.Task[]);An unbounded wait can hang forever: pass a timeout, or await.
+P:System.Environment.TickCount;Wraps to negative after 24.9 days of uptime: use Environment.TickCount64 or Stopwatch.

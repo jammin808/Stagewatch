@@ -83,7 +83,8 @@ public partial class SlidesAgentWindow : Window
         FoundList.ItemsSource = _found;
         RebuildActive();
         StartWithWindows.IsChecked = Registry.CurrentUser.OpenSubKey(RunKey)?.GetValue(RunValue) is string;
-        _agent = new SlidesAgent(_settings.Id, () => _name, () => _active);
+        _agent = new SlidesAgent(_settings.Id, () => _name, () => _active,
+            pinsPath: System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Stagewatch", "slides-pins.json"));
         _ui = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(400) };
         _ui.Tick += (_, _) => Refresh();
         _ui.Start();
@@ -199,15 +200,22 @@ public partial class SlidesAgentWindow : Window
         public string Pin { get => _pin; set { _pin = value; Settings.PinProtected = value.Length > 0 ? ProtectedKey.Protect(value) : ""; } }
         public string Status { get; private set; } = "";
         public bool Ok { get; private set; }
+        public bool CertificateChanged => Status.StartsWith("CERTIFICATE CHANGED", StringComparison.Ordinal);
         public AgentTarget ToTarget() => new(Settings.Host, Settings.Port, Pin);
 
         public void Update(AgentTargetStatus s)
         {
-            if (s.Text != Status) { Status = s.Text; PropertyChanged?.Invoke(this, new(nameof(Status))); }
+            if (s.Text != Status) { Status = s.Text; PropertyChanged?.Invoke(this, new(nameof(Status))); PropertyChanged?.Invoke(this, new(nameof(CertificateChanged))); }
             if (s.Ok != Ok) { Ok = s.Ok; PropertyChanged?.Invoke(this, new(nameof(Ok))); }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
+    }
+
+    /// <summary>After a Stagewatch was reinstalled: trust the certificate it presents now (check its fingerprint first).</summary>
+    private void OnTrustCertificate(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is TargetRow row) _agent.TrustNewCertificate(row.ToTarget());
     }
 
     public sealed record FoundRow(string Name, string Address, int Port);

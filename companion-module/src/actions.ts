@@ -558,6 +558,12 @@ export function UpdateActions(self: ModuleInstance): void {
 				send(`SIGNAL resend ${g.id}`)
 			},
 		},
+		all_go: {
+			name: 'Cues: ALL GO (every department standing by)',
+			description: 'GO to every department standing by, at the same moment: a cue that spans departments. Each still confirms its own GO.',
+			options: [],
+			callback: () => send('SIGNAL go all'),
+		},
 		signal_clear: {
 			name: 'Cues: Clear cues',
 			options: [{ type: 'textinput', id: 'target', label: 'Target (blank = all)', default: '' }],

@@ -11,6 +11,111 @@ the end-of-show forecast and curfew trim suggestions (producer assistant), the m
 LTC and the time-server drift check, vMix VT countdowns, speech pace, the full printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
 
+## 2.16: encrypted screens and one approval queue for every app's AI
+
+- **HTTPS.** Stagewatch now has its own certificate and speaks HTTPS on the same port as before, so nothing breaks:
+  screens that trust the certificate get `https://` and `wss://`. Settings → Remote shows its fingerprint and a
+  **Certificate page** with step-by-step trust instructions for Windows, Mac, iPhone/iPad and Android. **Require
+  HTTPS** sends other devices to the encrypted address. Presenter PCs (Stagewatch Slides) switch to HTTPS by themselves
+  and pin the certificate — if it ever changes, they stop and say so.
+- **One approval queue.** Patterns' assistant, AGMessage's AI and any AI agent now send their suggestions to
+  Stagewatch's Copilot list instead of each app keeping its own. Each shows who suggested it, which app it's for, why,
+  and how risky it is (that app's own judgement; unknown = high, never pre-ticked). Approve or discard once: Stagewatch
+  runs its own; the other apps collect theirs, run them through their own checks and report back — "done", "refused:
+  why" or "not delivered". Every suggestion, decision and result goes in the show log. Works without internet.
+
+## 2.15.1: review fixes
+
+- **A trimmed item loads trimmed.** Cutting a coming item (by hand or with Recover time) now reaches its countdown when
+  it's loaded — before, it loaded its planned length.
+- **Crash restore follows the item, not its position.** If the running order was edited after the last checkpoint
+  (an item inserted, moved or deleted), the restore puts back the same item and its recorded times; a deleted live item
+  is no longer replaced by its neighbour.
+- **A clean close stays clean.** Checkpoints are numbered; a slow background save can no longer land after the
+  close and make the next start offer back an old show.
+- **Receipts don't say "done" for what didn't happen.** A missing running order, nothing to undo, Patterns not set up,
+  no department standing by and the like now come back refused with the reason; a Patterns command is "accepted"
+  until Patterns confirms it.
+
+## 2.15: apps that talk to each other, and a Stagewatch that can't fall over
+
+**It keeps running.**
+- **Watchdog.** Stagewatch now runs under a tiny watchdog (the same exe, no window). If it crashes or stops responding —
+  10 s while a show is live, 30 s otherwise — it is restarted at once and the show is put back where it was without
+  asking. Repeated failures back off and stop after six in ten minutes (watchdog.log says why). A native crash leaves a
+  small dump for support. `--no-watchdog` runs without it.
+- **A stray error doesn't end the show.** It's logged, the status line says so, and the show carries on (a fatal one, or
+  a storm of them, still restarts via the watchdog).
+- **Saves can't be torn.** Settings and the session are flushed to disk before they replace the old file, and the last
+  good settings are kept as `.bak` — a damaged settings file now loads the last good copy instead of starting over.
+- **Faster and measured.** 1 ms timer resolution, short garbage-collector pauses while a show is live, ahead-of-time
+  compiled release build, and Diagnostics now reports how long a GO takes to reach the screen.
+
+**The apps understand each other (Show Bus 1.1, docs/SHOWBUS.md).**
+- **Producer → Show network** lists every show app on the network — Patterns, AGMessage, other Stagewatches — with a
+  light and a one-line headline, and the problems they report (a projector on the wrong mode, two action prompts open).
+  Their red and amber problems also appear as assistant advice.
+- **Confirmed commands.** Commands from Companion, the web, AGMessage, MCP agents and to Patterns can now get a
+  receipt: done (and what changed), refused (and why), or only accepted. AGMessage sees the speaker's acknowledgement on
+  the exact message it sent. Patterns' answers show on the status line ("Patterns did it").
+- **Patterns clip end.** When the clip on air ends, the show log notes it, a **Clip ends** trigger fires, and (Settings
+  → Integrations → Patterns) a video item can move on to the next by itself.
+- **Clocks.** Stagewatch measures the clock difference with Patterns and warns "CLOCKS APART" over 2 s.
+- **AI sees the whole room.** The copilot, the cloud assistant and AI agents (MCP `get_context`) now read every app's
+  context. Everything except the AI's own reasoning works with no internet.
+- **Safer keys.** A new **node** key scope (read + stage messages + its context) for apps like AGMessage; keys work
+  everywhere the PIN does and travel in headers, never URLs.
+
+## 2.14: ALL GO and arrangeable panels
+
+- **ALL GO.** Stand departments by one at a time (each with its cue — "LX 12", "SQ 4"), check they're in position,
+  then one press GOes them all at the same moment: a cue that spans departments. Each department still gets its own
+  GO to confirm on its page. In Cues & Q&A each department row now shows where its cue is (STANDBY, STANDING BY ✓,
+  IN POSITION, GO); the ALL GO button counts who's standing by. Also: Ctrl+G, right-click a department, the producer
+  page, Companion (action, "standing by" feedback, variables, an ALL GO preset), OSC/HTTP `signal go all`. A
+  department in position now stays standing by until its GO (before, it dropped off after 30 s).
+- **Panels you can arrange.** Drag a side tab to reorder it. Drag it out of the window and it becomes a window of its
+  own — put Cues & Q&A on a second monitor and the Running order beside the timer. Drag the window back onto the side
+  panel (or press Dock, or close it) to dock it. Drag the gap between timer and panels to widen them (double-click for
+  the standard width). With every panel out, the timer fills the main window. The layout is saved and comes back next
+  time; a window left on a monitor that's gone reappears on screen. Right-click a tab: Pop out, Move left/right, Reset
+  panel layout. Shortcuts work in the panel windows too.
+- **Nudge row:** the outer buttons are now −10m and +10m (were −1h / +1h), so the biggest live change is a sensible
+  one. The mouse wheel over the timer moves 10 s per notch, 1 min with Shift, 5 min with Ctrl (Ctrl used to move an hour).
+
+## 2.13: a thinner view model
+
+No new buttons; the show behaves as before. Under the hood, the rest of the show logic moved out of the window code
+into parts that are tested on their own:
+
+- **Frames** — what every screen shows (cue colours, flashing, schedule, speaker clock, message, curfews, timings) is
+  built by one pure function, tested headless.
+- **Integrations** — starting, restarting and stopping PowerPoint, vMix, Patterns, LTC, cue lights, rooms and the
+  assistant is handled by one supervisor; a slow device still never holds up the show.
+- **Reports** and **holding images** — who may export which report, where it is saved, and what "holding toggle"
+  brings back, each in one small tested place.
+- **What the AI sees** — the copilot's view of the show, the assistant's summary and the material a show recap is
+  written from are built in one tested place, so what reaches the model is checked on every build.
+- Reports requested by browsers or AI agents now read a settings snapshot, never the live settings, from their thread.
+
+## 2.12: a sturdier core
+
+The show's core now runs in its own UI-free controller with whole-show workflow tests on a manual clock. Fixes that
+came out of it:
+
+- **Reports never misattribute.** History is kept by identity: each journal entry names its running order, its item
+  and which run of it. Switching running orders, reordering items or looping can no longer put one item's time on
+  another. Each loop pass is its own row in the report.
+- **A looping running order keeps its last item's record.** Before, the last item of each pass was dropped from the
+  report when the loop started again.
+- **Editing mid-show follows the live item.** Deleting or inserting items above the live one keeps the show on the
+  same item; deleting the live item leaves nothing live. Undo forgets edits whose items have gone, and says so straight
+  away.
+- **Crash restore checks the running order.** A saved position is restored only into the same running order.
+- **Slow screens and devices can't hold up the show.** Each frame consumer (Companion, browser screens, OSC) gets
+  frames off the show thread and skips to the newest if it falls behind. Integrations restart in the background when
+  their settings change; Diagnostics names any slow consumer.
+
 ## 2.11: Patterns video and AGMessage
 
 - **Patterns video**: the clip on air in Patterns drives the VT countdown (like vMix), and **Last 10 s** (or

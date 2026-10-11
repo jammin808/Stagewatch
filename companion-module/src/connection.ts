@@ -1,7 +1,7 @@
 // Resilient line-protocol client for the Stagewatch Companion server (TCP, default port 9923).
 //
 //  * Reconnects forever with capped exponential backoff (1 s → 10 s), resets on success.
-//  * Heartbeat: PING every 4 s; if nothing at all arrives for 12 s the socket is presumed
+//  * Heartbeat (Show Bus 1.1 liveness: 2 s / 12 s): PING every 2 s; if nothing at all arrives for 12 s the socket is presumed
 //    dead (cable pulled, laptop asleep, Wi-Fi roam) and is torn down and redialled.
 //  * Commands are never queued while offline: replaying stale "START"/"NEXT" presses after a
 //    reconnect would be dangerous mid-show. A press while offline is dropped and logged.
@@ -40,7 +40,7 @@ export interface ConnectionTimings {
 }
 
 export const DEFAULT_TIMINGS: ConnectionTimings = {
-	pingEveryMs: 4000,
+	pingEveryMs: 2000,
 	deadAfterMs: 12000,
 	connectTimeoutMs: 5000,
 	deniedRetryMs: 30000,

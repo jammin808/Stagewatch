@@ -73,7 +73,9 @@ public static class HardwareId
             }
             catch (ManagementException) { }
             catch (System.Runtime.InteropServices.COMException) { }
+            #pragma warning disable RS0030 // a short retry while WMI starts, once at licence check
             Thread.Sleep(200);
+            #pragma warning restore RS0030
         }
         return null;
     }

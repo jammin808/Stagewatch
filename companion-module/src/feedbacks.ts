@@ -1,5 +1,5 @@
 import { combineRgb, type CompanionFeedbackDefinitions, type DropdownChoice } from '@companion-module/base'
-import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem } from './state.js'
+import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, standingBy } from './state.js'
 import type ModuleInstance from './main.js'
 
 // Every callback reads the cached frame only: no I/O, constant time.
@@ -448,6 +448,14 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 					(g) => g.state === 'sent' && (!t || g.target.toLowerCase() === t) && (fb.options.escalated !== true || g.escalated),
 				)
 			},
+		},
+		standing_by: {
+			type: 'boolean',
+			name: 'Cues: Departments standing by (ALL GO is armed)',
+			description: 'Lights while at least N departments are standing by for their GO.',
+			defaultStyle: { bgcolor: COLORS.amber, color: COLORS.black },
+			options: [{ type: 'number', id: 'count', label: 'At least', default: 1, min: 1, max: 32 }],
+			callback: (fb) => standingBy(s()).length >= Number(fb.options.count ?? 1),
 		},
 		dept_state: {
 			type: 'boolean',
