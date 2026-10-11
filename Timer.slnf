@@ -10,8 +10,7 @@
       "src\\Timer.Remote\\Timer.Remote.csproj",
       "src\\Timer.Integrations\\Timer.Integrations.csproj",
       "src\\Timer.App\\Timer.App.csproj",
-      "tests\\Stagewatch.Tests\\Stagewatch.Tests.csproj",
-      "tools\\KeyGen\\KeyGen.csproj"
+      "tests\\Stagewatch.Tests\\Stagewatch.Tests.csproj"
     ]
   }
 }

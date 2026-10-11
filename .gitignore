@@ -55,3 +55,6 @@ research_notes/
 
 # Old packaged tool builds
 tools/**/*.zip
+
+# The licence key generator stays on the maintainer's PC (with the private key), never in the repo.
+tools/KeyGen/
