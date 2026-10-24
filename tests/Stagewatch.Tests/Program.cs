@@ -16,6 +16,7 @@ void Check(bool cond, string name)
     if (cond) { passes++; }
     else { failures++; Console.WriteLine("FAIL: " + name); }
 }
+bool OnWindows(string what) => Bench.OnWindows(what);
 
 // ---------------------------------------------------------------- engine
 {
@@ -333,8 +334,11 @@ void Check(bool cond, string name)
     Directory.Delete(dir, true);
 
     // Licence binding survives docking / network changes: the ID has no network component.
-    var id1 = HardwareId.Get();
-    Check(id1.Length == 32 && id1 == HardwareId.Get(), "hwid: stable 32-char id");
+    if (OnWindows("hwid: stable 32-char id (WMI)"))
+    {
+        var id1 = HardwareId.Get();
+        Check(id1.Length == 32 && id1 == HardwareId.Get(), "hwid: stable 32-char id");
+    }
 }
 
 // ---------------------------------------------------------------- phases
@@ -617,9 +621,11 @@ void Check(bool cond, string name)
     Check(!LicenseManager.IsValidMasterSerial("SWM2.OWNER-BEN." + fakeSig), "licence: forged master signature rejected");
     Check(!LicenseManager.IsValidMasterSerial("SWM2.A.B.C") && !LicenseManager.IsValidMasterSerial(""), "licence: malformed serials rejected");
 
+    // The signature checks don't read the machine; the crafted file below is decrypted with this machine's id (WMI).
+    var thisMachine = OperatingSystem.IsWindows() ? HardwareId.Get() : "HW-NOT-WINDOWS";
     var forged = new License
     {
-        LicenseId = "L-FORGED", Tier = FeatureTier.Pro, Email = "x@y", HardwareId = HardwareId.Get(),
+        LicenseId = "L-FORGED", Tier = FeatureTier.Pro, Email = "x@y", HardwareId = thisMachine,
         IssuedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
         SignatureBase64 = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))
     };
@@ -628,14 +634,17 @@ void Check(bool cond, string name)
     Check(!CryptoEnvelope.VerifySignature(forged), "licence: garbage signature rejected (no throw)");
 
     // A hand-made "master" license.dat (anyone can encrypt one: the pepper ships in the exe) must not unlock anything.
-    var crafted = new License
+    if (OnWindows("licence: crafted master file rejected (decrypts with the WMI machine id)"))
     {
-        LicenseId = "MASTER-X", Tier = FeatureTier.Master, IsMaster = true, HardwareId = HardwareId.Get(),
-        SignatureBase64 = "MASTER:STAGEWATCH-MASTER-DEV-2026-OWNER-9F3A-77BR"
-    };
-    var blob = CryptoEnvelope.Encrypt(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(crafted), HardwareId.Get());
-    var st = new LicenseManager().TryInstallLicenseFile(blob); // fails before anything is saved
-    Check(st.Tier != FeatureTier.Master && st.LastError is not null, $"licence: crafted master file rejected ({st.LastError})");
+        var crafted = new License
+        {
+            LicenseId = "MASTER-X", Tier = FeatureTier.Master, IsMaster = true, HardwareId = thisMachine,
+            SignatureBase64 = "MASTER:STAGEWATCH-MASTER-DEV-2026-OWNER-9F3A-77BR"
+        };
+        var blob = CryptoEnvelope.Encrypt(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(crafted), thisMachine);
+        var st = new LicenseManager().TryInstallLicenseFile(blob); // fails before anything is saved
+        Check(st.Tier != FeatureTier.Master && st.LastError is not null, $"licence: crafted master file rejected ({st.LastError})");
+    }
 
     // Positive path, only where the owner's signing key exists (never in CI / customer machines).
     var keyPath = Environment.GetEnvironmentVariable("STAGEWATCH_SIGNING_KEY") is { Length: > 0 } kp ? kp
@@ -2180,6 +2189,8 @@ await CompanionV2Tests.Run(Check);
 if (args.Contains("--powerpoint")) await PowerPointLiveTest.Run(Check);
 
 Console.WriteLine($"\n{passes} passed, {failures} failed");
+if (Bench.WindowsOnlyNotRun is { Count: > 0 } windowsOnly)
+    Console.WriteLine($"{windowsOnly.Count} Windows-only check(s) not run on {System.Runtime.InteropServices.RuntimeInformation.OSDescription} (the Windows job runs them): {string.Join("; ", windowsOnly)}");
 return failures == 0 ? 0 : 1;
 
 // ---------------------------------------------------------------- helpers

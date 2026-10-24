@@ -36,13 +36,20 @@ control.Snapshots.Publish(new ShowSnapshot
 control.Snapshots.MarkAlive();
 var keep = new Timer(_ => control.Snapshots.MarkAlive(), null, 0, 500);
 
+// The browser: STAGEWATCH_BROWSER (or the older STAGEWATCH_EDGE), else Edge on Windows, else Playwright's Chromium or a
+// Chromium / Chrome on the path (the Linux bench and CI job). Every one of them takes the same headless switches.
 var edge = new[]
 {
+    Environment.GetEnvironmentVariable("STAGEWATCH_BROWSER") ?? "",
     Environment.GetEnvironmentVariable("STAGEWATCH_EDGE") ?? "",
     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"Microsoft\Edge\Application\msedge.exe"),
     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"Microsoft\Edge\Application\msedge.exe"),
-}.FirstOrDefault(File.Exists);
-if (edge is null) { Console.WriteLine("Microsoft Edge not found (set STAGEWATCH_EDGE)"); return 2; }
+}.Concat(LinuxChromium()).FirstOrDefault(File.Exists);
+if (edge is null) { Console.WriteLine("No Edge or Chromium found (set STAGEWATCH_BROWSER)"); return 2; }
+// Chromium refuses its sandbox to root (containers, the cloud bench): only there is it turned off.
+var noSandbox = !OperatingSystem.IsWindows() && Environment.UserName == "root" ? "--no-sandbox " : "";
+// The headless shell is headless already and takes no mode.
+var headless = Path.GetFileName(edge).StartsWith("chrome-headless-shell", StringComparison.Ordinal) ? "" : "--headless=new ";
 var missing = 0;
 foreach (var page in pages)
 {
@@ -51,7 +58,7 @@ foreach (var page in pages)
     var file = Path.Combine(outDir, (name.Length == 0 ? "index" : name) + ".png");
     if (File.Exists(file)) File.Delete(file);
     var profile = Path.Combine(Path.GetTempPath(), "sw-pageshot-" + Guid.NewGuid().ToString("N")[..8]);
-    var psi = new ProcessStartInfo(edge, $"--headless=new --disable-gpu --hide-scrollbars --no-first-run --user-data-dir=\"{profile}\" --window-size=1600,900 --virtual-time-budget=4000 --screenshot=\"{file}\" \"http://127.0.0.1:{port}{page}\"")
+    var psi = new ProcessStartInfo(edge, $"{headless}{noSandbox}--disable-gpu --hide-scrollbars --no-first-run --user-data-dir=\"{profile}\" --window-size=1600,900 --virtual-time-budget=4000 --screenshot=\"{file}\" \"http://127.0.0.1:{port}{page}\"")
     { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
     using var p = Process.Start(psi)!;
     await p.WaitForExitAsync();
@@ -62,6 +69,24 @@ foreach (var page in pages)
 }
 Console.WriteLine(missing == 0 ? "ALL OK" : $"{missing} page(s) didn't render");
 return missing;
+
+static IEnumerable<string> LinuxChromium()
+{
+    if (OperatingSystem.IsWindows()) yield break;
+    var pw = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH") is { Length: > 0 } root ? root
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache", "ms-playwright");
+    // Playwright's headless shell first: the full Chromium's new headless mode can stall in a container.
+    foreach (var dir in new[] { pw, "/opt/pw-browsers" }.Where(Directory.Exists))
+    {
+        foreach (var shell in Directory.GetDirectories(dir, "chromium_headless_shell-*").OrderDescending())
+            yield return Path.Combine(shell, "chrome-headless-shell-linux64", "chrome-headless-shell");
+        foreach (var chromium in Directory.GetDirectories(dir, "chromium-*").OrderDescending())
+            yield return Path.Combine(chromium, "chrome-linux64", "chrome");
+    }
+    foreach (var name in new[] { "chromium", "chromium-browser", "google-chrome", "microsoft-edge" })
+        foreach (var folder in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(':', StringSplitOptions.RemoveEmptyEntries))
+            yield return Path.Combine(folder, name);
+}
 
 sealed class Ctl : IShowControl
 {

@@ -1,0 +1,8 @@
+<Project>
+  <!-- The Windows projects also build on Linux and macOS (the cloud bench, CI's Linux job): the SDK fetches the Windows
+       desktop reference packs. Nothing built this way runs WPF, WMI or COM off Windows; tests that need them say so
+       (tests/Stagewatch.Tests/Bench.cs) and run on the Windows job. -->
+  <PropertyGroup Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>

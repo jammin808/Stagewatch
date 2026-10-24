@@ -344,9 +344,12 @@ static class ShowWorkflowTests
               "reports: built from the journal; unknown formats fall back to HTML");
         Check(ShowReports.Allowed("csv", FeatureTier.Pro) && !ShowReports.Allowed("html", FeatureTier.Pro) && ShowReports.Allowed("html", FeatureTier.Production)
               && !ShowReports.Allowed("csv", FeatureTier.Standard), "reports: CSV is Pro, the full report is Production");
-        var path = ShowReports.PathFor(@"C:\Shows", "Gala: \"Night\"", new DateTime(2026, 10, 10, 14, 32, 0), "csv");
-        Check(path == @"C:\Shows\Reports\Gala_ _Night_ 2026-10-10 1432.csv", $"reports: saved under a safe file name ({path})");
-        Check(ShowReports.PathFor(@"C:\Shows", "  ", DateTime.Now, "html").Contains(@"\Reports\Show "), "reports: an unnamed show still gets a file name");
+        if (Bench.OnWindows("reports: safe file names (Windows file-name rules and paths)"))
+        {
+            var path = ShowReports.PathFor(@"C:\Shows", "Gala: \"Night\"", new DateTime(2026, 10, 10, 14, 32, 0), "csv");
+            Check(path == @"C:\Shows\Reports\Gala_ _Night_ 2026-10-10 1432.csv", $"reports: saved under a safe file name ({path})");
+            Check(ShowReports.PathFor(@"C:\Shows", "  ", DateTime.Now, "html").Contains(@"\Reports\Show "), "reports: an unnamed show still gets a file name");
+        }
     }
 
     /// <summary>The AI's view of the show: the copilot's context, the assistant's summary and the journal a recap is drafted from.</summary>

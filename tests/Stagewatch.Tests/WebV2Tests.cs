@@ -321,32 +321,36 @@ static class WebV2Tests
             slJunk.Headers.Add("X-Stagewatch-Pin", "4321");
             Check((await http.SendAsync(slJunk)).StatusCode == HttpStatusCode.BadRequest, "slides: slJunk is refused");
 
-            // The real agent loop, end to end (PowerPoint isn't running here, so it reports "not presenting").
-            using var agent = new Stagewatch.Integrations.SlidesAgent("pcagent001", () => "Test PC", () => new[] { new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "4321") });
-            var target = new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "4321");
-            var sw4 = System.Diagnostics.Stopwatch.StartNew();
-            while (!agent.StatusOf(target).Ok && sw4.Elapsed < TimeSpan.FromSeconds(6)) await Task.Delay(100);
-            Check(agent.StatusOf(target).Ok && control.Decks.List().Any(p => p.Agent == "pcagent001" && p.Name == "Test PC" && p.Connected),
-                  $"slides agent: reaches Stagewatch and is listed ({agent.StatusOf(target).Text})");
-            using var wrongPin = new Stagewatch.Integrations.SlidesAgent("pcagent002", () => "Wrong", () => new[] { new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "0000") });
-            var slBad = new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "0000");
-            sw4.Restart();
-            while (wrongPin.StatusOf(slBad).Text == "connecting…" && sw4.Elapsed < TimeSpan.FromSeconds(6)) await Task.Delay(100);
-            Check(!wrongPin.StatusOf(slBad).Ok && wrongPin.StatusOf(slBad).Text.Contains("PIN"), $"slides agent: a wrong PIN is said plainly ({wrongPin.StatusOf(slBad).Text})");
+            // The real agent loop, end to end (PowerPoint isn't running here, so it reports "not presenting"). Its PowerPoint
+            // sensor runs on a COM (STA) thread, which only Windows has.
+            if (Bench.OnWindows("slides agent: the real agent loop (PowerPoint sensor on a COM thread)"))
+            {
+                using var agent = new Stagewatch.Integrations.SlidesAgent("pcagent001", () => "Test PC", () => new[] { new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "4321") });
+                var target = new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "4321");
+                var sw4 = System.Diagnostics.Stopwatch.StartNew();
+                while (!agent.StatusOf(target).Ok && sw4.Elapsed < TimeSpan.FromSeconds(6)) await Task.Delay(100);
+                Check(agent.StatusOf(target).Ok && control.Decks.List().Any(p => p.Agent == "pcagent001" && p.Name == "Test PC" && p.Connected),
+                      $"slides agent: reaches Stagewatch and is listed ({agent.StatusOf(target).Text})");
+                using var wrongPin = new Stagewatch.Integrations.SlidesAgent("pcagent002", () => "Wrong", () => new[] { new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "0000") });
+                var slBad = new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "0000");
+                sw4.Restart();
+                while (wrongPin.StatusOf(slBad).Text == "connecting…" && sw4.Elapsed < TimeSpan.FromSeconds(6)) await Task.Delay(100);
+                Check(!wrongPin.StatusOf(slBad).Ok && wrongPin.StatusOf(slBad).Text.Contains("PIN"), $"slides agent: a wrong PIN is said plainly ({wrongPin.StatusOf(slBad).Text})");
 
-            // Review P2: a Stagewatch that restarted (and lost the script) gets it again when it asks.
-            var restartDeck = new Stagewatch.Integrations.DeckState("Talk.pptx", 1, 5, "", "", Array.Empty<double>(), DateTime.UtcNow, DateTime.UtcNow, "Speech text");
-            var scriptHash = SlideFeed.HashScript("Speech text");
-            using var scripted = new Stagewatch.Integrations.SlidesAgent("pcagent003", () => "Script PC",
-                () => new[] { new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "4321") }, () => restartDeck, beaconPort: 19929);
-            sw4.Restart();
-            while (control.Decks.Pick("pcagent003", null, DateTime.UtcNow)?.Script != "Speech text" && sw4.Elapsed < TimeSpan.FromSeconds(6)) await Task.Delay(100);
-            var firstOk = control.Decks.Pick("pcagent003", null, DateTime.UtcNow)?.Script == "Speech text";
-            control.Decks.ForgetScripts();                                       // the receiving Stagewatch restarts
-            sw4.Restart();
-            while (control.Decks.Pick("pcagent003", null, DateTime.UtcNow)?.Script != "Speech text" && sw4.Elapsed < TimeSpan.FromSeconds(9)) await Task.Delay(200);
-            Check(firstOk && control.Decks.Pick("pcagent003", null, DateTime.UtcNow)?.Script == "Speech text",
-                  $"slides agent review P2: the script is sent again after Stagewatch restarts ({sw4.Elapsed.TotalSeconds:0.0} s)");
+                // Review P2: a Stagewatch that restarted (and lost the script) gets it again when it asks.
+                var restartDeck = new Stagewatch.Integrations.DeckState("Talk.pptx", 1, 5, "", "", Array.Empty<double>(), DateTime.UtcNow, DateTime.UtcNow, "Speech text");
+                var scriptHash = SlideFeed.HashScript("Speech text");
+                using var scripted = new Stagewatch.Integrations.SlidesAgent("pcagent003", () => "Script PC",
+                    () => new[] { new Stagewatch.Integrations.AgentTarget("127.0.0.1", port, "4321") }, () => restartDeck, beaconPort: 19929);
+                sw4.Restart();
+                while (control.Decks.Pick("pcagent003", null, DateTime.UtcNow)?.Script != "Speech text" && sw4.Elapsed < TimeSpan.FromSeconds(6)) await Task.Delay(100);
+                var firstOk = control.Decks.Pick("pcagent003", null, DateTime.UtcNow)?.Script == "Speech text";
+                control.Decks.ForgetScripts();                                       // the receiving Stagewatch restarts
+                sw4.Restart();
+                while (control.Decks.Pick("pcagent003", null, DateTime.UtcNow)?.Script != "Speech text" && sw4.Elapsed < TimeSpan.FromSeconds(9)) await Task.Delay(200);
+                Check(firstOk && control.Decks.Pick("pcagent003", null, DateTime.UtcNow)?.Script == "Speech text",
+                      $"slides agent review P2: the script is sent again after Stagewatch restarts ({sw4.Elapsed.TotalSeconds:0.0} s)");
+            }
         }
 
         // Screens: a browser reports its own id and page (never the PIN); the operator names it, finds it and moves it.
