@@ -4,11 +4,25 @@
 (function () {
   'use strict';
 
+  /**
+   * The window this page is framed by, when Stagewatch controls the browser through a window address (/w/<token>):
+   * the window holds the one link to Stagewatch and hands every frame to the page it shows, so a page it switches to
+   * draws at once from the latest frame, and the window alone decides what a dropped link looks like.
+   */
+  var shell = (function () {
+    try { if (window.parent !== window && window.parent.SWShell && window.parent.SWShell.token) return window.parent.SWShell; } catch (e) {}
+    return null;
+  })();
+
+  /** Milliseconds on a clock every page of this browser shares (frames are stamped on it, framed or not). */
+  function nowAbs() { return performance.timeOrigin ? performance.timeOrigin + performance.now() : Date.now(); }
+
   function connect(opts) {
     var ws = null;
     var delay = 500;
     var closedByUs = false;
     var lastConfigVersion = -1;
+    var readySent = false;
 
     function url() {
       var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -38,13 +52,45 @@
       showStale(on);
       if (opts.onStale) opts.onStale(on);
     }
-    setInterval(function () {
+    // Framed by a window, the window watches the link and shows the operator's choice when it drops.
+    if (!shell) setInterval(function () {
       if (Date.now() - lastHeard < STALE_MS) return;
       setStale(true);
       if (ws && ws.readyState === 1) { try { ws.close(); } catch (e) {} }   // onclose reconnects
     }, 1000);
 
+    /** A state frame that arrived at <arrived> (nowAbs ms): shown now, or ?delay=N seconds after it arrived. */
+    function frame(msg, arrived) {
+      if (delaySeconds > 0) {
+        // ?delay=N: show the show N seconds late (to match a stream's latency). Frames are queued and played out
+        // in order; relative times are stamped when shown, so every countdown stays exact — just later.
+        var at = arrived + delaySeconds * 1000;
+        setTimeout(function () { deliver(msg, at); }, Math.max(0, at - nowAbs()));
+        return;
+      }
+      deliver(msg, arrived);
+    }
+    function deliver(msg, at) {
+      setStale(false);
+      customCss(msg.configVersion);
+      if (msg.configVersion !== lastConfigVersion && opts.onConfig) {
+        lastConfigVersion = msg.configVersion;
+        fetchConfig();
+      }
+      stamp(at);
+      if (soundOn) chime(msg);
+      opts.onState(msg);
+      // The window swaps this page on screen only once it has drawn a frame: never a blank or half-built page.
+      if (shell && !readySent) { readySent = true; try { shell.ready(window); } catch (e) {} }
+    }
+
     function open() {
+      if (shell) {
+        // One link per window: frames come from the window with the time they arrived, beats are the window's own.
+        shell.subscribe(window, function (msg, arrived) { if (msg.type === 'state') frame(msg, arrived); });
+        if (opts.onStatus) opts.onStatus(true);
+        return;
+      }
       try { ws = new WebSocket(url()); } catch (e) { schedule(); return; }
       ws.onopen = function () { delay = 500; lastHeard = Date.now(); if (opts.onStatus) opts.onStatus(true); };
       ws.onmessage = function (ev) {
@@ -59,30 +105,13 @@
         if (msg.type === 'disconnect') { closedByUs = true; offByOperator(); try { ws.close(); } catch (e) {} return; }
         if (msg.type === 'auth' && msg.view) { closedByUs = true; askViewCode(msg.error, function () { closedByUs = false; delay = 0; schedule(); }); return; }
         if (msg.type === 'identify') { identify(msg.name, msg.id); return; }
-        if (msg.type === 'state' && delaySeconds > 0) {
-          // ?delay=N: show the show N seconds late (to match a stream's latency). Frames are queued and played out
-          // in order; relative times are stamped when shown, so every countdown stays exact — just later.
-          setTimeout(function () { deliver(msg); }, delaySeconds * 1000);
-          return;
-        }
-        if (msg.type === 'state') { deliver(msg); return; }
+        if (msg.type === 'state') { frame(msg, nowAbs()); return; }
         if (msg.type === 'auth' && opts.onAuth) {
           opts.onAuth(msg);
         } else if (msg.type === 'error') {
           if (opts.onError) opts.onError(msg.error); else toast(msg.error);
         }
       };
-      function deliver(msg) {
-        setStale(false);
-        customCss(msg.configVersion);
-        if (msg.configVersion !== lastConfigVersion && opts.onConfig) {
-          lastConfigVersion = msg.configVersion;
-          fetchConfig();
-        }
-        stamp();
-        if (soundOn) chime(msg);
-        opts.onState(msg);
-      }
       ws.onclose = function () {
         if (opts.onStatus) opts.onStatus(false);
         if (!closedByUs) schedule();
@@ -102,6 +131,7 @@
       var crewKey = q('key'), view = q('view') || store('sw-view-code');
       if (crewKey) pass.push('key=' + encodeURIComponent(crewKey));
       if (view) pass.push('view=' + encodeURIComponent(view));
+      if (shell) pass.push('win=' + encodeURIComponent(shell.token));
       fetch('/api/config' + (pass.length ? '?' + pass.join('&') : ''), { cache: 'no-store' })
         .then(function (r) { if (!r.ok) throw new Error('config ' + r.status); return r.json(); })
         .then(function (c) { opts.onConfig(c); })
@@ -113,9 +143,11 @@
     return {
       send: function (cmd) {
         var args = Array.prototype.slice.call(arguments, 1).map(String);
+        if (shell) { shell.send({ cmd: cmd, args: args }); return; }
         if (ws && ws.readyState === 1) ws.send(JSON.stringify({ cmd: cmd, args: args }));
       },
       reconnect: function () {
+        if (shell) return;
         closedByUs = true;
         try { ws.close(); } catch (e) {}
         closedByUs = false;
@@ -415,8 +447,8 @@
    * between frames and never depends on the device's wall clock being right.
    */
   var arrivedAt = 0;
-  function stamp() { arrivedAt = performance.now(); }
-  function since() { return arrivedAt ? (performance.now() - arrivedAt) / 1000 : 0; }
+  function stamp(at) { arrivedAt = at || nowAbs(); }
+  function since() { return arrivedAt ? Math.max(0, nowAbs() - arrivedAt) / 1000 : 0; }
 
   /** "1:02:03" / "12:30" for a span of seconds (always positive; callers word the sign). */
   function span(seconds) { return fmt(Math.max(0, Math.round(seconds))); }
@@ -433,5 +465,14 @@
     return wrap;
   }
 
-  window.SW = { labelChips: labelChips, stamp: stamp, since: since, span: span, connect: connect, store: store, fmt: fmt, urgencyColors: urgencyColors, keepAwake: keepAwake, buzz: buzz, q: q, el: el, holding: holding, toast: toast };
+  /** The pass a page adds to its own fetches: the viewing code, a crew link key, or the window it is framed by. */
+  function pass() {
+    var p = [], view = q('view') || store('sw-view-code');
+    if (view) p.push('view=' + encodeURIComponent(view));
+    if (q('key')) p.push('key=' + encodeURIComponent(q('key')));
+    if (shell) p.push('win=' + encodeURIComponent(shell.token));
+    return p.length ? '?' + p.join('&') : '';
+  }
+
+  window.SW = { pass: pass, framed: !!shell, labelChips: labelChips, stamp: stamp, since: since, span: span, connect: connect, store: store, fmt: fmt, urgencyColors: urgencyColors, keepAwake: keepAwake, buzz: buzz, q: q, el: el, holding: holding, toast: toast };
 })();

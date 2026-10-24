@@ -10,9 +10,8 @@
 
   function load() {
     if (!name) { missing('Add ?name= and a layout name to this address. Make layouts at /designer.'); return; }
-    // The same pass as the screen's own connection: a viewing code or a crew link key.
-    var pass = '?view=' + encodeURIComponent(SW.q('view') || SW.store('sw-view-code') || '') + (SW.q('key') ? '&key=' + encodeURIComponent(SW.q('key')) : '');
-    fetch('/api/layouts/' + encodeURIComponent(name) + pass, { cache: 'no-store' })
+    // The same pass as the screen's own connection: a viewing code, a crew link key or its window.
+    fetch('/api/layouts/' + encodeURIComponent(name) + SW.pass(), { cache: 'no-store' })
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (l) {
         if (!l) { missing('No layout called “' + name + '”.'); return; }

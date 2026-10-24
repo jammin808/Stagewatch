@@ -386,7 +386,9 @@ public enum ShowCommandKind
     /// <summary>The clip on air in Patterns: Text "end" (Number = seconds before its end) or "restart".</summary>
     Patterns,
     /// <summary>GO every department standing by, at once ("signal go all").</summary>
-    SignalGoAll
+    SignalGoAll,
+    /// <summary>Controlled browser windows (their own addresses). Text = action \u0001 who \u0001 argument.</summary>
+    Window
 }
 
 /// <summary>
@@ -447,6 +449,7 @@ public abstract record ShowArgs
             ShowCommandKind.DeptNote => new DeptNoteArgs(At(0).Trim(), At(1)),
             ShowCommandKind.Ltc => new LtcArgs(At(0), At(1)),
             ShowCommandKind.Ack => new AckArgs(bar[0], bar.Length > 1 && bar[1].Length > 0 ? bar[1] : "seen"),
+            ShowCommandKind.Window => new WindowArgs(At(0), At(1), At(2)),
             _ => null,
         };
     }
@@ -555,6 +558,9 @@ public interface IShowScreens
 
     /// <summary>A chime library sound as WAV (for screens that play sound), or null.</summary>
     byte[]? SoundData(string id) => null;
+
+    /// <summary>The controlled windows: an immutable copy, swapped whole on every change.</summary>
+    IReadOnlyList<ScreenWindow> Windows => Array.Empty<ScreenWindow>();
 }
 
 /// <summary>
@@ -664,6 +670,9 @@ public static class ShowCommandParser
         "deptnote <item> <department> [text] | roll [on|off|toggle] | rundown <name> | undo | redo | endofshow <HH:MM|clear> | loop <off|n|forever> | " +
         "screen reload [screen] | screen disconnect [screen] | patterns end [seconds] | patterns restart | patterns play | patterns pause | patterns stop | patterns seek <m:ss> | " +
         "screen identify [screen] | screen go <preset|/page> [screen] | screen name <id> <name> | screen save <preset> <screen> | " +
+        "window new <name> [page] | window show <window|all> <page|setup|holding|black> | window cue <window|all> <page> | " +
+        "window hold <window|all> [toggle|text <words>|image <n|name|off>] | window release <window|all> | window identify|reload <window|all> | " +
+        "window loss <window|all> <hold|warn> | window fade <window|all> <ms> | window rename <window> <name> | window revoke <window|all> | window delete <window> | " +
         "signal <message|standby|go|call|nudge> <target> [text] [noack] | signal clear <target|id> | signal resend <id> | " +
         "ack <id> [seen|done] [name] | trim <item> <±seconds> | delay <seconds|mm:ss|clear> | catchup | preview [on|off] | " +
         "ladder <id|default> | format <standard|calm|progress> | question <text> [name] | " +
@@ -912,6 +921,24 @@ public static class ShowCommandParser
                         }
                     }
                     throw new FormatException("screen takes identify [screen], go <preset|/page> [screen], name <id> <name>, or save <preset> <screen>");
+                }
+
+                case "window": case "windows": case "win":
+                {
+                    // window <action> <who> [argument…]: who is one word (a window name, an id or all), so the rest is
+                    // the argument whole: a page, a setup, words for the holding page.
+                    var action = Arg(0).ToLowerInvariant();
+                    var who = Arg(1);
+                    var rest = string.Join(' ', args.Skip(2)).Trim();
+                    if (action.Length == 0) throw new FormatException("window takes new, show, cue, hold, release, identify, reload, loss, fade, rename, revoke or delete");
+                    if (action is not ("new" or "show" or "cue" or "hold" or "release" or "identify" or "reload" or "loss" or "fade" or "rename" or "revoke" or "delete"))
+                        throw new FormatException($"window {action}? It takes new, show, cue, hold, release, identify, reload, loss, fade, rename, revoke or delete");
+                    if (who.Length == 0 && action is "new" or "rename" or "delete") throw new FormatException($"window {action} takes a window name");
+                    if (who.Length > 40 || (who.Length > 0 && !ScreenWindows.ValidName(who))) throw new FormatException("a window is named with letters, digits, - and _ (or all)");
+                    if (action is "show" or "cue" && rest.Length == 0) throw new FormatException($"window {action} takes a window and what to show: a page (/clock), a setup, holding or black");
+                    if (rest.Length > 400) throw new FormatException("that's longer than a window command takes");
+                    cmd = new(ShowCommandKind.Window, Text: ShowArgs.Pack(action, who.Length == 0 ? "all" : who, rest));
+                    return true;
                 }
 
                 case "ltc":

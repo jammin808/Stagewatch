@@ -2180,6 +2180,8 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
 // ---------------------------------------------------------------- 2.0 systems
 V2Tests.Run(Check);
 ShowWorkflowTests.Run(Check);
+WindowTests.Run(Check);
+await WindowTests.RunWeb(Check);
 SupervisorTests.Run(Check);
 SupervisorTests.Holding(Check);
 await IntegrationTests.Run(Check);

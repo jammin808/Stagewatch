@@ -38,6 +38,9 @@ public static class ShowContext
         ("next", "high", "Go to the next item"),
         ("start / pause", "high", "Start or pause the timer"),
         ("blackout", "high", "Black out every screen"),
+        ("window show <window> <page>", "review", "Put a page on one controlled browser window"),
+        ("window hold <window>", "review", "Put a window on its holding page"),
+        ("window revoke <window>", "high", "Give a window a new address (the screen on the old one goes dark)"),
         ("patterns end 10", "high", "Jump Patterns' clip to its last 10 seconds"),
     };
 

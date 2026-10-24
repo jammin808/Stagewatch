@@ -75,7 +75,7 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>Every connected browser screen, grouped by its id (tabs of one browser count as one screen). Thread-safe.</summary>
     public IReadOnlyList<ScreenInfo> ListScreens()
-        => _sockets.Keys.GroupBy(c => c.ScreenId)
+        => _sockets.Keys.Where(c => c.WindowId is null).GroupBy(c => c.ScreenId)
             .Select(g =>
             {
                 var first = g.OrderBy(c => c.ConnectedUtc).First();
@@ -142,6 +142,65 @@ public sealed class WebServer : IAsyncDisposable
             _ = Task.Run(async () => { try { await c.SendTextAsync(payload, CancellationToken.None); } catch { } });
         }
         return n;
+    }
+
+    // ------------------------------------------------------------------ windows (controlled browser windows, /w/<token>)
+
+    /// <summary>What each window last said it shows, kept after its link drops (so a lost window reads "link lost").</summary>
+    private readonly ConcurrentDictionary<string, WindowObserved> _windowSeen = new(StringComparer.Ordinal);
+
+    /// <summary>The windows changed (owner thread): each window's link re-reads its own on its next turn, latest wins.
+    /// A window whose address was revoked or deleted is told so and let go. Never blocks.</summary>
+    public void PushWindows()
+    {
+        foreach (var c in _sockets.Keys)
+            if (c.WindowId is not null) c.Signal();
+    }
+
+    /// <summary>Show windows' names full screen for a few seconds. Returns how many window links were told.</summary>
+    public int IdentifyWindows(IEnumerable<string> windowIds)
+    {
+        var n = 0;
+        foreach (var id in windowIds.Distinct())
+        {
+            var name = _control.Windows.FirstOrDefault(w => w.Id == id)?.Name ?? "";
+            n += PushToWindows(new[] { id }, JsonSerializer.SerializeToUtf8Bytes(new { type = "identify", name, id }));
+        }
+        return n;
+    }
+
+    /// <summary>Make windows reload themselves (they come back to what they were showing).</summary>
+    public int ReloadWindows(IEnumerable<string> windowIds) => PushToWindows(windowIds, "{\"type\":\"reload\"}"u8.ToArray());
+
+    private int PushToWindows(IEnumerable<string> windowIds, byte[] payload)
+    {
+        var ids = new HashSet<string>(windowIds, StringComparer.Ordinal);
+        var n = 0;
+        foreach (var c in _sockets.Keys)
+        {
+            if (c.WindowId is null || !ids.Contains(c.WindowId)) continue;
+            n++;
+            _ = Task.Run(async () => { try { await c.SendTextAsync(payload, CancellationToken.None); } catch { } });
+        }
+        return n;
+    }
+
+    /// <summary>Every window's link and what it last said it shows. Thread-safe.</summary>
+    public IReadOnlyList<WindowObserved> WindowStatus()
+    {
+        var live = _sockets.Keys.Where(c => c.WindowId is not null).GroupBy(c => c.WindowId!).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        var ids = new HashSet<string>(_windowSeen.Keys, StringComparer.Ordinal);
+        ids.UnionWith(live.Keys);
+        var list = new List<WindowObserved>(ids.Count);
+        foreach (var id in ids)
+        {
+            var seen = _windowSeen.GetValueOrDefault(id);
+            var clients = live.GetValueOrDefault(id);
+            var newest = clients?.OrderByDescending(c => c.ConnectedUtc).First();
+            list.Add(new WindowObserved(id, clients?.Count ?? 0, seen?.Revision ?? 0, seen?.Content ?? "", seen?.Hold ?? false, seen?.SwapMs ?? 0, seen?.ShownUtc,
+                seen?.Error ?? "", newest?.Device ?? seen?.Device ?? "", newest is null ? seen?.Address ?? "" : Screens.AddressOf(newest.Remote)));
+        }
+        return list;
     }
 
     /// <summary>Raised (on a worker thread) when a remote command is rejected.</summary>
@@ -350,7 +409,7 @@ public sealed class WebServer : IAsyncDisposable
                 return;
             }
             case "/common.js" or "/viewer.js" or "/control.js" or "/style.css" or "/producer.js" or "/role.js" or "/audience.js" or "/rooms.js" or "/ask.js" or "/sw.css" or "/manifest.json" or "/holding.js" or "/clock.js" or "/countdown.js" or "/timeline.js" or "/layout.js" or "/layout-render.js" or "/designer.js"
-                or "/holo.bundle.js" or "/holo-page.js":
+                or "/holo.bundle.js" or "/holo-page.js" or "/window.js":
                 await WriteAsset(stream, req.Path[1..], ct); return;
             case "/report":
             {
@@ -445,6 +504,8 @@ public sealed class WebServer : IAsyncDisposable
                 }), ct, cors: true);
                 return;
             }
+            case "/api/windows":
+                await HandleWindowListAsync(stream, req, remote, ct); return;
             case "/api/screens":
             {
                 if (Authorize(req, remote, ApiKeyScope.Read) is { } denied) { await WriteDenied(stream, denied, ct); return; }
@@ -456,6 +517,13 @@ public sealed class WebServer : IAsyncDisposable
                 }), ct, cors: true);
                 return;
             }
+        }
+
+        // A controlled window: the address is its identity and its pass.
+        if (req.Path.StartsWith("/w/", StringComparison.Ordinal) && req.Method is "GET" or "HEAD")
+        {
+            await HandleWindowPageAsync(stream, req, remote, ct);
+            return;
         }
 
         // Saved screen setups: /p/lobby opens whatever page and options "lobby" was saved as.
@@ -547,6 +615,86 @@ public sealed class WebServer : IAsyncDisposable
         }
         if (Authorize(req, remote, ApiKeyScope.Read) is { } getDenied) { await WriteDenied(stream, getDenied, ct); return; }
         await Reply(_control.GetProposal(parts[0]));
+    }
+
+    /// <summary>The window page's own policy: it frames only this Stagewatch's pages, and nothing may frame it.</summary>
+    private const string WindowCsp = "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; frame-src 'self'; " +
+                                     "frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
+    /// <summary>Wrong window addresses count like wrong PINs (five a minute per address), so they can't be counted through.</summary>
+    private bool LockedOut(IPAddress remote)
+        => _authFailures.TryGetValue(remote, out var f) && f.Failures >= 5 && Environment.TickCount64 - f.WindowStartMs < 60_000;
+
+    private void CountFailure(IPAddress remote)
+    {
+        var now = Environment.TickCount64;
+        _authFailures.AddOrUpdate(remote, _ => (1, now), (_, old) => now - old.WindowStartMs > 60_000 ? (1, now) : (old.Failures + 1, old.WindowStartMs));
+    }
+
+    /// <summary>The window an address names, or null (a wrong one is counted). Never says how close a guess was.</summary>
+    private ScreenWindow? WindowFor(string? token, IPAddress remote)
+    {
+        if (LockedOut(remote)) return null;
+        var w = ScreenWindows.ByToken(_control.Windows, token);
+        if (w is null) CountFailure(remote);
+        return w;
+    }
+
+    /// <summary>GET /w/&lt;token&gt;: the window page. No referrer leaves it, no search engine keeps it, no other site frames it.</summary>
+    private async Task HandleWindowPageAsync(Stream stream, HttpRequest req, IPAddress remote, CancellationToken ct)
+    {
+        const string headers = "Referrer-Policy: no-referrer\r\nX-Robots-Tag: noindex\r\n";
+        var token = req.Path[3..].TrimEnd('/');
+        if (LockedOut(remote))
+        {
+            await WriteAsync(stream, 429, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(WindowNotice("Too many wrong window addresses from this device — this page tries again in a minute.", retrySeconds: 60)), ct,
+                extra: headers + "Retry-After: 60\r\n", csp: WindowCsp);
+            return;
+        }
+        if (WindowFor(token, remote) is null)
+        {
+            await WriteAsync(stream, 404, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(WindowNotice("This window address isn't in use: it may have been replaced. Ask the Stagewatch operator for the new one.")), ct,
+                extra: headers, csp: WindowCsp);
+            return;
+        }
+        var page = Assets.Get("window.html");
+        if (page is null) { await WriteJsonError(stream, 404, "not found", ct); return; }
+        await WriteAsync(stream, 200, "text/html; charset=utf-8", page, ct, extra: headers, csp: WindowCsp);
+    }
+
+    private static string WindowNotice(string words, int retrySeconds = 0)
+        => "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width\"><meta name=robots content=noindex><title>Stagewatch window</title>" +
+           (retrySeconds > 0 ? $"<meta http-equiv=refresh content={retrySeconds}>" : "") +
+           "<style>html,body{margin:0;height:100%;background:#000;color:#6b7280;font:600 max(16px,2.6vh) system-ui,sans-serif}" +
+           "body{display:flex;align-items:center;justify-content:center;text-align:center;padding:0 6vw}</style><p>" + WebUtility.HtmlEncode(words) + "</p>";
+
+    /// <summary>
+    /// GET /api/windows (read): every window, what it was told and what it says it shows. A window's address (its pass)
+    /// is listed only for the PIN or a control key.
+    /// </summary>
+    private async Task HandleWindowListAsync(Stream stream, HttpRequest req, IPAddress remote, CancellationToken ct)
+    {
+        if (Authorize(req, remote, ApiKeyScope.Read) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+        var supplied = PinFrom(req);
+        var showPath = !ApiKeys.LooksLikeKey(supplied) || ApiKeys.Find(_control.ApiKeys, supplied) is { } k && ApiKeys.Allows(k.Scope, ApiKeyScope.Control);
+        var seen = WindowStatus().ToDictionary(o => o.WindowId, StringComparer.Ordinal);
+        var body = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            windows = _control.Windows.Select(w =>
+            {
+                var o = seen.GetValueOrDefault(w.Id);
+                return new
+                {
+                    id = w.Id, name = w.Name, content = w.Content, hold = w.Hold, holdText = w.HoldText, holdImage = w.HoldImage, onLoss = w.OnLoss, fadeMs = w.FadeMs, rev = w.Revision,
+                    path = showPath ? "/w/" + w.Token : null,
+                    connected = o?.Connected ?? 0,
+                    shown = o is null || o.ShownUtc is null ? null : new { rev = o.Revision, content = o.Content, hold = o.Hold, ms = o.SwapMs, at = o.ShownUtc.Value.ToString("o"), error = o.Error },
+                    inStep = o is { Connected: > 0, Error.Length: 0 } && o.Revision == w.Revision,
+                    device = o?.Device ?? "", address = o?.Address ?? "",
+                };
+            }),
+        });
+        await WriteAsync(stream, 200, "application/json", body, ct, cors: true, extra: RateHeaders(req));
     }
 
     /// <summary>How to trust this Stagewatch's certificate on a screen (Show Bus §10).</summary>
@@ -869,6 +1017,9 @@ public sealed class WebServer : IAsyncDisposable
         if (IsAuthorized(req, remote, ApiKeyScope.Read)) return null;
         var (secret, _) = _control.CrewKeyPolicy;
         if (!string.IsNullOrEmpty(secret) && CrewKeys.IsAnyCrewKey(secret, _control.CrewDepartments, req.Query.GetValueOrDefault("key"))) return null;
+        // The pages a window shows fetch with its address: the operator made the window, so it may view.
+        if (req.Query.GetValueOrDefault("win") is { } win)
+            return WindowFor(win, remote) is not null ? null : "Wrong window address";
         var supplied = req.Query.GetValueOrDefault("view");
         var now = Environment.TickCount64;
         if (_authFailures.TryGetValue(remote, out var f) && f.Failures >= 5 && now - f.WindowStartMs < 60_000) return "too many wrong codes — wait a minute";
@@ -989,9 +1140,15 @@ public sealed class WebServer : IAsyncDisposable
 
     private async Task HandleWebSocketAsync(Stream stream, HttpRequest req, IPAddress remote, CancellationToken ct)
     {
-        var wantsControl = req.Query.GetValueOrDefault("role") == "control";
+        // A window's link: its address names it and is its pass (it views, and sends only what any public page may). A
+        // device locked out for wrong guesses is turned away for now, never told its address is gone.
+        var winToken = req.Query.GetValueOrDefault("win");
+        var lockedWindow = winToken is not null && LockedOut(remote);
+        var window = winToken is null || lockedWindow ? null : WindowFor(winToken, remote);
+
+        var wantsControl = winToken is null && req.Query.GetValueOrDefault("role") == "control";
         // The PIN or a key may come in the Authorization header (Show Bus §7: never in a URL), or ?pin= from a browser.
-        var supplied = BearerPin(req.Headers.GetValueOrDefault("authorization")) ?? req.Query.GetValueOrDefault("pin");
+        var supplied = winToken is not null ? null : BearerPin(req.Headers.GetValueOrDefault("authorization")) ?? req.Query.GetValueOrDefault("pin");
         string? authError = null;
         var readKey = false;
         if (ApiKeys.LooksLikeKey(supplied))
@@ -1004,7 +1161,7 @@ public sealed class WebServer : IAsyncDisposable
                 authError = $"this API key is {ApiKeys.Describe(k.Scope)}";
         }
         else if (wantsControl) authError = CheckPin(supplied, remote);
-        var viewError = (wantsControl && authError is null) || readKey ? null : CheckView(req, remote);
+        var viewError = winToken is not null || (wantsControl && authError is null) || readKey ? null : CheckView(req, remote);
 
         var key = req.Headers.GetValueOrDefault("sec-websocket-key") ?? "";
         var accept = Convert.ToBase64String(SHA1.HashData(Encoding.ASCII.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));
@@ -1019,15 +1176,29 @@ public sealed class WebServer : IAsyncDisposable
         });
         var detail = req.Query.GetValueOrDefault("detail") is "1" or "true";
         var cid = req.Query.GetValueOrDefault("cid");
-        var client = new WsClient(ws, canControl: wantsControl && authError is null, detail, remote)
+        if (winToken is not null && window is null)
+        {
+            // Revoked, deleted or never made: the screen says so and stops trying. Locked out: it tries again later.
+            try
+            {
+                if (!lockedWindow) await ws.SendAsync(WindowGone, WebSocketMessageType.Text, true, ct);
+                using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await ws.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "window address", closeCts.Token);
+            }
+            catch { }
+            return;
+        }
+        var client = new WsClient(ws, canControl: wantsControl && authError is null && window is null, window is not null || detail, remote)
         {
             ReadKey = readKey,
-            CrewKey = req.Query.GetValueOrDefault("key"),
-            ScreenId = Screens.ValidId(cid) ? cid! : "anon-" + Guid.NewGuid().ToString("N")[..8],
-            Page = Screens.CleanPage(req.Query.GetValueOrDefault("page")),
+            CrewKey = window is null ? req.Query.GetValueOrDefault("key") : null,
+            ScreenId = window is not null ? "win-" + window.Id : Screens.ValidId(cid) ? cid! : "anon-" + Guid.NewGuid().ToString("N")[..8],
+            Page = window is not null ? "/w/" + window.Name : Screens.CleanPage(req.Query.GetValueOrDefault("page")),
             Device = Screens.Device(req.Headers.GetValueOrDefault("user-agent")),
+            WindowId = window?.Id,
+            WindowToken = window is null ? null : winToken,
         };
-        if (viewError is not null)
+        if (viewError is not null && window is null)
         {
             // Screens need the viewing code: say so (the page asks for it) and close.
             try
@@ -1069,8 +1240,25 @@ public sealed class WebServer : IAsyncDisposable
     private async Task SendLoopAsync(WsClient client, CancellationToken ct)
     {
         byte[]? lastSent = null;
+        byte[]? lastWindow = null;
         while (!ct.IsCancellationRequested && client.Socket.State == WebSocketState.Open)
         {
+            // A window hears what to show before any frame, and again whenever that changes; an address that stopped
+            // working (revoked, deleted) is told so and let go.
+            if (client.WindowToken is { } token)
+            {
+                if (ScreenWindows.ByToken(_control.Windows, token) is not { } w)
+                {
+                    await client.SendTextAsync(WindowGone, ct);
+                    return;
+                }
+                var assignment = WindowJson(w);
+                if (lastWindow is null || !assignment.AsSpan().SequenceEqual(lastWindow))
+                {
+                    await client.SendTextAsync(assignment, ct);
+                    lastWindow = assignment;
+                }
+            }
             // The link being alive isn't enough: if the show thread has stopped turning over, the last frame is a
             // frozen time. Say so (screens go stale) and send no frame until it recovers — a reconnecting screen
             // must not be handed the frozen frame as if it were current either.
@@ -1093,6 +1281,15 @@ public sealed class WebServer : IAsyncDisposable
                 await client.SendTextAsync(Heartbeat, ct);
         }
     }
+
+    private static readonly byte[] WindowGone = "{\"type\":\"window\",\"revoked\":true}"u8.ToArray();
+
+    /// <summary>What a window is told: everything it acts on, never its own address.</summary>
+    private static byte[] WindowJson(ScreenWindow w) => JsonSerializer.SerializeToUtf8Bytes(new
+    {
+        type = "window", id = w.Id, name = w.Name, content = w.Content, hold = w.Hold, holdText = w.HoldText, holdImage = w.HoldImage,
+        onLoss = w.OnLoss, fadeMs = w.FadeMs, rev = w.Revision,
+    });
 
     /// <summary>Browsers flag a screen stale after ~3 missed heartbeats (see common.js).</summary>
     public static readonly TimeSpan HeartbeatEvery = TimeSpan.FromSeconds(2);
@@ -1137,6 +1334,8 @@ public sealed class WebServer : IAsyncDisposable
             using var doc = JsonDocument.ParseValue(ref reader);
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return Error("expected an object");
+            if (root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "shown")
+                return client.WindowId is null ? Error("only a window says what it shows") : WindowShown(client, root);
             if (root.TryGetProperty("cmd", out var c) && c.ValueKind == JsonValueKind.String) verb = c.GetString();
             if (root.TryGetProperty("id", out var rid) && rid.ValueKind == JsonValueKind.String) requestId = CommandReceipt.CleanId(rid.GetString());
             if (root.TryGetProperty("t", out var pt) && pt.ValueKind == JsonValueKind.Number && pt.TryGetInt64(out var t1)) pingT = t1;
@@ -1177,6 +1376,24 @@ public sealed class WebServer : IAsyncDisposable
         static byte[] Error(string e) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "error", error = e }));
     }
 
+    /// <summary>A window says what it shows (after each swap, hold or failure): kept for the operator, the context and /api/windows.</summary>
+    private byte[]? WindowShown(WsClient client, JsonElement root)
+    {
+        static string Text(JsonElement r, string name, int max)
+        {
+            var v = r.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : "";
+            v = new string(v.Where(ch => !char.IsControl(ch)).ToArray());
+            return v.Length > max ? v[..max] : v;
+        }
+        static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var i) ? i : 0;
+        var seen = new WindowObserved(client.WindowId!, 1, Int(root, "rev"), Text(root, "content", 400),
+            root.TryGetProperty("hold", out var h) && h.ValueKind == JsonValueKind.True, Math.Clamp(Int(root, "ms"), 0, 600_000), DateTime.UtcNow,
+            Text(root, "error", 200), client.Device, Screens.AddressOf(client.Remote));
+        if (_windowSeen.Count > 4 * ScreenWindows.Max) _windowSeen.Clear();
+        _windowSeen[client.WindowId!] = seen;
+        return null;
+    }
+
     private static async Task SendReceiptAsync(WsClient client, Task<CommandReceipt> receipt)
     {
         try { await client.SendTextAsync((await receipt.ConfigureAwait(false)).ToJson(), CancellationToken.None).ConfigureAwait(false); }
@@ -1212,6 +1429,9 @@ public sealed class WebServer : IAsyncDisposable
 
         /// <summary>The browser's own id (kept in its storage), the page it shows and what it is — for Screens.</summary>
         public string ScreenId { get; init; } = "";
+        /// <summary>The controlled window this link belongs to (null for an ordinary screen), and the address it came in on.</summary>
+        public string? WindowId { get; init; }
+        public string? WindowToken { get; init; }
         public string Page { get; init; } = "/";
         public string Device { get; init; } = "";
         public DateTime ConnectedUtc { get; } = DateTime.UtcNow;
@@ -1261,7 +1481,7 @@ public sealed class WebServer : IAsyncDisposable
         => WriteAsync(stream, status, "application/json",
             Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { ok = false, error })), ct, cors: true);
 
-    private static async Task WriteAsync(Stream stream, int status, string contentType, byte[] body, CancellationToken ct, bool cors = false, string? extra = null)
+    private static async Task WriteAsync(Stream stream, int status, string contentType, byte[] body, CancellationToken ct, bool cors = false, string? extra = null, string? csp = null)
     {
         var reason = status switch
         {
@@ -1276,7 +1496,7 @@ public sealed class WebServer : IAsyncDisposable
             .Append("X-Content-Type-Options: nosniff\r\n")
             .Append("Connection: close\r\n");
         if (contentType.StartsWith("text/html", StringComparison.Ordinal))
-            sb.Append("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:\r\n");
+            sb.Append("Content-Security-Policy: ").Append(csp ?? "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:").Append("\r\n");
         if (cors)
             sb.Append("Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: X-Stagewatch-Pin, Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version\r\n")
               .Append("Access-Control-Expose-Headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After\r\n");

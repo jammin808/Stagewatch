@@ -285,6 +285,9 @@ public sealed class RemoteSettings
     [JsonPropertyName("apiKeys")] public List<ApiKey> ApiKeys { get; set; } = new();
     /// <summary>Designed screens, opened at /layout?name=… and edited at /designer.</summary>
     [JsonPropertyName("layouts")] public List<ScreenLayout> Layouts { get; set; } = new();
+    /// <summary>Browser windows Stagewatch controls, each at an address of its own (/w/&lt;token&gt;). They stay with this PC
+    /// (the addresses are on the screens in the venue), never in a show file.</summary>
+    [JsonPropertyName("windows")] public List<ScreenWindow> Windows { get; set; } = new();
     public const int MaxCustomCss = 64 * 1024;
 }
 
