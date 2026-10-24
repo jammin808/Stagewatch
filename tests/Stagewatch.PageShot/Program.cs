@@ -46,8 +46,9 @@ var edge = new[]
     Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"Microsoft\Edge\Application\msedge.exe"),
 }.Concat(LinuxChromium()).FirstOrDefault(File.Exists);
 if (edge is null) { Console.WriteLine("No Edge or Chromium found (set STAGEWATCH_BROWSER)"); return 2; }
-// Chromium refuses its sandbox to root (containers, the cloud bench): only there is it turned off.
-var noSandbox = !OperatingSystem.IsWindows() && Environment.UserName == "root" ? "--no-sandbox " : "";
+// Off Windows the sandbox is off: Chromium refuses it to root (containers, the cloud bench), and Ubuntu 24.04 (CI's Linux
+// runner) blocks the user namespaces it needs. The pages it loads are this harness's own, on 127.0.0.1.
+var noSandbox = !OperatingSystem.IsWindows() ? "--no-sandbox " : "";
 // The headless shell is headless already and takes no mode.
 var headless = Path.GetFileName(edge).StartsWith("chrome-headless-shell", StringComparison.Ordinal) ? "" : "--headless=new ";
 var missing = 0;

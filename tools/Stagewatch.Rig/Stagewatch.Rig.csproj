@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The headless rig: the real web server (pages, windows, HTTP, WebSocket, MCP), Companion TCP server and OSC server
+    around a simulated show, on any OS. For the browser workflows (tests/e2e), the Companion module against a live
+    Stagewatch, and looking at the pages from the cloud bench. It is not the app: commands the rig doesn't simulate are
+    refused with words, never pretended.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Stagewatch.Rig</AssemblyName>
+    <RootNamespace>Stagewatch.Rig</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Timer.Core\Timer.Core.csproj" />
+    <ProjectReference Include="..\..\src\Timer.Show\Timer.Show.csproj" />
+    <ProjectReference Include="..\..\src\Timer.Remote\Timer.Remote.csproj" />
+    <ProjectReference Include="..\..\src\Timer.Companion\Timer.Companion.csproj" />
+  </ItemGroup>
+
+</Project>
