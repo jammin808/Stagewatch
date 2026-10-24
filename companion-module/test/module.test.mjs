@@ -465,3 +465,12 @@ test('2.9 roll and running order variables and rechecks', async () => {
 	const changed = st.feedbacksAffected(snap(), on, false)
 	assert.ok(changed.includes('roll') && changed.includes('rundown_live'))
 })
+
+test('2.17 window names: one word, empty is every window', async () => {
+	const { windowName } = await import('../dist/actions.js')
+	assert.equal(windowName(''), 'all')
+	assert.equal(windowName('  lobby '), 'lobby')
+	assert.equal(windowName('stage-left_2'), 'stage-left_2')
+	assert.equal(windowName('Lobby TV'), null)
+	assert.equal(windowName('x'.repeat(41)), null)
+})

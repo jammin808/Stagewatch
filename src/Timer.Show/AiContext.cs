@@ -29,7 +29,8 @@ public sealed record CopilotFacts(
     OverrunModel Model,
     IReadOnlyList<RundownItem> Items,
     IReadOnlyList<JournalEntry> Journal,
-    IReadOnlyList<PeerFact>? Peers = null);
+    IReadOnlyList<PeerFact>? Peers = null,
+    IReadOnlyList<ContextItem>? Windows = null);
 
 /// <summary>
 /// What the AI sees, as JSON: the copilot's context, the cloud assistant's compact view of the show, and the journal
@@ -60,6 +61,9 @@ public static class AiContext
             JsonSerializer.Serialize(w, f.Screens.Select(s => new { id = s.Id, name = s.Name, page = s.Page, device = s.Device, control = s.Control }));
             w.WritePropertyName("screen_setups");
             JsonSerializer.Serialize(w, f.ScreenSetups.Select(p => new { name = p.Name, page = p.Path }));
+            // The windows Stagewatch controls ("window show <name> <page>"): what each should show and what it says it shows.
+            w.WritePropertyName("windows");
+            JsonSerializer.Serialize(w, (f.Windows ?? Array.Empty<ContextItem>()).Select(x => new { name = x.Label.StartsWith("Window ", StringComparison.Ordinal) ? x.Label[7..] : x.Label, light = x.Light, state = x.State }));
             // How each link is doing, so "why isn't OBS switching?" has an answer.
             w.WritePropertyName("integrations");
             JsonSerializer.Serialize(w, f.Integrations.Select(x => new { name = x.Name, health = x.Health, status = x.Status }));

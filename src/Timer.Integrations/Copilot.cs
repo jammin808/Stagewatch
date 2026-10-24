@@ -224,6 +224,8 @@ public sealed class Copilot
             ShowCommandKind.Undo or ShowCommandKind.Loop or ShowCommandKind.Patterns => CopilotRisk.High,
             ShowCommandKind.Screen when text.StartsWith("save", StringComparison.Ordinal) => CopilotRisk.Low,
             ShowCommandKind.Screen when text.StartsWith("name", StringComparison.Ordinal) => CopilotRisk.Low,
+            // A window's name, its link-loss choice and its fade change nothing on screen now; everything else does.
+            ShowCommandKind.Window => c.Get<WindowArgs>().Action is "new" or "rename" or "loss" or "fade" ? CopilotRisk.Low : CopilotRisk.High,
             // An extra timer is invisible until it's on stage; putting it on (or taking it off) changes the speaker's screen.
             ShowCommandKind.Aux when text.StartsWith("stage", StringComparison.Ordinal) || text.StartsWith("unstage", StringComparison.Ordinal) => CopilotRisk.High,
             ShowCommandKind.Aux => CopilotRisk.Review,

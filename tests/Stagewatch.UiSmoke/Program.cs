@@ -333,10 +333,31 @@ public static class Program
         }
         if (only != "main" && only != "main-ro")
         {
+            if (only == "screens-windows")
+                store.Update(s => s.Remote.Windows = new List<ScreenWindow>
+                {
+                    new() { Id = "wlobby1", Name = "lobby", Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 2 },
+                    new() { Id = "wstage1", Name = "stage-left", Token = ScreenWindows.NewToken(), Content = "/viewer", Hold = true, HoldText = "Back at 2pm", Revision = 3 },
+                });
             var vm2 = new MainViewModel(store, license);
             switch (only)
             {
                 case "screens": Shot(new ScreensWindow(vm2), "screens"); break;
+                case "screens-windows":
+                {
+                    // The Windows tab, through the view model's own commands: a made window, a refused no-op, the rows.
+                    static ShowCommand Line(string line) { var tk = line.Split(' '); ShowCommandParser.TryParse(tk[0], tk.Skip(1).ToList(), out var cc, out _); return cc; }
+                    var made = vm2.ExecuteWithReceiptAsync(Line("window new foyer /timeline"), "w1", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+                    var again = vm2.ExecuteWithReceiptAsync(Line("window show lobby /clock"), "w2", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+                    var okW = made is { Ok: true, Stage: "applied" } && !again.Ok && again.Error!.Contains("already shows") && vm2.ControlledWindows.Count == 3
+                              && vm2.Settings.Remote.Windows.Count == 3;
+                    Console.WriteLine((okW ? "OK   " : "FAIL ") + $"windows: made through the command, a no-op refused with words, saved ({made.Effect} · {again.Error})");
+                    if (!okW) failures++;
+                    var sw = new ScreensWindow(vm2);
+                    sw.ShowWindowsTab();
+                    Shot(sw, "screens-windows");
+                    break;
+                }
                 case "copilot": Shot(new CopilotWindow(vm2), "copilot"); break;
                 case "slides-agent": Shot(new SlidesAgentWindow(), "slides-agent"); break;
                 case "rundown-editor": Shot(new RundownEditor(store, _ => Task.FromResult(new Stagewatch.Integrations.AgendaDraft(Array.Empty<Stagewatch.Integrations.AgendaDraftItem>(), Array.Empty<string>()))), "rundown-editor"); break;

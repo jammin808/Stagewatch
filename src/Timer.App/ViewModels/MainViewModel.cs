@@ -177,6 +177,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         InitSystems();
         InitLtc();
         RefreshScreenCopies();
+        _ = Windowing;   // the saved windows, ready before any server asks for them
         InitAux();
         InitSlides();
 
@@ -817,6 +818,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
                 else SetHolographic(c.Number < 0 ? !Settings.Display.Holographic : false);
                 break;
             case ShowCommandKind.Screen: ApplyScreenCommand(c.Get<ScreenArgs>()); break;
+            case ShowCommandKind.Window: ApplyWindowCommand(c.Get<WindowArgs>()); break;
             case ShowCommandKind.Aux: ApplyAuxCommand(c.Number, c.Get<AuxArgs>()); break;
             case ShowCommandKind.DeptNote:
             {
@@ -952,7 +954,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             web.CommandRejected += m => _ui.BeginInvoke(() => StatusLine = m);
             if (r.Https) web.Certificate = Certificate;
             web.RequireHttps = r.Https && r.RequireHttps && web.Certificate is not null;
-            try { web.Start(r.WebPort, r.WebBindAll); _web = web; }
+            try { web.Start(r.WebPort, r.WebBindAll); _web = web; Windowing.Web = web; }
             catch (Exception ex) when (ex is SocketException or ArgumentOutOfRangeException) { problems.Add($"web port {r.WebPort} is unavailable"); }
         }
         if (r.OscEnabled)
@@ -994,6 +996,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         try { _web?.StopAsync().GetAwaiter().GetResult(); } catch { }
         try { _osc?.Dispose(); } catch { }
         _web = null;
+        if (_windowDirector is not null) _windowDirector.Web = null;
         _osc = null;
     }
 

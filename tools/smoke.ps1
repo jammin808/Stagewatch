@@ -21,7 +21,7 @@ dotnet build tests\Stagewatch.PageShot -c Debug -nologo -v q
 if ($LASTEXITCODE -ne 0) { throw 'Page smoke build failed' }
 
 # One window per process (WPF's Application can only run once per process).
-foreach ($mode in 'main', 'main-ro', 'settings', 'screens', 'copilot', 'slides-agent', 'rundown-editor', 'vm', 'review', 'panels') {
+foreach ($mode in 'main', 'main-ro', 'settings', 'screens', 'screens-windows', 'copilot', 'slides-agent', 'rundown-editor', 'vm', 'review', 'panels') {
     Write-Host "==> UI smoke: $mode" -ForegroundColor Cyan
     dotnet run --project tests\Stagewatch.UiSmoke -c Debug --no-build -- $out $mode
     if ($LASTEXITCODE -ne 0) { $failed += "ui:$mode" }

@@ -131,6 +131,18 @@ static class WindowTests
         r = Run(list, "window identify all");
         Check(r.Ok && r.Effect == WindowEffect.Identify && ReferenceEquals(r.Windows, list) && r.Touched.Count == 2, "windows: identify changes nothing stored");
 
+        // ---- the lines the Companion module sends, through the same grammar, and the copilot's risk for each
+        foreach (var moduleLine in new[] { "WINDOW SHOW lobby /clock", "WINDOW CUE all /timeline", "WINDOW HOLD lobby", "WINDOW HOLD all TOGGLE",
+                                     "WINDOW HOLD lobby TEXT \"Back at 2pm\"", "WINDOW HOLD lobby IMAGE \"Sponsors\"", "WINDOW RELEASE all", "WINDOW IDENTIFY lobby" })
+            Check(Stagewatch.Integrations.Copilot.Check(moduleLine) is { Kind: ShowCommandKind.Window } wc
+                  && Stagewatch.Integrations.Copilot.Classify(wc) == Stagewatch.Integrations.CopilotRisk.High, $"windows: the module's '{moduleLine}' parses, and changes what the room sees (high)");
+        Check(Stagewatch.Integrations.Copilot.Check("WINDOW HOLD lobby TEXT \"Back at 2pm\"") is { } held && held.Get<WindowArgs>().Argument == "TEXT Back at 2pm"
+              && Run(new[] { new ScreenWindow { Id = "w1", Name = "lobby", Token = ScreenWindows.NewToken() } }, "window hold lobby TEXT Back at 2pm").Windows[0].HoldText == "Back at 2pm",
+              "windows: quoted words arrive whole, and TEXT reads in any case");
+        foreach (var lowLine in new[] { "window new lobby", "window rename lobby foyer", "window loss all warn", "window fade all 300" })
+            Check(Stagewatch.Integrations.Copilot.Check(lowLine) is { } low && Stagewatch.Integrations.Copilot.Classify(low) == Stagewatch.Integrations.CopilotRisk.Low,
+                  $"windows: '{lowLine}' changes nothing on screen now (low)");
+
         // ---- what the Eye and an AI read
         var w0 = list[0];
         var items = ScreenWindows.ContextItems(list, Array.Empty<WindowObserved>());

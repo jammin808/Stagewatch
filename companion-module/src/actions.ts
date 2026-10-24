@@ -15,6 +15,13 @@ const FLASH_CHOICES: DropdownChoice[] = [
 ]
 
 const str = (v: unknown, fallback = ''): string => (v === undefined || v === null ? fallback : String(v)).trim()
+
+/** A window name as Stagewatch reads it (one word: letters, digits, - and _), "all" when empty, null when not a name. */
+export const windowName = (v: string): string | null => {
+	const t = v.trim()
+	if (t === '') return 'all'
+	return /^[A-Za-z0-9_-]{1,40}$/.test(t) ? t : null
+}
 const num = (v: unknown, fallback = 0): number => {
 	const n = Number(v)
 	return Number.isFinite(n) ? n : fallback
@@ -760,6 +767,83 @@ export function UpdateActions(self: ModuleInstance): void {
 			description: 'Take a screen off Stagewatch (it shows "disconnected by the operator" and stays off until reloaded on the device).',
 			options: [{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all screens)', default: '', useVariables: true }],
 			callback: (ev) => send(`SCREEN DISCONNECT ${str(ev.options.who).trim()}`.trim()),
+		},
+		// ---- 2.17: windows Stagewatch controls (each at an address of its own, /w/<token>)
+		window_show: {
+			name: 'Windows: show a page',
+			description:
+				'Put a page on a window Stagewatch controls (or cue it behind the holding page, ready for Release). A page such as /clock, a saved setup, holding or black.',
+			options: [
+				{ type: 'textinput', id: 'window', label: 'Window name (empty = all windows)', default: 'lobby', useVariables: true },
+				{ type: 'textinput', id: 'content', label: 'Page, setup, holding or black', default: '/clock', useVariables: true },
+				{
+					type: 'dropdown',
+					id: 'how',
+					label: 'How',
+					default: 'show',
+					choices: [
+						{ id: 'show', label: 'Show it now' },
+						{ id: 'cue', label: 'Cue it behind the holding page' },
+					],
+				},
+			],
+			callback: (ev) => {
+				const who = windowName(str(ev.options.window))
+				const content = str(ev.options.content)
+				if (who === null) return self.log('warn', 'Windows: a window name uses letters, digits, - and _')
+				if (!/^([A-Za-z0-9_-]{1,40}|\/[^\s]{0,399})$/.test(content)) return self.log('warn', `Windows: "${content}" is not a page, a setup, holding or black`)
+				send(`WINDOW ${str(ev.options.how, 'show') === 'cue' ? 'CUE' : 'SHOW'} ${who} ${content}`)
+			},
+		},
+		window_hold: {
+			name: 'Windows: holding page',
+			description: 'The holding page on a window (the page stays loaded underneath, so Release is instant): plain, toggled, with words, or with a holding image.',
+			options: [
+				{ type: 'textinput', id: 'window', label: 'Window name (empty = all windows)', default: '', useVariables: true },
+				{
+					type: 'dropdown',
+					id: 'how',
+					label: 'Holding page',
+					default: 'on',
+					choices: [
+						{ id: 'on', label: 'On' },
+						{ id: 'toggle', label: 'Toggle' },
+						{ id: 'text', label: 'On, with these words' },
+						{ id: 'image', label: 'On, with this holding image (number or name)' },
+					],
+				},
+				{ type: 'textinput', id: 'value', label: 'Words or image', default: '', useVariables: true },
+			],
+			callback: (ev) => {
+				const who = windowName(str(ev.options.window))
+				if (who === null) return self.log('warn', 'Windows: a window name uses letters, digits, - and _')
+				const how = str(ev.options.how, 'on')
+				const value = str(ev.options.value)
+				if (how === 'toggle') return send(`WINDOW HOLD ${who} TOGGLE`)
+				if (how === 'text') return send(`WINDOW HOLD ${who} TEXT ${quote(value)}`)
+				if (how === 'image') return value ? send(`WINDOW HOLD ${who} IMAGE ${quote(value)}`) : self.log('warn', 'Windows: name the holding image')
+				send(`WINDOW HOLD ${who}`)
+			},
+		},
+		window_release: {
+			name: 'Windows: release the holding page',
+			description: 'Back from the holding page to the page (shown at once: it was loaded underneath).',
+			options: [{ type: 'textinput', id: 'window', label: 'Window name (empty = all windows)', default: '', useVariables: true }],
+			callback: (ev) => {
+				const who = windowName(str(ev.options.window))
+				if (who === null) return self.log('warn', 'Windows: a window name uses letters, digits, - and _')
+				send(`WINDOW RELEASE ${who}`)
+			},
+		},
+		window_identify: {
+			name: 'Windows: identify',
+			description: 'Show each window\'s name on it for 6 seconds.',
+			options: [{ type: 'textinput', id: 'window', label: 'Window name (empty = all windows)', default: '', useVariables: true }],
+			callback: (ev) => {
+				const who = windowName(str(ev.options.window))
+				if (who === null) return self.log('warn', 'Windows: a window name uses letters, digits, - and _')
+				send(`WINDOW IDENTIFY ${who}`)
+			},
 		},
 		live_undo: {
 			name: 'Undo the last live edit',

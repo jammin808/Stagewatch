@@ -58,67 +58,159 @@
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="170" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <TextBlock Text="Screens" FontSize="20" FontWeight="Bold" />
-        <TextBlock Grid.Row="1" x:Name="Subtitle" Opacity="0.65" Margin="0,2,0,10" TextWrapping="Wrap"
-                   Text="Every browser showing Stagewatch. Double-click a name to change it; select screens to find them or send them somewhere else." />
+        <TabControl Grid.Row="1" Margin="0,8,0,0">
+            <TabItem Header="Browsers">
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="170" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-        <DataGrid x:Name="ScreenGrid" Grid.Row="2" CellEditEnding="OnNameEdited" PreviewKeyDown="OnGridKey">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Name" Binding="{Binding Name, UpdateSourceTrigger=LostFocus}" Width="170" />
-                <DataGridTextColumn Header="Showing" Binding="{Binding Page}" IsReadOnly="True" Width="*" MinWidth="180" />
-                <DataGridTextColumn Header="Device" Binding="{Binding Device}" IsReadOnly="True" Width="150" />
-                <DataGridTextColumn Header="Address" Binding="{Binding Address}" IsReadOnly="True" Width="120" />
-                <DataGridTextColumn Header="Connected" Binding="{Binding Since}" IsReadOnly="True" Width="95" />
-                <DataGridTextColumn Header="Id" Binding="{Binding Id}" IsReadOnly="True" Width="100" />
-            </DataGrid.Columns>
-        </DataGrid>
+                    <TextBlock Grid.Row="1" x:Name="Subtitle" Opacity="0.65" Margin="0,2,0,10" TextWrapping="Wrap"
+                               Text="Every browser showing Stagewatch. Double-click a name to change it; select screens to find them or send them somewhere else." />
 
-        <WrapPanel Grid.Row="3" Margin="0,10,0,0">
-            <Button Content="Identify" Click="OnIdentify" Padding="12,6" Margin="0,0,8,0"
-                    ToolTip="Show each selected screen's name full screen for 6 seconds, so you can find it in the room (nothing selected = all)" />
-            <TextBlock Text="Send to" VerticalAlignment="Center" Margin="8,0,6,0" Opacity="0.8" />
-            <ComboBox x:Name="Target" Width="260" IsEditable="True" Margin="0,0,6,0"
-                      ToolTip="A saved setup, or a page such as /viewer?cue=0" />
-            <Button Content="Send" Click="OnSend" Padding="12,6" Margin="0,0,16,0" ToolTip="Open that page on the selected screens (nothing selected = all)" />
-            <Button Content="Reload" Click="OnReload" Padding="12,6" Margin="0,0,8,0" ToolTip="Reload the page on the selected screens (nothing selected = all)" />
-            <Button Content="Disconnect" Click="OnDisconnect" Padding="12,6" Margin="0,0,16,0" ToolTip="Disconnect the selected screens; they stay off until reloaded on the device" />
-            <Button Content="Save as setup…" Click="OnSaveFromScreen" Padding="12,6"
-                    ToolTip="Save the selected screen's page and options under a name — it can then be opened at /p/name" />
-        </WrapPanel>
+                    <DataGrid x:Name="ScreenGrid" Grid.Row="2" CellEditEnding="OnNameEdited" PreviewKeyDown="OnGridKey">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name, UpdateSourceTrigger=LostFocus}" Width="170" />
+                            <DataGridTextColumn Header="Showing" Binding="{Binding Page}" IsReadOnly="True" Width="*" MinWidth="180" />
+                            <DataGridTextColumn Header="Device" Binding="{Binding Device}" IsReadOnly="True" Width="150" />
+                            <DataGridTextColumn Header="Address" Binding="{Binding Address}" IsReadOnly="True" Width="120" />
+                            <DataGridTextColumn Header="Connected" Binding="{Binding Since}" IsReadOnly="True" Width="95" />
+                            <DataGridTextColumn Header="Id" Binding="{Binding Id}" IsReadOnly="True" Width="100" />
+                        </DataGrid.Columns>
+                    </DataGrid>
 
-        <TextBlock Grid.Row="4" Text="Saved setups" FontSize="16" FontWeight="SemiBold" Margin="0,18,0,6" />
-        <DataGrid x:Name="PresetGrid" Grid.Row="5" SelectionMode="Single">
-            <DataGrid.Columns>
-                <DataGridTextColumn Header="Name" Binding="{Binding Name}" IsReadOnly="True" Width="140" />
-                <DataGridTextColumn Header="Page" Binding="{Binding Path}" IsReadOnly="True" Width="*" MinWidth="160" />
-                <DataGridTextColumn Header="Open at" Binding="{Binding Address}" IsReadOnly="True" Width="300" />
-            </DataGrid.Columns>
-        </DataGrid>
+                    <WrapPanel Grid.Row="3" Margin="0,10,0,0">
+                        <Button Content="Identify" Click="OnIdentify" Padding="12,6" Margin="0,0,8,0"
+                                ToolTip="Show each selected screen's name full screen for 6 seconds, so you can find it in the room (nothing selected = all)" />
+                        <TextBlock Text="Send to" VerticalAlignment="Center" Margin="8,0,6,0" Opacity="0.8" />
+                        <ComboBox x:Name="Target" Width="260" IsEditable="True" Margin="0,0,6,0"
+                                  ToolTip="A saved setup, or a page such as /viewer?cue=0" />
+                        <Button Content="Send" Click="OnSend" Padding="12,6" Margin="0,0,16,0" ToolTip="Open that page on the selected screens (nothing selected = all)" />
+                        <Button Content="Reload" Click="OnReload" Padding="12,6" Margin="0,0,8,0" ToolTip="Reload the page on the selected screens (nothing selected = all)" />
+                        <Button Content="Disconnect" Click="OnDisconnect" Padding="12,6" Margin="0,0,16,0" ToolTip="Disconnect the selected screens; they stay off until reloaded on the device" />
+                        <Button Content="Save as setup…" Click="OnSaveFromScreen" Padding="12,6"
+                                ToolTip="Save the selected screen's page and options under a name — it can then be opened at /p/name" />
+                    </WrapPanel>
 
-        <Grid Grid.Row="6" Margin="0,10,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal">
-                <TextBox x:Name="NewName" Width="120" Margin="0,0,6,0" ToolTip="Name: letters, digits, - and _ (e.g. lobby)" />
-                <TextBox x:Name="NewPath" Width="260" Margin="0,0,6,0" Text="/viewer" ToolTip="Page and options, e.g. /audience?holding=0" />
-                <Button Content="Add setup" Click="OnAddPreset" Padding="12,6" Margin="0,0,8,0" />
-                <Button Content="Copy address" Click="OnCopyPreset" Padding="12,6" Margin="0,0,8,0" />
-                <Button Content="Delete" Click="OnDeletePreset" Padding="12,6" Margin="0,0,16,0" />
-                <Button Content="Design screens…" Click="OnDesign" Padding="12,6"
-                        ToolTip="Open the screen designer in your browser: place the timer, text with placeholders, messages, logos — or describe a screen and let the copilot draft it" />
-            </StackPanel>
-            <Button Grid.Column="2" Content="Close" Click="OnClose" Padding="16,6" IsCancel="True" />
-        </Grid>
+                    <TextBlock Grid.Row="4" Text="Saved setups" FontSize="16" FontWeight="SemiBold" Margin="0,18,0,6" />
+                    <DataGrid x:Name="PresetGrid" Grid.Row="5" SelectionMode="Single">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" IsReadOnly="True" Width="140" />
+                            <DataGridTextColumn Header="Page" Binding="{Binding Path}" IsReadOnly="True" Width="*" MinWidth="160" />
+                            <DataGridTextColumn Header="Open at" Binding="{Binding Address}" IsReadOnly="True" Width="300" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <Grid Grid.Row="6" Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="NewName" Width="120" Margin="0,0,6,0" ToolTip="Name: letters, digits, - and _ (e.g. lobby)" />
+                            <TextBox x:Name="NewPath" Width="260" Margin="0,0,6,0" Text="/viewer" ToolTip="Page and options, e.g. /audience?holding=0" />
+                            <Button Content="Add setup" Click="OnAddPreset" Padding="12,6" Margin="0,0,8,0" />
+                            <Button Content="Copy address" Click="OnCopyPreset" Padding="12,6" Margin="0,0,8,0" />
+                            <Button Content="Delete" Click="OnDeletePreset" Padding="12,6" Margin="0,0,16,0" />
+                            <Button Content="Design screens…" Click="OnDesign" Padding="12,6"
+                                    ToolTip="Open the screen designer in your browser: place the timer, text with placeholders, messages, logos — or describe a screen and let the copilot draft it" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Windows" x:Name="WindowsTab">
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="WindowsSubtitle" Opacity="0.65" Margin="0,2,0,10" TextWrapping="Wrap"
+                               Text="Browser windows Stagewatch controls. Open a window's address on the screen it is for (a TV, a projector PC, an OBS or vMix browser input): Stagewatch decides what it shows, and the window says back what it shows." />
+
+                    <DataGrid x:Name="WindowGrid" Grid.Row="1" IsReadOnly="True" MouseDoubleClick="OnWindowCopy">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="" Binding="{Binding Mark}" Width="34">
+                                <DataGridTextColumn.ElementStyle>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{Binding MarkBrush}" />
+                                        <Setter Property="FontWeight" Value="Bold" />
+                                    </Style>
+                                </DataGridTextColumn.ElementStyle>
+                            </DataGridTextColumn>
+                            <DataGridTextColumn Header="Window" Binding="{Binding Name}" Width="120" />
+                            <DataGridTextColumn Header="Should show" Binding="{Binding Wants}" Width="*" MinWidth="160" />
+                            <DataGridTextColumn Header="Says it shows" Binding="{Binding State}" Width="2*" MinWidth="220" />
+                            <DataGridTextColumn Header="Device" Binding="{Binding Device}" Width="130" />
+                            <DataGridTextColumn Header="Swap" Binding="{Binding Swap}" Width="64" />
+                        </DataGrid.Columns>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Show the page beside Content" Click="OnWindowShow" />
+                                <MenuItem Header="Cue it behind the holding page" Click="OnWindowCue" />
+                                <Separator />
+                                <MenuItem Header="Holding page" Click="OnWindowHold" />
+                                <MenuItem Header="Holding page with words…" Click="OnWindowHoldText" />
+                                <MenuItem Header="Release (back to the page)" Click="OnWindowRelease" />
+                                <Separator />
+                                <MenuItem Header="Identify" Click="OnWindowIdentify" />
+                                <MenuItem Header="Reload" Click="OnWindowReload" />
+                                <MenuItem Header="If the link drops">
+                                    <MenuItem Header="Holding page (audience screens)" Click="OnWindowLossHold" />
+                                    <MenuItem Header="NOT CONNECTED warning (crew screens)" Click="OnWindowLossWarn" />
+                                </MenuItem>
+                                <MenuItem Header="Between pages">
+                                    <MenuItem Header="Cut" Click="OnWindowCut" />
+                                    <MenuItem Header="Fade 0.3 s" Click="OnWindowFadeShort" />
+                                    <MenuItem Header="Fade 1 s" Click="OnWindowFadeLong" />
+                                </MenuItem>
+                                <Separator />
+                                <MenuItem Header="Copy address" Click="OnWindowCopy" />
+                                <MenuItem Header="Rename…" Click="OnWindowRename" />
+                                <MenuItem Header="New address (revoke this one)…" Click="OnWindowRevoke" />
+                                <MenuItem Header="Delete…" Click="OnWindowDelete" />
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
+
+                    <WrapPanel Grid.Row="2" Margin="0,10,0,0">
+                        <TextBlock Text="Content" VerticalAlignment="Center" Margin="0,0,6,0" Opacity="0.8" />
+                        <ComboBox x:Name="WindowContent" Width="240" IsEditable="True" Margin="0,0,6,0"
+                                  ToolTip="A page such as /clock, a saved setup, a designed layout, holding or black" />
+                        <Button Content="Show" Click="OnWindowShow" Padding="12,6" Margin="0,0,6,0" ToolTip="Put it on the selected windows (nothing selected = all)" />
+                        <Button Content="Cue" Click="OnWindowCue" Padding="12,6" Margin="0,0,16,0"
+                                ToolTip="Load it behind the holding page on the selected windows; Release shows it at once" />
+                        <Button Content="Hold" Click="OnWindowHold" Padding="12,6" Margin="0,0,6,0" ToolTip="The holding page on the selected windows (the page stays loaded underneath)" />
+                        <Button Content="Release" Click="OnWindowRelease" Padding="12,6" Margin="0,0,16,0" ToolTip="Back from the holding page to the page" />
+                        <Button Content="Identify" Click="OnWindowIdentify" Padding="12,6" Margin="0,0,6,0" ToolTip="Show each selected window's name on it for 6 seconds" />
+                        <Button Content="Copy address" Click="OnWindowCopy" Padding="12,6" ToolTip="The address to open on the selected window's screen" />
+                    </WrapPanel>
+
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
+                        <TextBox x:Name="NewWindowName" Width="140" Margin="0,0,6,0" ToolTip="Name: letters, digits, - and _ (e.g. lobby)" />
+                        <Button Content="New window" Click="OnWindowNew" Padding="12,6" Margin="0,0,16,0"
+                                ToolTip="Make a window with its own address; open the address on the screen it is for" />
+                        <Button Content="Rename…" Click="OnWindowRename" Padding="12,6" Margin="0,0,6,0" />
+                        <Button Content="New address…" Click="OnWindowRevoke" Padding="12,6" Margin="0,0,6,0" ToolTip="Give the selected window a new address; the old one stops at once" />
+                        <Button Content="Delete…" Click="OnWindowDelete" Padding="12,6" />
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+        <Button Grid.Row="2" HorizontalAlignment="Right" Content="Close" Click="OnClose" Padding="16,6" Margin="0,10,0,0" IsCancel="True" />
     </Grid>
 </Window>

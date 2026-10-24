@@ -59,6 +59,7 @@ public sealed partial class MainViewModel
             var light = health switch { LinkHealth.Ok => Light.Green, LinkHealth.Starting => Light.Amber, _ => Light.Red };
             list.Add(new ContextItem("link:" + name.ToLowerInvariant().Replace(' ', '-'), name is "vMix" or "Patterns" ? "playout" : "link", name, light, status));
         }
+        list.AddRange(WindowItems());
         if (_patterns?.ClockOffset is { } off && off.Duration() > ClockOffsetEstimator.ApartAfter)
             list.Add(new ContextItem("clock:patterns", "health", "Clock vs Patterns", Light.Amber,
                 $"CLOCKS APART: Patterns' clock is {Math.Abs(off.TotalSeconds):0.0} s {(off > TimeSpan.Zero ? "ahead" : "behind")}"));

@@ -489,6 +489,18 @@ ${v('standing_by')} SB`, { size: '14', bgcolor: COLORS.darkgrey }),
 			feedbacks: [],
 			keywords: ['screens', 'identify', 'find', 'tv', 'tablet'],
 		}),
+		simple('windows_hold_toggle', 'Windows: holding page on every window (toggle)', {
+			style: style('HOLD\nWINDOWS', { size: '14', bgcolor: COLORS.darkgrey }),
+			steps: press('window_hold', { window: '', how: 'toggle', value: '' }),
+			feedbacks: [],
+			keywords: ['windows', 'holding', 'hold', 'standby', 'audience', 'screens'],
+		}),
+		simple('windows_identify', 'Windows: identify all', {
+			style: style('FIND\nWINDOWS', { size: '14', bgcolor: COLORS.darkgrey }),
+			steps: press('window_identify', { window: '' }),
+			feedbacks: [],
+			keywords: ['windows', 'identify', 'find', 'tv', 'obs', 'vmix'],
+		}),
 		simple('ltc_chase', 'LTC in: timer follows timecode (toggle)', {
 			style: style(`LTC
 ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
