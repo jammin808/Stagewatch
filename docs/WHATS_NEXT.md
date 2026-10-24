@@ -86,3 +86,18 @@ dotnet build Timer.slnf -c Debug
 $env:STAGEWATCH_MASTER = (Get-Content "$env:USERPROFILE\.stagewatch\master-serial.txt" | Where-Object { $_ -like 'SWM2.*' })
 dotnet run --project src/Timer.App -c Debug
 ```
+
+## Windows (2.17) — what this round did not do
+
+- **Not seen on Windows yet.** The Screens window's Windows tab and its right-click menu compile on Linux and have a
+  smoke mode (`screens-windows`), but nobody has looked at them in the running app; the Windows job's screenshot is the
+  first look. The browser side ran in headless Chromium only: a real TV browser, an OBS or vMix browser input and a
+  signage player are untested.
+- **No window feedbacks in Companion.** The module's frame doesn't carry windows, so a key can't light when a window is
+  holding or lost. Adding a compact `windows` block to the detail frame (at the end) would do it.
+- **No QR for a window's address.** Copy address is the way today; a QR on the Windows tab would suit phones and tablets.
+- **Window content is a page path.** A saved setup is resolved when the command runs (editing the setup later doesn't
+  move the window). Patterns and PlayMap could take a window address as a browser source; nothing there does yet.
+- **The fail-safe has no timer of its own on the server.** A window's link loss is seen by the window (6 s); Stagewatch
+  shows the lost link in the context once the socket closes.
+

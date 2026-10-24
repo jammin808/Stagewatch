@@ -248,3 +248,53 @@ The contract between Stagewatch, Patterns, AGMessage and the micro-apps is `docs
 | **HTTPS** | The web port (9924) also speaks TLS with this install's own certificate (self-signed ECDSA P-256, 825 days, renewed automatically; key protected for this Windows user). A connection that starts with a TLS handshake is HTTPS/WSS, anything else plain HTTP — existing screens keep working. `GET /tls` shows the fingerprint and how to trust the certificate on Windows, macOS, iPhone/iPad and Android; `GET /tls.cer` downloads it. The hello carries `"tls":"sha256:…"` and `ports.https`. **Require HTTPS** (Settings → Remote) sends plain HTTP from other devices to `https://` and refuses plain WebSockets; this PC and the certificate pages stay reachable. |
 | **Pinning** | Apps connecting to each other trust a certificate by its fingerprint, pinned on the first authenticated success; a different one later is refused ("CERTIFICATE CHANGED") until the operator accepts it. Stagewatch Slides on presenter PCs does this (pins in `%APPDATA%\Stagewatch\slides-pins.json`; "Trust new certificate" after a reinstall). |
 | **Approval queue** | Stagewatch is the show's approval desk (hello cap `approvals`). `POST /api/proposals` (node, MCP or control key, or the PIN) `{"from":{t,id,name},"target":{t,id},"line","reason"}` → `{"id":"p1","state":"pending"}`. The proposal appears in Copilot beside Stagewatch's own, with the target's own risk for that verb (unknown = high). Approve or discard once. Aimed at Stagewatch, it runs here with a receipt; aimed at another app, that app collects it — `GET /api/proposals?target=<its id>&state=approved` with its node key — runs it through its own checks and reports `POST /api/proposals/<id>/result {"ok","words"}`. `GET /api/proposals/<id>` (read) → state (`pending`, `approved`, `rejected`, `done`, `failed`, `undelivered` after 60 s uncollected), `ok`, `words`, who decided. A node key is bound to the node it first spoke for; one app's key can't collect another's. Everything is in the show log. |
+
+## 2.17 (next release): windows — addresses Stagewatch controls
+
+A **window** is a browser Stagewatch drives through an address of its own: `http://<pc>:9924/w/<token>`. Open it on a
+TV, a projector PC, a signage player, or an OBS or vMix browser input, and Stagewatch decides what it shows. The address
+is the window's identity and its pass: it views (past the viewing code) and controls nothing. Identity lives in
+Stagewatch, not in the browser, so two OBS browser sources (which share storage) are two windows, and a player that
+clears its storage is still the same window. Windows need the web server (Pro) and stay with the PC (never in a show
+file).
+
+| | |
+|---|---|
+| Window page | `GET /w/<token>`: no PIN. Its own policy: it frames only this Stagewatch's pages, no other site may frame it, no referrer leaves it, nothing caches or indexes it. An address not in use says so (404); five wrong addresses a minute from one device lock that device out for a minute, like wrong PINs (the page retries by itself) |
+| Window list | `GET /api/windows` (read): each window's name, what it should show (`content`, `hold`, `holdText`, `holdImage`, `onLoss`, `fadeMs`, `rev`), `connected`, what it says it shows (`shown`: `rev`, `content`, `hold`, `ms`, `at`, `error`), `inStep` (it shows the revision it was sent), `device`, `address`. `path` (`/w/<token>`) only with the PIN or a control key |
+| Context | Each window is a Show Bus item `window:<name>` (kind `screen`): green only when it says it shows what it was sent; amber while a change is sent but not shown, when it couldn't show a page, or when its link is lost; grey until someone opens it. A lost lobby screen never turns the show red |
+
+### Commands
+
+One grammar on every transport (HTTP `/api/window/...`, WebSocket, OSC `/stagewatch/window`, Companion `WINDOW …`, MCP
+`run_command`, the copilot). A window is named with letters, digits, `-` and `_`; `all` (or nothing) is every window.
+
+| Command | Effect |
+|---|---|
+| `window new <name> [page]` | Make a window (on its holding page, or showing the page). Copy its address from Screens → Windows, or `/api/windows` with the PIN |
+| `window show <window\|all> <page\|setup\|holding\|black>` | Show a page on this Stagewatch (`/clock?h=12`, `/layout?name=foyer`…), a saved setup's page, the holding page or black. Pages that need the PIN (`/control`, `/producer`, `/designer`, `/report`) and other sites are refused |
+| `window cue <window\|all> <page>` | Load the page behind the holding page; `release` shows it at once |
+| `window hold <window\|all> [toggle \| text <words> \| image <n\|name\|off>]` | The holding page, drawn by the window itself (so it shows with no network): words, a holding image, or the show's holding image when one is on air, else black. The page stays loaded underneath. `toggle` releases them all if any is holding, else holds them all |
+| `window release <window\|all>` | Back to the page, at once |
+| `window identify\|reload <window\|all>` | Name on the window for 6 s / reload it (it comes back to what it showed). Refused for a window nobody has open |
+| `window loss <window\|all> <hold\|warn>` | When the link drops: the holding page (audience screens; the default) or dimmed with NOT CONNECTED (crew screens). Never a confident stale clock |
+| `window fade <window\|all> <ms>` | Crossfade between pages, 0 (cut) to 5000 |
+| `window rename <window> <name>` · `window revoke <window\|all>` · `window delete <window>` | Rename; a new address (the old one stops at once, and a screen on it says so); delete (one at a time) |
+
+A command that would change nothing is refused with the reason (`lobby already shows /clock`), and a receipt says so.
+The copilot rates `show`, `cue`, `hold`, `release`, `identify`, `reload`, `revoke` and `delete` high (they change what
+the room sees) and `new`, `rename`, `loss` and `fade` low.
+
+### What a window does
+
+- **One link.** The window holds one WebSocket (`/ws?win=<token>&detail=1`): it hears `{"type":"window",id,name,content,
+  hold,holdText,holdImage,onLoss,fadeMs,rev}` before any frame and again on each change, then public detail frames. It
+  may send only what any public page may (cue acknowledgements, questions). The pages inside take their frames from the
+  window (stamped with when they arrived), so a page switched in draws at once and the screen counts one connection.
+- **Swapped in only when drawn.** Two frames: the next page loads behind the one on screen and is shown only once it
+  has loaded and drawn its first frame (two painted frames, then the cut or fade). A page that won't load in 8 s, or
+  isn't a Stagewatch page, never reaches the screen: the old page stays, the window retries (2 s, 4 s… 30 s) and reports
+  why. After each swap, hold or failure it reports `{"type":"shown",rev,content,hold,ms,error}`.
+- **Blackout** covers every window. A revoked or deleted address shows "This window's address was replaced or removed"
+  and stops trying. Reconnects back off with jitter, so a room of windows doesn't reconnect in one burst.
+- Double-click or `F` on the window toggles full screen; the screen is kept awake.

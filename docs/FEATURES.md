@@ -11,6 +11,25 @@ the end-of-show forecast and curfew trim suggestions (producer assistant), the m
 LTC and the time-server drift check, vMix VT countdowns, speech pace, the full printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
 
+## 2.17 (next release): windows Stagewatch controls
+
+- **Give a screen its own address.** Screens → Windows → name it (`lobby`) → **New window** → **Copy address**, and open
+  the address on the TV, projector PC, signage player or OBS/vMix browser input. From then on Stagewatch decides what it
+  shows: any of its pages (the clock, a countdown, the agenda, a designed layout, the hologram…), a saved setup, the
+  holding page or black. Select windows and press **Show**; everything else is on the right-click menu, in Companion
+  (*Windows: show a page / holding page / release / identify*), over HTTP, OSC and MCP, and the copilot can propose it.
+- **Never a broken or blank screen.** The next page loads behind the one on screen and swaps in only once it has drawn;
+  a page that won't load stays off the screen and the reason shows in the list. **Cue** loads a page behind the holding
+  page so **Release** puts it up instantly.
+- **A holding page that never fails.** Words ("Back at 2pm"), a holding image or black, drawn by the window itself, so it
+  works with no network. If the link to Stagewatch drops, an audience window goes to its holding page and a crew window
+  dims with NOT CONNECTED (right-click → If the link drops); it comes back by itself.
+- **You see what the room sees.** Each window says back what it shows: ✓ green when it shows what it was sent, △ amber
+  while switching, if a page wouldn't load or if its link dropped, ○ grey until someone opens it. The same lights reach
+  the Show network, other apps and the AI.
+- **Safe addresses.** An address can't be guessed (130 random bits), only views, and can be replaced at once (**New
+  address**); wrong guesses lock a device out like wrong PINs.
+
 ## 2.16: encrypted screens and one approval queue for every app's AI
 
 - **HTTPS.** Stagewatch now has its own certificate and speaks HTTPS on the same port as before, so nothing breaks:

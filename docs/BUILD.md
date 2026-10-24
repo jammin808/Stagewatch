@@ -40,10 +40,31 @@ See `docs/LICENSING.md` for issuing licenses and master serials, and for key rot
 ## Tests
 
 ```pwsh
-dotnet run --project tests/Stagewatch.Tests      # engine, schedule, CSV, commands, OSC, web, Companion, licensing
+dotnet run --project tests/Stagewatch.Tests      # engine, schedule, CSV, commands, OSC, web, windows, Companion, licensing
 cd companion-module; npm test                      # Companion module
 ```
 Both exit non-zero on any failure. The positive licence-signing tests run only where the private key exists.
+
+### The Linux bench (cloud sessions, CI's Linux job)
+
+Everything but WPF, WMI, COM and PowerPoint also builds and runs on Linux (the root `Directory.Build.props` sets
+`EnableWindowsTargeting` off Windows):
+
+```bash
+tools/setup-dev.sh            # .NET 10 SDK, Node packages, Chromium's headless shell (Playwright)
+tools/test.sh                 # build, unit, module, holo, e2e — or name lanes: tools/test.sh unit e2e
+tools/test.sh pageshot        # PageShot's screenshots into artifacts/pages
+tools/test.sh rig             # the headless rig in the foreground: open its pages in a browser
+```
+
+- The suite names the checks it leaves to the Windows job (`Bench.OnWindows`): today the WMI hardware id, the crafted
+  master file, the report file names and the slides agent's PowerPoint loop. They are never counted as passed.
+- `tools/Stagewatch.Rig` is the real web server, Companion server and OSC server around a simulated show (timer,
+  messages, blackout, a holding image, Next/Previous/GoTo, windows); anything else is refused with words. Its first
+  output line is JSON with its ports (`--port`, `--companion`, `--osc`, `--pin`, `--state`, `--view`, `--exit-after`).
+- `tests/e2e` drives it with Playwright: the window workflows (swap only when drawn, hold/cue/release, a page that won't
+  load, link loss and a restarted rig, revoke), every public page drawing a real frame alone and inside a window, and
+  the same commands over HTTP, Companion TCP, OSC and MCP. `SW_E2E_OUT=<folder>` keeps screenshots.
 
 ## Single-file publish
 
@@ -55,14 +76,16 @@ Self-contained also works (`--self-contained true`); larger but no .NET runtime 
 
 ## Sign
 
-`toolselease.ps1` signs the exe and the installer (SHA-256, RFC 3161 timestamp, then verifies) when
+`tools
+elease.ps1` signs the exe and the installer (SHA-256, RFC 3161 timestamp, then verifies) when
 `STAGEWATCH_SIGN_THUMBPRINT` holds the thumbprint of a code-signing certificate in your certificate store
 (an EV or OV certificate from a CA; for cloud HSM certificates, install the vendor's signing tool so the
 certificate appears in the store). Without it, the build is unsigned and says so.
 
 ```pwsh
 $env:STAGEWATCH_SIGN_THUMBPRINT = '0123456789ABCDEF0123456789ABCDEF01234567'
-powershell -ExecutionPolicy Bypass -File toolselease.ps1 -Bump patch
+powershell -ExecutionPolicy Bypass -File tools
+elease.ps1 -Bump patch
 ```
 
 Needs `signtool.exe` from the Windows 10/11 SDK.

@@ -104,6 +104,15 @@ department notes, undo (one history per running order) and session checkpoints. 
   `TlsPins` (Core) is the pin store for outgoing TLS (Slides agent). `ProposalDesk` (Core, pure, thread-safe) is the
   shared approval queue; `MainViewModel.Desk.cs` mirrors it into the Copilot list (`CopilotProposal.SharedId`), runs
   desk-targeted lines through `RunWithReceipt`, and journals every decision. Node keys are bound one-to-one to node ids.
+- **Windows (2.17).** `ScreenWindows` (Core, pure) holds the rules: tokens (130 bits, compared in constant time), what a
+  window may show, `Apply` for every `window …` command (refusing a no-op with the reason), and the context items.
+  `WindowDirector` (Remote) runs the commands for the app, the rig and the tests: it applies, saves (the app: settings),
+  swaps an immutable list readers take, and tells `WebServer`, which pushes each window its assignment latest-wins on its
+  own link, takes its `shown` reports, and lets go of a revoked address. The window page (`window.js`) is a small
+  presentation loop: one link, two frames (the next page drawn behind the one on screen, then swapped), and its own
+  holding page, black and link warning, so the fail-safe state needs no page and no network. Pages inside take frames
+  from it (`SWShell`) stamped on a clock every page shares (`performance.timeOrigin`), so a relayed frame's countdowns
+  stay exact.
 - **Panels.** The side panels' arrangement is `PanelLayout` (Timer.Core: order, torn-out windows, width; every panel
   always somewhere, each once; repaired on load). `PanelDock` (Timer.App) only moves the tab contents between the
   strip and `PanelWindow`s to match. A torn-out panel is the same controls and bindings, re-parented: one view model,
@@ -124,6 +133,13 @@ department notes, undo (one history per running order) and session checkpoints. 
   copy rebuilt after each change, so they never see a half-made change or a list mid-edit.
 - **Frames are immutable all the way down.** `EquatableArray` copies the array it is given, so a caller writing to its
   array later can't change a frame that's already published.
+
+## The bench (off Windows)
+
+`tools/test.sh` runs the same lanes on Linux as CI's Linux job: the solution build (WPF compiles; nothing WPF runs), the
+suite (`Bench.OnWindows` names what only Windows can run), the Companion module and 3D display tests, and the browser
+workflows (`tests/e2e`, Playwright) against `tools/Stagewatch.Rig` — the real servers around a simulated show on one
+owner thread. The Windows jobs keep the UI smoke tests (`tools/smoke.ps1`), the installer and the PowerPoint add-in.
 
 ## Why these choices
 

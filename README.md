@@ -12,7 +12,7 @@ Pro countdown timer and show-calling tool for corporate events. Windows 10/11. P
 - [`docs/LICENSING.md`](docs/LICENSING.md) — trial / tiers / master serial / threat model
 - [`docs/COMPANION.md`](docs/COMPANION.md) — BitFocus Companion module spec
 - [`docs/POWERPOINT.md`](docs/POWERPOINT.md) — installing the PowerPoint add-in
-- [`docs/REMOTE.md`](docs/REMOTE.md) — browser pages, HTTP API, WebSocket, OSC, MCP, running order
+- [`docs/REMOTE.md`](docs/REMOTE.md) — browser pages, windows Stagewatch controls (`/w/<token>`), HTTP API, WebSocket, OSC, MCP, running order
 - [`docs/FEATURES.md`](docs/FEATURES.md) — what's new in 2.0 and how to use it
 
 ## Solution layout
@@ -30,7 +30,11 @@ src/
   Timer.PowerPoint/   VSTO ribbon + presenter overlay
 companion-module/     Bitfocus Companion module (TypeScript, @companion-module/base 2.1)
 tools/
-  KeyGen/             owner-only license generator
+  KeyGen/             owner-only license generator (kept on the maintainer's PC, never in the repo)
+  Stagewatch.Rig/     the headless rig: the real servers around a simulated show, on any OS
+  setup-dev.sh, test.sh   the Linux bench: install, then every test lane (docs/BUILD.md)
+tests/
+  Stagewatch.Tests/   the suite (dotnet run); e2e/ browser workflows (Playwright); UiSmoke/, PageShot/ smoke
 installer/
   Stagewatch.iss      Inno Setup script
 ```
@@ -72,6 +76,7 @@ Details: [`docs/LICENSING.md`](docs/LICENSING.md).
 | Quick messages, sound alerts, end-at (elastic) timing | ✅ | ❌ | ✅ | ✅ | ✅ |
 | Chroma-key / floating output, NDI output (needs the free NDI Runtime) | ✅ | ❌ | ✅ | ✅ | ✅ |
 | Holding images on every screen (output, NDI, browser screens) | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Windows: browser screens Stagewatch controls at their own addresses, with a holding page | ✅ | ❌ | ❌ | ✅ | ✅ |
 | Cue ladders, cue label, calm clock, colour-blind colours, briefing preview, placeholders | ✅ | ❌ | ✅ | ✅ | ✅ |
 | Running order (Next, auto-advance, ahead/behind, CSV import), schedule recovery, curfews | ✅ | ❌ | ❌ | ✅ | ✅ |
 | Browser viewer, remote and role pages, HTTP API, OSC, Bitfocus Companion | ✅ | ❌ | ❌ | ✅ | ✅ |

@@ -1,5 +1,6 @@
 # Stagewatch CI: every push and pull request builds everything, runs every test suite and the UI/page smoke tests,
-# and builds the installer and the Companion module. A tag like v2.11.1 also publishes a GitHub Release with them.
+# builds the installer and the Companion module, and runs the Linux bench (tools/test.sh). A tag like v2.11.1 also
+# publishes a GitHub Release with them.
 name: CI
 
 on:
@@ -88,10 +89,55 @@ jobs:
           path: artifacts/smoke
           if-no-files-found: warn
 
+  # The same lanes as the cloud bench (tools/test.sh): the solution built on Linux (WPF compiles; the suite names the
+  # checks it leaves to the Windows jobs), the Companion module and 3D display tests, and the browser workflows against
+  # the headless rig in Chromium's headless shell (windows, pages, every transport), with PageShot's screenshots.
+  linux:
+    name: Linux bench (suite, module, 3D, browser workflows)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            companion-module/package-lock.json
+            src/Timer.Remote/holo/package-lock.json
+            tests/e2e/package-lock.json
+
+      - name: Node packages and Chromium's headless shell (Playwright, pinned)
+        run: |
+          npm ci --no-audit --no-fund --prefix companion-module
+          npm ci --no-audit --no-fund --prefix src/Timer.Remote/holo
+          npm ci --no-audit --no-fund --prefix tests/e2e
+          cd tests/e2e && npx playwright install --with-deps --only-shell chromium
+
+      - name: Every lane (tools/test.sh)
+        env:
+          SW_E2E_OUT: ${{ github.workspace }}/artifacts/e2e
+        run: tools/test.sh build unit module holo e2e pageshot
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-screenshots-${{ github.sha }}
+          path: |
+            artifacts/e2e
+            artifacts/pages
+          if-no-files-found: warn
+
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-test-package, smoke]
+    needs: [build-test-package, smoke, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
