@@ -73,18 +73,44 @@ public sealed class WebServer : IAsyncDisposable
 
     // ------------------------------------------------------------------ screens
 
-    /// <summary>Every connected browser screen, grouped by its id (tabs of one browser count as one screen). Thread-safe.</summary>
+    /// <summary>
+    /// Every connected browser screen, grouped by its id (tabs of one browser count as one screen), and every claim (a
+    /// socket that named a node and proved nothing), flagged. A show app's node link is never a screen. Thread-safe.
+    /// </summary>
     public IReadOnlyList<ScreenInfo> ListScreens()
-        => _sockets.Keys.Where(c => c.WindowId is null).GroupBy(c => c.ScreenId)
+        => _sockets.Keys.Where(c => c.WindowId is null).Select(c => (Client: c, Link: c.Link)).Where(x => x.Link.Class != WsClass.Node)
+            .GroupBy(x => x.Link.ScreenId)
             .Select(g =>
             {
-                var first = g.OrderBy(c => c.ConnectedUtc).First();
+                var first = g.OrderBy(x => x.Client.ConnectedUtc).First();
                 var name = _control.ScreenName(g.Key) ?? "";
-                return new ScreenInfo(g.Key, name, first.Page, Screens.AddressOf(first.Remote), first.Device, first.ConnectedUtc,
-                    g.All(c => c.CanControl), g.Count());
+                // A claim's id is one no browser can take (Screens.ValidBrowserId); a group is still flagged if any member claims.
+                var claim = g.Select(x => x.Link.Claim).FirstOrDefault(c => c.Length > 0) ?? "";
+                return new ScreenInfo(g.Key, name, first.Client.Page, Screens.AddressOf(first.Client.Remote), first.Client.Device, first.Client.ConnectedUtc,
+                    g.All(x => x.Link.CanControl), g.Count(), claim);
             })
             .OrderBy(s => s.Control).ThenBy(s => s.Name.Length == 0).ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ThenBy(s => s.ConnectedUtc)
             .ToList();
+
+    /// <summary>
+    /// Every show app's node link on /ws: grouped by the id it named and what speaks for it (two installs are two rows, and
+    /// a key shared by both is one verified row and one that is not), or by its key when it named no id. Thread-safe.
+    /// </summary>
+    public IReadOnlyList<NodeLinkFact> ListNodes()
+    {
+        var keys = _control.ApiKeys;
+        return _sockets.Keys.Where(c => c.WindowId is null).Select(c => (Client: c, Link: c.Link)).Where(x => x.Link.Class == WsClass.Node)
+            .GroupBy(x => (x.Link.Node, x.Link.KeyId, x.Link.Verified))
+            .Select(g =>
+            {
+                var first = g.OrderBy(x => x.Client.ConnectedUtc).First();
+                var keyName = first.Link.KeyId is { } id ? keys.FirstOrDefault(k => k.Id == id)?.Name ?? "" : "";
+                return new NodeLinkFact(first.Link.Kind ?? "", first.Link.Node, first.Link.Verified, first.Link.KeyId, keyName,
+                    Screens.AddressOf(first.Client.Remote), first.Client.ConnectedUtc, g.Count(), first.Link.Words);
+            })
+            .OrderBy(n => n.Kind, StringComparer.Ordinal).ThenBy(n => n.Id ?? "", StringComparer.Ordinal).ThenBy(n => n.ConnectedUtc)
+            .ToList();
+    }
 
     /// <summary>Send screens to another page on this Stagewatch. Returns how many browser tabs were told. Never blocks.</summary>
     public int Redirect(IEnumerable<string> screenIds, string path)
@@ -99,7 +125,8 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>
     /// Disconnect screens: they're told to stay off (no automatic reconnect) and their sockets close. The page says so,
-    /// and reloading it reconnects — this is for a stray tablet, not a security wall (that's the viewing code).
+    /// and reloading it reconnects — this is for a stray tablet, not a security wall (that's the viewing code). A show
+    /// app's node link is never disconnected here, whatever id is passed (revoking its key is the wall).
     /// </summary>
     public int Disconnect(IEnumerable<string> screenIds)
     {
@@ -107,7 +134,7 @@ public sealed class WebServer : IAsyncDisposable
         var n = 0;
         foreach (var c in _sockets.Keys)
         {
-            if (!ids.Contains(c.ScreenId)) continue;
+            if (c.Link.Class == WsClass.Node || !ids.Contains(c.ScreenId)) continue;
             n++;
             _ = Task.Run(async () =>
             {
@@ -131,13 +158,14 @@ public sealed class WebServer : IAsyncDisposable
         return n;
     }
 
+    /// <summary>A screen message to the sockets with these screen ids. Never to a show app's node link, whatever id is passed.</summary>
     private int Push(IEnumerable<string> screenIds, byte[] payload)
     {
         var ids = new HashSet<string>(screenIds, StringComparer.OrdinalIgnoreCase);
         var n = 0;
         foreach (var c in _sockets.Keys)
         {
-            if (!ids.Contains(c.ScreenId)) continue;
+            if (c.Link.Class == WsClass.Node || !ids.Contains(c.ScreenId)) continue;
             n++;
             _ = Task.Run(async () => { try { await c.SendTextAsync(payload, CancellationToken.None); } catch { } });
         }
@@ -216,6 +244,7 @@ public sealed class WebServer : IAsyncDisposable
         Port = port;
         _cts = new CancellationTokenSource();
         _control.Snapshots.Subscribe(OnPublished);
+        _control.Nodes.Bound += OnBound;
         // Thread pool, not the caller's (UI) context: every request continuation would otherwise
         // resume on the WPF dispatcher — network I/O must never run on the show thread.
         _ = Task.Run(() => AcceptLoopAsync(listener, _cts.Token));
@@ -224,6 +253,7 @@ public sealed class WebServer : IAsyncDisposable
     public async Task StopAsync()
     {
         _control.Snapshots.Unsubscribe(OnPublished);
+        _control.Nodes.Bound -= OnBound;
         _cts?.Cancel();
         try { _listener?.Stop(); } catch { }
         _listener = null;
@@ -524,7 +554,7 @@ public sealed class WebServer : IAsyncDisposable
                 await WriteAsync(stream, 200, "application/json", JsonSerializer.SerializeToUtf8Bytes(new
                 {
                     screens = ListScreens().Select(s => new { id = s.Id, name = s.Name, page = s.Page, address = s.Address, device = s.Device,
-                        connected = s.ConnectedUtc.ToString("o"), control = s.Control, tabs = s.Tabs }),
+                        connected = s.ConnectedUtc.ToString("o"), control = s.Control, tabs = s.Tabs, claim = s.Claim }),
                     presets = _control.ScreenPresets.Select(p => new { name = p.Name, path = p.Path }),
                 }), ct, cors: true);
                 return;
@@ -1072,9 +1102,18 @@ public sealed class WebServer : IAsyncDisposable
     /// </summary>
     private string? CheckView(HttpRequest req, IPAddress remote)
     {
+        if (string.IsNullOrEmpty(_control.ViewCode)) return null;
+        return IsAuthorized(req, remote, ApiKeyScope.Read) ? null : ViewPass(req, remote);
+    }
+
+    /// <summary>
+    /// <see cref="CheckView"/> for a request whose PIN or key was already checked and did not open the view: only a crew
+    /// link, a window's address or the code itself may (so a wrong PIN is never counted twice).
+    /// </summary>
+    private string? ViewPass(HttpRequest req, IPAddress remote)
+    {
         var code = _control.ViewCode;
         if (string.IsNullOrEmpty(code)) return null;
-        if (IsAuthorized(req, remote, ApiKeyScope.Read)) return null;
         var (secret, _) = _control.CrewKeyPolicy;
         if (!string.IsNullOrEmpty(secret) && CrewKeys.IsAnyCrewKey(secret, _control.CrewDepartments, req.Query.GetValueOrDefault("key"))) return null;
         // The pages a window shows fetch with its address: the operator made the window, so it may view.
@@ -1086,8 +1125,11 @@ public sealed class WebServer : IAsyncDisposable
         if (supplied is not null && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(code))) return null;
         if (supplied is not null)
             _authFailures.AddOrUpdate(remote, _ => (1, now), (_, old) => now - old.WindowStartMs > 60_000 ? (1, now) : (old.Failures + 1, old.WindowStartMs));
-        return supplied is null ? "This screen needs the viewing code" : "Wrong viewing code";
+        return supplied is null ? NeedsViewCode : WrongViewCode;
     }
+
+    private const string NeedsViewCode = "This screen needs the viewing code";
+    private const string WrongViewCode = "Wrong viewing code";
 
     private static string DeptOf(ShowCommand cmd) => cmd.Get<DeptNoteArgs>().Department;
 
@@ -1131,9 +1173,11 @@ public sealed class WebServer : IAsyncDisposable
     /// Known gap, not this door's invariant: a valid key's request clears the address's count, so a key holder on that
     /// address can go on guessing the PIN below the lockout (counts per address and key close it). Null = allowed.
     /// </summary>
-    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need)
+    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need) => AuthorizeSecret(PinFrom(req), remote, need);
+
+    /// <summary><see cref="Authorize"/> for a secret already read from the request (a socket's Authorization header).</summary>
+    private Denied? AuthorizeSecret(string? supplied, IPAddress remote, ApiKeyScope need)
     {
-        var supplied = PinFrom(req);
         if (!ApiKeys.LooksLikeKey(supplied))
             return CheckPin(supplied, remote) is { } pinError ? new Denied(401, pinError) : null;
 
@@ -1199,30 +1243,118 @@ public sealed class WebServer : IAsyncDisposable
 
     // ------------------------------------------------------------------ WebSocket
 
+    /// <summary>
+    /// Moves on every <see cref="CredentialsChanged"/> and every binding made (<see cref="NodeBindings.Bound"/>), so a socket
+    /// let in meanwhile is checked again once it is listed.
+    /// </summary>
+    private int _credentialsVersion;
+
+    /// <summary>1 while a recheck for a binding made is queued and not yet started: bindings made together share one pass.</summary>
+    private int _boundRecheckQueued;
+
+    /// <summary>
+    /// The API keys or the PIN changed (owner thread, after the keys in force, the bindings and the PIN were swapped in):
+    /// every open socket a key or the PIN admitted is checked again at once (<see cref="NodeLinks.Recheck"/>). A revoked
+    /// key's socket drops to the public frame and hears "this key was revoked" (a node link becomes a claim); a moved
+    /// binding re-sends a node link's verdict; a changed PIN drops a control page to a viewer. Only the viewing code
+    /// closes. Never waits: each socket's own send loop says it.
+    /// </summary>
+    public void CredentialsChanged()
+    {
+        Interlocked.Increment(ref _credentialsVersion);
+        RecheckAll();
+    }
+
+    /// <summary>
+    /// A key came to speak for a node (a node's first use on any route, or the operator's choice): every open node link
+    /// that names that id, or uses that key, may hear a new verdict. Raised on whatever thread bound it, perhaps under a
+    /// socket's <see cref="WsClient.Gate"/>, so the pass is posted to the pool, never run here.
+    /// </summary>
+    private void OnBound(NodeBound bound)
+    {
+        Interlocked.Increment(ref _credentialsVersion);
+        if (Interlocked.Exchange(ref _boundRecheckQueued, 1) == 1) return;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            Volatile.Write(ref _boundRecheckQueued, 0);   // a binding made from here on queues a pass of its own
+            RecheckAll();
+        });
+    }
+
+    private void RecheckAll()
+    {
+        foreach (var c in _sockets.Keys) Recheck(c);
+    }
+
+    /// <summary>
+    /// One socket checked again against the keys, the PIN and the bindings as they are now, read under its gate, so of two
+    /// rechecks the later one reads the later state and its verdict is the last one posted.
+    /// </summary>
+    private void Recheck(WsClient client)
+    {
+        if (client.WindowId is not null) return;
+        lock (client.Gate)
+        {
+            var link = client.Link;
+            if (link.KeyId is null && link.PinHash is null) return;
+            var r = NodeLinks.Recheck(link, _control.ApiKeys, _control.Nodes, NodeLinks.PinHash(_pin()), ViewRefusalWithoutCredential(client));
+            if (ReferenceEquals(r.Link, link)) return;
+            client.Link = r.Link;
+            if (r.Message is not null) client.Post(r.Message, r.Close);
+        }
+        client.Signal();   // its send loop says so now, and sends the frame its new access reads
+    }
+
+    /// <summary>
+    /// Why a socket may no longer view once its key or PIN is gone (the viewing code's words), or null when it still passes
+    /// without them: no code set, a crew link, or the code it gave. Counts nothing.
+    /// </summary>
+    private string? ViewRefusalWithoutCredential(WsClient client)
+    {
+        var code = _control.ViewCode;
+        if (string.IsNullOrEmpty(code)) return null;
+        var (secret, _) = _control.CrewKeyPolicy;
+        if (!string.IsNullOrEmpty(secret) && CrewKeys.IsAnyCrewKey(secret, _control.CrewDepartments, client.CrewKey)) return null;
+        if (client.ViewGiven is not { } given) return NeedsViewCode;
+        return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(given), Encoding.UTF8.GetBytes(code)) ? null : WrongViewCode;
+    }
+
     private async Task HandleWebSocketAsync(Stream stream, HttpRequest req, IPAddress remote, CancellationToken ct)
     {
+        // A socket that names a node and asks for what a node link can't be (a window's, a PIN in the URL, control, a bad
+        // id or kind, this Stagewatch's own id) is refused before the upgrade and before any credential, window address or
+        // viewing code is checked, so it is never counted.
+        if (NodeLinks.BadRequest(req.Query, req.Headers.GetValueOrDefault("authorization"), _control.OwnNodeId) is { } bad)
+        {
+            await WriteJsonError(stream, 400, bad, ct);
+            return;
+        }
+        // Keys, the PIN or bindings that change from here on are checked again once this socket is listed.
+        var credentialsSeen = Volatile.Read(ref _credentialsVersion);
+
         // A window's link: its address names it and is its pass (it views, and sends only what any public page may). A
         // device locked out for wrong guesses is turned away for now, never told its address is gone.
         var winToken = req.Query.GetValueOrDefault("win");
         var lockedWindow = winToken is not null && LockedOut(remote);
         var window = winToken is null || lockedWindow ? null : WindowFor(winToken, remote);
 
+        var nodeAsked = req.Query.ContainsKey("node");
         var wantsControl = winToken is null && req.Query.GetValueOrDefault("role") == "control";
         // The PIN or a key may come in the Authorization header (Show Bus §7: never in a URL), or ?pin= from a browser.
         var supplied = winToken is not null ? null : BearerPin(req.Headers.GetValueOrDefault("authorization")) ?? req.Query.GetValueOrDefault("pin");
-        string? authError = null;
-        var readKey = false;
-        if (ApiKeys.LooksLikeKey(supplied))
-        {
-            // A control key controls; any other valid key reads the operator frame. Unknown or revoked keys are refused.
-            var asRead = Authorize(req, remote, ApiKeyScope.Read);
-            readKey = asRead is null;
-            if (!readKey) authError = asRead!.Error;
-            else if (wantsControl && ApiKeys.Find(_control.ApiKeys, supplied) is { } k && !ApiKeys.Allows(k.Scope, ApiKeyScope.Control))
-                authError = $"this API key is {ApiKeys.Describe(k.Scope)}";
-        }
-        else if (wantsControl) authError = CheckPin(supplied, remote);
-        var viewError = winToken is not null || (wantsControl && authError is null) || readKey ? null : CheckView(req, remote);
+        var pin = _pin();
+        var pinAsked = !string.IsNullOrEmpty(pin);
+        WsCredential credential;
+        if (winToken is not null) credential = WsCredential.None;
+        else if (ApiKeys.LooksLikeKey(supplied))
+            // Every valid key reads (what more it may do is its scope's); unknown or revoked keys are refused, never counted.
+            credential = AuthorizeSecret(supplied, remote, ApiKeyScope.Read) is { } denied
+                ? WsCredential.KeyRefused(denied.Error, denied.RetryAfter)
+                : ApiKeys.Find(_control.ApiKeys, supplied) is { } k ? WsCredential.Key(k.Id, k.Scope) : WsCredential.KeyRefused("unknown or revoked API key");
+        else if (pinAsked && (wantsControl || (nodeAsked && supplied is not null)))
+            // A control page, or a node link that brings the operator's PIN: a wrong PIN is a guess and counts.
+            credential = CheckPin(supplied, remote) is { } pinError ? WsCredential.PinRefused(pinError) : WsCredential.Pin;
+        else credential = WsCredential.None;   // a viewer's ?pin= is the viewing code's business, as it always was
 
         var key = req.Headers.GetValueOrDefault("sec-websocket-key") ?? "";
         var accept = Convert.ToBase64String(SHA1.HashData(Encoding.ASCII.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));
@@ -1236,7 +1368,6 @@ public sealed class WebServer : IAsyncDisposable
             KeepAliveInterval = TimeSpan.FromSeconds(15)
         });
         var detail = req.Query.GetValueOrDefault("detail") is "1" or "true";
-        var cid = req.Query.GetValueOrDefault("cid");
         if (winToken is not null && window is null)
         {
             // Revoked, deleted or never made: the screen says so and stops trying. Locked out: it tries again later.
@@ -1249,22 +1380,33 @@ public sealed class WebServer : IAsyncDisposable
             catch { }
             return;
         }
-        var client = new WsClient(ws, canControl: wantsControl && authError is null && window is null, window is not null || detail, remote)
+        WsAdmission admission;
+        if (window is not null) admission = new WsAdmission(new WsLink { BrowserId = Screens.WindowPrefix + window.Id }, null, false);
+        else
         {
-            ReadKey = readKey,
+            // A node link's cid and page are ignored: its node id is its identity.
+            var cid = nodeAsked ? null : req.Query.GetValueOrDefault("cid");
+            var browserId = Screens.ValidBrowserId(cid) ? cid! : "anon-" + Guid.NewGuid().ToString("N")[..8];
+            // A control page or a node link had its credential checked above: only a crew link or the code may open the
+            // view now. Any other screen is checked as it always was (its ?pin= or key included).
+            admission = NodeLinks.Admit(req.Query, credential, pinAsked, NodeLinks.PinHash(pin),
+                () => wantsControl || nodeAsked ? ViewPass(req, remote) : CheckView(req, remote), browserId, _control.Nodes, DateTime.UtcNow);
+        }
+        var client = new WsClient(ws, window is not null || detail, remote, admission.Link)
+        {
             CrewKey = window is null ? req.Query.GetValueOrDefault("key") : null,
-            ScreenId = window is not null ? "win-" + window.Id : Screens.ValidId(cid) ? cid! : "anon-" + Guid.NewGuid().ToString("N")[..8],
-            Page = window is not null ? "/w/" + window.Name : Screens.CleanPage(req.Query.GetValueOrDefault("page")),
+            ViewGiven = window is null ? req.Query.GetValueOrDefault("view") : null,
+            Page = window is not null ? "/w/" + window.Name : nodeAsked ? "/" : Screens.CleanPage(req.Query.GetValueOrDefault("page")),
             Device = Screens.Device(req.Headers.GetValueOrDefault("user-agent")),
             WindowId = window?.Id,
             WindowToken = window is null ? null : winToken,
         };
-        if (viewError is not null && window is null)
+        if (admission.Close)
         {
-            // Screens need the viewing code: say so (the page asks for it) and close.
+            // Screens need the viewing code: one message saying so (the page asks for it), then close.
             try
             {
-                await client.SendTextAsync(JsonSerializer.SerializeToUtf8Bytes(new { type = "auth", ok = false, view = true, error = viewError }), ct);
+                if (admission.First is { } refusal) await client.SendTextAsync(refusal, ct);
                 using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                 await ws.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "viewing code", closeCts.Token);
             }
@@ -1274,10 +1416,10 @@ public sealed class WebServer : IAsyncDisposable
         _sockets.TryAdd(client, 0);
         try
         {
-            if (wantsControl)
-                await client.SendTextAsync(authError is null
-                    ? "{\"type\":\"auth\",\"ok\":true}"u8.ToArray()
-                    : Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "auth", ok = false, error = authError })), ct);
+            // What this Stagewatch made of the socket comes before any frame: a control page's auth, a node link's verdict,
+            // a refused key's one refusal. A socket with an accepted key, or none, hears a frame first, as it always did.
+            if (admission.First is { } first) await client.SendTextAsync(first, ct);
+            if (Volatile.Read(ref _credentialsVersion) != credentialsSeen) Recheck(client);
 
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var send = SendLoopAsync(client, linked.Token);
@@ -1304,6 +1446,19 @@ public sealed class WebServer : IAsyncDisposable
         byte[]? lastWindow = null;
         while (!ct.IsCancellationRequested && client.Socket.State == WebSocketState.Open)
         {
+            // What a credential change made of this socket goes out before anything else, from this one sender, so the
+            // newest verdict is the last one heard; only the viewing code closes it.
+            if (client.TakePosted() is { } posted)
+            {
+                await client.SendTextAsync(posted.Json, ct);
+                if (posted.Close)
+                {
+                    using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                    try { await client.Socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "viewing code", closeCts.Token); }
+                    catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or ObjectDisposedException or IOException) { }
+                    return;
+                }
+            }
             // A window hears what to show before any frame, and again whenever that changes; an address that stopped
             // working (revoked, deleted) is told so and let go.
             if (client.WindowToken is { } token)
@@ -1465,31 +1620,55 @@ public sealed class WebServer : IAsyncDisposable
     {
         private readonly SemaphoreSlim _signal = new(0, 1);
         private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private volatile WsLink _link;
+        private Posted? _posted;
 
-        public WsClient(WebSocket socket, bool canControl, bool detail, IPAddress remote)
+        public WsClient(WebSocket socket, bool detail, IPAddress remote, WsLink link)
         {
             Socket = socket;
-            CanControl = canControl;
             Detail = detail;
             Remote = remote;
+            _link = link;
         }
 
         public WebSocket Socket { get; }
-        public bool CanControl { get; }
         /// <summary>Producer clients get the detail frame (projected running order, advice, Q&amp;A, rooms).</summary>
         public bool Detail { get; }
 
-        /// <summary>Operator frames only for a PIN-authenticated control connection; public pages get the public view.</summary>
-        public FrameAccess Access => !Detail ? FrameAccess.Public : CanControl || ReadKey ? FrameAccess.Operator : FrameAccess.PublicDetail;
+        /// <summary>
+        /// What this socket is (screen, claim or node link), what proved it and what it may do: set at admission and swapped
+        /// whole by a credential change (under <see cref="Gate"/>); every reader takes one copy.
+        /// </summary>
+        public WsLink Link { get => _link; set => _link = value; }
 
-        /// <summary>Connected with a valid API key: the operator frame, read-only unless the key controls.</summary>
-        public bool ReadKey { get; init; }
+        /// <summary>Held while a credential change works out this socket's new link, so two changes can't interleave.</summary>
+        public object Gate { get; } = new();
+
+        /// <summary>A control page let in by the PIN or a control key (or on a Stagewatch with no PIN), until that changes.</summary>
+        public bool CanControl => _link.CanControl;
+
+        /// <summary>
+        /// Operator frames for a control page and for a socket a key in force (or the PIN, on a node link) admitted, read-only
+        /// unless it controls; public pages get the public view.
+        /// </summary>
+        public FrameAccess Access => !Detail ? FrameAccess.Public : _link.CanControl || _link.OperatorRead ? FrameAccess.Operator : FrameAccess.PublicDetail;
 
         /// <summary>The crew link key this page was opened with (?key=), if any.</summary>
         public string? CrewKey { get; init; }
 
-        /// <summary>The browser's own id (kept in its storage), the page it shows and what it is — for Screens.</summary>
-        public string ScreenId { get; init; } = "";
+        /// <summary>The viewing code this page was opened with (?view=), if any: whether it still views once its key is gone.</summary>
+        public string? ViewGiven { get; init; }
+
+        /// <summary>The id Screens and the screen pushes use: a browser's own id (kept in its storage), a claim's, or a node link's.</summary>
+        public string ScreenId => _link.ScreenId;
+
+        /// <summary>One message a credential change left for the send loop (latest wins), and whether the socket closes after it.</summary>
+        public sealed record Posted(byte[] Json, bool Close);
+
+        public void Post(byte[] json, bool close) => Volatile.Write(ref _posted, new Posted(json, close));
+
+        public Posted? TakePosted() => Interlocked.Exchange(ref _posted, null);
+
         /// <summary>The controlled window this link belongs to (null for an ordinary screen), and the address it came in on.</summary>
         public string? WindowId { get; init; }
         public string? WindowToken { get; init; }

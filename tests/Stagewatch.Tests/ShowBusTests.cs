@@ -29,7 +29,20 @@ static class ShowBusTests
                 : new CommandReceipt(id, true, "applied", "Message on the speaker screen", null, new Dictionary<string, long> { ["messageId"] = 12 }));
         }
         // One set of bindings for every node route, as the desk keeps them.
-        public NodeBindings Nodes { get; } = new();
+        private readonly NodeBindings _nodes = new();
+        /// <summary>
+        /// Run once, at the next read of <see cref="Nodes"/>: a /ws admission reads the bindings after the socket's
+        /// credential was checked and before it is listed, the moment a credential change could slip between the two.
+        /// </summary>
+        public Action? OnNextNodesRead;
+        public NodeBindings Nodes
+        {
+            get
+            {
+                Interlocked.Exchange(ref OnNextNodesRead, null)?.Invoke();
+                return _nodes;
+            }
+        }
         public readonly PeerContexts Peers;
         public readonly ProposalDesk Desk;
         public BusControl()
@@ -59,6 +72,9 @@ static class ShowBusTests
                 ? (409, JsonSerializer.Serialize(new { ok = false, error = e })) : (200, "{\"ok\":true}");
         }
         public string? ContextJson() => "{\"v\":1,\"node\":{\"t\":\"main\",\"id\":\"abc123abc123\",\"name\":\"Hall A\"},\"light\":\"green\",\"headline\":\"Keynote\"}";
+        public string? OwnNodeId => "abc123abc123";
+        public volatile string? View;
+        public string? ViewCode => View;
         public (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)
             => Peers.Accept(json, address, DateTime.UtcNow, "abc123abc123", Seen(credential));
     }

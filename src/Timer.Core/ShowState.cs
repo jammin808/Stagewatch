@@ -577,6 +577,9 @@ public interface IShowContext
     /// <summary>This node's context (the §6 JSON), or null when there isn't one.</summary>
     string? ContextJson() => null;
 
+    /// <summary>This node's own Show Bus id (its hello's), or null when it has none: no node link may name it.</summary>
+    string? OwnNodeId => null;
+
     /// <summary>
     /// A peer posted its context with <paramref name="credential"/>, what the request proved (Show Bus §11). Status 200
     /// with the proof the context is held with; 400 when it isn't a context this node can hold; 403 when the credential

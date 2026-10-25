@@ -1,6 +1,8 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Stagewatch.Core;
+using Stagewatch.Remote;
 
 /// <summary>
 /// One node key speaks for one node id (Show Bus §11): the bindings, the contexts and the approval desk on them. Pure, on
@@ -25,6 +27,10 @@ static class NodeTests
         Refusals(Check);
         Keys(Check);
         Gate(Check);
+        BadRequests(Check);
+        Links(Check);
+        Rechecks(Check);
+        Targets(Check);
     }
 
     /// <summary>
@@ -423,5 +429,339 @@ static class NodeTests
               && JsonSerializer.Deserialize<ApiKey>(json) is { Node: "9f8e7d6c", NodeKind: "patterns" },
               $"keys: node and nodeKind are appended to a key in settings, and absent on other keys ({json})");
         Check(!json.Contains(ApiKeys.Prefix, StringComparison.Ordinal), "keys: the settings entry holds no secret");
+    }
+
+    // ------------------------------------------------------------------ node links on /ws (Show Bus §7.1)
+
+    /// <summary>A /ws query as the server reads it (keys ignore case, a repeated key keeps the last value).</summary>
+    static IReadOnlyDictionary<string, string> Query(string query)
+    {
+        var q = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = pair.IndexOf('=');
+            q[eq >= 0 ? pair[..eq] : pair] = eq >= 0 ? Uri.UnescapeDataString(pair[(eq + 1)..]) : "";
+        }
+        return q;
+    }
+
+    static string Text(byte[]? bytes) => bytes is null ? "" : Encoding.UTF8.GetString(bytes);
+
+    /// <summary>
+    /// Admit a socket with the PIN 4321 asked for (or none), its viewing-code answer <paramref name="view"/>; the count
+    /// says how often the viewing code was asked.
+    /// </summary>
+    static WsAdmission Admit(NodeBindings nodes, string query, WsCredential credential, bool pinAsked = true, string? view = null, int[]? asked = null)
+        => NodeLinks.Admit(Query(query), credential, pinAsked, NodeLinks.PinHash(pinAsked ? "4321" : null),
+            () => { if (asked is not null) asked[0]++; return view; }, "browser01", nodes, T0);
+
+    /// <summary>What names a node and can't be a node link is refused before the upgrade, before anything is checked or counted.</summary>
+    static void BadRequests(Action<bool, string> Check)
+    {
+        string? Bad(string query, string? authorization = null) => NodeLinks.BadRequest(Query(query), authorization, "abc123abc123");
+        Check(Bad("node=pat1&t=patterns&win=abc") == NodeLinks.WindowNotNode && Bad("node=pat1&t=patterns", "Window k7f3") == NodeLinks.WindowNotNode
+              && Bad("node=pat1&t=patterns", "window k7f3") == NodeLinks.WindowNotNode,
+              "links: a window's address with a node, in the URL or the Authorization header, is a 400");
+        Check(Bad("node=pat1&t=patterns&pin=swk_abc") == NodeLinks.PinInUrl && Bad("node=pat1&t=patterns&pin=4321") == NodeLinks.PinInUrl,
+              "links: a node link's key or PIN in the URL is a 400 (the Authorization header carries it)");
+        Check(Bad("node=pat1&t=patterns&role=control") == NodeLinks.NodeDoesNotControl, "links: a node link that asks to control is a 400");
+        Check(Bad("node=&t=patterns") == NodeLinks.BadId && Bad("node=has%20space&t=patterns") == NodeLinks.BadId && Bad("node=" + new string('a', 41) + "&t=patterns") == NodeLinks.BadId,
+              "links: a bad node id is a 400");
+        Check(Bad("node=pat1") == NodeLinks.BadKind && Bad("node=pat1&t=") == NodeLinks.BadKind && Bad("node=pat1&t=Bad%20Kind!") == NodeLinks.BadKind
+              && Bad("node=pat1&t=" + new string('p', 17)) == NodeLinks.BadKind,
+              "links: a missing or bad kind is a 400");
+        Check(Bad("node=abc123abc123&t=main") == NodeLinks.OwnId && NodeLinks.BadRequest(Query("node=abc123abc123&t=main"), null, null) is null,
+              "links: this Stagewatch's own id is a 400 (when it has one)");
+        Check(Bad("node=pat1&t=patterns&cid=pat1&page=/patterns&detail=1", "Bearer swk_x") is null && Bad("cid=lobby01&win=abc&pin=1&role=control", "Window x") is null,
+              "links: a good node link passes, and a socket that names no node is never refused here");
+    }
+
+    /// <summary>The admission matrix: what each credential makes of a socket that names a node, and of one that names none.</summary>
+    static void Links(Action<bool, string> Check)
+    {
+        var nodes = new NodeBindings();
+        var k1 = WsCredential.Key("k1", ApiKeyScope.Node);
+        var k2 = WsCredential.Key("k2", ApiKeyScope.Node);
+
+        // A node key: the verdict before any frame; its first proven use binds it.
+        var a = Admit(nodes, "node=pat1&t=patterns&cid=pat1&page=/patterns&detail=1", k1);
+        Check(a is { Close: false, Link: { Class: WsClass.Node, Node: "pat1", Kind: "patterns", Verified: NodeProof.Key, Words: null, KeyId: "k1", Scope: "node", OperatorRead: true, CanControl: false, PinHash: null } }
+              && Text(a.First) == "{\"type\":\"auth\",\"ok\":true,\"scope\":\"node\",\"node\":{\"t\":\"patterns\",\"id\":\"pat1\",\"verified\":\"key\"}}"
+              && nodes.NodeOf("k1") == ("patterns", "pat1"),
+              $"links: a node key makes a node link, verified by key, bound on its first proven use; it hears the verdict first ({Text(a.First)})");
+        Check(a.Link.ScreenId == "node:pat1" && !Screens.ValidId(a.Link.ScreenId) && a.Link.Claim == "",
+              "links: a node link's screen id is one no browser can have");
+
+        // The shared key keeps the frames: a node link with no verified id, and the binding's words.
+        var shared = Admit(nodes, "node=pat2&t=patterns", k1);
+        using (var d = JsonDocument.Parse(shared.First!))
+            Check(shared is { Close: false, Link: { Class: WsClass.Node, Node: "pat2", Verified: NodeProof.None, OperatorRead: true } }
+                  && d.RootElement.GetProperty("ok").GetBoolean() && d.RootElement.GetProperty("node").GetProperty("verified").GetString() == "none"
+                  && d.RootElement.GetProperty("words").GetString() == "this key speaks for patterns pat1 — make a key for patterns pat2"
+                  && shared.Link.Words == d.RootElement.GetProperty("words").GetString()
+                  && nodes.NodeOf("k1") == ("patterns", "pat1") && nodes.LastRefused("k1") is { Id: "pat2" },
+                  $"links: a key bound to another node keeps its frames, verified none with the binding's words, and the refusal is kept for the operator ({Text(shared.First)})");
+        var other = Admit(nodes, "node=pat1&t=patterns", k2);
+        Check(other.Link is { Class: WsClass.Node, Verified: NodeProof.None, Words: "patterns pat1 speaks with its own key" } && nodes.NodeOf("k2") is null,
+              "links: another key for a bound id is a node link verified none, and binds nothing");
+
+        // The operator's credential: a control key or the PIN.
+        var ctl = Admit(nodes, "node=ag1&t=messenger", WsCredential.Key("c1", ApiKeyScope.Control));
+        var ctlBound = Admit(nodes, "node=pat1&t=patterns", WsCredential.Key("c1", ApiKeyScope.Control));
+        Check(ctl.Link is { Class: WsClass.Node, Verified: NodeProof.Operator, Scope: "control", Words: null, CanControl: false } && nodes.KeyOf("ag1") is null
+              && Text(ctl.First).Contains("\"scope\":\"control\"", StringComparison.Ordinal) && Text(ctl.First).Contains("\"verified\":\"operator\"", StringComparison.Ordinal)
+              && ctlBound.Link is { Class: WsClass.Node, Verified: NodeProof.None, Words: "patterns pat1 speaks with its own key" },
+              "links: a control key speaks for a free id as the operator (it reads, it never controls there), and not for a key-bound one");
+        var pin = Admit(nodes, "node=ag2&t=messenger", WsCredential.Pin);
+        var bareHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes("4321"))).ToLowerInvariant();
+        Check(pin.Link is { Class: WsClass.Node, Verified: NodeProof.Operator, Scope: "pin", OperatorRead: true, KeyId: null } && pin.Link.PinHash == NodeLinks.PinHash("4321")
+              && pin.Link.PinHash != "4321" && Admit(nodes, "node=pat1&t=patterns", WsCredential.Pin).Link is { Class: WsClass.Node, Verified: NodeProof.None },
+              "links: the PIN speaks for a free id as the operator; the link keeps a mark of it, never the PIN");
+        Check(NodeLinks.PinHash("4321") != bareHash && NodeLinks.PinHash("4321") != NodeLinks.PinHash("4322") && NodeLinks.PinHash("4321").Length == 64 && NodeLinks.PinHash("") == "",
+              "links: a PIN's mark is keyed (not a bare hash a 4-digit PIN could be read back from), and tells PINs apart");
+        var wrong = Admit(nodes, "node=ag3&t=messenger", WsCredential.PinRefused("wrong PIN"));
+        Check(wrong is { Close: false, Link: { Class: WsClass.Claim, OperatorRead: false, PinHash: null } }
+              && Text(wrong.First) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"wrong PIN\",\"retry\":60}",
+              $"links: a wrong PIN is one refusal with a retry, and the socket stays a claim with the public frame ({Text(wrong.First)})");
+
+        // What proves nothing about a node is a claim: in Screens, flagged, out of 'all'.
+        var read = Admit(nodes, "node=pat9&t=patterns", WsCredential.Key("r1", ApiKeyScope.Read));
+        var mcp = Admit(nodes, "node=pat9&t=patterns", WsCredential.Key("m1", ApiKeyScope.Mcp));
+        var none = Admit(nodes, "node=pat9&t=patterns&cid=browser99", WsCredential.None);
+        Check(read.Link is { Class: WsClass.Claim, Verified: NodeProof.None, Words: NodeLinks.ReadKey, Scope: "read", OperatorRead: true }
+              && mcp.Link is { Class: WsClass.Claim, Scope: "mcp" } && none.Link is { Class: WsClass.Claim, Words: NodeLinks.NoKey, Scope: "none", OperatorRead: false },
+              "links: a read or MCP key, or nothing, only claims the id");
+        Check(none.Link.ScreenId == NodeLinks.ClaimId("patterns", "pat9") && read.Link.ScreenId == none.Link.ScreenId && Screens.ValidId(none.Link.ScreenId)
+              && none.Link.ScreenId.StartsWith("claim-", StringComparison.Ordinal) && none.Link.ScreenId.Length == 18 && none.Link.Claim == "patterns pat9",
+              $"links: a claim is listed under one id for what it claims (reachable by that id), flagged with it ({none.Link.ScreenId})");
+        Check(!Screens.ValidBrowserId(none.Link.ScreenId) && !Screens.ValidBrowserId(none.Link.ScreenId.ToUpperInvariant()) && !Screens.ValidBrowserId("win-abc123")
+              && Screens.ValidBrowserId("lobbytv01") && Screens.ValidBrowserId("claimant01"),
+              "links: no browser may choose a claim's id or a window's (case aside), so none is grouped with one or pushed to as one");
+        using (var d = JsonDocument.Parse(none.First!))
+            Check(d.RootElement.GetProperty("ok").GetBoolean() && d.RootElement.GetProperty("scope").GetString() == "none"
+                  && d.RootElement.GetProperty("node").GetProperty("verified").GetString() == "none" && d.RootElement.GetProperty("words").GetString() == NodeLinks.NoKey,
+                  $"links: a claim hears the verdict too: verified none, and why ({Text(none.First)})");
+        Check(nodes.KeyOf("pat9") is null && nodes.LastRefused("r1") is null, "links: a claim binds nothing and is no refusal");
+        var unknown = Admit(nodes, "node=ag4&t=messenger", WsCredential.KeyRefused("unknown or revoked API key"));
+        var rate = Admit(nodes, "node=ag4&t=messenger", WsCredential.KeyRefused("rate limit: too many requests with this key", 37));
+        Check(unknown is { Close: false, Link: { Class: WsClass.Claim, KeyId: null, OperatorRead: false } }
+              && Text(unknown.First) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"unknown or revoked API key\",\"retry\":60}"
+              && Text(rate.First).EndsWith(",\"retry\":37}", StringComparison.Ordinal),
+              $"links: a refused key hears one refusal with when to try again, and stays open with the public frame ({Text(unknown.First)})");
+
+        // The viewing code: only it closes, after one message.
+        var asked = new int[1];
+        var viewKey = Admit(nodes, "node=ag5&t=messenger", WsCredential.KeyRefused("unknown or revoked API key"), view: "This screen needs the viewing code", asked: asked);
+        using (var d = JsonDocument.Parse(viewKey.First!))
+            Check(viewKey.Close && asked[0] == 1
+                  && Text(viewKey.First) == "{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"This screen needs the viewing code\",\"retry\":60,\"refused\":\"unknown or revoked API key\"}"
+                  && d.RootElement.GetProperty("view").GetBoolean() && d.RootElement.GetProperty("error").GetString() == "This screen needs the viewing code"
+                  && d.RootElement.GetProperty("refused").GetString() == "unknown or revoked API key" && d.RootElement.GetProperty("retry").GetInt32() == 60,
+                  $"links: a refused key where a viewing code is needed: one message saying both (the viewing code's words as its error, the key's after), then close ({Text(viewKey.First)})");
+        var viewNone = Admit(nodes, "node=ag5&t=messenger", WsCredential.None, view: "This screen needs the viewing code");
+        Check(viewNone.Close && Text(viewNone.First) == "{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"This screen needs the viewing code\"}",
+              "links: a keyless node link where a viewing code is needed gets the one message screens get, then close");
+        asked[0] = 0;
+        var viewed = Admit(nodes, "node=ag6&t=messenger", WsCredential.Key("k6", ApiKeyScope.Node), view: "This screen needs the viewing code", asked: asked);
+        Check(!viewed.Close && asked[0] == 0 && viewed.Link.Verified == NodeProof.Key && Admit(nodes, "node=ag7&t=messenger", WsCredential.Pin, view: "x", asked: asked) is { Close: false } && asked[0] == 0,
+              "links: a node key or the PIN opens the viewing code; it is never asked");
+
+        // A socket that names no node: today's rules, and a node key still leaves the screens.
+        var legacyNode = Admit(nodes, "cid=patterns&page=/patterns", WsCredential.Key("k3", ApiKeyScope.Node));
+        Check(legacyNode is { First: null, Close: false, Link: { Class: WsClass.Node, Node: null, Verified: NodeProof.None, Words: NodeLinks.NamesNoId } }
+              && legacyNode.Link.ScreenId == "key:k3" && nodes.NodeOf("k3") is null,
+              "links: a node key that names no node is a show app listed under its key: no message, no id asserted, nothing bound");
+        var legacyRead = Admit(nodes, "detail=1&cid=dashboard1", WsCredential.Key("r1", ApiKeyScope.Read));
+        Check(legacyRead is { First: null, Link: { Class: WsClass.Screen, OperatorRead: true, ScreenId: "browser01" } },
+              "links: an accepted key that names no node hears nothing new (its first message is a frame)");
+        var legacyBad = Admit(nodes, "cid=dashboard1", WsCredential.KeyRefused("unknown or revoked API key"));
+        Check(legacyBad is { Close: false, Link: { Class: WsClass.Screen, OperatorRead: false } }
+              && Text(legacyBad.First) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"unknown or revoked API key\",\"retry\":60}",
+              "links: a refused key that names no node hears the one refusal and stays a viewer");
+        Check(Admit(nodes, "cid=lobbytv01&page=/viewer", WsCredential.None) is { First: null, Close: false, Link: { Class: WsClass.Screen, CanControl: false } },
+              "links: a browser hears nothing new");
+
+        // Control pages keep their auth messages.
+        var page = Admit(nodes, "role=control&pin=4321", WsCredential.Pin);
+        Check(page is { Link: { CanControl: true, Class: WsClass.Screen } } && Text(page.First) == "{\"type\":\"auth\",\"ok\":true}" && page.Link.PinHash == NodeLinks.PinHash("4321"),
+              "links: a control page with the PIN controls, and hears ok");
+        var pageWrong = Admit(nodes, "role=control&pin=0000", WsCredential.PinRefused("wrong PIN"));
+        var pageNone = Admit(nodes, "role=control", WsCredential.None);
+        var pageRead = Admit(nodes, "role=control", WsCredential.Key("r1", ApiKeyScope.Read));
+        var pageOpen = Admit(nodes, "role=control", WsCredential.None, pinAsked: false);
+        Check(Text(pageWrong.First) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"wrong PIN\"}" && !pageWrong.Link.CanControl
+              && Text(pageNone.First) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"PIN required\"}"
+              && Text(pageRead.First).Contains("this API key is read only", StringComparison.Ordinal) && pageRead.Link is { CanControl: false, OperatorRead: true }
+              && pageOpen.Link is { CanControl: true, PinHash: "" },
+              "links: a control page's refusals are as before (no retry: a person reads them); with no PIN asked for, it controls");
+        var pageView = Admit(nodes, "role=control&pin=0000", WsCredential.PinRefused("wrong PIN"), view: "This screen needs the viewing code");
+        Check(pageView.Close && Text(pageView.First) == "{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"This screen needs the viewing code\"}",
+              "links: a control page refused where a viewing code is needed hears what screens hear, then closes");
+    }
+
+    /// <summary>Keys or the PIN changed: what each open socket becomes, and the one message it hears (or none).</summary>
+    static void Rechecks(Action<bool, string> Check)
+    {
+        var nodes = new NodeBindings();
+        var dash = new ApiKey { Id = "r1", Name = "Dashboard", Scope = ApiKeyScope.Read, Hash = new string('a', 64) };
+        var keys = new[] { NodeKey("k1", null, null), NodeKey("k2", null, null), NodeKey("k3", null, null), dash };
+        nodes.Keep(keys);
+        var hash = NodeLinks.PinHash("4321");
+        var link = Admit(nodes, "node=pat1&t=patterns", WsCredential.Key("k1", ApiKeyScope.Node)).Link;
+
+        const string needsView = "This screen needs the viewing code";
+        var same = NodeLinks.Recheck(link, keys, nodes, hash, viewRefusal: null);
+        Check(ReferenceEquals(same.Link, link) && same.Message is null && !same.Close, "recheck: nothing changed, nothing said");
+
+        // The operator moves the binding: the link hears a fresh verdict, latest wins; a re-read records no refusal.
+        nodes.Rebind("k2", "patterns", "pat1");
+        var moved = NodeLinks.Recheck(link, keys, nodes, hash, null);
+        Check(moved is { Close: false, Link: { Class: WsClass.Node, Verified: NodeProof.None, Words: "patterns pat1 speaks with its own key" } }
+              && Text(moved.Message).Contains("\"verified\":\"none\"", StringComparison.Ordinal) && Text(moved.Message).Contains("speaks with its own key", StringComparison.Ordinal)
+              && nodes.LastRefused("k1") is null,
+              $"recheck: a binding moved off the link's key: a fresh verdict, verified none, and no refusal recorded ({Text(moved.Message)})");
+        nodes.Rebind("k1", "patterns", "pat1");
+        var back = NodeLinks.Recheck(moved.Link, keys, nodes, hash, null);
+        Check(back.Link is { Verified: NodeProof.Key, Words: null } && Text(back.Message).Contains("\"verified\":\"key\"", StringComparison.Ordinal)
+              && !Text(back.Message).Contains("words", StringComparison.Ordinal),
+              "recheck: moved back by the operator, the link hears it is verified by key again");
+
+        // A key revoked: one refusal, the public frame; a node link becomes a claim. Only the viewing code closes.
+        var noK1 = keys.Where(k => k.Id != "k1").ToArray();
+        var gone = NodeLinks.Recheck(back.Link, noK1, nodes, hash, viewRefusal: null);
+        Check(gone is { Close: false, Link: { Class: WsClass.Claim, KeyId: null, OperatorRead: false, Verified: NodeProof.None, Scope: "none" } }
+              && Text(gone.Message) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"this key was revoked\",\"retry\":60}"
+              && gone.Link.ScreenId == NodeLinks.ClaimId("patterns", "pat1"),
+              $"recheck: a revoked key's node link hears so once, keeps the public frame, and is a claim from now on ({Text(gone.Message)})");
+        var goneView = NodeLinks.Recheck(back.Link, noK1, nodes, hash, viewRefusal: needsView);
+        Check(goneView.Close && Text(goneView.Message) == "{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"This screen needs the viewing code\",\"retry\":60,\"refused\":\"this key was revoked\"}",
+              $"recheck: where a viewing code is set and it has no other pass, the one message carries view, the code's words and the key's, and it closes ({Text(goneView.Message)})");
+        Check(NodeLinks.Recheck(gone.Link, noK1, nodes, hash, null) is { Message: null } again && ReferenceEquals(again.Link, gone.Link),
+              "recheck: a link already dropped hears nothing more");
+        var board = Admit(nodes, "detail=1&cid=dashboard1", WsCredential.Key("r1", ApiKeyScope.Read)).Link;
+        var boardGone = NodeLinks.Recheck(board, keys.Where(k => k.Id != "r1").ToArray(), nodes, hash, null);
+        Check(boardGone is { Close: false, Link: { Class: WsClass.Screen, OperatorRead: false, ScreenId: "browser01" } }
+              && Text(boardGone.Message).Contains("this key was revoked", StringComparison.Ordinal),
+              "recheck: a keyed dashboard (no node) hears the same and drops to the public frame");
+        var keyed = Admit(nodes, "cid=patterns", WsCredential.Key("k3", ApiKeyScope.Node)).Link;
+        nodes.Speak(NodeCredential.Key("k3"), "patterns", "pat3", T0);   // its own context POST binds its key
+        Check(NodeLinks.Recheck(keyed, keys, nodes, hash, null) is { Message: null } kept && ReferenceEquals(kept.Link, keyed),
+              "recheck: a node key that names no node is untouched when its own context binds its key");
+        Check(NodeLinks.Recheck(keyed, keys.Where(k => k.Id != "k3").ToArray(), nodes, hash, null).Link is { Class: WsClass.Screen, ScreenId: "browser01" },
+              "recheck: revoked, it is a screen again under its browser's id");
+
+        // The PIN changed: what the PIN admitted drops to a viewer.
+        var page = Admit(nodes, "role=control&pin=4321", WsCredential.Pin).Link;
+        Check(NodeLinks.Recheck(page, keys, nodes, hash, null) is { Message: null } pageSame && ReferenceEquals(pageSame.Link, page), "recheck: the same PIN, nothing said");
+        var pageChanged = NodeLinks.Recheck(page, keys, nodes, NodeLinks.PinHash("9999"), null);
+        Check(pageChanged is { Close: false, Link: { CanControl: false, OperatorRead: false, PinHash: null } }
+              && Text(pageChanged.Message) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"the PIN changed — enter the new one\"}"
+                  .Replace("—", "\\u2014", StringComparison.Ordinal),
+              $"recheck: a new PIN drops a control page to a viewer, and its page asks again ({Text(pageChanged.Message)})");
+        var open = Admit(nodes, "role=control", WsCredential.None, pinAsked: false).Link;
+        Check(NodeLinks.Recheck(open, keys, nodes, hash, null).Link is { CanControl: false },
+              "recheck: a PIN set where there was none drops a control page let in without one");
+        Check(NodeLinks.Recheck(page, keys, nodes, "", null) is { Message: null, Link: { CanControl: true, PinHash: "" } },
+              "recheck: the PIN taken away: a control page keeps on, as any page may now");
+        var byPin = Admit(nodes, "node=ag7&t=messenger", WsCredential.Pin).Link;
+        var byPinChanged = NodeLinks.Recheck(byPin, keys, nodes, NodeLinks.PinHash("9999"), null);
+        var byPinOpen = NodeLinks.Recheck(byPin, keys, nodes, "", null);
+        Check(byPinChanged.Link is { Class: WsClass.Claim, OperatorRead: false } && Text(byPinChanged.Message).EndsWith(",\"retry\":60}", StringComparison.Ordinal)
+              && byPinOpen.Link is { Class: WsClass.Claim, Words: NodeLinks.NoKey } && Text(byPinOpen.Message).Contains("\"scope\":\"none\"", StringComparison.Ordinal),
+              "recheck: a node link the PIN admitted is a claim once the PIN changes (refused, with a retry) or is taken away (verdict: only claimed)");
+        var screen = Admit(nodes, "cid=lobbytv01", WsCredential.None).Link;
+        Check(ReferenceEquals(NodeLinks.Recheck(screen, Array.Empty<ApiKey>(), nodes, "", needsView).Link, screen), "recheck: a socket nothing admitted is never touched");
+        var pageView = NodeLinks.Recheck(page, keys, nodes, NodeLinks.PinHash("9999"), needsView);
+        Check(pageView.Close && Text(pageView.Message) == "{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"This screen needs the viewing code\",\"refused\":\"the PIN changed — enter the new one\"}"
+                  .Replace("—", "\\u2014", StringComparison.Ordinal),
+              $"recheck: a new PIN where a viewing code is set: the page asks for the code under its own words, the PIN's after, and closes ({Text(pageView.Message)})");
+
+        // A node link the PIN or a control key admitted speaks as the operator only while no key speaks for its id.
+        var pinLink = Admit(nodes, "node=pm1&t=playmap", WsCredential.Pin).Link;
+        Check(pinLink is { Class: WsClass.Node, Verified: NodeProof.Operator } && NodeLinks.Recheck(pinLink, keys, nodes, hash, null) is { Message: null } pinSame && ReferenceEquals(pinSame.Link, pinLink),
+              "recheck: a PIN's node link, nothing changed: nothing said");
+        nodes.Rebind("k2", "playmap", "pm1");
+        var pinMoved = NodeLinks.Recheck(pinLink, keys, nodes, hash, null);
+        Check(pinMoved is { Close: false, Link: { Class: WsClass.Node, Verified: NodeProof.None, Words: "playmap pm1 speaks with its own key", OperatorRead: true } }
+              && Text(pinMoved.Message) == "{\"type\":\"auth\",\"ok\":true,\"scope\":\"pin\",\"node\":{\"t\":\"playmap\",\"id\":\"pm1\",\"verified\":\"none\"},\"words\":\"playmap pm1 speaks with its own key\"}",
+              $"recheck: the operator lets a key speak for a PIN link's id: a fresh verdict, verified none, with the binding's words ({Text(pinMoved.Message)})");
+        var c1 = new ApiKey { Id = "c1", Name = "Desk", Scope = ApiKeyScope.Control, Hash = new string('c', 64) };
+        var withCtl = keys.Append(c1).ToArray();
+        var ctlLink = Admit(nodes, "node=ag8&t=messenger", WsCredential.Key("c1", ApiKeyScope.Control)).Link;
+        nodes.Speak(NodeCredential.Key("k1"), "messenger", "ag8", T0);   // a key used anywhere fails: k1 already speaks for pat1
+        Check(NodeLinks.Recheck(ctlLink, withCtl, nodes, hash, null) is { Message: null } ctlSame && ReferenceEquals(ctlSame.Link, ctlLink),
+              "recheck: a control key's node link: a key refused for its id changes nothing");
+        nodes.Keep(withCtl.Append(NodeKey("k4", null, null)));
+        nodes.Speak(NodeCredential.Key("k4"), "messenger", "ag8", T0);  // another key's first use takes the id
+        Check(NodeLinks.Recheck(ctlLink, withCtl, nodes, hash, null) is { Close: false, Link: { Verified: NodeProof.None, Words: "messenger ag8 speaks with its own key", Scope: "control" } } ctlTaken
+              && Text(ctlTaken.Message).Contains("\"verified\":\"none\"", StringComparison.Ordinal),
+              "recheck: a control key's node link hears verified none once a key's first use takes its id");
+
+        // A key the bindings freed binds to its standing link's id, as that link's admission would have.
+        var fresh = new NodeBindings();
+        var nodeKeys = new[] { NodeKey("k1", null, null), NodeKey("k2", null, null), NodeKey("k3", null, null) };
+        fresh.Keep(nodeKeys);
+        var holder = Admit(fresh, "node=pat1&t=patterns", WsCredential.Key("k1", ApiKeyScope.Node)).Link;
+        var waiting = Admit(fresh, "node=pat1&t=patterns", WsCredential.Key("k2", ApiKeyScope.Node));
+        var third = Admit(fresh, "node=pat1&t=patterns", WsCredential.Key("k3", ApiKeyScope.Node)).Link;
+        var refusedAt = fresh.LastRefused("k2")?.AtUtc;
+        Check(holder.Verified == NodeProof.Key && waiting.Link is { Verified: NodeProof.None, Words: "patterns pat1 speaks with its own key" } && fresh.NodeOf("k2") is null,
+              "recheck: a second key for a bound id waits, verified none, bound to nothing");
+        var bound = new List<NodeBound>();
+        fresh.Bound += b => bound.Add(b);
+        var noHolder = nodeKeys.Where(k => k.Id != "k1").ToArray();
+        fresh.Keep(noHolder);
+        var taken = NodeLinks.Recheck(waiting.Link, noHolder, fresh, hash, null);
+        var stillWaiting = NodeLinks.Recheck(third, noHolder, fresh, hash, null);
+        Check(taken is { Close: false, Link: { Class: WsClass.Node, Verified: NodeProof.Key, Words: null } } && Text(taken.Message) == "{\"type\":\"auth\",\"ok\":true,\"scope\":\"node\",\"node\":{\"t\":\"patterns\",\"id\":\"pat1\",\"verified\":\"key\"}}"
+              && fresh.NodeOf("k2") == ("patterns", "pat1") && fresh.KeyOf("pat1") == "k2" && bound is [{ KeyId: "k2", Id: "pat1", ByOperator: false }],
+              $"recheck: the holder revoked, a waiting link's free key binds the free id: verified key is a binding the bindings hold ({Text(taken.Message)})");
+        Check(stillWaiting.Message is null && ReferenceEquals(stillWaiting.Link, third) && fresh.NodeOf("k3") is null && fresh.LastRefused("k2")?.AtUtc == refusedAt
+              && fresh.LastRefused("k3")?.AtUtc == T0,
+              "recheck: a third key for that id still waits (its words unchanged, nothing said), and no refusal is re-stamped by a recheck");
+    }
+
+    /// <summary>Whom a screen command reaches: browsers only, in a fixed order a peer's chosen name can't shadow.</summary>
+    static void Targets(Action<bool, string> Check)
+    {
+        var claimId = NodeLinks.ClaimId("patterns", "pat9");
+        var screens = new[]
+        {
+            new ScreenInfo("lobbytv01", "Lobby TV", "/viewer", "10.0.0.20", "Smart TV", T0, false, 1),
+            new ScreenInfo("ctl000001", "", "/control", "10.0.0.21", "iPad", T0, true, 1),
+            new ScreenInfo(claimId, "", "/", "10.0.0.22", "Browser", T0, false, 1, "patterns pat9"),
+        };
+        var links = new[]
+        {
+            new NodeLinkFact("messenger", "ag1", NodeProof.Key, "k1", "AGMessage", "10.0.0.5", T0, 1, null),
+            new NodeLinkFact("patterns", "pat1", NodeProof.Key, "k2", "Patterns FOH", "10.0.0.6", T0, 1, null),
+            new NodeLinkFact("patterns", "pat2", NodeProof.None, "k2", "Patterns FOH", "10.0.0.7", T0, 1, "this key speaks for patterns pat1 — make a key for patterns pat2"),
+            new NodeLinkFact("playmap", "pm1", NodeProof.Operator, null, "", "10.0.0.8", T0, 1, null),
+            new NodeLinkFact("", null, NodeProof.None, "k3", "Show apps", "10.0.0.9", T0, 1, NodeLinks.NamesNoId),
+        };
+        static string? Names(string id) => id switch { "ag1" => "Lobby TV", "pat1" => "FOH desk", "pat2" => "Spare desk", "pm1" => "all", _ => null };
+        ScreenTarget To(string who) => ScreenDirector.Target(screens, links, who, Names);
+
+        Check(To("all") is { Refusal: null, Hits: [{ Id: "lobbytv01" }] } && To("") is { Hits: [{ Id: "lobbytv01" }] } && To(" ALL ") is { Hits: [{ Id: "lobbytv01" }] },
+              "screen targets: 'all' and no target are the browsers: never a control page, a claim or a show app (one named 'all' included)");
+        Check(To(claimId) is { Refusal: null, Hits: [{ Claim: "patterns pat9" }] }, "screen targets: a claim is reached by its own id");
+        Check(To("ag1").Refusal == "Screens: ag1 is a show app (Lobby TV), not a screen — screen commands reach browsers only (Producer → Show network)"
+              && To("ag1").Hits.Count == 0 && To("pm1").Refusal!.StartsWith("Screens: pm1 is a show app (all)", StringComparison.Ordinal),
+              $"screen targets: a show app's id is refused with its name ({To("ag1").Refusal})");
+        Check(To("pat2").Refusal!.StartsWith("Screens: pat2 is a show app (Spare desk)", StringComparison.Ordinal),
+              "screen targets: a show app whose id its key doesn't verify is still a show app");
+        Check(To("FOH desk").Refusal!.StartsWith("Screens: FOH desk is a show app (patterns pat1)", StringComparison.Ordinal)
+              && To("Spare desk").Refusal == "Screens: nothing matches \"Spare desk\"",
+              "screen targets: a show app verified by its key is refused by its name too; a name no key verifies means nothing");
+        Check(To("Lobby TV") is { Refusal: null, Hits: [{ Id: "lobbytv01" }] } && To("lobby tv") is { Hits: [{ Id: "lobbytv01" }] },
+              "screen targets: a browser named Lobby TV is reached, beside a show app that calls itself Lobby TV");
+        Check(To("nobody").Refusal == "Screens: nothing matches \"nobody\"" && To("key:k3").Refusal == "Screens: nothing matches \"key:k3\""
+              && To("node:ag1").Refusal == "Screens: nothing matches \"node:ag1\"",
+              "screen targets: nothing else matches (a node link's own screen id included)");
+        Check(ScreenDirector.Target(Array.Empty<ScreenInfo>(), links, "all", Names).Refusal == "Screens: no browser screen is connected"
+              && ScreenDirector.Target(screens.Where(s => s.Claim.Length > 0).ToArray(), links, "all", Names).Refusal == "Screens: no browser screen is connected",
+              "screen targets: 'all' with no browser (only claims) reaches nothing, and says so");
+        Check(Screens.Match(screens, "all").Select(s => s.Id).SequenceEqual(new[] { "lobbytv01" }) && Screens.Match(screens, claimId).Count == 1,
+              "screens: Match keeps claims out of 'all' and reaches one by its id");
     }
 }

@@ -24,6 +24,7 @@ public sealed partial class MainViewModel
         _screenPresets = Settings.Remote.ScreenPresets
             .Where(p => ScreenPreset.ValidName(p.Name) && ScreenPreset.ValidPath(p.Path))
             .Select(p => (p.Name, p.Path)).ToList();
+        _web?.CredentialsChanged();   // a revoked key, a moved binding or a new PIN reaches the sockets already open, at once
     }
 
     private volatile IReadOnlyList<ApiKey> _apiKeys = Array.Empty<ApiKey>();
@@ -82,7 +83,7 @@ public sealed partial class MainViewModel
         return secret;
     }
 
-    /// <summary>Revoke an API key: the next request with it is refused.</summary>
+    /// <summary>Revoke an API key: the next request with it is refused, and a socket it opened drops to the public frame at once.</summary>
     public void RevokeApiKey(string id)
     {
         var name = Settings.Remote.ApiKeys.FirstOrDefault(k => k.Id == id)?.Name;
@@ -101,49 +102,14 @@ public sealed partial class MainViewModel
     public string? ResolveScreenTarget(string target)
         => ScreenPreset.ValidPath(target) ? target : ScreenPresetPath(target);
 
-    /// <summary>The <c>screen …</c> command (from here, Companion, HTTP, OSC, triggers or the AI copilot).</summary>
+    /// <summary>
+    /// The <c>screen …</c> command (from here, Companion, HTTP, OSC, triggers or the AI copilot): browsers only, in
+    /// <see cref="ScreenDirector"/>'s fixed order; a show app named by its id or its name is refused as one.
+    /// </summary>
     private void ApplyScreenCommand(ScreenArgs args)
     {
-        var (action, arg, who) = (args.Action, args.Argument, args.Who);
-        if (_web is null) { Refuse("Screens: turn on Settings → Remote first"); return; }
-        var screens = _web.ListScreens();
-
-        if (action == "name")
-        {
-            var target = screens.FirstOrDefault(s => s.Id.Equals(who, StringComparison.OrdinalIgnoreCase));
-            if (target is null && !Screens.ValidId(who)) { Refuse($"Screens: no screen with id {who}"); return; }
-            RenameScreen(target?.Id ?? who, arg);
-            StatusLine = arg.Length > 0 ? $"Screen {who} is now \"{arg}\"" : $"Screen {who}: name cleared";
-            return;
-        }
-
-        var hits = Screens.Match(screens, who);
-        if (hits.Count == 0) { Refuse($"Screens: nothing matches \"{who}\""); return; }
-        switch (action)
-        {
-            case "identify":
-                _web.Identify(hits.Select(h => h.Id));
-                StatusLine = $"Identifying {Count(hits.Count)}";
-                break;
-            case "reload":
-                _web.Reload(hits.Select(h => h.Id));
-                StatusLine = $"Reloading {Count(hits.Count)}";
-                break;
-            case "disconnect":
-                _web.Disconnect(hits.Select(h => h.Id));
-                StatusLine = $"Disconnected {Count(hits.Count)}";
-                break;
-            case "go":
-                if (ResolveScreenTarget(arg) is not { } path) { Refuse($"Screens: no saved setup called \"{arg}\""); return; }
-                _web.Redirect(hits.Select(h => h.Id), path);
-                StatusLine = $"Sent {Count(hits.Count)} to {arg}";
-                break;
-            case "save":
-                SaveScreenPreset(arg, hits[0].Page);
-                StatusLine = $"Saved \"{arg}\" = {hits[0].Page}";
-                break;
-        }
-
-        static string Count(int n) => n == 1 ? "1 screen" : $"{n} screens";
+        var (ok, words) = ScreenDirector.Run(args, _web, PeerNameOf, RenameScreen, SaveScreenPreset, ResolveScreenTarget);
+        if (ok) StatusLine = words;
+        else Refuse(words);
     }
 }

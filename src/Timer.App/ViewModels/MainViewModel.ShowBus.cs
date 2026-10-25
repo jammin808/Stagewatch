@@ -51,6 +51,12 @@ public sealed partial class MainViewModel
     /// <summary>IShowContext: this node's context, rebuilt once a second on the show thread (any thread may read it).</summary>
     public string? ContextJson() => _contextJson;
 
+    /// <summary>IShowContext: this Stagewatch's own Show Bus id, from the settings snapshot (any thread may read it).</summary>
+    public string? OwnNodeId => _store.Snapshot.NodeId;
+
+    /// <summary>A show app's name as it told this Stagewatch (hello or context), or null. Show thread.</summary>
+    private string? PeerNameOf(string id) => PeerRows.FirstOrDefault(r => r.Id == id && !r.RefusalOnly) is { Name.Length: > 0 } row ? row.Name : null;
+
     /// <summary>4 Hz (owner thread): once a second, rebuild the context and the Show network rows.</summary>
     private void RefreshShowBus()
     {

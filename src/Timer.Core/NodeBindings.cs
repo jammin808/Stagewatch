@@ -120,7 +120,15 @@ public sealed class NodeBindings
     /// </summary>
     public NodeVerdict Check(NodeCredential credential, string? kind, string id, DateTime nowUtc) => Decide(credential, kind, id, nowUtc, bind: false);
 
-    private NodeVerdict Decide(NodeCredential credential, string? kind, string id, DateTime nowUtc, bool bind)
+    /// <summary>
+    /// A link already open speaks for its node again after the keys or the bindings changed: what <see cref="Speak"/>
+    /// answers, so a node key bound to nothing is bound to a free id as the link's admission would have bound it (the open
+    /// link is its proven use), and a key-verified link is always one its key's binding holds. A refusal is not recorded
+    /// again: the operator hears of a node's own request, at the time it was made.
+    /// </summary>
+    public NodeVerdict SpeakAgain(NodeCredential credential, string? kind, string id) => Decide(credential, kind, id, default, bind: true, record: false);
+
+    private NodeVerdict Decide(NodeCredential credential, string? kind, string id, DateTime nowUtc, bool bind, bool record = true)
     {
         kind ??= "";
         if (!ValidId(id)) return NodeVerdict.Refused("a node id is 1-40 letters, digits, - or _");
@@ -141,7 +149,7 @@ public sealed class NodeBindings
             else if (_byKey.TryGetValue(keyId, out var mine))
             {
                 if (mine.Id != id || (kind.Length > 0 && mine.Kind.Length > 0 && !string.Equals(mine.Kind, kind, StringComparison.Ordinal)))
-                    verdict = Refuse(keyId, kind, id, nowUtc, $"this key speaks for {Describe(mine.Kind, mine.Id)} — make a key for {Describe(kind, id)}");
+                    verdict = Refuse(keyId, kind, id, nowUtc, $"this key speaks for {Describe(mine.Kind, mine.Id)} — make a key for {Describe(kind, id)}", record);
                 else
                 {
                     if (bind && mine.Kind.Length == 0 && kind.Length > 0)
@@ -154,7 +162,7 @@ public sealed class NodeBindings
             }
             else if (holder is not null)
             {
-                verdict = Refuse(keyId, kind, id, nowUtc, OwnKey(_byKey[holder].Kind, id));
+                verdict = Refuse(keyId, kind, id, nowUtc, OwnKey(_byKey[holder].Kind, id), record);
             }
             else
             {
@@ -277,9 +285,9 @@ public sealed class NodeBindings
             return _refused.Values.Where(r => r.Id == id && r.Kind.Length > 0).OrderByDescending(r => r.AtUtc).Select(r => r.Kind).FirstOrDefault();
     }
 
-    private NodeVerdict Refuse(string keyId, string kind, string id, DateTime nowUtc, string words)
+    private NodeVerdict Refuse(string keyId, string kind, string id, DateTime nowUtc, string words, bool record)
     {
-        _refused[keyId] = new NodeRefusal(keyId, kind, id, nowUtc, words);
+        if (record) _refused[keyId] = new NodeRefusal(keyId, kind, id, nowUtc, words);
         return NodeVerdict.Refused(words);
     }
 

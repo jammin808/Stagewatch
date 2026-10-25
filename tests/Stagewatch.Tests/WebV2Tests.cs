@@ -466,6 +466,7 @@ static class WebV2Tests
               && (await http.GetStringAsync("/holo-page.js")).Contains("chrome.webview"), "holo page and three.js bundle served");
 
         await NodeRoutes(Check);
+        await NodeLinksOnWire(Check);
     }
 
     /// <summary>
@@ -540,15 +541,18 @@ static class WebV2Tests
               "node routes: a revoked key is refused (401, the same words every time) and stores nothing");
         var unknownSecret = ApiKeys.Create("never saved", ApiKeyScope.Node, DateTime.UtcNow).Secret;
         var framed = 0;
+        var told = 0;
         for (var i = 0; i < 12; i++)
         {
             using var ws = new ClientWebSocket();
             ws.Options.SetRequestHeader("Authorization", "Bearer " + unknownSecret);
             await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?cid=legacy01&page=/patterns"), CancellationToken.None);
+            if ((await Receive(ws)) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"unknown or revoked API key\",\"retry\":60}") told++;
             if ((await Receive(ws)).Contains("\"seq\"")) framed++;
             await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "redial", CancellationToken.None);
         }
-        Check(framed == 12, $"node routes: a socket redialled with an unknown key still follows the timer ({framed} of 12 heard a frame)");
+        Check(told == 12 && framed == 12,
+              $"node routes: a socket redialled with an unknown key hears one refusal, then still follows the timer ({told} told, {framed} of 12 heard a frame)");
         var bare = new List<(HttpStatusCode, string?)>();
         for (var i = 0; i < 12; i++)
         {
@@ -573,6 +577,454 @@ static class WebV2Tests
         var lockedKey = await Send(HttpMethod.Get, "/api/context", agSecret);
         Check(lockedPin is (HttpStatusCode.Unauthorized, "too many wrong PINs — wait a minute", _) && lockedKey is (HttpStatusCode.Unauthorized, "too many wrong PINs — wait a minute", _),
               $"node routes: five wrong PINs lock the address out, the right PIN and a valid key too ({lockedPin.Error} / {lockedKey.Error})");
+    }
+
+    /// <summary>
+    /// Show apps on /ws, on a real server (Show Bus §7.1): a node link hears its verdict before any frame and never a screen
+    /// command; a claim stays in Screens, out of "all"; a refused key is told once and keeps the frames; what a node link
+    /// can't be is a 400 that counts nothing; and a key revoked, a binding moved or the PIN changed reaches the open
+    /// sockets at once.
+    /// </summary>
+    static async Task NodeLinksOnWire(Action<bool, string> Check)
+    {
+        var control = new ShowBusTests.BusControl();
+        var (pat1Key, pat1Secret) = ApiKeys.Create("Patterns FOH", ApiKeyScope.Node, DateTime.UtcNow);
+        var (pat2Key, pat2Secret) = ApiKeys.Create("Patterns spare", ApiKeyScope.Node, DateTime.UtcNow);
+        var (agKey, agSecret) = ApiKeys.Create("AGMessage", ApiKeyScope.Node, DateTime.UtcNow);
+        var (readKey, readSecret) = ApiKeys.Create("Dashboard", ApiKeyScope.Read, DateTime.UtcNow);
+        var (earlyKey, earlySecret) = ApiKeys.Create("Early", ApiKeyScope.Node, DateTime.UtcNow);
+        var (pmKey, pmSecret) = ApiKeys.Create("PlayMap", ApiKeyScope.Node, DateTime.UtcNow);
+        var pm2Key = ApiKeys.Create("PlayMap 2", ApiKeyScope.Node, DateTime.UtcNow).Key;
+        control.ApiKeys = new[] { pat1Key, pat2Key, agKey, readKey, earlyKey, pmKey, pm2Key };
+        control.Nodes.Keep(control.ApiKeys);   // as the desk does before it serves anything
+        var pin = new[] { "4321" };
+        var port = FreePort();
+        await using var web = new WebServer(control, () => Volatile.Read(ref pin[0]));
+        web.Start(port, bindAll: false);
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        var seq = 0;
+        void Publish() => control.Snapshots.Publish(new ShowSnapshot
+        {
+            Text = "05:00", Seconds = 300 - Interlocked.Increment(ref seq), Title = "Keynote",
+            Slides = new SlideView(4, 20, "Results", "SECRET SPEAKER NOTES", 0, 0, PaceState.Unknown, false),
+        });
+        Publish();
+        static bool IsFrame(string m) => m.Contains("\"type\":\"state\"", StringComparison.Ordinal);
+        static string Verdict(string t, string id, string verified, string scope = "node")
+            => "{\"type\":\"auth\",\"ok\":true,\"scope\":\"" + scope + "\",\"node\":{\"t\":\"" + t + "\",\"id\":\"" + id + "\",\"verified\":\"" + verified + "\"}}";
+        static string? Words(string message)
+        {
+            using var d = JsonDocument.Parse(message);
+            return d.RootElement.TryGetProperty("words", out var w) ? w.GetString() : d.RootElement.TryGetProperty("error", out var e) ? e.GetString() : null;
+        }
+
+        // A key revoked after its socket's credential was checked and before the socket was listed: the socket is checked
+        // again once listed, so it never reads the operator frame on a key no longer in force.
+        control.OnNextNodesRead = () =>
+        {
+            control.ApiKeys = control.ApiKeys.Where(k => k.Id != earlyKey.Id).ToArray();
+            control.Nodes.Keep(control.ApiKeys);
+            web.CredentialsChanged();
+        };
+        await using (var early = await WsProbe.Open(port, "node=early01&t=messenger&detail=1", earlySecret))
+        {
+            var earlyRevoked = await early.WaitFor(m => m.Contains("this key was revoked", StringComparison.Ordinal));
+            Publish();
+            var earlyFrame = await early.WaitForAfter(m => m.Contains("this key was revoked", StringComparison.Ordinal), IsFrame);
+            Check(control.OnNextNodesRead is null && earlyRevoked == "{\"type\":\"auth\",\"ok\":false,\"error\":\"this key was revoked\",\"retry\":60}"
+                  && earlyFrame is not null && !early.Saw("SECRET SPEAKER NOTES") && web.ListNodes().Count == 0
+                  && web.ListScreens() is [{ Claim: "messenger early01" }] && control.Nodes.NodeOf(earlyKey.Id) is null,
+                  $"node links: a key revoked between a socket's credential check and its listing is caught once it is listed: told once, public frames only, a claim ({earlyRevoked})");
+        }
+        await Until(() => web.ListScreens().Count == 0);
+
+        // A node key: the verdict first, then frames; the link is a show app, never a screen.
+        await using var ag = await WsProbe.Open(port, "node=ag00001&t=messenger&cid=agmessage&page=%2Fagmessage", agSecret);
+        var agFrame = await ag.WaitFor(IsFrame);
+        Check(ag.Messages.FirstOrDefault() == Verdict("messenger", "ag00001", "key") && agFrame is not null && ag.Messages.ToList().IndexOf(agFrame) > 0,
+              $"node links: a node key's link hears its verdict before any frame, then follows the timer ({ag.Messages.FirstOrDefault()})");
+        Check(web.ListScreens().Count == 0 && web.ListNodes() is [{ Id: "ag00001", Kind: "messenger", Verified: NodeProof.Key, KeyName: "AGMessage", Links: 1 }]
+              && control.Nodes.NodeOf(agKey.Id) == ("messenger", "ag00001"),
+              "node links: it is listed as a show app with its key, not in Screens, and its first proven use bound the key");
+
+        // A browser and a claim beside it.
+        await using var tv = await WsProbe.Open(port, "cid=screen01&page=/viewer");
+        await using var claim = await WsProbe.Open(port, "node=pat9&t=patterns&cid=patterns&page=/patterns");
+        await tv.WaitFor(IsFrame);
+        await claim.WaitFor(IsFrame);
+        var claimId = NodeLinks.ClaimId("patterns", "pat9");
+        var listed = web.ListScreens();
+        Check(claim.Messages.FirstOrDefault() is { } cv && cv.StartsWith("{\"type\":\"auth\",\"ok\":true,\"scope\":\"none\"", StringComparison.Ordinal)
+              && cv.Contains("\"verified\":\"none\"", StringComparison.Ordinal) && Words(cv) == NodeLinks.NoKey,
+              $"node links: a keyless link that names a node hears it is only claimed ({claim.Messages.FirstOrDefault()})");
+        Check(listed.Count == 2 && listed.Single(x => x.Id == "screen01").Claim == "" && listed.Single(x => x.Id == claimId) is { Claim: "patterns pat9", Page: "/" },
+              "node links: Screens lists the browser and the claim, flagged with what it claims");
+        var api = await (await SendKey(http, HttpMethod.Get, "/api/screens", readSecret)).Content.ReadAsStringAsync();
+        Check(api.Contains("\"claim\":\"patterns pat9\"}", StringComparison.Ordinal) && api.Contains("\"claim\":\"\"}", StringComparison.Ordinal) && !api.Contains("ag00001", StringComparison.Ordinal),
+              "node links: /api/screens says which row is a claim (last field), and lists no show app");
+
+        // Screen commands reach browsers only.
+        var renamed = new List<(string Id, string Name)>();
+        var saved = new List<(string Name, string Path)>();
+        (bool Ok, string Words) Run(string action, string arg, string who)
+            => ScreenDirector.Run(new ScreenArgs(action, arg, who), web, id => id == "ag00001" ? "AGMessage FOH" : null,
+                (id, name) => renamed.Add((id, name)), (name, path) => saved.Add((name, path)), t => t == "lobby" ? "/audience?holding=0" : null);
+        var all = Run("identify", "", "all");
+        var heard = await tv.WaitFor(m => m.Contains("\"type\":\"identify\"", StringComparison.Ordinal));
+        await Task.Delay(400);
+        Check(all == (true, "Identifying 1 screen") && heard is not null && !ag.Saw("\"identify\"") && !claim.Saw("\"identify\""),
+              "node links: 'screen identify all' reaches the browser, never the show app or the claim");
+        var toApp = web.Identify(new[] { "node:ag00001" }) + web.Reload(new[] { "node:ag00001", "ag00001" }) + web.Redirect(new[] { "node:ag00001" }, "/viewer")
+                    + web.Disconnect(new[] { "node:ag00001", "ag00001" });
+        await Task.Delay(300);
+        Check(toApp == 0 && ag.IsOpen && !ag.Saw("\"disconnect\"") && !ag.Saw("\"reload\"") && web.ListNodes().Any(n => n.Id == "ag00001"),
+              "node links: no screen push or disconnect reaches a show app, whatever id is passed; it stays linked");
+        var claimed = Run("identify", "", claimId);
+        Check(claimed.Ok && await claim.WaitFor(m => m.Contains("\"type\":\"identify\"", StringComparison.Ordinal)) is not null,
+              "node links: a claim is reached by its own id, so a stray client can still be found");
+        var byId = Run("identify", "", "ag00001");
+        var byName = Run("reload", "", "AGMessage FOH");
+        Check(byId == (false, "Screens: ag00001 is a show app (AGMessage FOH), not a screen — screen commands reach browsers only (Producer → Show network)")
+              && !byName.Ok && byName.Words.StartsWith("Screens: AGMessage FOH is a show app (messenger ag00001)", StringComparison.Ordinal),
+              $"node links: a show app named by its id or its key-verified name is refused as one ({byId.Words})");
+        var nameApp = Run("name", "Lobby", "ag00001");
+        var nameTv = Run("name", "Lobby", "screen01");
+        var saveApp = Run("save", "lobbyset", "ag00001");
+        var saveTv = Run("save", "lobbyset", "screen01");
+        Check(!nameApp.Ok && nameApp.Words.Contains("is a show app", StringComparison.Ordinal) && nameTv.Ok && renamed is [("screen01", "Lobby")]
+              && !saveApp.Ok && saveTv.Ok && saved is [("lobbyset", "/viewer")],
+              "node links: name and save follow the same order: a screen's id is taken, a show app's refused");
+        var go = Run("go", "lobby", "all");
+        var redirected = await tv.WaitFor(m => m.Contains("\"type\":\"redirect\"", StringComparison.Ordinal));
+        Check(go.Ok && redirected is not null && !ag.Saw("\"redirect\"") && !claim.Saw("\"redirect\""), "node links: 'screen go' moves browsers only");
+        var off = Run("disconnect", "", "all");
+        var dropped = await tv.WaitFor(m => m.Contains("\"type\":\"disconnect\"", StringComparison.Ordinal));
+        await Task.Delay(500);
+        await ag.Send("{\"cmd\":\"ping\"}");
+        await claim.Send("{\"cmd\":\"ping\"}");
+        Check(off == (true, "Disconnected 1 screen") && dropped is not null && !ag.Saw("\"disconnect\"") && !claim.Saw("\"disconnect\"")
+              && await ag.WaitFor(m => m.Contains("pong", StringComparison.Ordinal)) is not null && await claim.WaitFor(m => m.Contains("pong", StringComparison.Ordinal)) is not null
+              && web.ListScreens().All(x => x.Id != "screen01"),
+              "node links: 'screen disconnect all' drops the browser; the show app and the claim stay linked");
+        Check(Run("identify", "", "all") == (false, "Screens: no browser screen is connected"), "node links: with only a claim left, 'all' reaches nothing and says so");
+
+        // A browser can't take a claim's id: it is listed under one of its own, and 'all' reaches it, never the claim.
+        await using (var impostor = await WsProbe.Open(port, $"cid={claimId}&page=/viewer"))
+        {
+            await impostor.WaitFor(IsFrame);
+            var both = web.ListScreens();
+            var reloadAll = Run("reload", "", "all");
+            var reloaded = await impostor.WaitFor(m => m.Contains("\"type\":\"reload\"", StringComparison.Ordinal));
+            await Task.Delay(300);
+            Check(both.Count == 2 && both.Single(x => x.Id == claimId) is { Claim: "patterns pat9", Tabs: 1 }
+                  && both.Single(x => x.Id != claimId) is { Claim: "" } own && own.Id.StartsWith("anon-", StringComparison.Ordinal)
+                  && reloadAll == (true, "Reloading 1 screen") && reloaded is not null && !claim.Saw("\"type\":\"reload\""),
+                  $"node links: a browser that chooses a claim's id is listed apart under an id of its own; 'all' reaches it, never the claim ({string.Join(", ", both.Select(x => x.Id))})");
+        }
+        await Until(() => web.ListScreens().Count == 1);
+
+        // One install, one row (G32); a key pasted into a second install keeps its frames, verified none.
+        await using var p1 = await WsProbe.Open(port, "node=pat1&t=patterns", pat1Secret);
+        await using var p1Tab = await WsProbe.Open(port, "node=pat1&t=patterns", pat1Secret);
+        await using var p2 = await WsProbe.Open(port, "node=pat2&t=patterns", pat2Secret);
+        await using var twin = await WsProbe.Open(port, "node=pat2b&t=patterns", pat1Secret);
+        var twinFrame = await twin.WaitFor(IsFrame);
+        await p1Tab.WaitFor(IsFrame);
+        await p2.WaitFor(IsFrame);
+        Check(p1.Messages.FirstOrDefault() == Verdict("patterns", "pat1", "key") && p2.Messages.FirstOrDefault() == Verdict("patterns", "pat2", "key")
+              && twin.Messages.FirstOrDefault() is { } tw && tw.Contains("\"verified\":\"none\"", StringComparison.Ordinal)
+              && Words(tw) == "this key speaks for patterns pat1 — make a key for patterns pat2b" && twinFrame is not null,
+              $"node links: two installs, two verdicts; a key pasted into a second install is verified none with words, and keeps the frames ({twin.Messages.FirstOrDefault()})");
+        var rows = web.ListNodes();
+        Check(rows.Count == 4 && rows.Single(n => n.Id == "pat1") is { Links: 2, Verified: NodeProof.Key, KeyName: "Patterns FOH" }
+              && rows.Single(n => n.Id == "pat2") is { Verified: NodeProof.Key, KeyName: "Patterns spare" }
+              && rows.Single(n => n.Id == "pat2b") is { Verified: NodeProof.None, KeyName: "Patterns FOH" } twinRow && twinRow.Words!.StartsWith("this key speaks for patterns pat1", StringComparison.Ordinal),
+              $"node links: grouped by id: two Patterns desks are two rows, two tabs of one are one, the twin's row says why ({string.Join(", ", rows.Select(r => $"{r.Id}:{r.Verified}:{r.Links}"))})");
+        var ctxTwin = await PostContext(http, pat1Secret, "pat2b");
+        var ctxOwn = await PostContext(http, pat1Secret, "pat1");
+        Check(ctxTwin.Code == HttpStatusCode.Forbidden && ctxOwn is (HttpStatusCode.OK, "{\"ok\":true,\"verified\":\"key\"}"),
+              "node links: the twin's context is refused 403, its own install's taken: the binding governs the node routes, not reading");
+
+        // A refused key on a node link: one refusal with a retry, then the public frame; never a closed socket.
+        var unknownSecret = ApiKeys.Create("never saved", ApiKeyScope.Node, DateTime.UtcNow).Secret;
+        var refusals = 0;
+        for (var i = 0; i < 10; i++)
+        {
+            await using var bad = await WsProbe.Open(port, "node=ag00009&t=messenger", unknownSecret);
+            var frame = await bad.WaitFor(IsFrame);
+            if (bad.Messages.FirstOrDefault() == "{\"type\":\"auth\",\"ok\":false,\"error\":\"unknown or revoked API key\",\"retry\":60}" && frame is not null
+                && !frame.Contains("SECRET SPEAKER NOTES", StringComparison.Ordinal)) refusals++;
+        }
+        await using var page = await WsProbe.Open(port, "role=control&pin=4321");
+        Check(refusals == 10 && await page.WaitFor(m => m.StartsWith("{\"type\":\"auth\"", StringComparison.Ordinal)) == "{\"type\":\"auth\",\"ok\":true}",
+              $"node links: an unknown key is refused once per dial and keeps the public frame; ten dials later the PIN still signs a control page in ({refusals} of 10)");
+
+        // What a node link can't be is a 400 before the upgrade, and never counted.
+        var winBad = await RawUpgrade(port, "/ws?node=pat1&t=patterns&win=abc", null);
+        var pinBad = await RawUpgrade(port, "/ws?node=pat1&t=patterns&pin=0000", null);
+        var ownBad = await RawUpgrade(port, "/ws?node=abc123abc123&t=main", "Bearer " + pat1Secret);
+        var windowBad = await RawUpgrade(port, "/ws?node=pat1&t=patterns", "Window abcdef");
+        var ctlBad = await RawUpgrade(port, "/ws?node=pat1&t=patterns&role=control", null);
+        var kindBad = await RawUpgrade(port, "/ws?node=pat1", null);
+        static string? Refused400(string response)
+        {
+            if (!response.StartsWith("HTTP/1.1 400", StringComparison.Ordinal)) return null;
+            using var d = JsonDocument.Parse(response[(response.IndexOf("\r\n\r\n", StringComparison.Ordinal) + 4)..]);
+            return d.RootElement.GetProperty("ok").GetBoolean() ? null : d.RootElement.GetProperty("error").GetString();
+        }
+        Check(Refused400(winBad) == NodeLinks.WindowNotNode && Refused400(windowBad) == NodeLinks.WindowNotNode && Refused400(pinBad) == NodeLinks.PinInUrl
+              && Refused400(ownBad) == NodeLinks.OwnId && Refused400(ctlBad) == NodeLinks.NodeDoesNotControl && Refused400(kindBad) == NodeLinks.BadKind,
+              $"node links: a window's address, a PIN in the URL, control, a missing kind or this Stagewatch's own id is a 400 with words, before any upgrade ({winBad.Split("\r\n")[0]})");
+        for (var i = 0; i < 5; i++) await RawUpgrade(port, "/ws?node=pat1&t=patterns&pin=0000", null);
+        Check((await http.GetAsync("/api/context?pin=4321")).StatusCode == HttpStatusCode.OK, "node links: a 400 counts nothing toward the lockout");
+
+        // The PIN in the Authorization header proves the operator: verified "operator" while no key speaks for the id. A
+        // wrong one is one refusal with a retry, and the socket keeps the public frame as a claim.
+        await using var pm = await WsProbe.Open(port, "node=pm00001&t=playmap", "4321");
+        await using var pmWrong = await WsProbe.Open(port, "node=pm00002&t=playmap", "0000");
+        await pm.WaitFor(IsFrame);
+        var wrongFrame = await pmWrong.WaitFor(IsFrame);
+        Check(pm.Messages.FirstOrDefault() == Verdict("playmap", "pm00001", "operator", "pin")
+              && web.ListNodes().Single(n => n.Id == "pm00001") is { Verified: NodeProof.Operator, KeyId: null, KeyName: "" },
+              $"node links: the PIN in the Authorization header makes a node link verified by the operator ({pm.Messages.FirstOrDefault()})");
+        Check(pmWrong.Messages.FirstOrDefault() == "{\"type\":\"auth\",\"ok\":false,\"error\":\"wrong PIN\",\"retry\":60}" && wrongFrame is not null
+              && web.ListScreens().Any(x => x.Claim == "playmap pm00002") && web.ListNodes().All(n => n.Id != "pm00002"),
+              $"node links: a wrong PIN is one refusal with a retry; the socket keeps the public frame, as a claim ({pmWrong.Messages.FirstOrDefault()})");
+
+        // A key's first use takes a PIN link's id: the open link hears verified none at once, with no other change made.
+        var pmCtx = await PostContext(http, pmSecret, "pm00001", "playmap");
+        var pmTaken = await pm.WaitFor(m => m.Contains("\"verified\":\"none\"", StringComparison.Ordinal));
+        Check(pmCtx is (HttpStatusCode.OK, "{\"ok\":true,\"verified\":\"key\"}")
+              && pmTaken == "{\"type\":\"auth\",\"ok\":true,\"scope\":\"pin\",\"node\":{\"t\":\"playmap\",\"id\":\"pm00001\",\"verified\":\"none\"},\"words\":\"playmap pm00001 speaks with its own key\"}"
+              && web.ListNodes().Single(n => n.Id == "pm00001") is { Verified: NodeProof.None, Words: "playmap pm00001 speaks with its own key" },
+              $"node links: another key's first context POST takes an open link's id, and the link hears what it is now ({pmTaken})");
+
+        // The operator lets a key speak for a PIN link's id: a fresh verdict, verified none, with the binding's words.
+        await using var pm2 = await WsProbe.Open(port, "node=pm00003&t=playmap", "4321");
+        await pm2.WaitFor(IsFrame);
+        control.Nodes.Rebind(pm2Key.Id, "playmap", "pm00003");
+        web.CredentialsChanged();
+        var pm2Moved = await pm2.WaitFor(m => m.Contains("\"verified\":\"none\"", StringComparison.Ordinal));
+        Check(pm2.Messages.FirstOrDefault() == Verdict("playmap", "pm00003", "operator", "pin") && pm2Moved is not null
+              && Words(pm2Moved) == "playmap pm00003 speaks with its own key" && pm2Moved.Contains("\"scope\":\"pin\"", StringComparison.Ordinal),
+              $"node links: the operator rebinds a PIN link's id and the link hears it at once ({pm2Moved})");
+
+        // A key revoked reaches the open sockets at once: the node link and a keyed dashboard drop to the public frame.
+        await using var board = await WsProbe.Open(port, "detail=1&cid=dash0001", readSecret);
+        var boardFirst = await board.WaitFor(IsFrame);
+        Check(board.Messages.FirstOrDefault() == boardFirst && boardFirst!.Contains("SECRET SPEAKER NOTES", StringComparison.Ordinal),
+              "node links: a keyed dashboard hears a frame first (unchanged), the operator's");
+        control.ApiKeys = new[] { pat1Key, pat2Key };
+        control.Nodes.Keep(control.ApiKeys);
+        web.CredentialsChanged();
+        var agRevoked = await ag.WaitFor(m => m.Contains("revoked", StringComparison.Ordinal));
+        var boardRevoked = await board.WaitFor(m => m.Contains("revoked", StringComparison.Ordinal));
+        Publish();
+        var agAfter = await ag.WaitForAfter(m => m.Contains("revoked", StringComparison.Ordinal), IsFrame);
+        var boardAfter = await board.WaitFor(m => IsFrame(m) && !m.Contains("SECRET SPEAKER NOTES", StringComparison.Ordinal));
+        Check(agRevoked == "{\"type\":\"auth\",\"ok\":false,\"error\":\"this key was revoked\",\"retry\":60}" && boardRevoked == agRevoked && agAfter is not null && boardAfter is not null
+              && ag.IsOpen && board.IsOpen,
+              $"node links: revoked, the node link and the dashboard hear it once and keep the public frame, still open ({agRevoked})");
+        Check(web.ListNodes().All(n => n.Id != "ag00001") && web.ListScreens().Any(x => x.Claim == "messenger ag00001"),
+              "node links: the revoked node link is a claim now: in Screens, flagged, no longer a show app");
+
+        // A binding moved by the operator: the open links hear what they are now, latest wins. The key it freed binds to the
+        // twin's open link (the link is its proven use, as its admission would have been), so pat1's own links end up told
+        // that their key speaks for the twin's id: a link is verified by key only while its key's binding holds its id.
+        control.Nodes.Rebind(pat2Key.Id, "patterns", "pat1");
+        web.CredentialsChanged();
+        const string p1Words = "this key speaks for patterns pat2b — make a key for patterns pat1";
+        static bool IsAuth(string m) => m.StartsWith("{\"type\":\"auth\"", StringComparison.Ordinal);
+        var p2Moved = await p2.WaitFor(m => IsAuth(m) && m.Contains("\"verified\":\"none\"", StringComparison.Ordinal));
+        var twinFreed = await twin.WaitFor(m => IsAuth(m) && m.Contains("\"verified\":\"key\"", StringComparison.Ordinal));
+        var p1Moved = await p1.WaitFor(m => IsAuth(m) && Words(m) == p1Words);
+        var p1TabMoved = await p1Tab.WaitFor(m => IsAuth(m) && Words(m) == p1Words);
+        Check(p2Moved is not null && Words(p2Moved) == "this key speaks for patterns pat1 — make a key for patterns pat2" && p1Moved is not null && p1TabMoved is not null
+              && web.ListNodes().Where(n => n.Id == "pat1").ToList() is [{ Verified: NodeProof.None, Links: 2, Words: p1Words } pat1Row] && pat1Row.KeyId == pat1Key.Id,
+              $"node links: the operator moves a binding and the open links hear what they are now ({p1Moved} / {p2Moved})");
+        Check(twinFreed == Verdict("patterns", "pat2b", "key") && control.Nodes.NodeOf(pat1Key.Id) == ("patterns", "pat2b") && control.Nodes.KeyOf("pat1") == pat2Key.Id
+              && web.ListNodes().Single(n => n.Id == "pat2b") is { Verified: NodeProof.Key, Words: null },
+              "node links: the key the operator freed binds to the twin's open link, which hears it is verified by key; the bindings hold what the links say");
+
+        // The PIN changed: a control page the old PIN let in drops to a viewer, and is told.
+        Volatile.Write(ref pin[0], "9999");
+        web.CredentialsChanged();
+        var changed = await page.WaitFor(m => m.Contains("PIN changed", StringComparison.Ordinal));
+        await page.Send("{\"cmd\":\"start\",\"args\":[]}");
+        var after = await page.WaitFor(m => m.Contains("\"type\":\"error\"", StringComparison.Ordinal));
+        Check(changed is not null && Words(changed) == NodeLinks.PinChanged && after is not null && after.Contains("read-only", StringComparison.Ordinal) && page.IsOpen
+              && !control.Commands.Any(c => c.Kind == ShowCommandKind.Start),
+              $"node links: a new PIN drops a control page to a viewer at once; its next command is refused ({changed})");
+        var pmChanged = await pm.WaitFor(m => m.Contains("PIN changed", StringComparison.Ordinal));
+        Check(pmChanged is not null && Words(pmChanged) == NodeLinks.PinChanged && pmChanged.EndsWith(",\"retry\":60}", StringComparison.Ordinal) && pm.IsOpen
+              && web.ListScreens().Any(x => x.Claim == "playmap pm00001") && web.ListNodes().All(n => n.Id != "pm00001"),
+              $"node links: a new PIN makes a PIN's node link a claim, told once with a retry, still open ({pmChanged})");
+
+        // With a viewing code set, a revoked key's socket with no other pass hears one message and closes.
+        control.View = "lobby42";
+        await using var spare = await WsProbe.Open(port, "node=pat2&t=patterns", pat2Secret);
+        await spare.WaitFor(IsFrame);
+        control.ApiKeys = new[] { pat1Key };
+        control.Nodes.Keep(control.ApiKeys);
+        web.CredentialsChanged();
+        var closing = await spare.WaitFor(m => m.Contains("revoked", StringComparison.Ordinal));
+        var closed = await spare.WaitClosed();
+        Check(closing == "{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"This screen needs the viewing code\",\"retry\":60,\"refused\":\"this key was revoked\"}" && closed,
+              $"node links: where a viewing code is set, a revoked key's link hears one message with the code's words and the key's, and closes ({closing})");
+        await using var lateBad = await WsProbe.Open(port, "node=ag00010&t=messenger", unknownSecret);
+        var lateClosed = await lateBad.WaitClosed();
+        Check(lateClosed && lateBad.Messages is [var only]
+              && only == "{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"This screen needs the viewing code\",\"retry\":60,\"refused\":\"unknown or revoked API key\"}",
+              $"node links: where a viewing code is set, an unknown key's dial hears one message with both refusals, and closes ({string.Join(" | ", lateBad.Messages)})");
+        control.View = null;
+    }
+
+    static Task<HttpResponseMessage> SendKey(HttpClient http, HttpMethod method, string path, string secret)
+    {
+        var m = new HttpRequestMessage(method, path);
+        m.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
+        return http.SendAsync(m);
+    }
+
+    static async Task<(HttpStatusCode Code, string Body)> PostContext(HttpClient http, string secret, string id, string kind = "patterns")
+    {
+        var m = new HttpRequestMessage(HttpMethod.Post, "/api/peers/context")
+        {
+            Content = new StringContent("{\"v\":1,\"node\":{\"t\":\"" + kind + "\",\"id\":\"" + id + "\",\"name\":\"FOH\"},\"light\":\"green\",\"headline\":\"fine\"}", Encoding.UTF8, "application/json"),
+        };
+        m.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
+        var r = await http.SendAsync(m);
+        return (r.StatusCode, await r.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>A WebSocket upgrade written by hand, so a refusal before the upgrade can be read whole (status and body).</summary>
+    static async Task<string> RawUpgrade(int port, string path, string? authorization)
+    {
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(IPAddress.Loopback, port);
+        var stream = tcp.GetStream();
+        var head = $"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n" +
+                   "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" + (authorization is null ? "" : $"Authorization: {authorization}\r\n") + "\r\n";
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head));
+        using var cts = new CancellationTokenSource(3000);
+        var buffer = new byte[8192];
+        var text = new StringBuilder();
+        try
+        {
+            int n;
+            while ((n = await stream.ReadAsync(buffer, cts.Token)) > 0)
+            {
+                text.Append(Encoding.UTF8.GetString(buffer, 0, n));
+                if (text.ToString().StartsWith("HTTP/1.1 101", StringComparison.Ordinal)) break;
+            }
+        }
+        catch (OperationCanceledException) { text.Append("[timed out]"); }
+        catch (IOException) { text.Append("[reset]"); }
+        return text.ToString();
+    }
+
+    /// <summary>A WebSocket client that reads every message in the background, so a test can wait for one, or see that one never came.</summary>
+    sealed class WsProbe : IAsyncDisposable
+    {
+        private readonly ClientWebSocket _ws = new();
+        private readonly List<string> _messages = new();
+        private Task _reader = Task.CompletedTask;
+
+        public static async Task<WsProbe> Open(int port, string query, string? bearer = null)
+        {
+            var p = new WsProbe();
+            if (bearer is not null) p._ws.Options.SetRequestHeader("Authorization", "Bearer " + bearer);
+            await p._ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?{query}"), CancellationToken.None);
+            p._reader = p.Read();
+            return p;
+        }
+
+        private async Task Read()
+        {
+            var buffer = new byte[65536];
+            try
+            {
+                while (_ws.State == WebSocketState.Open)
+                {
+                    using var message = new MemoryStream();
+                    WebSocketReceiveResult r;
+                    do
+                    {
+                        r = await _ws.ReceiveAsync(buffer, CancellationToken.None);
+                        if (r.MessageType == WebSocketMessageType.Close) return;
+                        message.Write(buffer, 0, r.Count);
+                    } while (!r.EndOfMessage);
+                    lock (_messages) _messages.Add(Encoding.UTF8.GetString(message.ToArray()));
+                }
+            }
+            catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or OperationCanceledException)
+            {
+                // The server dropped the link: what was heard stays readable.
+            }
+        }
+
+        public IReadOnlyList<string> Messages { get { lock (_messages) return _messages.ToArray(); } }
+
+        public bool IsOpen => _ws.State == WebSocketState.Open;
+
+        public bool Saw(string fragment) => Messages.Any(m => m.Contains(fragment, StringComparison.Ordinal));
+
+        /// <summary>The first message (already heard or still to come) that matches, or null after <paramref name="timeoutMs"/>.</summary>
+        public async Task<string?> WaitFor(Func<string, bool> match, int timeoutMs = 3000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
+            {
+                if (Messages.FirstOrDefault(match) is { } hit) return hit;
+                if (sw.ElapsedMilliseconds > timeoutMs) return null;
+                await Task.Delay(20);
+            }
+        }
+
+        /// <summary>The first message that matches after the first one that is <paramref name="after"/>, or null after <paramref name="timeoutMs"/>.</summary>
+        public async Task<string?> WaitForAfter(Func<string, bool> after, Func<string, bool> match, int timeoutMs = 3000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
+            {
+                var all = Messages;
+                var from = all.Select((m, i) => (m, i)).FirstOrDefault(x => after(x.m)) is { m: not null } mark ? mark.i : -1;
+                if (from >= 0 && all.Skip(from + 1).FirstOrDefault(match) is { } hit) return hit;
+                if (sw.ElapsedMilliseconds > timeoutMs) return null;
+                await Task.Delay(20);
+            }
+        }
+
+        /// <summary>Whether the server closed the link within <paramref name="timeoutMs"/>.</summary>
+        public async Task<bool> WaitClosed(int timeoutMs = 3000) => await Task.WhenAny(_reader, Task.Delay(timeoutMs)) == _reader && !IsOpen;
+
+        public Task Send(string json) => _ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_ws.State == WebSocketState.Open)
+            {
+                using var cts = new CancellationTokenSource(1000);
+                try { await _ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", cts.Token); }
+                catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or ObjectDisposedException)
+                {
+                    // Already gone: nothing left to close.
+                }
+            }
+            _ws.Dispose();
+        }
+    }
+
+    /// <summary>Whether <paramref name="condition"/> came true within <paramref name="timeoutMs"/> (a socket's close reaching the server's list).</summary>
+    static async Task<bool> Until(Func<bool> condition, int timeoutMs = 3000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (!condition())
+        {
+            if (sw.ElapsedMilliseconds > timeoutMs) return false;
+            await Task.Delay(20);
+        }
+        return true;
     }
 
     static int FreePort()
