@@ -52,27 +52,71 @@ Rules (game netcode, on purpose):
 
 - **State:** `GET /api/state` (public frame) or `/api/state?detail=1` with the PIN (operator frame);
   `ws://<pc>:9924/ws` pushes every frame plus a heartbeat (`{"type":"beat"}`; `"live":false` = Stagewatch is up
-  but its show has stopped updating — treat the last frame as stale).
+  but its show has stopped updating — treat the last frame as stale). A show app dials it as a node link (below).
 - **Commands:** one grammar for everything (HTTP `/api/<verb>/…`, WebSocket `{"cmd":…,"args":[…]}`, OSC, the
   Companion TCP line protocol, triggers, MCP). `GET /api/help` returns it. See REMOTE.md.
 - **MCP:** `POST /mcp` (JSON-RPC, PIN). By default an AI agent's `run_command` becomes a proposal the operator
   approves — the human stays in the loop.
-- **Screens:** `GET /api/screens` (PIN) lists connected browsers; `screen go|identify|name|save|reload|disconnect`
-  commands move them.
+- **Screens:** `GET /api/screens` (PIN) lists connected browsers, and sockets that only claim to be a show app
+  (`claim`); `screen go|identify|name|save|reload|disconnect` commands move them. A show app's node link is never a
+  screen: no screen command reaches it, and naming one is refused.
 - **Layouts:** `GET /api/layouts` and `/api/layouts/<name>` (anyone who may view) return designed screens as JSON
   (elements on a 100×100 canvas with `{placeholder}` text); `POST /api/layouts/save|delete|ai` need control.
   A node with its own display can render Stagewatch layouts from the same frames.
 - **API keys:** nodes should use a scoped key (`Authorization: Bearer swk_…`) rather than the PIN — read for
-  dashboards, control for show control, MCP for agents. Replies carry `X-RateLimit-Limit/Remaining/Reset`.
+  dashboards, control for show control, MCP for agents, **node** for another show app (read, stage messages, its own
+  context and proposals). A node key speaks for one app (one node id): give each app, and each install, a key of its
+  own. Replies carry `X-RateLimit-Limit/Remaining/Reset`. An unknown or revoked key is refused (401) and never counts
+  toward the address lockout.
+
+## Show apps on /ws (2.18)
+
+A show app follows the timer on `/ws` as a **node link**: its own Show Bus id and kind in the address, its key in the
+header, never in the URL. It hears what Stagewatch made of it before any frame, and it never hears a screen command.
+REMOTE.md's 2.18 section has every message and refusal.
+
+| App | `t` | Its node link |
+|---|---|---|
+| Patterns | `patterns` | `/ws?node=<its Show Bus id>&t=patterns&cid=<the same id>&page=/patterns` |
+| PlayMap | `playmap` | `/ws?node=<its node id>&t=playmap&cid=<its cid today>&page=/playmap&detail=1` |
+| AGMessage | `messenger` | `/ws?node=<its node id>&t=messenger&cid=<the same id>&page=%2Fagmessage` |
+
+- Each sends its own **node key** as `Authorization: Bearer swk_…`. A control key, or the PIN when this Stagewatch asks
+  for one, also proves it (verified `operator`) while no key speaks for that id. A read key, an MCP key, a PIN on a
+  Stagewatch with no PIN set, or nothing makes it only a claim: it stays in Screens, flagged, never reached by "all".
+- `cid` and `page` are ignored when `node` is there; a Stagewatch older than 2.18 ignores `node` and lists each install
+  under its own `cid`, which it keeps only at 6–32 letters, digits, `-` or `_` (so PlayMap keeps the `cid` it sends
+  today, `playmap-<id>` for a shorter id).
+- The first message is the verdict: `{"type":"auth","ok":true,"scope":"node","node":{"t":"patterns","id":"9f8e7d6c",
+  "verified":"key"}}`. `verified` `none` comes with `words` saying why (a key that speaks for another app, an id that
+  speaks with its own key, no key); the frames keep coming, and only the node routes (context, proposals) refuse it. A
+  refused key hears `{"type":"auth","ok":false,"error":"unknown or revoked API key","retry":60}` and keeps the public
+  frame: wait `retry` seconds before keyed calls, and don't redial in a loop, since no key reason closes the socket.
+- A later change (the key revoked, the key moved to another app, the PIN changed) is sent again, latest wins.
+- A node key binds to the first id it speaks for while that id is free (on a node link, a context, a proposal or a
+  collect); the same key under another id, or another kind, is refused (403 on the HTTP routes; on a node link, a
+  verdict of verified `none`) with `this key speaks for <kind> <id> — make a key for <kind> <id>`. The operator moves a
+  key with Let it speak for… (Settings → Remote) or Let a key speak for this node… (Producer → Show network).
+- Today's dials (`/ws?cid=patterns&page=/patterns`, `/ws?cid=<its cid>&page=/playmap&detail=1`,
+  `/ws?cid=agmessage&page=%2Fagmessage`) still work. With a node key in the header such a socket already leaves Screens
+  (a show app listed under its key, speaking for no node) and hears no screen command; with a control key, the PIN, a
+  read key or no key it is still a browser screen to Stagewatch, so "all" reaches it until the app dials as a node.
+- `?pin=` on a node link is refused (400): the key rides only in the header.
 
 ## Patterns video (Stagewatch as a Patterns client)
 
 Stagewatch reads the clip on air in Patterns over Patterns' own wire, as a playout source beside vMix:
 
 - **Connect:** TCP `9697` (Settings → Integrations → *Patterns video*; **Find** listens for the Patterns beacon on
-  UDP `9700` and takes its `wire` port). Stagewatch sends `HELLO Stagewatch`, then `AUTH <token>` when a pairing
-  token is set (stored DPAPI-protected), and `PING` every 2 s; a link silent for 7 s is dropped and redialled with
-  backoff (250 ms → 5 s).
+  UDP `9700` and takes its `wire` port). Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe (`@hi PING`),
+  and `PING` every 2 s; a link silent for 12 s is dropped and redialled with backoff (250 ms → 5 s).
+- **Pairing (2.18): the token never crosses the network.** The pairing token is stored DPAPI-protected. A desk's
+  `NONCE` is answered with `AUTH-PROOF` (HMAC-SHA256(token, nonce + "Stagewatch")) only when it is exactly 32
+  lowercase hex, once per connection. Plain `AUTH <token>` goes only to a Patterns on this PC (a loopback
+  socket) that asks for no proof, never on a connection that heard a NONCE. Nothing the desk sends (STATE, receipts,
+  clock samples, context) is taken before the link pairs (`OK paired`) or is open (a desk that asks for no proof: a
+  Show Bus 1.1 desk, or one on this PC while this link holds no token), and no command is written to it before then. A
+  Patterns older than Show Bus 1.1 on another PC therefore stays amber ("update Patterns") and is not followed.
 - **State:** Patterns pushes `STATE <json>`, latest-wins. Stagewatch reads `video{file,tag,position,length,playing,
   ended,loops}`, and from Patterns Round 86 `positionMs`, `lengthMs` (null = not known yet), `paused`, `rate` and
   `seq`. An unknown length or `loops` means no countdown; at a rate other than 1 the countdown is real time. Position counts on locally from a
@@ -96,9 +140,10 @@ Stagewatch reads the clip on air in Patterns over Patterns' own wire, as a playo
 - Announces itself on UDP 9928 as `{"t":"messenger","v":1,"id":…,"name":"AGMessage","web":3023,"caps":[…]}` —
   Stagewatch ignores kinds it doesn't know. It **listens** on Patterns' 9700 but never sends there (a standby twin
   must never mistake it for a main machine).
-- Reads `ws://<stagewatch>:9924/ws` for the live timer (public frame; the key is passed as `pin=` only to get past a
-  viewing code) and sends `POST /api/message/<text>/<urgency>/off/ack` with `Authorization: Bearer swk_…` (a
-  **control** key) when the research team puts an answer on the confidence monitor.
+- Reads `ws://<stagewatch>:9924/ws` for the live timer, its key in the `Authorization` header (a key in force also
+  opens a viewing code), and sends `POST /api/message/<text>/<urgency>/off/ack` with `Authorization: Bearer swk_…`
+  (a **node** key, which may send stage messages, or a control key) when the research team puts an answer on the
+  confidence monitor. Its node link, `t=messenger`, is in the table above.
 
 ## Conventions for anything joining
 

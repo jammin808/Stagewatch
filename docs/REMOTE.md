@@ -21,11 +21,11 @@ multi-room beacon behind `/rooms` and the acknowledged-cue loop on the role page
 | Department notes | `GET /api/deptnotes?dept=Lighting&key=…` | crew link key or PIN | One department's notes on every item (only that department's crew link can read them) |
 | Custom CSS | `/custom.css` | none | The operator's styling (Settings → Remote), loaded by every page; each page's `<html>` has class `sw-page-<name>` |
 | Saved screen setups | `http://<pc>:9924/p/<name>` | none | Opens a page and its options saved in **Screens** (e.g. `/p/lobby` → `/audience?holding=0`) |
-| Screens list | `GET /api/screens` | PIN | Every connected browser: id, name, page, device, address; and the saved setups |
+| Screens list | `GET /api/screens` | PIN | Every connected browser: id, name, page, device, address, and `claim` for a socket that only claims to be a show app; and the saved setups. Show apps on a node key or a node link aren't screens (2.18) |
 | Presenter PCs | `POST /api/slides/feed` · `POST /api/slides/script?hash=…` | PIN | Stagewatch Slides sends its slideshow (see NODES.md) |
 | MCP | `POST http://<pc>:9924/mcp` | PIN (`Authorization: Bearer <pin>` or `X-Stagewatch-Pin`) | AI assistants and Patterns tools reading and driving the show |
 | HTTP API | `http://<pc>:9924/api/...` | PIN | vMix, Companion "generic HTTP", Stream Deck, scripts |
-| WebSocket | `ws://<pc>:9924/ws` | PIN for control | Custom dashboards that want live state |
+| WebSocket | `ws://<pc>:9924/ws` | PIN for control; a node key for a show app | Custom dashboards that want live state; show apps following the timer as node links (2.18) |
 | OSC (UDP) | port 9925, **off by default** | none | QLab, lighting desks, TouchOSC |
 | Companion TCP | port 9923 | none | Bitfocus Companion module (see COMPANION.md) |
 
@@ -81,8 +81,8 @@ One grammar is shared by every transport — HTTP, WebSocket, OSC and the Compan
 | `deptnote` | `<item> <department> [text]` | A department's note on an item (empty clears). Crew pages may send it for their own department with their crew link |
 | `roll` | `[on \| off \| toggle]` | Roll: the running order follows its planned times until the operator takes over |
 | `rundown` | `<name>` | Make another of the show's running orders live |
-| `screen` | `identify [screen]` | Flash each screen's name on it for 6 s (no screen = all) |
-| `screen` | `go <setup \| /page> [screen]` | Send screens to a saved setup or a page on this Stagewatch (a screen is its name or id; none = all) |
+| `screen` | `identify [screen]` | Flash each screen's name on it for 6 s (no screen = every browser screen; never a show app, 2.18) |
+| `screen` | `go <setup \| /page> [screen]` | Send screens to a saved setup or a page on this Stagewatch (a screen is its name or id; none = every browser screen) |
 | `screen` | `name <id> <name>` · `save <setup> <screen>` | Name a screen; save a screen's page and options as a setup |
 | `holding` | `<number \| name \| id \| off \| toggle>` | Put a holding image full screen on every output, NDI and browser screen (`holding 2`, `holding Sponsors`, `holding off`) |
 | `message … ack` | `<text> [urgency] [flash] ack` | As `message`, and ask the speaker to acknowledge ("Got it") |
@@ -128,7 +128,8 @@ Connect to `/ws` (viewer) or `/ws?role=control&pin=1234`; add `&detail=1` (or `?
 Read-only connections may still send `ack` and `question`. The server sends a `{"type":"state",…}` frame —
 the same JSON as `/api/state` — on connect and whenever anything visible changes (about once a second while
 running). Control clients send `{"cmd":"nudge","args":["60"]}`. Frames are latest-wins: a slow client skips
-frames rather than falling behind.
+frames rather than falling behind. A show app (Patterns, PlayMap, AGMessage) connects as a node link instead, and
+hears first what Stagewatch made of it (2.18, below).
 
 ### OSC
 
@@ -199,6 +200,9 @@ may receive:
 | `{"type":"identify","name":"Lobby TV","id":"…"}` | Show the screen's name full screen for 6 s |
 | `{"type":"beat","live":false}` | Stagewatch is answering but its show has stopped updating — the page goes stale |
 
+From 2.18 a show app on a node key or a node link is not a screen and never receives `redirect`, `identify`, `reload` or
+`disconnect`; a socket that only claims to be one stays in the list, marked, and is never reached by "all" (see 2.18).
+
 ## Design notes
 
 The app is the single authority. Every input — buttons, keys, Companion, HTTP, WebSocket, OSC — becomes a
@@ -211,9 +215,11 @@ slow or malicious client is timed out or dropped without touching the timer.
 
 - **API keys** (Settings → Remote → API keys): `Authorization: Bearer swk_…`, `X-Stagewatch-Pin: swk_…` or
   `?pin=swk_…`. Scopes: **read** (`/api/state?detail=1`, reports, `/api/screens`), **control** (+ `/api/<verb>`,
-  layouts, crew links), **mcp** (+ `/mcp`). Unknown or revoked keys count toward the 5-a-minute lockout like wrong
-  PINs. Each key: 600 requests a minute; replies carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
-  `X-RateLimit-Reset` (seconds); over the limit → `429` with `Retry-After`.
+  layouts, crew links), **mcp** (+ `/mcp`), **node** (read, stage messages, its own context and proposals; it speaks for
+  one node id, see 2.18). Unknown or revoked keys are refused (401); from 2.18 they never count
+  toward the 5-a-minute lockout, and revoking reaches links already open. Each key: 600 requests a minute; replies
+  carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (seconds); over the limit → `429` with
+  `Retry-After`.
 - **Layouts:** `GET /api/layouts` → `{"layouts":[names]}`; `GET /api/layouts/<name>` → the layout JSON;
   `POST /api/layouts/save` (body: layout JSON), `POST /api/layouts/delete?name=`, `POST /api/layouts/ai`
   (body `{"request":"…","current":{layout}|null}` → `{"ok","layout","notes"}`, a draft that is **not** saved).
@@ -249,7 +255,7 @@ The contract between Stagewatch, Patterns, AGMessage and the micro-apps is `docs
 | **Pinning** | Apps connecting to each other trust a certificate by its fingerprint, pinned on the first authenticated success; a different one later is refused ("CERTIFICATE CHANGED") until the operator accepts it. Stagewatch Slides on presenter PCs does this (pins in `%APPDATA%\Stagewatch\slides-pins.json`; "Trust new certificate" after a reinstall). |
 | **Approval queue** | Stagewatch is the show's approval desk (hello cap `approvals`). `POST /api/proposals` (node, MCP or control key, or the PIN) `{"from":{t,id,name},"target":{t,id},"line","reason"}` → `{"id":"p1","state":"pending"}`. The proposal appears in Copilot beside Stagewatch's own, with the target's own risk for that verb (unknown = high). Approve or discard once. Aimed at Stagewatch, it runs here with a receipt; aimed at another app, that app collects it — `GET /api/proposals?target=<its id>&state=approved` with its node key — runs it through its own checks and reports `POST /api/proposals/<id>/result {"ok","words"}`. `GET /api/proposals/<id>` (read) → state (`pending`, `approved`, `rejected`, `done`, `failed`, `undelivered` after 60 s uncollected), `ok`, `words`, who decided. A node key is bound to the node it first spoke for; one app's key can't collect another's. Everything is in the show log. |
 
-## 2.17 (next release): windows — addresses Stagewatch controls
+## 2.17: windows — addresses Stagewatch controls
 
 A **window** is a browser Stagewatch drives through an address of its own: `http://<pc>:9924/w/<token>`. Open it on a
 TV, a projector PC, a signage player, or an OBS or vMix browser input, and Stagewatch decides what it shows. The address
@@ -298,3 +304,196 @@ the room sees) and `new`, `rename`, `loss` and `fade` low.
 - **Blackout** covers every window. A revoked or deleted address shows "This window's address was replaced or removed"
   and stops trying. Reconnects back off with jitter, so a room of windows doesn't reconnect in one burst.
 - Double-click or `F` on the window toggles full screen; the screen is kept awake.
+
+## 2.18 (next release): show apps on /ws — one key, one node
+
+Patterns, PlayMap and AGMessage follow the timer over `/ws`, as a browser does. Until 2.18 Stagewatch couldn't tell them
+from browsers: they were listed in Screens, `screen identify|reload|go|disconnect all` reached them, any node key could
+post a context under any app's id, and the PIN or a control key could speak for an app that had a key of its own. Now a
+show app that names its node (`node=`) and proves it is a **node link**: it hears first what Stagewatch made of it, it
+is never a screen, and no screen command reaches it. A socket on a node key leaves Screens too, even before its app
+names its node; one on a control key or the PIN stays a browser screen until its app does. A node key speaks for one
+app, checked before anything is stored. Following the timer is never refused for a key problem alone: frames are what a
+stage reads.
+
+### A node link
+
+```
+GET /ws?node=9f8e7d6c&t=patterns HTTP/1.1
+Upgrade: websocket
+Authorization: Bearer swk_…      ← a node key; a control key, or the PIN when one is set, also proves; nothing = a claim
+```
+
+- `node` is the app's Show Bus id (its hello's `id`): 1–40 letters, digits, `-` or `_`. `t` is its kind (its hello's
+  `t`: `patterns`, `playmap`, `messenger`…): 1–16 letters, digits, `-` or `_`.
+- The credential goes only in the `Authorization` header. `detail=1` works as before. `cid` and `page` are ignored; send
+  `cid=<your id>&page=/<app>` as well, and a Stagewatch older than 2.18 (which ignores `node`) lists each install under
+  its own id. It keeps a `cid` only when it is 6–32 letters, digits, `-` or `_`; send the id you send today when yours
+  isn't.
+- These are refused before the upgrade with HTTP 400 `{"ok":false,"error":"…"}`, and are never counted toward a lockout:
+
+| Request | Error |
+|---|---|
+| `node` with `win`, or `Authorization: Window …` | `a window's link is not a node link` |
+| `node` with `?pin=` | `a node link carries its key in the Authorization header, never in the URL` |
+| `node` with `role=control` | `a node link reads; it does not control` |
+| a bad `node` | `a node id is 1-40 letters, digits, - or _` |
+| a bad or missing `t` | `a node link names its kind (t=patterns, playmap, messenger…)` |
+| this Stagewatch's own id | `that's this Stagewatch` |
+
+### The verdict comes first
+
+Before any frame, and before the stuck beat when the show has stopped, a node link hears one `auth` message:
+
+```json
+{"type":"auth","ok":true,"scope":"node","node":{"t":"patterns","id":"9f8e7d6c","verified":"key"}}
+{"type":"auth","ok":true,"scope":"pin","node":{"t":"messenger","id":"a1b2c3d4","verified":"operator"}}
+{"type":"auth","ok":true,"scope":"node","node":{"t":"patterns","id":"5e6f7a8b","verified":"none"},"words":"this key speaks for patterns 9f8e7d6c — make a key for patterns 5e6f7a8b"}
+{"type":"auth","ok":true,"scope":"none","node":{"t":"patterns","id":"5e6f7a8b","verified":"none"},"words":"no key — the id is only claimed"}
+{"type":"auth","ok":false,"error":"unknown or revoked API key","retry":60}
+```
+
+- `scope` is the credential: `node`, `control`, `read`, `mcp`, `pin` or `none`. `verified` is what speaks for the id:
+  `key` (its own node key), `operator` (the PIN or a control key) or `none`.
+- `words` comes only with `none`: `no key — the id is only claimed`; `a read key reads; only a node key speaks for a
+  node`; `this key speaks for <kind> <id> — make a key for <kind> <id>`; `<kind> <id> speaks with its own key`.
+- A refused credential hears `ok:false` with `retry`, the seconds to wait before trying again: `unknown or revoked API
+  key`, `wrong PIN` and `too many wrong PINs — wait a minute` (60), `rate limit: too many requests with this key` (the
+  seconds left in the key's minute). The socket stays open with the public frame. No key reason closes a socket, so an
+  app redialling with a bad key never loops.
+- With a viewing code set, a socket that proves nothing must give the code (`&view=`), as any screen must. Without it, it
+  hears one `{"type":"auth","ok":false,"view":true,"error":"This screen needs the viewing code"}` and closes; a refused
+  key's words follow as `"retry":60,"refused":"unknown or revoked API key"`. A key in force or the PIN opens the viewing
+  code by itself.
+
+| On a `node=` socket | It is | `verified` | In Screens |
+|---|---|---|---|
+| a node key bound to this id, or bound to nothing while the id is free (it binds now) | a node link | `key` | no |
+| a node key bound to another id, or to this id under another kind, or an id another key holds | a node link | `none`, with the binding's words | no |
+| a control key, or the PIN when this Stagewatch asks for one, for an id no key holds | a node link | `operator` | no |
+| a control key, or the PIN when this Stagewatch asks for one, for an id a key holds | a node link | `none`, with the binding's words | no |
+| a read or MCP key, the PIN on a Stagewatch with no PIN set, or nothing | a claim | `none`, with words | yes, flagged as a claim, never in "all" |
+| a refused key or PIN (unknown, revoked, wrong, locked out, over its rate) | a claim | — (the `ok:false` line) | yes, flagged as a claim, never in "all" |
+
+- A node link verified `none` (two installs pasted one key, say) keeps its frames: only the node routes below refuse it.
+  A Patterns twin given the main machine's key still shows the countdown.
+- A node link reads what its credential reads: the public frame, or with `detail=1` the operator frame.
+- A node link never hears `redirect`, `identify`, `reload` or `disconnect`. A claim hears them only when it is named by its
+  own screen id (`claim-` and 12 hex, in `/api/screens`) or a name the operator gave it.
+- One install is one row in Producer → Show network however many sockets it opens; two installs are two rows.
+
+### Sockets that name no node
+
+Browsers, and show apps that don't send `node=` yet:
+- Admission is as before, and a control page hears its `auth` as before. An accepted key hears nothing new: the first
+  message is a frame.
+- A refused key (in the header, or `?pin=swk_…`) on a page that isn't a control page hears one
+  `{"type":"auth","ok":false,"error":"unknown or revoked API key","retry":60}` first, then keeps the public frame.
+- A **node** key takes a socket out of Screens even without `node=`: it is a show app listed under its key, which names
+  no node id. It follows the timer and speaks for no node. A control key, a read key or no key without `node=` is a
+  browser screen, as before.
+- A browser keeps its own `cid` only when it can't be taken for an id Stagewatch makes: one starting `claim-` or `win-`
+  gets an `anon-` id instead.
+
+### While a link is open
+
+Every change reaches open sockets at once, latest wins:
+- **A key revoked:** `{"type":"auth","ok":false,"error":"this key was revoked","retry":60}`. The socket drops to the
+  public frame (a node link becomes a claim), or, when a viewing code is set and the socket didn't give the code itself
+  (or come on a crew link), hears that message with `"view":true` and closes. Node links and keyed browser sockets alike.
+- **A binding moved** (the operator's choice, or the key's first use on another route): a node link hears a fresh verdict
+  with its new `verified`.
+- **The PIN changed:** what the PIN admitted drops to a viewer with
+  `{"type":"auth","ok":false,"error":"the PIN changed — enter the new one"}` (with `"retry":60` on a node link, which
+  becomes a claim), or closes with `"view":true` on the same rule as a revoked key; the control page asks again.
+  **The PIN cleared:** a node link it admitted becomes a claim and hears its new verdict (`no key — the id is only
+  claimed`).
+
+### One node key, one node
+
+A node key speaks for one node id. It binds on its first proven use (a node link, a context, a proposal's `from` or a
+collect) when the id is free. From then on:
+- the key is refused for any other id, and for its id under another kind: `this key speaks for <kind> <id> — make a key
+  for <kind> <id>`;
+- an id that has a key is spoken for only with that key, so the PIN, a control key or no credential are refused for it:
+  `<kind> <id> speaks with its own key`.
+
+The check runs before anything is stored, queued or claimed; a refused request binds nothing and changes nothing. The
+credential each request carries: a node key proves its own node (`key`); a control key, or the PIN when this Stagewatch
+asks for one and it is given right, proves the operator (`operator`); a read or MCP key, a PIN on a Stagewatch with no
+PIN set, or nothing, proves nothing (`none`).
+
+| Route | Names its node by | Refused |
+|---|---|---|
+| `POST /api/peers/context` | the body's `node.id` | **403** with the binding's words (was 400); 400 `not a Show Bus context (v 1, node.t, node.id; each key once)` for a body it can't read |
+| `POST /api/proposals` | `from.id` | **403** (was 400); 400 `a proposal is a JSON object that names each key once` or `from.t and from.id are required` |
+| `GET /api/proposals?target=<id>&state=approved` | `target` | **403**; a target that isn't a node id is 400 (was 403) |
+| `POST /api/proposals/<id>/result` | the proposal's target | 409, as before |
+
+- A context taken answers `200 {"ok":true,"verified":"key"|"operator"|"none"}`. A context never replaces one of stronger
+  proof for the same id while that one is held (30 s): 403 `<kind> <id> spoke with a stronger proof 12 s ago`.
+- A context verified `none` is kept and labelled. It never lowers a proposal's risk (unknown = high).
+- A body that repeats a key, at any depth, is refused 400 before anything reads it.
+- `POST /api/context` answers 405 `this is Stagewatch's own context — POST yours to /api/peers/context` (it used to answer
+  as a read). A proposal `from` this Stagewatch's own id, or a collect for it, is refused 403.
+- Bindings are saved on the keys (`remote.apiKeys[].node` and `nodeKind` in the settings, never a secret) and survive a
+  restart. Only the operator moves one: Settings → Remote → API keys → **Let it speak for…**, or **Let a key speak for
+  this node…** on a Producer → Show network row. Each first use and each move is journalled with names and ids. Keys are
+  never managed over the wire.
+
+### What counts toward the lockout
+
+Wrong PINs, wrong viewing codes and wrong window addresses: five a minute lock the address out, and a locked address is
+refused even a valid key (`too many wrong PINs — wait a minute`). An unknown or revoked key and a request with no PIN
+no longer count: neither is a guess (a key is 160 random bits), and an app still polling with an old key used to lock its
+whole PC out, browsers included.
+
+### What other readers see
+
+- **Context** (`GET /api/context`, MCP `get_context`): each `peers` row ends with `link` (`"ws"` while a node link that a
+  key or the operator proves follows the timer, else `""`) and `verified` (what proves the row's light and headline now:
+  `key`, `operator` or `none`; `""` for an app only heard). A claim, a key conflict or a key that names no id adds no row,
+  and a context that proves nothing never shows under an id a link proves. At most 32 rows.
+- **Screens** (`GET /api/screens`): browsers and claims; each row ends with `claim` (`"patterns 9f8e7d6c"`, `""` for a
+  browser). Show apps aren't listed.
+- **The copilot and the assistant:** `screens` rows end with `claim`; `other_apps` rows end with `link` and `verified`.
+  A context that proves nothing reaches the advice marked `unverified:`, one level lower, never as urgent.
+
+### Screen commands reach browsers only
+
+`screen identify|reload|disconnect|go|save` look for their target in a fixed order, so a name a show app chose can never
+shadow a screen:
+1. `all`, or nothing: every browser that is neither a control page nor a claim (`Screens: no browser screen is
+   connected` when there is none);
+2. a screen id (a claim's included);
+3. a name the operator gave a screen;
+4. a show app's node id, or the name of one verified by its own key: refused, `Screens: 9f8e7d6c is a show app (Patterns
+   FOH), not a screen — screen commands reach browsers only (Producer → Show network)`;
+5. else `Screens: nothing matches "…"`.
+
+`screen name <id> <name>` names a screen id (a claim's included, or one still to connect), never a show app's.
+
+The same refusal comes back on every transport (HTTP, WebSocket, OSC, Companion, MCP), in its receipt where one was
+asked for. There is no command that disconnects a show app: revoking its key is the wall.
+
+### Stagewatch's Patterns link: the token never crosses the network
+
+Stagewatch's own link to a Patterns desk (TCP 9697, Settings → Integrations → Patterns video):
+- **A proof, never the token.** The desk's `NONCE` is answered with `AUTH-PROOF` only when it is exactly 32 lowercase
+  hex, once per connection: a desk that refuses the proof and sends a fresh NONCE gets no second one.
+- **Plain `AUTH <token>` only on this PC.** It goes only to a socket whose remote address is loopback, and never on a
+  connection that heard a NONCE. To a Patterns on another PC older than Show Bus 1.1, nothing secret is sent: the link
+  stays amber, "`<host>:<port>` is older than Show Bus 1.1 and pairs only by sending its token in clear — update
+  Patterns; the token stays on this PC".
+- **Nothing before pairing.** Every STATE (the desk's greeting included), receipt, clock sample and context that comes
+  before the link pairs (`OK paired` to its proof, or on this PC to its token) or is open (a desk that asks for no proof:
+  a Show Bus 1.1 desk, or one on this PC while this link holds no token) is set aside and counted. Commands are refused
+  here with the reason, and nothing is written. Once it pairs or is open, a 1.1 desk is asked once for its STATE
+  (`@st STATUS`), so the clip reads at once.
+- **Open desks.** A desk that asks this link for no key is followed when it speaks Show Bus 1.1, or when it is on this
+  PC and this link holds no token. While this link holds a token the desk never asked for, it is amber ("asks for no key
+  — the token stays on this PC").
+
+Two things change for older desks: a Patterns older than Show Bus 1.1 on another PC is no longer followed, even when
+neither side holds a token ("pairs only on its own PC — update Patterns"), so its VT countdown stops until it is
+updated; and a wrong or stale token on this PC leaves the link red and unread, even though Patterns trusts this PC.

@@ -49,8 +49,10 @@ It's small enough to adopt in a day per node, and every piece already exists som
    - **high:** changes what the room sees.
 
    The classes are decided by code, never by a model. Stagewatch's copilot already works this way.
-5. **Auth:** one model everywhere. A scoped key (`read` / `control` / `mcp`) is sent as `Bearer`. Only a hash is
-   stored, keys can be revoked, every reply carries rate-limit headers, and wrong keys count toward a lockout.
+5. **Auth:** one model everywhere. A scoped key (`read` / `control` / `mcp`, and `node` for another show app, which
+   speaks for one node id) is sent as `Bearer`. Only a hash is stored, keys can be revoked, every reply carries
+   rate-limit headers, and wrong PINs, viewing codes and window addresses count toward a lockout; unknown or revoked
+   keys are refused and never counted (2.18).
    Stagewatch has this now; AGMessage and Patterns adopt the same shape.
 6. **Journal:** every node appends what happened, and who decided, to its own log with the shared `seq`/time
    fields. One merged journal is then the show report, the evidence of what the AI suggested, and the training

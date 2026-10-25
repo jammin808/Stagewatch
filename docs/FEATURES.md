@@ -11,7 +11,45 @@ the end-of-show forecast and curfew trim suggestions (producer assistant), the m
 LTC and the time-server drift check, vMix VT countdowns, speech pace, the full printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
 
-## 2.17 (next release): windows Stagewatch controls
+## 2.18 (next release): show apps aren't screens, and each app has its own key
+
+- **Show apps leave Screens.** Patterns, PlayMap and AGMessage follow the timer too, but they aren't screens. A show app
+  on a node key of its own, or one that names itself as a show app and brings the PIN or a control key, is listed only
+  under Producer → Show network, and **identify, reload, send and disconnect never reach it**, not even with "all". The
+  Screens window says how many follow ("2 show apps follow this Stagewatch too (Producer → Show network); screen commands
+  never reach them"), and naming one in a screen command is refused with the reason.
+- **Until Patterns, PlayMap and AGMessage are updated** to name themselves as show apps (each in its own release), one
+  leaves Screens only with a node key of its own. With a control key or the PIN it is still a browser screen to
+  Stagewatch, and "all" still reaches it. Give each app a node key now (WHATS_NEXT.md, the 2.18 upgrade notes).
+- **Something that only claims to be an app stays in Screens, marked.** A connection that says it is Patterns but proves
+  nothing reads "○ claims to be Patterns 9f8e7d6c — unproven; never in 'all'". "All" never reaches it; select it to
+  identify or disconnect it.
+- **One key, one app.** A node key now speaks for one app: the first that uses it, or the one you choose. Another app
+  using the same key keeps following the timer, but its context and suggestions are refused, and its Show network row
+  says why and offers **Make a key for <app>**: one press makes it a key of its own, shown once, to paste into that app.
+  **Let a key speak for this node…** (right-click a Show network row, or **Let it speak for…** in Settings → Remote → API
+  keys) moves a key you already have onto an app, for example a reinstalled app with a new id. Settings shows what each
+  node key speaks for ("speaks for patterns 9f8e7d6c", "no node yet") and when it was last refused for another. Every
+  change is saved, survives a restart and goes in the show log.
+- **You can see what proves each app.** Each Show network row has a mark beside its light: ✓ its own node key, △ the PIN
+  or a control key (the operator's, not its own), ○ nothing (only claimed, or only heard). The line under it says how it
+  reaches Stagewatch ("follows over /ws · key 'Patterns FOH' · 10.0.0.5" for an app that names itself). Right-click:
+  **Copy node id**, **Make a key for…**, **Let a key speak for this node…**, **Revoke its key…** (the same as Settings →
+  Remote). Problems from a context that proves nothing reach the advice marked "unverified:", one level lower and never
+  as urgent; the copilot and AI agents read the same proof.
+- **An old key can't lock a PC out any more.** An unknown or revoked key, or a request with no PIN, no longer counts as a
+  wrong guess, so an app still polling with an old key no longer locks its whole PC, browsers included, out of the PIN.
+  Five wrong PINs still do. Revoking a key, or changing the PIN, reaches apps and pages already connected at once.
+- **The Patterns token never crosses the network.** Stagewatch proves it holds the pairing token instead of sending it,
+  and sends the token itself only to a Patterns on this PC. Nothing a desk says is shown until it pairs (or says it asks
+  for no key). A Patterns on another PC that is older than Show Bus 1.1 now stays amber ("update Patterns") and its VT
+  countdown stops until it is updated; a wrong token on this PC is red.
+- **Diagnostics** count each kind apart: "listening on 9924, 3 browsers, 1 window link, 2 show app links, 1 unproven
+  claim". **Companion**'s screen actions say "empty = all browser screens; show apps and unproven claims are never
+  included".
+- Coming from 2.16? 2.18 also brings 2.17's windows (next section).
+
+## 2.17: windows Stagewatch controls
 
 - **Give a screen its own address.** Screens → Windows → name it (`lobby`) → **New window** → **Copy address**, and open
   the address on the TV, projector PC, signage player or OBS/vMix browser input. From then on Stagewatch decides what it

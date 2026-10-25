@@ -96,10 +96,21 @@ button is recording.
 | `SIGNAL`, `ACK`, `TRIM`, `DELAY`, `CATCHUP`, `PREVIEW`, `LADDER`, `FORMAT`, `Q`, `REHEARSE`, `LISTEN`, `REPORT`, `NOTE` | The 2.0 commands — same grammar as HTTP/OSC (see REMOTE.md) |
 | `OUTPUT`, `NDI`, `HOLDING`, `STYLE`, `LTC` | Outputs, holding images, the 3D display and LTC chase (2.2–2.7; see REMOTE.md) |
 | `ROLL`, `RUNDOWN`, `DEPTNOTE` | Roll, switching running orders and department notes (2.9). Module: *Roll* and *make another live* actions, `roll` / `rundown` variables and feedbacks |
-| `AUX`, `SCREEN` | Extra timers and browser screens (2.8; see REMOTE.md). Module: *Extra timer* actions and keys, `aux_1`…`aux_3` variables, *Screens: send / identify* |
+| `AUX`, `SCREEN` | Extra timers and browser screens (2.8; see REMOTE.md). Module: *Extra timer* actions and keys, `aux_1`…`aux_3` variables, *Screens: send / identify*. From 2.18 screen commands reach browser screens only (below) |
 | `UNDO`, `REDO`, `ENDOFSHOW <HH:MM\|clear>`, `LOOP <off\|n\|forever>`, `SCREEN RELOAD\|DISCONNECT [screen]` | 2.10. Module: *Undo the last live edit*, *Redo*, *Running order: show ends at*, *Running order: loop*, *Screens: reload / disconnect* |
 | `WINDOW NEW\|SHOW\|CUE\|HOLD\|RELEASE\|IDENTIFY\|RELOAD\|LOSS\|FADE\|RENAME\|REVOKE\|DELETE …` | Windows Stagewatch controls (2.17; see REMOTE.md). Module: *Windows: show a page* (show or cue), *Windows: holding page* (on, toggle, words, image), *Windows: release*, *Windows: identify*; presets *holding page on every window (toggle)* and *identify all*. No window feedbacks yet: the module's frame doesn't carry windows |
 | `STATE`, `SUBSCRIBE [JSON]`, `UNSUBSCRIBE`, `PING`, `QUIT` | Session |
+
+**Screen commands reach browsers only (2.18).** `SCREEN IDENTIFY|RELOAD|DISCONNECT|GO` with no screen, or `all`, reach
+every browser screen that isn't a control page. A show app (Patterns, PlayMap, AGMessage) on Stagewatch's `/ws` with a
+node key, or on a node link (REMOTE.md, 2.18), is never a screen, and a socket that only claims to be one is never part
+of "all" (it can still be named by its own screen id). Until each app dials as a node, one on a control key or the PIN
+is still a browser screen, and "all" reaches it. Naming a show app, in any `SCREEN` command, is refused:
+`@a1 SCREEN IDENTIFY 9f8e7d6c` → `ERROR @a1 Screens: 9f8e7d6c is a show app (Patterns FOH), not a screen — screen
+commands reach browsers only (Producer → Show network)`. The module's four screen actions say so: the *Screen name or id*
+field reads "empty = all browser screens", and each description adds that show apps and unproven claims are never
+included (*Screens: disconnect*: revoking a show app's key is the wall). The preset is *Screens: identify all browser
+screens*.
 
 Bad input gets `ERROR <reason>` and the connection stays open.
 
