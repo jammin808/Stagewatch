@@ -45,8 +45,11 @@ public sealed partial class MainViewModel
 
     IReadOnlyList<(string Name, string Path)> IShowScreens.ScreenPresets => _screenPresets;
 
-    /// <summary>Connected screens (empty when the web server is off).</summary>
+    /// <summary>Connected screens: browsers and claims (empty when the web server is off).</summary>
     public IReadOnlyList<ScreenInfo> ListScreens() => _web?.ListScreens() ?? Array.Empty<ScreenInfo>();
+
+    /// <summary>Show apps following over /ws, never screens (empty when the web server is off).</summary>
+    public IReadOnlyList<NodeLinkFact> ListNodes() => _web?.ListNodes() ?? Array.Empty<NodeLinkFact>();
 
     public bool ScreensAvailable => _web is not null;
 

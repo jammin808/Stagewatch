@@ -245,10 +245,10 @@ public sealed partial class MainViewModel
         DateTime.UtcNow, ShowClock,
         SnapshotJson.Serialize(_hub.Latest, FrameAccess.Operator),
         SnapshotJson.SerializeConfig(GetRemoteConfig()),
-        ListScreens().Select(x => new ScreenFact(x.Id, x.Name, x.Page, x.Device, x.Control)).ToList(),
+        ListScreens().Select(x => new ScreenFact(x.Id, x.Name, x.Page, x.Device, x.Control, x.Claim)).ToList(),
         Settings.Remote.ScreenPresets,
         IntegrationStatus().Select(x => new IntegrationFact(x.Name, x.Health.ToString(), x.Status)).ToList(),
-        _history.Records.Count, _model, Settings.Rundown.Items, _journal.Entries, PeerFacts(DateTime.UtcNow), WindowItems()));
+        _history.Records.Count, _model, Settings.Rundown.Items, _journal.Entries, PeerFacts(), WindowItems()));
 
     /// <summary>Draft the narrative for the show report from the journal (the operator edits it before it's kept).</summary>
     public async Task<string> DraftShowSummaryAsync()

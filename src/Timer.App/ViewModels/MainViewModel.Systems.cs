@@ -211,7 +211,7 @@ public sealed partial class MainViewModel
             t.Remaining, _forecast, ghost, script, _signals.All, _qa.Queued, _qa.FitIn(t.Remaining), now, ShowClock,
             Settings.Display.Use12HourClock);
         var list = new List<Advice>(_ruleAdvisor.Advise(input));
-        list.AddRange(PeerAdvice(now));
+        list.AddRange(PeerAdvice());
         if (_cloud is { } cloud)
         {
             list.AddRange(cloud.Latest);
@@ -223,7 +223,7 @@ public sealed partial class MainViewModel
     /// <summary>Compact JSON the cloud assistant sees (titles, plan, expected/actual, curfews, live remaining).</summary>
     private string DescribeShowForAssistant(ScheduleProjection p, DateTime now)
         => AiContext.Assistant(Settings.Rundown.Items, p, ShowClock, now, _show.RundownActive ? _show.CurrentItem : -1,
-            _lastTick.Remaining, _show.PendingDelay, _qa.Queued, PeerFacts(now));
+            _lastTick.Remaining, _show.PendingDelay, _qa.Queued, PeerFacts());
 
     private void MaybeForecast(DateTime now, ScheduleProjection p)
     {

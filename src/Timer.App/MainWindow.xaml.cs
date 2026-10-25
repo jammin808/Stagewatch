@@ -801,7 +801,10 @@ public partial class MainWindow : Window, IContextActions
                 break;
 
             case "show-network" when element.DataContext is PeerRow peer:
+                // The row's button (Make a key) and Settings → Remote's Revoke run the same code as these.
+                yield return I("Copy node id", () => CopyText(peer.NodeId), peer.NodeId.Length > 0);
                 if (peer.MakeKeyLabel.Length > 0) yield return I(peer.MakeKeyLabel, () => _vm.MakeKeyForPeerCommand.Execute(peer));
+                yield return I("Revoke its key…", () => RevokePeerKey(peer), peer.KeyId.Length > 0);
                 break;
 
             case "remote-line":
@@ -862,6 +865,20 @@ public partial class MainWindow : Window, IContextActions
         if (_vm.RemoteBaseUrl is not { } baseUrl) return;
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(baseUrl + path) { UseShellExecute = true }); }
         catch (Exception) { }
+    }
+
+    /// <summary>
+    /// Revoke the node key a Show network row is verified by, once the operator confirms: the same revocation as Settings →
+    /// Remote → API keys, so the app's context and proposals are refused and its link on /ws drops to the public frame at once.
+    /// </summary>
+    private void RevokePeerKey(PeerRow peer)
+    {
+        var key = _vm.ApiKeys.FirstOrDefault(k => k.Id == peer.KeyId);
+        if (key is null) return;
+        if (MessageBox.Show(this, $"Revoke API key '{key.Name}'? {peer.Name} stops speaking for {NodeBindings.Describe(peer.NodeKind, peer.NodeId)} at once: " +
+                "its context and proposals are refused, and its link on /ws keeps only the public frame until it has a key again.",
+                "Show network", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
+        _vm.RevokeApiKey(key.Id);
     }
 
     /// <summary>A node key made for a refused app: shown once and put on the clipboard; Stagewatch keeps only its fingerprint.</summary>

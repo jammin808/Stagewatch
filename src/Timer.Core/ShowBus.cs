@@ -45,6 +45,17 @@ public sealed record PeerSummary(string Kind, string Id, string Name, string Lig
 {
     /// <summary>Show Bus liveness: live (heard within 6 s), stale (6–12 s), gone (over 12 s).</summary>
     public string Liveness => AgeSeconds <= 6 ? "live" : AgeSeconds <= 12 ? "stale" : "gone";
+
+    /// <summary>"ws" while a node link on /ws proves this id (by a key or the operator's credential); "" otherwise.</summary>
+    public string Link { get; init; } = "";
+
+    /// <summary>
+    /// What proves the facts this row shows, as the wire says it (key, operator or none): its context's proof when the
+    /// light and headline are a context's (one this Stagewatch pulled over its own Patterns link counts as key while no
+    /// key speaks for the id), else its proven link's; none when only links that prove nothing name it; "" when nothing
+    /// spoke for it (a hello alone). A context verified "none" is held and shown, but sets no risk.
+    /// </summary>
+    public string Verified { get; init; } = "";
 }
 
 /// <summary>
@@ -132,15 +143,25 @@ public sealed class PeerContexts
     };
 
     /// <summary>
+    /// What a context this Stagewatch pulled over its own link to an address the operator set proves for
+    /// <paramref name="nodeId"/>: a key's proof while no key speaks for that id, nothing once one does (a key-bound id
+    /// speaks with its key alone).
+    /// </summary>
+    public NodeProof LinkedProof(string nodeId) => _nodes.KeyOf(nodeId) is null ? NodeProof.Key : NodeProof.None;
+
+    /// <summary>Every context held, each with what it proves now (<see cref="ProofOf"/>).</summary>
+    public IReadOnlyList<HeldContext> Held(DateTime nowUtc) => All(nowUtc).Select(e => new HeldContext(e, ProofOf(e))).ToList();
+
+    /// <summary>
     /// How risky a line is for a node, from the verbs its context lists: high without a context, and high when its context
     /// proves nothing now (<see cref="ProofOf"/>), so an unverified context never lowers a risk. <paramref name="linked"/>
     /// is a context this Stagewatch pulled over its own link to the node's address, which the operator set; it counts
-    /// only when no held context proves anything and no key speaks for that id (a key-bound id speaks with its key alone).
+    /// only when no held context proves anything and it proves something itself (<see cref="LinkedProof"/>).
     /// </summary>
     public string RiskFor(string nodeId, string line, DateTime nowUtc, string? linked = null)
     {
         if (Find(nodeId, nowUtc) is { } held && ProofOf(held) != NodeProof.None) return ProposalDesk.RiskFromCommands(held.Commands, line);
-        if (linked is not null && Parse(linked, "", nowUtc) is { } pulled && pulled.Id == nodeId && _nodes.KeyOf(nodeId) is null)
+        if (linked is not null && Parse(linked, "", nowUtc) is { } pulled && pulled.Id == nodeId && LinkedProof(nodeId) != NodeProof.None)
             return ProposalDesk.RiskFromCommands(pulled.Commands, line);
         return "high";
     }

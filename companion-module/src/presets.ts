@@ -483,7 +483,7 @@ ${v('standing_by')} SB`, { size: '14', bgcolor: COLORS.darkgrey }),
 			feedbacks: [{ feedbackId: 'roll', options: {}, style: { bgcolor: COLORS.green, color: COLORS.white, text: `ROLLING\n${v('rundown')}` } }],
 			keywords: ['roll', 'auto', 'clock', 'unattended', 'running order'],
 		}),
-		simple('screens_identify', 'Screens: identify all', {
+		simple('screens_identify', 'Screens: identify all browser screens', {
 			style: style('FIND\nSCREENS', { size: '14', bgcolor: COLORS.darkgrey }),
 			steps: press('screen_identify', { who: '' }),
 			feedbacks: [],

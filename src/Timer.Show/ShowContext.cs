@@ -135,7 +135,10 @@ public static class ShowContext
             links,
             recent = x.Journal.TakeLast(20).Select(e => new { at = new DateTimeOffset(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(), text = $"{x.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}" }),
             commands = Commands.Select(c => new { verb = c.Verb, risk = c.Risk, words = c.Words }),
-            peers = x.Peers.Select(p => new { t = p.Kind, id = p.Id, name = p.Name, light = p.Light, headline = p.Headline, heard = p.Liveness }),
+            // One hop (ShowNetwork's join): link is "ws" while a node link proves the id; verified is what proves the
+            // row's light and headline now ("" when nothing spoke for it). Both last in the row: readers match the
+            // earlier fields as written.
+            peers = x.Peers.Select(p => new { t = p.Kind, id = p.Id, name = p.Name, light = p.Light, headline = p.Headline, heard = p.Liveness, link = p.Link, verified = p.Verified }),
         });
     }
 }

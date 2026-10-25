@@ -1,5 +1,7 @@
 using System.IO;
+using System.Net.WebSockets;
 using System.Reflection;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -159,6 +161,39 @@ public static class Program
                     Pump(1600);
                     Expect(vm.PeerRows.Any(r => r is { Name: "Patterns FOH", Kind: "Patterns", Light: "red" }) && vm.PeerRows.Any(r => r is { Name: "AGM backchannel", Light: "amber" }) && vm.ContextJson() is { } ctx && ctx.Contains("AGM backchannel"),
                            $"Producer lists them, and this Stagewatch's context names them ({vm.PeerRows.Count})");
+                    Expect(vm.PeerRows.Where(r => r.Name is "Patterns FOH" or "AGM backchannel").ToList() is { Count: 2 } posted
+                           && posted.All(r => r is { Mark: "○", LinkLine: "posts its context unverified, so it sets no risk · not linked on /ws", KeyId: "", NodeId.Length: > 0 })
+                           && vm.ContextJson() is { } ctxRows && ctxRows.Contains("\"link\":\"\",\"verified\":\"none\"}", StringComparison.Ordinal),
+                           "each row says what proves it (○ unverified, a shape beside the light) and how it reaches this Stagewatch; the context says the same");
+
+                    // A key of its own: ✓, and "Revoke its key…" has the key to revoke. The same key pasted into a second install, and
+                    // a node key on a socket that names no id, are rows apart: ○, no key to revoke, and the refused one can be given a key.
+                    var patSecret = vm.CreateApiKey("Patterns FOH", ApiKeyScope.Node);
+                    var patKey = vm.ApiKeys.SingleOrDefault(k => k.Name == "Patterns FOH")?.Id ?? "";
+                    Expect(patSecret is not null && vm.AcceptPeerContext(pat, "10.0.0.5", NodeCredential.Key(patKey)) is (200, null, NodeProof.Key),
+                           "Patterns posts again with a node key of its own");
+                    Pump(1600);
+                    Expect(vm.PeerRows.SingleOrDefault(r => r.Id == "9f8e7d6c") is { Mark: "✓", Apart: false, RefusalOnly: false } keyedRow && keyedRow.KeyId == patKey
+                           && keyedRow.LinkLine == "posts its context with key 'Patterns FOH' · not linked on /ws" && keyedRow.MarkTip == ShowNetwork.MarkWords("key"),
+                           "a key of its own: ✓, what proves it in words, and the key Revoke would revoke");
+                    var oldSecret = vm.CreateApiKey("Old AGMessage", ApiKeyScope.Node);
+                    var port = vm.WebPort ?? 19924;
+                    using var twin = new ClientWebSocket();
+                    twin.Options.SetRequestHeader("Authorization", "Bearer " + patSecret);
+                    using var legacy = new ClientWebSocket();
+                    legacy.Options.SetRequestHeader("Authorization", "Bearer " + oldSecret);
+                    var linked = Await(twin.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?node=9f8e7d6d&t=patterns"), CancellationToken.None), 5000)
+                                 && Await(legacy.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?cid=legacy01&page=/patterns"), CancellationToken.None), 5000);
+                    Pump(1600);
+                    var twinRow = vm.PeerRows.SingleOrDefault(r => r.Id == "9f8e7d6d");
+                    var keyRow = vm.PeerRows.SingleOrDefault(r => r.Name == "Key 'Old AGMessage'");
+                    Expect(linked && twinRow is { Apart: true, Mark: "○", Name: "Patterns 9f8e7d6d", NodeId: "9f8e7d6d", KeyId: "", MakeKeyLabel: "Make a key for Patterns" }
+                           && twinRow.Headline == ShowNetwork.ApartUnproven && twinRow.LinkLine.Contains("unverified: this key speaks for patterns 9f8e7d6c", StringComparison.Ordinal),
+                           $"a key two installs share: the second is a row apart, ○, and can be given a key of its own ({twinRow?.LinkLine})");
+                    Expect(keyRow is { Apart: true, Mark: "○", NodeId: "", KeyId: "", MakeKeyLabel: "" } && keyRow.Headline == ShowNetwork.ApartNoId
+                           && vm.ShowNetworkLine.Contains("· 2 unverified on /ws", StringComparison.Ordinal) && vm.ContextJson() is { } apartCtx
+                           && PeerIds(apartCtx) is var peerIds && peerIds.Contains("9f8e7d6c") && !peerIds.Contains("9f8e7d6d") && !peerIds.Any(id => id.StartsWith("key:", StringComparison.Ordinal)),
+                           $"a node key that names no id is a row of its own with no node id to copy; the headline counts both, and the context lists neither ({vm.ShowNetworkLine})");
                     tabs.SelectedItem = (TabItem)w.FindName("TabProducer");
                     Pump(400);
                     Save(w, "producer-show-network");
@@ -429,6 +464,20 @@ public static class Program
     {
         var t = line.Split(' ');
         if (ShowCommandParser.TryParse(t[0], t.Skip(1).ToList(), out var c, out var e)) vm.Execute(c); else Console.WriteLine("bad: " + e);
+    }
+
+    /// <summary>The ids of a context's peers rows (Show Bus §6).</summary>
+    private static List<string> PeerIds(string contextJson)
+    {
+        using var doc = JsonDocument.Parse(contextJson);
+        return doc.RootElement.GetProperty("peers").EnumerateArray().Select(p => p.GetProperty("id").GetString() ?? "").ToList();
+    }
+
+    /// <summary>Pumps the dispatcher until <paramref name="task"/> ends or <paramref name="ms"/> pass; true when it ran to completion.</summary>
+    private static bool Await(Task task, int ms)
+    {
+        for (var waited = 0; !task.IsCompleted && waited < ms; waited += 50) Pump(50);
+        return task.IsCompletedSuccessfully;
     }
 
     private static void Pump(int ms)

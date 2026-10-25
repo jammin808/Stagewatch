@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Stagewatch.Core;
 using Stagewatch.Remote;
+using Stagewatch.Show;
 
 /// <summary>2.0 web: role pages, detail frames, public verbs (ack / question) without the PIN, rate limits, QR, report, MCP.</summary>
 static class WebV2Tests
@@ -744,6 +745,36 @@ static class WebV2Tests
         var ctxOwn = await PostContext(http, pat1Secret, "pat1");
         Check(ctxTwin.Code == HttpStatusCode.Forbidden && ctxOwn is (HttpStatusCode.OK, "{\"ok\":true,\"verified\":\"key\"}"),
               "node links: the twin's context is refused 403, its own install's taken: the binding governs the node routes, not reading");
+
+        // Every reader joins the same facts (ShowNetwork): the context's peers rows, the AI's facts, the desk's rows, Screens'
+        // subtitle and diagnostics read the links the server lists, so none of them can call a show app a screen.
+        var census = new WsCensus(0, 0, 5, 1);
+        var counted = await Until(() => web.Census() == census);
+        Check(counted && web.Census().Describe() == "0 browsers, 0 window links, 5 show app links, 1 unproven claim",
+              $"node links: the census counts browsers, windows' links, show apps' links and claims apart ({web.Census().Describe()})");
+        var nowNet = DateTime.UtcNow;
+        var net = ShowNetwork.Summaries(new[] { new HeardNode("messenger", "ag00001", "AGMessage FOH", "127.0.0.1", 1) }, control.Peers.Held(nowNet),
+            web.ListNodes(), control.OwnNodeId, nowNet);
+        Check(net.Rows.Select(r => r.Peer.Id).SequenceEqual(new[] { "ag00001", "pat1", "pat2" }) && net.More == 0
+              && net.Rows.All(r => r.Peer is { Link: "ws", Verified: "key", Liveness: "live" })
+              && net.Rows.Single(r => r.Peer.Id == "pat1") is { Peer.HasContext: true, Link.Links: 2 } p1Net
+              && ShowNetwork.LinkLine(p1Net, id => control.ApiKeys.FirstOrDefault(k => k.Id == id)?.Name) == "follows over /ws · key 'Patterns FOH' · 127.0.0.1 · 2 links"
+              && net.Rows.Single(r => r.Peer.Id == "pat2") is { Peer.Headline: ShowNetwork.LinkOnly, Named: false }
+              && net.Apart is [{ Id: "pat2b", Verified: NodeProof.None }],
+              $"node links: the show network lists each proven install once, with its link and what proves it; the twin is apart, the claim nowhere ({string.Join(", ", net.Rows.Select(r => r.Peer.Id))})");
+        using (var ctx = JsonDocument.Parse(ShowContext.Build(new ContextInput("abc123abc123", "Hall A", nowNet, control.Snapshots.Latest, false, Array.Empty<ContextItem>(),
+                   net.Rows.Select(r => r.Peer).ToList(), Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0))))
+        {
+            var peerRows = ctx.RootElement.GetProperty("peers").EnumerateArray().ToList();
+            static string? Field(JsonElement row, string name) => row.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            Check(peerRows.Count == 3 && peerRows.All(r => Field(r, "link") == "ws" && Field(r, "verified") == "key")
+                  && peerRows.All(r => r.GetProperty("id").GetString() is not ("pat2b" or "pat9")),
+                  "node links: the context's peers rows carry link ws and verified key for the proven links; a conflict or a claim adds no row");
+        }
+        Check(Screens.Subtitle(web.ListScreens(), web.ListNodes(), port).StartsWith(
+                  "0 screens and 0 control pages, 1 unproven claim (never in 'all') · 4 show apps follow this Stagewatch too (Producer → Show network); screen commands never reach them.",
+                  StringComparison.Ordinal),
+              $"node links: Screens' subtitle names the claim and the show apps it never reaches ({Screens.Subtitle(web.ListScreens(), web.ListNodes(), port)})");
 
         // A refused key on a node link: one refusal with a retry, then the public frame; never a closed socket.
         var unknownSecret = ApiKeys.Create("never saved", ApiKeyScope.Node, DateTime.UtcNow).Secret;

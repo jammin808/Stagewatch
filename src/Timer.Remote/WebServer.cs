@@ -112,6 +112,23 @@ public sealed class WebServer : IAsyncDisposable
             .ToList();
     }
 
+    /// <summary>Every socket on /ws by what it is: a browser, a window's link, a show app's node link or a claim. Thread-safe.</summary>
+    public WsCensus Census()
+    {
+        int browsers = 0, windows = 0, apps = 0, claims = 0;
+        foreach (var c in _sockets.Keys)
+        {
+            if (c.WindowId is not null) { windows++; continue; }
+            switch (c.Link.Class)
+            {
+                case WsClass.Node: apps++; break;
+                case WsClass.Claim: claims++; break;
+                default: browsers++; break;
+            }
+        }
+        return new WsCensus(browsers, windows, apps, claims);
+    }
+
     /// <summary>Send screens to another page on this Stagewatch. Returns how many browser tabs were told. Never blocks.</summary>
     public int Redirect(IEnumerable<string> screenIds, string path)
     {

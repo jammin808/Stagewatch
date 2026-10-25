@@ -67,7 +67,7 @@ public sealed partial class MainViewModel
 
         Section("Connections");
         Line("Companion server", _companion.IsRunning ? $"listening on {_companion.Port}" : "off");
-        Line("Web remote", _web is null ? "off" : $"listening on {_web.Port}, {_web.ConnectedClients} browser(s)");
+        Line("Web remote", _web is null ? "off" : $"listening on {_web.Port}, {_web.Census().Describe()}");
         Line("OSC", _osc is null ? "off" : $"listening on {_osc.Port}, {_osc.MessagesReceived} received, {_osc.MessagesRejected} rejected");
         Line("LAN addresses", string.Join(", ", LanAddresses()));
 

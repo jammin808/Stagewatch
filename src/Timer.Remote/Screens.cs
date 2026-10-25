@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using Stagewatch.Core;
 
@@ -19,6 +20,17 @@ public sealed record ScreenInfo(
     bool Control,
     int Tabs,
     string Claim = "");
+
+/// <summary>
+/// Who is on /ws, counted by socket: browser screens (control pages included), windows' links, show apps' node links and
+/// claims (sockets that named a node and proved nothing).
+/// </summary>
+public readonly record struct WsCensus(int Browsers, int WindowLinks, int ShowAppLinks, int Claims)
+{
+    /// <summary>"3 browsers, 1 window link, 2 show app links, 1 unproven claim": each kind apart, for diagnostics.</summary>
+    public string Describe() => string.Join(", ", Screens.Count(Browsers, "browser"), Screens.Count(WindowLinks, "window link"),
+        Screens.Count(ShowAppLinks, "show app link"), Screens.Count(Claims, "unproven claim"));
+}
 
 public static class Screens
 {
@@ -82,6 +94,39 @@ public static class Screens
         var byId = screens.Where(s => s.Id.Equals(who, StringComparison.OrdinalIgnoreCase)).ToList();
         return byId.Count > 0 ? byId : screens.Where(s => s.Name.Equals(who, StringComparison.OrdinalIgnoreCase)).ToList();
     }
+
+    /// <summary>
+    /// The Screens window's line under its title: browsers, control pages and claims counted apart, and the show apps that
+    /// follow this Stagewatch too, which screen commands never reach (they are listed under Producer → Show network).
+    /// </summary>
+    public static string Subtitle(IReadOnlyList<ScreenInfo> screens, IReadOnlyList<NodeLinkFact> nodes, int port)
+    {
+        var apps = ShowApps(nodes);
+        var also = apps == 0 ? null
+            : $"{Count(apps, "show app")} follow{(apps == 1 ? "s" : "")} this Stagewatch too (Producer → Show network); screen commands never reach {(apps == 1 ? "it" : "them")}";
+        if (screens.Count == 0)
+            return $"No browser screens connected yet. Open http://<this PC>:{port.ToString(CultureInfo.InvariantCulture)}/viewer on a TV or tablet." + (also is null ? "" : $" {also}.");
+        var claims = screens.Count(s => s.Claim.Length > 0);
+        var browsers = screens.Count(s => s.Claim.Length == 0 && !s.Control);
+        var control = screens.Count(s => s.Claim.Length == 0 && s.Control);
+        var counts = $"{Count(browsers, "screen")} and {Count(control, "control page")}" + (claims > 0 ? $", {Count(claims, "unproven claim")} (never in 'all')" : "");
+        return counts + (also is null ? "" : " · " + also) + ". Double-click a name to change it; select screens to find them or send them somewhere else.";
+    }
+
+    /// <summary>How many show apps follow over /ws: one per install (its node id), or per key for a key that names no id.</summary>
+    public static int ShowApps(IReadOnlyList<NodeLinkFact> nodes)
+        => nodes.Select(n => n.Id is { } id ? "node:" + id : "key:" + n.KeyId).Distinct(StringComparer.Ordinal).Count();
+
+    /// <summary>A claim's row, for people: "claims to be Patterns 9f8e7d6c — unproven; never in 'all'".</summary>
+    public static string ClaimWords(string claim)
+    {
+        var space = claim.IndexOf(' ');
+        var who = space > 0 ? $"{ShowNetwork.AppName(claim[..space])} {claim[(space + 1)..]}" : claim;
+        return $"claims to be {who} — unproven; never in 'all'";
+    }
+
+    /// <summary>"1 screen", "2 screens".</summary>
+    internal static string Count(int n, string what) => n.ToString(CultureInfo.InvariantCulture) + " " + what + (n == 1 ? "" : "s");
 
     /// <summary>"all", or no target at all: every browser screen.</summary>
     public static bool IsAll(string who) => who.Trim() is var w && (w.Length == 0 || w.Equals("all", StringComparison.OrdinalIgnoreCase));

@@ -4,11 +4,19 @@ using Stagewatch.Core;
 
 namespace Stagewatch.Show;
 
-/// <summary>A browser screen as the copilot sees it.</summary>
-public sealed record ScreenFact(string Id, string Name, string Page, string Device, bool Control);
+/// <summary>
+/// A browser screen as the copilot sees it. <see cref="Claim"/> is what a socket that only claims to be a show app claims
+/// ("patterns 9f8e7d6c"; "" for a browser): listed so the operator can drop it, never reached by "all".
+/// </summary>
+public sealed record ScreenFact(string Id, string Name, string Page, string Device, bool Control, string Claim = "");
 
-/// <summary>Another show app as an AI sees it (Show Bus §6, one hop): light, headline, parts, recent lines.</summary>
-public sealed record PeerFact(string Kind, string Name, string Light, string Headline, IReadOnlyList<string> Parts, IReadOnlyList<string> Recent);
+/// <summary>
+/// Another show app as an AI sees it (Show Bus §6, one hop): light, headline, parts, recent lines; <see cref="Link"/> is
+/// "ws" while it follows this Stagewatch over a proven node link, and <see cref="Verified"/> what proves those facts now
+/// (key, operator, none, or "" when nothing spoke for it), so a context only claimed is read as a claim.
+/// </summary>
+public sealed record PeerFact(string Kind, string Name, string Light, string Headline, IReadOnlyList<string> Parts, IReadOnlyList<string> Recent,
+    string Link = "", string Verified = "");
 
 /// <summary>An integration's link as the copilot sees it ("why isn't vMix switching?").</summary>
 public sealed record IntegrationFact(string Name, string Health, string Status);
@@ -58,7 +66,8 @@ public static class AiContext
             w.WritePropertyName("config");
             w.WriteRawValue(f.ConfigUtf8);
             w.WritePropertyName("screens");
-            JsonSerializer.Serialize(w, f.Screens.Select(s => new { id = s.Id, name = s.Name, page = s.Page, device = s.Device, control = s.Control }));
+            // Browsers and claims; a show app is never a screen (other_apps lists it, with its link).
+            JsonSerializer.Serialize(w, f.Screens.Select(s => new { id = s.Id, name = s.Name, page = s.Page, device = s.Device, control = s.Control, claim = s.Claim }));
             w.WritePropertyName("screen_setups");
             JsonSerializer.Serialize(w, f.ScreenSetups.Select(p => new { name = p.Name, page = p.Path }));
             // The windows Stagewatch controls ("window show <name> <page>"): what each should show and what it says it shows.
@@ -86,7 +95,8 @@ public static class AiContext
             });
             w.WritePropertyName("recent");
             JsonSerializer.Serialize(w, f.Journal.TakeLast(RecentLines).Select(e => $"{f.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}"));
-            // The other show apps in the room (Patterns, AGMessage…): their lights are evidence; grey means unknown.
+            // The other show apps in the room (Patterns, AGMessage…): their lights are evidence; grey means unknown. Which
+            // follow the timer over /ws, and what proves each one's facts: a context verified "none" is only claimed.
             w.WritePropertyName("other_apps");
             JsonSerializer.Serialize(w, (f.Peers ?? Array.Empty<PeerFact>()).Select(PeerJson));
             w.WriteEndObject();
@@ -94,7 +104,7 @@ public static class AiContext
         return Encoding.UTF8.GetString(ms.ToArray());
     }
 
-    private static object PeerJson(PeerFact p) => new { app = p.Kind, name = p.Name, light = p.Light, headline = p.Headline, parts = p.Parts, recent = p.Recent };
+    private static object PeerJson(PeerFact p) => new { app = p.Kind, name = p.Name, light = p.Light, headline = p.Headline, parts = p.Parts, recent = p.Recent, link = p.Link, verified = p.Verified };
 
     /// <summary>The cloud assistant's compact view: titles, plan, expected/actual, curfews, live remaining, the other apps.</summary>
     public static string Assistant(IReadOnlyList<RundownItem> items, ScheduleProjection p, ShowClock clock, DateTime nowUtc,
@@ -117,7 +127,7 @@ public static class AiContext
             pending_delay_s = (long)pendingDelay.TotalSeconds,
             qa_queued = qaQueued,
             items = rows,
-            other_apps = (peers ?? Array.Empty<PeerFact>()).Select(x => new { app = x.Kind, name = x.Name, light = x.Light, headline = x.Headline })
+            other_apps = (peers ?? Array.Empty<PeerFact>()).Select(x => new { app = x.Kind, name = x.Name, light = x.Light, headline = x.Headline, link = x.Link, verified = x.Verified })
         });
     }
 

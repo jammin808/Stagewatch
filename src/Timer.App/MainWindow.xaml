@@ -712,8 +712,12 @@
                                                     </Ellipse.Style>
                                                 </Ellipse>
                                                 <StackPanel Grid.Column="1">
-                                                    <TextBlock FontSize="13" TextTrimming="CharacterEllipsis"><Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Kind, Mode=OneWay}" Foreground="{StaticResource TextMutedBrush}" /></TextBlock>
+                                                    <!-- The mark is what proves its id (✓ its own key, △ the operator's credential, ○ unverified): a shape, never colour alone. -->
+                                                    <TextBlock FontSize="13" TextTrimming="CharacterEllipsis"><Run Text="{Binding Mark, Mode=OneWay}" FontWeight="Bold" ToolTip="{Binding MarkTip, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Kind, Mode=OneWay}" Foreground="{StaticResource TextMutedBrush}" /></TextBlock>
                                                     <TextBlock Text="{Binding Headline}" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+                                                    <!-- How it reaches this Stagewatch: its /ws link and the credential that proves it, or how its context came. -->
+                                                    <TextBlock Text="{Binding LinkLine}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" ToolTip="{Binding MarkTip}"
+                                                               Visibility="{Binding LinkLine, Converter={StaticResource NonEmptyToVis}}" />
                                                     <TextBlock Text="{Binding Problems}" FontSize="12" Foreground="{StaticResource NeonAmberBrush}" TextWrapping="Wrap"
                                                                Visibility="{Binding Problems, Converter={StaticResource NonEmptyToVis}}" />
                                                     <!-- A key two apps shared: why it was refused for this one, and one press to give it a key of its own (also on right-click). -->

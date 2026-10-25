@@ -63,9 +63,8 @@ public partial class ScreensWindow : Window
             if (row is null) { row = new ScreenRow(s.Id); _rows.Add(row); }
             row.Update(s, now);
         }
-        Subtitle.Text = live.Count == 0
-            ? "No browser screens connected yet. Open http://<this PC>:9924/viewer on a TV or tablet."
-            : $"{live.Count(s => !s.Control)} screen(s) and {live.Count(s => s.Control)} control page(s). Double-click a name to change it; select screens to find them or send them somewhere else.";
+        // Browsers, control pages and claims apart; the show apps following too are named, never listed (Producer → Show network).
+        Subtitle.Text = Screens.Subtitle(live, _vm.ListNodes(), _vm.WebPort ?? _vm.Settings.Remote.WebPort);
     }
 
     private void RefreshPresets()
@@ -267,7 +266,7 @@ public partial class ScreensWindow : Window
             return;
         }
         var who = Selected().ToList();
-        if (who is ["all"] && _rows.Count(r => !r.Control) > 1 &&
+        if (who is ["all"] && _rows.Count(r => !r.Control && !r.Claim) > 1 &&
             MessageBox.Show(this, $"Send every screen to {target}?", "Screens", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
             return;
         foreach (var w in who) Run($"screen go {target} {w}");
@@ -347,17 +346,20 @@ public partial class ScreensWindow : Window
         public string Address { get; private set; } = "";
         public string Since { get; private set; } = "";
         public bool Control { get; private set; }
+        /// <summary>A socket that named a node and proved nothing: listed so it can be found or dropped, never reached by "all".</summary>
+        public bool Claim { get; private set; }
 
         public void Update(ScreenInfo s, DateTime now)
         {
             Set(nameof(Name), Name, s.Name, v => Name = v);
-            var page = s.Control ? "🔒 " + s.Page : s.Page;
+            var page = s.Claim.Length > 0 ? "○ " + Screens.ClaimWords(s.Claim) : s.Control ? "🔒 " + s.Page : s.Page;
             Set(nameof(Page), Page, s.Tabs > 1 ? $"{page}  (+{s.Tabs - 1} tab)" : page, v => Page = v);
             Set(nameof(Device), Device, s.Device, v => Device = v);
             Set(nameof(Address), Address, s.Address, v => Address = v);
             var age = now - s.ConnectedUtc;
             Set(nameof(Since), Since, age.TotalMinutes < 1 ? "just now" : age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min" : $"{(int)age.TotalHours} h {age.Minutes} min", v => Since = v);
             Control = s.Control;
+            Claim = s.Claim.Length > 0;
         }
 
         private void Set(string prop, string old, string value, Action<string> assign)

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Stagewatch.Core;
 using Stagewatch.Remote;
+using Stagewatch.Show;
 
 /// <summary>
 /// One node key speaks for one node id (Show Bus §11): the bindings, the contexts and the approval desk on them. Pure, on
@@ -31,6 +32,327 @@ static class NodeTests
         Links(Check);
         Rechecks(Check);
         Targets(Check);
+        Network(Check);
+        NetworkProof(Check);
+        NetworkWords(Check);
+        DeskRows(Check);
+        Readers(Check);
+    }
+
+    static NodeLinkFact Fact(string kind, string? id, NodeProof verified, string? keyId, string keyName, string? words = null, int links = 1, string address = "10.0.0.5", int at = 0)
+        => new(kind, id, verified, keyId, keyName, address, T0.AddSeconds(at), links, words);
+
+    /// <summary>
+    /// One join for every reader (ShowNetwork.Summaries): hellos, contexts and the node links on /ws by node id; "ws" and
+    /// the verified word from what proves the id now; conflicts and keys that name no id apart; the cap.
+    /// </summary>
+    static void Network(Action<bool, string> Check)
+    {
+        var nodes = new NodeBindings();
+        var peers = new PeerContexts(nodes);
+        nodes.Keep(new[] { NodeKey("kP", null, null), NodeKey("kA", null, null) });
+        Check(peers.Accept(Context("patterns", "pat1", "Patterns FOH"), "10.0.0.5", T0, "desk01", NodeCredential.Key("kP")).Status == 200
+              && peers.Accept(Context("messenger", "ag1", ""), "10.0.0.7", T0, "desk01", NodeCredential.None).Status == 200,
+              "network: a keyed context and an open one are held");
+        var hellos = new[]
+        {
+            new HeardNode("patterns", "pat1", "FOH desk", "10.0.0.5", 1),
+            new HeardNode("playmap", "pm1", "PlayMap stage", "10.0.0.8", 2),
+            new HeardNode("agent", "lectern1", "Lectern PC", "10.0.0.20", 1),
+            new HeardNode("main", "desk01", "This Stagewatch", "10.0.0.1", 1),
+            new HeardNode("messenger", "ag1", "AG room", "10.0.0.7", 30),
+        };
+        var links = new[]
+        {
+            Fact("patterns", "pat1", NodeProof.Key, "kP", "Patterns FOH", links: 2),
+            Fact("playmap", "pm2", NodeProof.Operator, null, "", address: "10.0.0.9"),
+            Fact("playmap", "pm3", NodeProof.Operator, "kC", "Desk control", address: "10.0.0.10"),
+            Fact("patterns", "pat2", NodeProof.None, "kP", "Patterns FOH", "this key speaks for patterns pat1 — make a key for patterns pat2", address: "10.0.0.6"),
+            Fact("messenger", "ag1", NodeProof.None, "kA", "AGMessage", "messenger ag1 speaks with its own key", address: "10.0.0.11", at: 1),
+            Fact("messenger", null, NodeProof.None, "kOld", "Old AGMessage", NodeLinks.NamesNoId, address: "10.0.0.12"),
+            Fact("main", "desk01", NodeProof.Key, "kX", "X"),
+        };
+        var now = T0.AddSeconds(2);
+        var view = ShowNetwork.Summaries(hellos, peers.Held(now), links, "desk01", now);
+        var ids = view.Rows.Select(r => r.Peer.Id).ToList();
+        Check(ids.SequenceEqual(new[] { "ag1", "pat1", "pm1", "pm2", "pm3" }) && view.More == 0,
+              $"network: told rows (hello or context) by kind and name, then rows only a proven link gives; never a presenter PC or this Stagewatch ({string.Join(", ", ids)})");
+        var pat1 = view.Rows.Single(r => r.Peer.Id == "pat1");
+        Check(pat1.Peer is { Link: "ws", Verified: "key", Name: "Patterns FOH", HasContext: true, Liveness: "live" } && pat1.Named && pat1.ContextProof == NodeProof.Key
+              && pat1.Link is { KeyName: "Patterns FOH", Links: 2 } && pat1.Unproven.Count == 0,
+              "network: a hello, a keyed context and a key's link on /ws are one row: link ws, verified key, named by its context");
+        var pm1 = view.Rows.Single(r => r.Peer.Id == "pm1");
+        Check(pm1.Peer is { Link: "", Verified: "", Name: "PlayMap stage", Light: Light.Grey, Headline: ShowNetwork.HelloOnly, HasContext: false } && pm1.Named,
+              "network: a hello alone is a grey row that nothing spoke for: no link, verified \"\"");
+        var pm2 = view.Rows.Single(r => r.Peer.Id == "pm2");
+        Check(pm2.Peer is { Link: "ws", Verified: "operator", Name: "PlayMap pm2", Headline: ShowNetwork.LinkOnly, Liveness: "live", Address: "10.0.0.9" } && !pm2.Named,
+              "network: a link the operator's credential proves is a row of its own, named after its kind and id, live while open");
+        var ag1 = view.Rows.Single(r => r.Peer.Id == "ag1");
+        Check(ag1.Peer is { Link: "", Verified: "none", Name: "AG room", HasContext: true } && ag1.ContextProof == NodeProof.None && ag1.Unproven is [{ KeyName: "AGMessage" }],
+              "network: an open context is verified none (only claimed), and a link that proves nothing for the id rides on its row, not as a link");
+        Check(view.Apart.Select(l => l.Id ?? "key:" + l.KeyId).SequenceEqual(new[] { "key:kOld", "pat2" }),
+              $"network: a key that names no id and a conflict no hello, context or proven link lists are apart, never rows ({string.Join(", ", view.Apart.Select(l => l.Id ?? l.KeyId))})");
+
+        // Liveness: a gone hello is live again while a proven link is open; a stale context with no link stays stale.
+        var gone = ShowNetwork.Summaries(new[] { new HeardNode("patterns", "pat1", "FOH", "10.0.0.5", 40) }, Array.Empty<HeldContext>(),
+            new[] { Fact("patterns", "pat1", NodeProof.Key, "kP", "Patterns FOH") }, "desk01", now);
+        var stale = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Held(T0.AddSeconds(9)), Array.Empty<NodeLinkFact>(), "desk01", T0.AddSeconds(9));
+        Check(gone.Rows is [{ Peer.Liveness: "live", Peer.Link: "ws" }] && stale.Rows.All(r => r.Peer.Liveness == "stale" && r.Peer.Link == ""),
+              "network: an open proven link is heard now; without one, a context ages as it always has");
+
+        // Trust order: a pulled context counts for its own id while no key speaks for it; the first that proves something wins.
+        var linkedJson = Context("patterns", "pat9", "Linked");
+        var pulled = PeerContexts.Parse(linkedJson, "10.0.0.30", now)!;
+        Check(peers.LinkedProof("pat9") == NodeProof.Key && peers.LinkedProof("pat1") == NodeProof.None,
+              "network: a context pulled over this Stagewatch's own link proves its id only while no key speaks for that id");
+        peers.Accept(Context("patterns", "pat9", "Open post"), "10.0.0.31", now, "desk01", NodeCredential.None);
+        var trust = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Held(now).Append(new HeldContext(pulled, peers.LinkedProof("pat9"))), Array.Empty<NodeLinkFact>(), "desk01", now);
+        Check(trust.Rows.Single(r => r.Peer.Id == "pat9") is { Peer: { Name: "Linked", Verified: "key" }, ContextProof: NodeProof.Key },
+              "network: an open post never outranks the pulled context that proves the id");
+        peers.Accept(Context("patterns", "pat8", "Desk post"), "10.0.0.32", now, "desk01", NodeCredential.Operator);
+        var pulled8 = PeerContexts.Parse(Context("patterns", "pat8", "Pulled"), "10.0.0.30", now)!;
+        var first = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Held(now).Append(new HeldContext(pulled8, peers.LinkedProof("pat8"))), Array.Empty<NodeLinkFact>(), "desk01", now);
+        Check(first.Rows.Single(r => r.Peer.Id == "pat8") is { Peer: { Name: "Desk post", Verified: "operator" }, ContextProof: NodeProof.Operator },
+              "network: a held context that proves something comes first, as the risk reads it");
+
+        // The cap: told rows first, then link-only rows; the rest are counted, never listed.
+        var many = Enumerable.Range(1, 3).Select(i => new HeardNode("patterns", "p" + i, "P" + i, "10.0.1." + i, 1));
+        var only = Enumerable.Range(1, 3).Select(i => Fact("playmap", "m" + i, NodeProof.Key, "km" + i, "M" + i)).ToList();
+        var capped = ShowNetwork.Summaries(many, Array.Empty<HeldContext>(), only, "desk01", now, max: 4);
+        Check(capped.Rows.Count == 4 && capped.More == 2 && capped.Rows.Count(r => r.Peer.Kind == "patterns") == 3 && capped.Apart.Count == 0,
+              $"network: capped, hello and context rows are kept first and the rest counted ({capped.Rows.Count} + {capped.More})");
+        Check(ShowNetwork.Summaries(many, Array.Empty<HeldContext>(), only, "desk01", now).Rows.Count == 6 && PeerContexts.MaxPeers == 32,
+              "network: the cap is the peers' own (32) unless a reader asks for fewer");
+    }
+
+    /// <summary>A context with a light and items of its own (what advice and the desk's problems read).</summary>
+    static string Lit(string kind, string id, string name, string light, params (string Id, string Light, string State)[] items)
+        => $"{{\"v\":1,\"node\":{{\"t\":\"{kind}\",\"id\":\"{id}\",\"name\":\"{name}\"}},\"light\":\"{light}\",\"headline\":\"{name} says {light}\",\"items\":["
+           + string.Join(",", items.Select(i => $"{{\"id\":\"{i.Id}\",\"kind\":\"health\",\"label\":\"{i.Id}\",\"light\":\"{i.Light}\",\"state\":\"{i.State}\"}}")) + "]}";
+
+    /// <summary>
+    /// A row's verified is what proves the facts it shows: a context that proves nothing never rides under an id a link
+    /// proves (set aside, so its light, headline, items and name reach no reader), and a context this Stagewatch pulled
+    /// over its own Patterns link says so rather than claiming a key of its own.
+    /// </summary>
+    static void NetworkProof(Action<bool, string> Check)
+    {
+        var now = T0.AddSeconds(2);
+        string? Names(string id) => id == "kP" ? "Patterns FOH" : null;
+
+        // An operator's link (the PIN) and an open post for that free id: the post is held, but nothing of it shows under the id.
+        var nodes = new NodeBindings();
+        var peers = new PeerContexts(nodes);
+        Check(peers.Accept(Lit("playmap", "pm7", "Forged stage", "red", ("projector", "red", "LAMP FAILED")), "10.0.0.66", T0, "desk01", NodeCredential.None).Proof == NodeProof.None,
+              "proof: an open post for a free id is held, unverified");
+        var pin = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Held(now), new[] { Fact("playmap", "pm7", NodeProof.Operator, null, "", address: "10.0.0.9") }, "desk01", now);
+        var pm7 = pin.Rows.Single();
+        Check(pm7.Peer is { Link: "ws", Verified: "operator", Light: Light.Grey, Headline: ShowNetwork.LinkOnly, Name: "PlayMap pm7", HasContext: false, Address: "10.0.0.9" }
+              && pm7.Context is null && pm7.ContextProof == NodeProof.None && pm7.ClaimSetAside && !pm7.Named && !pm7.Pulled,
+              $"proof: under an id the operator's link proves, an open post sets nothing: grey, the link's headline, verified operator ({pm7.Peer.Light}, {pm7.Peer.Headline}, {pm7.Peer.Verified})");
+        Check(ShowNetwork.LinkLine(pm7, Names) == "follows over /ws · the PIN (the operator's, not a key of its own) · 10.0.0.9 · " + ShowNetwork.SetAside
+              && ShowNetwork.MarkTip(pm7) == ShowNetwork.MarkWords("operator") && ShowNetwork.PeerAdvice(pin).Count == 0 && peers.RiskFor("pm7", "go", now) == "high",
+              $"proof: the link line says the claim was set aside; no advice and no risk come from it ({ShowNetwork.LinkLine(pm7, Names)})");
+
+        // A key's link and an open post stored before the key bound: the same, verified key.
+        nodes.Keep(new[] { NodeKey("kP", null, null) });
+        Check(peers.Accept(Lit("patterns", "pat1", "Early post", "red", ("screen:1", "red", "MISMATCH")), "10.0.0.67", T0, "desk01", NodeCredential.None).Proof == NodeProof.None
+              && nodes.Speak(NodeCredential.Key("kP"), "patterns", "pat1", now).Ok,
+              "proof: an open post, then the node's key binds its id on /ws");
+        var keyed = ShowNetwork.Summaries(new[] { new HeardNode("patterns", "pat1", "FOH desk", "10.0.0.5", 1) }, peers.Held(now),
+            new[] { Fact("patterns", "pat1", NodeProof.Key, "kP", "Patterns FOH") }, "desk01", now);
+        var pat1 = keyed.Rows.Single(r => r.Peer.Id == "pat1");
+        Check(pat1.Peer is { Link: "ws", Verified: "key", Light: Light.Grey, Headline: ShowNetwork.LinkOnly, Name: "FOH desk", HasContext: false }
+              && pat1.Context is null && pat1.ClaimSetAside && pat1.Named && ShowNetwork.PeerAdvice(keyed).All(a => !a.Key.StartsWith("peer:pat1:", StringComparison.Ordinal))
+              && ShowNetwork.LinkLine(pat1, Names) == "follows over /ws · key 'Patterns FOH' · 10.0.0.5 · " + ShowNetwork.SetAside,
+              $"proof: under a key-verified id, an earlier open post shows nothing; the row is named by its hello ({pat1.Peer.Name}, {pat1.Peer.Headline})");
+        var facts = keyed.Rows.Where(r => r.Peer.Id == "pat1").Select(r => new PeerFact(r.Peer.Kind, r.Peer.Name, r.Peer.Light, r.Peer.Headline,
+            r.Context?.Items.Select(i => i.State).ToList() ?? new List<string>(), Array.Empty<string>(), r.Peer.Link, r.Peer.Verified)).ToList();
+        Check(facts is [{ Light: Light.Grey, Verified: "key", Parts.Count: 0 }] && !facts[0].Headline.Contains("Early post", StringComparison.Ordinal),
+              "proof: the AI's facts carry nothing of a claim under a proven id");
+
+        // With no link, an open context is shown, verified none, and its advice is labelled and a level lower.
+        var open = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Held(now), Array.Empty<NodeLinkFact>(), "desk01", now);
+        var advice = ShowNetwork.PeerAdvice(open);
+        Check(open.Rows.Single(r => r.Peer.Id == "pm7").Peer is { Verified: "none", Light: Light.Red, Link: "" }
+              && advice is [{ Level: AdviceLevel.Warn, Key: "peer:pat1:screen:1" }, { Level: AdviceLevel.Warn, Key: "peer:pm7:projector" }]
+              && advice.All(a => a.Text.StartsWith("unverified: ", StringComparison.Ordinal))
+              && advice[1].Text == "unverified: Forged stage — projector: LAMP FAILED",
+              $"proof: with no link, a claim is shown as one: verified none, its advice 'unverified:' and never urgent ({string.Join(" | ", advice.Select(a => $"{a.Level} {a.Text}"))})");
+
+        // A context posted with the node's own key: its advice keeps its level, under the name the row shows.
+        peers.Accept(Lit("patterns", "pat1", "Patterns FOH", "red", ("screen:1", "red", "MISMATCH"), ("ndi", "amber", "late"), ("audio", "red", "no signal")), "10.0.0.5", now, "desk01", NodeCredential.Key("kP"));
+        var proven = ShowNetwork.PeerAdvice(ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Held(now), Array.Empty<NodeLinkFact>(), "desk01", now));
+        Check(proven.Where(a => a.Key.StartsWith("peer:pat1:", StringComparison.Ordinal)).Select(a => (a.Level, a.Text)).SequenceEqual(new[]
+              {
+                  (AdviceLevel.Urgent, "Patterns FOH — screen:1: MISMATCH"), (AdviceLevel.Urgent, "Patterns FOH — audio: no signal"),
+              }),
+              $"proof: a proven context's red parts are urgent, two at most, worst first ({string.Join(" | ", proven.Select(a => a.Text))})");
+
+        // Pulled over this Stagewatch's own Patterns link: key on the wire (decision 10), and the desk says what proves it.
+        var pulled = new HeldContext(PeerContexts.Parse(Context("patterns", "pat9", "Linked"), "10.0.0.30", now)!, peers.LinkedProof("pat9"), Pulled: true);
+        var linked = ShowNetwork.Summaries(Array.Empty<HeardNode>(), new[] { pulled }, Array.Empty<NodeLinkFact>(), "desk01", now).Rows.Single();
+        Check(linked.Peer is { Verified: "key", Link: "", HasContext: true } && linked.Pulled && linked.ContextProof == NodeProof.Key
+              && ShowNetwork.LinkLine(linked, Names) == "its context comes over this Stagewatch's Patterns link (10.0.0.30) · not linked on /ws"
+              && ShowNetwork.Mark(linked.Peer.Verified) == "✓"
+              && ShowNetwork.MarkTip(linked) == "verified: its context comes over this Stagewatch's own Patterns link, to the address the operator set — not a key of its own",
+              $"proof: a pulled context is verified key, and its words say this Stagewatch's own link proves it, never a key it posted with ({ShowNetwork.LinkLine(linked, Names)})");
+        var pinLinked = ShowNetwork.Summaries(Array.Empty<HeardNode>(), new[] { pulled }, new[] { Fact("patterns", "pat9", NodeProof.Operator, null, "", address: "10.0.0.30") }, "desk01", now).Rows.Single();
+        Check(pinLinked.Peer is { Verified: "key", Link: "ws", HasContext: true }
+              && ShowNetwork.LinkLine(pinLinked, Names) == "follows over /ws · the PIN (the operator's, not a key of its own) · 10.0.0.30 · its context comes over this Stagewatch's Patterns link (10.0.0.30)",
+              $"proof: following over /ws with the PIN, its pulled context still says where it came from ({ShowNetwork.LinkLine(pinLinked, Names)})");
+        var bound = new HeldContext(PeerContexts.Parse(Context("patterns", "pat1", "Pulled"), "10.0.0.30", now)!, peers.LinkedProof("pat1"), Pulled: true);
+        var boundRow = ShowNetwork.Summaries(Array.Empty<HeardNode>(), new[] { bound }, Array.Empty<NodeLinkFact>(), "desk01", now).Rows.Single();
+        Check(boundRow.Peer.Verified == "none" && ShowNetwork.Mark(boundRow.Peer.Verified) == "○" && ShowNetwork.MarkTip(boundRow) == ShowNetwork.MarkWords("none")
+              && ShowNetwork.LinkLine(boundRow, Names) == "its context comes over this Stagewatch's Patterns link (10.0.0.30), but a key speaks for its id: it proves nothing, so it sets no risk · not linked on /ws",
+              $"proof: once a key speaks for the id, a pulled context proves nothing and says so ({ShowNetwork.LinkLine(boundRow, Names)})");
+    }
+
+    /// <summary>The desk's words for a row: the mark beside the light, and how the app reaches this Stagewatch.</summary>
+    static void NetworkWords(Action<bool, string> Check)
+    {
+        Check(ShowNetwork.Mark("key") == "✓" && ShowNetwork.Mark("operator") == "△" && ShowNetwork.Mark("none") == "○" && ShowNetwork.Mark("") == "○"
+              && ShowNetwork.MarkWords("key").StartsWith("verified: it speaks with a node key of its own", StringComparison.Ordinal)
+              && ShowNetwork.MarkWords("none").StartsWith("unverified", StringComparison.Ordinal) && ShowNetwork.MarkWords("").StartsWith("unverified", StringComparison.Ordinal),
+              "words: a shape for each proof (✓ key, △ operator, ○ unverified), with words beside it");
+        static NetworkRow Row(NodeLinkFact? link, PeerContexts.Entry? context = null, NodeProof proof = NodeProof.None, params NodeLinkFact[] unproven)
+            => new(new PeerSummary("patterns", "pat1", "FOH", Light.Green, "", "", 0, context is not null), context, proof, link, unproven, true);
+        string? Names(string id) => id == "kP" ? "Patterns FOH" : null;
+        var keyed = Row(Fact("patterns", "pat1", NodeProof.Key, "kP", "Patterns FOH", links: 2));
+        var ctl = Row(Fact("patterns", "pat1", NodeProof.Operator, "kC", "Desk control"));
+        var pin = Row(Fact("patterns", "pat1", NodeProof.Operator, null, ""));
+        var entry = PeerContexts.Parse(Context("patterns", "pat1", "FOH"), "10.0.0.5", T0)! with { KeyId = "kP", Proof = NodeProof.Key };
+        Check(ShowNetwork.LinkLine(keyed, Names) == "follows over /ws · key 'Patterns FOH' · 10.0.0.5 · 2 links"
+              && ShowNetwork.LinkLine(ctl, Names) == "follows over /ws · control key 'Desk control' (the operator's, not its own) · 10.0.0.5"
+              && ShowNetwork.LinkLine(pin, Names) == "follows over /ws · the PIN (the operator's, not a key of its own) · 10.0.0.5",
+              $"words: a link names the credential that proves it and where it comes from ({ShowNetwork.LinkLine(keyed, Names)})");
+        Check(ShowNetwork.LinkLine(Row(null, entry, NodeProof.Key), Names) == "posts its context with key 'Patterns FOH' · not linked on /ws"
+              && ShowNetwork.LinkLine(Row(null, entry, NodeProof.Operator), Names) == "posts its context with the operator's credential · not linked on /ws"
+              && ShowNetwork.LinkLine(Row(null, entry), Names) == "posts its context unverified, so it sets no risk · not linked on /ws"
+              && ShowNetwork.LinkLine(Row(null), Names) == "heard on the network · not linked on /ws",
+              "words: with no link, how its context came, or that it was only heard");
+        var twin = Fact("patterns", "pat1", NodeProof.None, "kQ", "Spare", "patterns pat1 speaks with its own key", address: "10.0.0.6");
+        Check(ShowNetwork.LinkLine(Row(keyed.Link, null, NodeProof.None, twin), Names)
+                  == "follows over /ws · key 'Patterns FOH' · 10.0.0.5 · 2 links · on /ws from 10.0.0.6, unverified: patterns pat1 speaks with its own key"
+              && ShowNetwork.ApartLine(Fact("messenger", null, NodeProof.None, "kOld", "Old AGMessage", NodeLinks.NamesNoId, address: ""))
+                  == "on /ws with key 'Old AGMessage', which names no node id: it follows the timer and speaks for no node",
+              "words: a link that proves nothing says why, and a key that names no id says so; names and addresses only");
+        Check(ShowNetwork.LinkLine(Row(null, entry, NodeProof.None, twin), Names)
+                  == "posts its context unverified, so it sets no risk · on /ws from 10.0.0.6, unverified: patterns pat1 speaks with its own key"
+              && ShowNetwork.LinkLine(Row(null, null, NodeProof.None, twin), Names) == "heard on the network · on /ws from 10.0.0.6, unverified: patterns pat1 speaks with its own key",
+              "words: a row whose only link proves nothing never also says it is not linked");
+        Check(ShowNetwork.AppName("patterns") == "Patterns" && ShowNetwork.AppName("messenger") == "AGMessage" && ShowNetwork.AppName("playmap") == "PlayMap"
+              && ShowNetwork.AppName("main") == "Stagewatch" && ShowNetwork.AppName("") == "show app" && ShowNetwork.AppName("eye") == "eye",
+              "words: the app a kind names");
+
+        // Screens: who is a screen, who only claims to be an app, and the apps that follow too.
+        var screens = new[]
+        {
+            new ScreenInfo("screen01", "Lobby", "/viewer", "10.0.0.40", "iPad", T0, false, 1),
+            new ScreenInfo("ctl00001", "", "/control", "10.0.0.41", "Windows", T0, true, 1),
+            new ScreenInfo(NodeLinks.ClaimId("patterns", "pat9"), "", "/", "10.0.0.42", "Browser", T0, false, 1, "patterns pat9"),
+        };
+        var apps = new[]
+        {
+            Fact("patterns", "pat1", NodeProof.Key, "kP", "Patterns FOH", links: 2),
+            Fact("patterns", "pat2", NodeProof.None, "kP", "Patterns FOH", "w"),
+            Fact("messenger", null, NodeProof.None, "kOld", "Old", NodeLinks.NamesNoId),
+        };
+        Check(Screens.ShowApps(apps) == 3 && Screens.ShowApps(Array.Empty<NodeLinkFact>()) == 0, "screens: one show app per install (its id), or per key that names none");
+        Check(Screens.Subtitle(screens, apps, 9924)
+                == "1 screen and 1 control page, 1 unproven claim (never in 'all') · 3 show apps follow this Stagewatch too (Producer → Show network); screen commands never reach them. Double-click a name to change it; select screens to find them or send them somewhere else."
+              && Screens.Subtitle(screens[..2], Array.Empty<NodeLinkFact>(), 9924)
+                == "1 screen and 1 control page. Double-click a name to change it; select screens to find them or send them somewhere else."
+              && Screens.Subtitle(Array.Empty<ScreenInfo>(), apps[..1], 9930)
+                == "No browser screens connected yet. Open http://<this PC>:9930/viewer on a TV or tablet. 1 show app follows this Stagewatch too (Producer → Show network); screen commands never reach it.",
+              $"screens: the subtitle counts browsers, control pages and claims apart, and names the show apps it never reaches ({Screens.Subtitle(screens, apps, 9924)})");
+        Check(Screens.ClaimWords("patterns pat9") == "claims to be Patterns pat9 — unproven; never in 'all'"
+              && Screens.ClaimWords("messenger ag1") == "claims to be AGMessage ag1 — unproven; never in 'all'",
+              "screens: a claim's row says what it claims, unproven, never in 'all'");
+        Check(new WsCensus(3, 1, 2, 1).Describe() == "3 browsers, 1 window link, 2 show app links, 1 unproven claim"
+              && new WsCensus(1, 0, 1, 0).Describe() == "1 browser, 0 window links, 1 show app link, 0 unproven claims",
+              "screens: diagnostics count browsers, windows' links, show apps' links and claims apart");
+    }
+
+    /// <summary>The desk's own rows and headline from the join: links apart, grouped by the id they named or by key, and the counts.</summary>
+    static void DeskRows(Action<bool, string> Check)
+    {
+        var now = T0.AddSeconds(2);
+        var links = new[]
+        {
+            Fact("patterns", "pat1", NodeProof.Key, "kP", "Patterns FOH"),
+            Fact("patterns", "pat2", NodeProof.None, "kP", "Patterns FOH", "this key speaks for patterns pat1 — make a key for patterns pat2", address: "10.0.0.6"),
+            Fact("patterns", "pat2", NodeProof.None, "kQ", "Spare", "patterns pat2 speaks with its own key", address: "10.0.0.7", at: 1),
+            Fact("messenger", null, NodeProof.None, "kOld", "Old AGMessage", NodeLinks.NamesNoId, address: "10.0.0.12"),
+            Fact("messenger", null, NodeProof.None, "kGone", "", NodeLinks.NamesNoId, address: ""),
+        };
+        var view = ShowNetwork.Summaries(Array.Empty<HeardNode>(), Array.Empty<HeldContext>(), links, "desk01", now);
+        var apart = ShowNetwork.ApartRows(view.Apart);
+        Check(view.Rows.Select(r => r.Peer.Id).SequenceEqual(new[] { "pat1" }) && apart.Select(a => a.Key).SequenceEqual(new[] { "key:kOld", "key:kGone", "pat2" }),
+              $"desk: one row a key proves; apart, one row per key that names no id and one per id a conflict named ({string.Join(", ", apart.Select(a => a.Key))})");
+        Check(apart[0] is { Name: "Key 'Old AGMessage'", NodeId: null, Kind: "messenger", Headline: ShowNetwork.ApartNoId }
+              && apart[0].LinkLine == "on /ws from 10.0.0.12 with key 'Old AGMessage', which names no node id: it follows the timer and speaks for no node"
+              && apart[1] is { Name: "A revoked key", NodeId: null } && !NodeBindings.ValidId(apart[0].Key),
+              "desk: a key that names no id is its own row, named by the key, with no node id to copy");
+        Check(apart[2] is { Name: "Patterns pat2", NodeId: "pat2", Kind: "patterns", Headline: ShowNetwork.ApartUnproven }
+              && apart[2].LinkLine == "on /ws from 10.0.0.6, unverified: this key speaks for patterns pat1 — make a key for patterns pat2 · on /ws from 10.0.0.7, unverified: patterns pat2 speaks with its own key",
+              $"desk: a conflict is one row for the id it named, each link saying why it proves nothing ({apart[2].LinkLine})");
+        Check(ShowNetwork.NetworkLine(view, refused: 1, refusalOnly: 0) == "Show network: 1 app · 1 key refused · 3 unverified on /ws"
+              && ShowNetwork.NetworkLine(NetworkView.Empty, 0, 0) == "" && ShowNetwork.NetworkLine(NetworkView.Empty, 1, 1) == "Show network: 0 apps · 1 key refused",
+              $"desk: the headline counts the apps, the keys refused and the rows apart ({ShowNetwork.NetworkLine(view, 1, 0)})");
+        var red = new NetworkRow(new PeerSummary("patterns", "pat1", "FOH", Light.Red, "", "", 0, true), null, NodeProof.None, null, Array.Empty<NodeLinkFact>(), true);
+        var capped = ShowNetwork.Summaries(Enumerable.Range(1, 3).Select(i => new HeardNode("patterns", "p" + i, "P" + i, "10.0.1." + i, 1)), Array.Empty<HeldContext>(),
+            Array.Empty<NodeLinkFact>(), "desk01", now, max: 2);
+        Check(ShowNetwork.NetworkLine(new NetworkView(new[] { red }, 0, Array.Empty<NodeLinkFact>()), 0, 0) == "Show network: 1 app · 1 red"
+              && ShowNetwork.NetworkLine(capped, 0, 0) == "Show network: 2 apps · +1 more",
+              "desk: red apps and the rows past the cap are counted");
+    }
+
+    /// <summary>A string field of a JSON row, or null when the row has none (a missing field fails a check, never the run).</summary>
+    static string? Field(JsonElement row, string name) => row.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    /// <summary>The readers of the join: the context's peers rows and the AI's facts carry link and verified, last in each row.</summary>
+    static void Readers(Action<bool, string> Check)
+    {
+        var nodes = new NodeBindings();
+        var peers = new PeerContexts(nodes);
+        nodes.Keep(new[] { NodeKey("kP", null, null) });
+        peers.Accept(Context("patterns", "pat1", "Patterns FOH"), "10.0.0.5", T0, "desk01", NodeCredential.Key("kP"));
+        var view = ShowNetwork.Summaries(new[] { new HeardNode("playmap", "pm1", "PlayMap stage", "10.0.0.8", 1) }, peers.Held(T0),
+            new[] { Fact("patterns", "pat1", NodeProof.Key, "kP", "Patterns FOH"), Fact("patterns", "pat2", NodeProof.None, "kP", "Patterns FOH", "w") }, "desk01", T0);
+        var input = new ContextInput("desk01", "Hall A", T0, new ShowSnapshot { Title = "Keynote" }, false, Array.Empty<ContextItem>(),
+            view.Rows.Select(r => r.Peer).ToList(), Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0);
+        var json = ShowContext.Build(input);
+        using (var doc = JsonDocument.Parse(json))
+        {
+            var rows = doc.RootElement.GetProperty("peers").EnumerateArray().ToList();
+            Check(rows.Count == 2 && Field(rows[0], "id") == "pat1" && Field(rows[0], "link") == "ws" && Field(rows[0], "verified") == "key"
+                  && Field(rows[1], "id") == "pm1" && Field(rows[1], "link") == "" && Field(rows[1], "verified") == ""
+                  && !json.Contains("pat2", StringComparison.Ordinal),
+                  "readers: the context's peers rows say which apps follow over /ws and what proves them; a conflict adds no row");
+        }
+        Check(json.Contains("\"heard\":\"live\",\"link\":\"ws\",\"verified\":\"key\"}", StringComparison.Ordinal),
+              "readers: link and verified come last in a peers row, after the fields readers already match");
+
+        var facts = view.Rows.Select(r => new PeerFact(r.Peer.Kind, r.Peer.Name, r.Peer.Light, r.Peer.Headline, Array.Empty<string>(), Array.Empty<string>(), r.Peer.Link, r.Peer.Verified)).ToList();
+        var copilot = AiContext.Copilot(new CopilotFacts(T0, ShowClock.For("UTC"), "{}"u8.ToArray(), "{}"u8.ToArray(),
+            new[] { new ScreenFact("screen01", "Lobby", "/viewer", "iPad", false), new ScreenFact(NodeLinks.ClaimId("patterns", "pat9"), "", "/", "Browser", false, "patterns pat9") },
+            Array.Empty<ScreenPreset>(), Array.Empty<IntegrationFact>(), 0, OverrunModel.Learn(Array.Empty<HistoryRecord>()), Array.Empty<RundownItem>(), Array.Empty<JournalEntry>(), facts));
+        using (var doc = JsonDocument.Parse(copilot))
+        {
+            var screens = doc.RootElement.GetProperty("screens");
+            var apps = doc.RootElement.GetProperty("other_apps");
+            Check(Field(screens[0], "claim") == "" && Field(screens[1], "claim") == "patterns pat9"
+                  && Field(apps[0], "link") == "ws" && Field(apps[0], "verified") == "key" && Field(apps[1], "verified") == "",
+                  "readers: the copilot sees which screen only claims to be an app, and which apps follow the timer and what proves them");
+        }
+        var schedule = ScheduleEngine.Project(new ScheduleEngine.Input(Array.Empty<RundownItem>(), T0, -1, false, TimeSpan.Zero, new Dictionary<int, ItemActual>(), T0, ShowClock.For("UTC"), TimeSpan.Zero));
+        using (var doc = JsonDocument.Parse(AiContext.Assistant(Array.Empty<RundownItem>(), schedule, ShowClock.For("UTC"), T0, -1, TimeSpan.Zero, TimeSpan.Zero, 0, facts)))
+        {
+            var apps = doc.RootElement.GetProperty("other_apps");
+            Check(apps.GetArrayLength() == 2 && Field(apps[0], "link") == "ws" && Field(apps[0], "verified") == "key",
+                  "readers: the assistant's compact view carries link and verified too");
+        }
     }
 
     /// <summary>

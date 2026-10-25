@@ -374,10 +374,11 @@ export function UpdateActions(self: ModuleInstance): void {
 		},
 		screen_go: {
 			name: 'Screens: send to a page or saved setup',
-			description: 'Switch browser screens to another page (e.g. /audience) or a setup saved in Stagewatch → Screens.',
+			description:
+				'Switch browser screens to another page (e.g. /audience) or a setup saved in Stagewatch → Screens. Empty = all browser screens; show apps (Patterns, PlayMap, AGMessage) and unproven claims are never included.',
 			options: [
 				{ type: 'textinput', id: 'target', label: 'Setup name or page (/viewer?cue=0)', default: 'lobby', useVariables: true },
-				{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all screens)', default: '', useVariables: true },
+				{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all browser screens)', default: '', useVariables: true },
 			],
 			callback: (ev) => {
 				const target = str(ev.options.target).trim()
@@ -390,8 +391,9 @@ export function UpdateActions(self: ModuleInstance): void {
 		},
 		screen_identify: {
 			name: 'Screens: identify',
-			description: 'Show each screen\'s name full screen for 6 seconds, so you can find it in the room.',
-			options: [{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all screens)', default: '', useVariables: true }],
+			description:
+				'Show each screen\'s name full screen for 6 seconds, so you can find it in the room. Empty = all browser screens; show apps and unproven claims are never included.',
+			options: [{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all browser screens)', default: '', useVariables: true }],
 			callback: (ev) => send(`SCREEN IDENTIFY ${str(ev.options.who).trim()}`.trim()),
 		},
 
@@ -758,14 +760,16 @@ export function UpdateActions(self: ModuleInstance): void {
 		// ---- 2.10: screens, undo, end of show, loops
 		screen_reload: {
 			name: 'Screens: reload',
-			description: 'Reload the page on one screen (name or id) or every screen — e.g. after changing custom CSS.',
-			options: [{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all screens)', default: '', useVariables: true }],
+			description:
+				'Reload the page on one screen (name or id) or every browser screen — e.g. after changing custom CSS. Show apps and unproven claims are never included.',
+			options: [{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all browser screens)', default: '', useVariables: true }],
 			callback: (ev) => send(`SCREEN RELOAD ${str(ev.options.who).trim()}`.trim()),
 		},
 		screen_disconnect: {
 			name: 'Screens: disconnect',
-			description: 'Take a screen off Stagewatch (it shows "disconnected by the operator" and stays off until reloaded on the device).',
-			options: [{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all screens)', default: '', useVariables: true }],
+			description:
+				'Take a screen off Stagewatch (it shows "disconnected by the operator" and stays off until reloaded on the device). Empty = all browser screens; show apps and unproven claims are never included (revoking a show app\'s key is the wall).',
+			options: [{ type: 'textinput', id: 'who', label: 'Screen name or id (empty = all browser screens)', default: '', useVariables: true }],
 			callback: (ev) => send(`SCREEN DISCONNECT ${str(ev.options.who).trim()}`.trim()),
 		},
 		// ---- 2.17: windows Stagewatch controls (each at an address of its own, /w/<token>)
