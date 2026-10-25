@@ -212,8 +212,11 @@ slow or malicious client is timed out or dropped without touching the timer.
 - **API keys** (Settings → Remote → API keys): `Authorization: Bearer swk_…`, `X-Stagewatch-Pin: swk_…` or
   `?pin=swk_…`. Scopes: **read** (`/api/state?detail=1`, reports, `/api/screens`), **control** (+ `/api/<verb>`,
   layouts, crew links), **mcp** (+ `/mcp`). Unknown or revoked keys count toward the 5-a-minute lockout like wrong
-  PINs. Each key: 600 requests a minute; replies carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
-  `X-RateLimit-Reset` (seconds); over the limit → `429` with `Retry-After`.
+  PINs. A valid key never clears that count (only the right PIN, or the minute running out, does), so a key holder
+  can't mix keyed requests between PIN guesses; a locked address is refused even a valid key, so five wrong PINs from
+  a browser on the same machine as a keyed app hold that app off for the minute too. Each key: 600 requests a minute;
+  replies carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (seconds); over the limit → `429`
+  with `Retry-After`.
 - **Layouts:** `GET /api/layouts` → `{"layouts":[names]}`; `GET /api/layouts/<name>` → the layout JSON;
   `POST /api/layouts/save` (body: layout JSON), `POST /api/layouts/delete?name=`, `POST /api/layouts/ai`
   (body `{"request":"…","current":{layout}|null}` → `{"ok","layout","notes"}`, a draft that is **not** saved).

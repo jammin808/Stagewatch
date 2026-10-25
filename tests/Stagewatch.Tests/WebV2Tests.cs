@@ -149,6 +149,32 @@ static class WebV2Tests
         Check(limited.StatusCode == (HttpStatusCode)429 && limited.Headers.Contains("Retry-After")
               && limited.Headers.GetValues("X-RateLimit-Remaining").Single() == "0", "api keys: rate limited with Retry-After");
         Check(web.KeyLastUsed(mcpKey.Id) is not null && web.KeyLastUsed("nope") is null, "api keys: last use is tracked");
+        // A valid key vouches only for itself: its requests never clear the count wrong PINs feed, so a key holder can't
+        // interleave keyed requests with PIN guesses. Its own server, so its lockout table is its own.
+        {
+            var kc = new ReportControl();
+            var (dash, dashSecret) = ApiKeys.Create("Dashboard", ApiKeyScope.Read, DateTime.UtcNow);
+            kc.Keys = new[] { dash };
+            var kport = FreePort();
+            await using var kweb = new WebServer(kc, () => "4321");
+            kweb.Start(kport, bindAll: false);
+            using var khttp = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{kport}") };
+            Task<HttpResponseMessage> Polled() => khttp.SendAsync(Keyed(HttpMethod.Get, "/report", dashSecret));
+            static async Task<string?> ErrorOf(HttpResponseMessage r) => JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement.GetProperty("error").GetString();
+            var polls = 0;
+            for (var i = 0; i < 20; i++) if ((await Polled()).IsSuccessStatusCode) polls++;
+            Check(polls == 20 && (await khttp.GetAsync("/report?pin=4321")).IsSuccessStatusCode,
+                  "lockout: a keyed app's polling never locks out a browser on the same machine");
+            for (var i = 0; i < 4; i++) await khttp.GetAsync("/report?pin=0000");
+            var keyed = await Polled();
+            await khttp.GetAsync("/report?pin=0000");
+            var right = await khttp.GetAsync("/report?pin=4321");
+            Check(keyed.IsSuccessStatusCode && right.StatusCode == HttpStatusCode.Unauthorized && await ErrorOf(right) == "too many wrong PINs — wait a minute",
+                  $"lockout: a valid key's request doesn't clear wrong PINs (4 wrong, a keyed GET, 1 wrong: locked) [{right.StatusCode}]");
+            var lockedKey = await Polled();
+            Check(lockedKey.StatusCode == HttpStatusCode.Unauthorized && await ErrorOf(lockedKey) == "too many wrong PINs or keys — wait a minute",
+                  "lockout: a locked address is refused even a valid key");
+        }
         // Screen designer: anyone can view a layout; saving and AI drafts need the PIN or a control key.
         var lj = ScreenLayouts.ToJson(ScreenLayouts.Starter("foyer"));
         Check((await http.PostAsync("/api/layouts/save", new StringContent(lj))).StatusCode == HttpStatusCode.Unauthorized

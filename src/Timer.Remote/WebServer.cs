@@ -1065,7 +1065,9 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>
     /// The one door for HTTP routes: the PIN opens everything; an API key (swk_…) opens what its scope allows and is
-    /// rate limited. Wrong PINs and unknown keys both count toward the lockout. Null = allowed.
+    /// rate limited. Wrong PINs and unknown keys both count toward the lockout, and a locked address is refused even a
+    /// valid key. A valid key clears nothing: it vouches only for itself, so the count wrong PINs, viewing codes and
+    /// window addresses feed is reset only by the right PIN or by its minute running out. Null = allowed.
     /// </summary>
     private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need)
     {
@@ -1081,7 +1083,6 @@ public sealed class WebServer : IAsyncDisposable
             _authFailures.AddOrUpdate(remote, _ => (1, now), (_, old) => now - old.WindowStartMs > 60_000 ? (1, now) : (old.Failures + 1, old.WindowStartMs));
             return new Denied(401, "unknown or revoked API key");
         }
-        _authFailures.TryRemove(remote, out _);
         if (!ApiKeys.Allows(key.Scope, need))
             return new Denied(403, $"this API key is {ApiKeys.Describe(key.Scope)}");
         return Spend(key.Id);
