@@ -1,11 +1,12 @@
 {
   "name": "stagewatch-e2e",
   "private": true,
-  "description": "Browser workflows against the headless rig (tools/Stagewatch.Rig): windows, holding pages, link loss, the pages themselves.",
+  "description": "Browser and wire workflows against the headless rig (tools/Stagewatch.Rig): windows, holding pages, link loss, the pages themselves, show apps' node links and a stuck show.",
   "scripts": {
     "test": "node --test --test-concurrency=1 *.e2e.cjs"
   },
   "devDependencies": {
-    "playwright": "1.63.0"
+    "playwright": "1.63.0",
+    "ws": "8.18.3"
   }
 }

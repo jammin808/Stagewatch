@@ -60,11 +60,16 @@ tools/test.sh rig             # the headless rig in the foreground: open its pag
 - The suite names the checks it leaves to the Windows job (`Bench.OnWindows`): today the WMI hardware id, the crafted
   master file, the report file names and the slides agent's PowerPoint loop. They are never counted as passed.
 - `tools/Stagewatch.Rig` is the real web server, Companion server and OSC server around a simulated show (timer,
-  messages, blackout, a holding image, Next/Previous/GoTo, windows); anything else is refused with words. Its first
-  output line is JSON with its ports (`--port`, `--companion`, `--osc`, `--pin`, `--state`, `--view`, `--exit-after`).
+  messages, blackout, a holding image, Next/Previous/GoTo, windows, screen commands, the contexts show apps post and
+  their node links); anything else is refused with words. Its first output line is JSON with its ports and the node
+  keys made in this run (`--port`, `--companion`, `--osc`, `--pin`, `--state`, `--view`, `--node-keys`, `--exit-after`).
+  A line `stall <ms>` on its standard input stops its show thread that long, as a stuck show; each control line is
+  answered (`stall`: `stalled`, then `running`) and a blank line is ignored. `tools/test.sh rig` passes
+  `$SW_RIG_ARGS` on to it (`SW_RIG_ARGS="--node-keys 2"`).
 - `tests/e2e` drives it with Playwright: the window workflows (swap only when drawn, hold/cue/release, a page that won't
-  load, link loss and a restarted rig, revoke), every public page drawing a real frame alone and inside a window, and
-  the same commands over HTTP, Companion TCP, OSC and MCP. `SW_E2E_OUT=<folder>` keeps screenshots.
+  load, link loss and a restarted rig, revoke), every public page drawing a real frame alone and inside a window, the
+  same commands over HTTP, Companion TCP, OSC and MCP, show apps' node links on /ws (`nodes.e2e.cjs`) and a stuck
+  show's exact beat (`stall.e2e.cjs`). `SW_E2E_OUT=<folder>` keeps screenshots.
 
 ## Single-file publish
 

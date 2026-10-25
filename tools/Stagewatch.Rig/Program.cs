@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Stagewatch.Companion;
 using Stagewatch.Core;
 using Stagewatch.Remote;
@@ -8,24 +9,34 @@ using Stagewatch.Show;
 
 // The headless rig: the real web server, Companion server and OSC server around a simulated show, on any OS.
 //   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321]
-//       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--exit-after SECONDS]
-// The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"windows":[…]}.
-// The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo and windows;
-// any other command is refused with words (in its receipt and its log), never pretended.
+//       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--node-keys N] [--exit-after SECONDS]
+// The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"node":…,
+// "windows":[…],"nodeKeys":[{"id","secret"}]}; nodeKeys lists only the node keys made in this run (--node-keys N makes
+// them on a first start; --state keeps their hashes and the node each speaks for, never a secret).
+// The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo, windows,
+// screen commands (browsers only, never a show app's node link) and the contexts show apps post; any other command is
+// refused with words (in its receipt and its log), never pretended.
+// Control lines on standard input, answered in JSON lines on standard output; a blank line is ignored:
+//   stall <ms>   1-30000: the show thread is blocked that long, so every link hears the real stuck beat; answered twice,
+//                → {"rig":"stalled","ms":…,"at":<unix ms>} as it stops, {"rig":"running","at":<unix ms>} as it turns over
+//                (stopping the rig ends a stall early: its running line comes as the rig stops)
+//   anything else is refused, never guessed → {"rig":"refused","line":"<first word>","error":"…"}
+// The end of standard input ends the reader, never the rig.
 var options = RigOptions.Parse(args);
 if (options is null) return 2;
 using var rig = new Rig(options);
 return await rig.RunAsync();
 
-sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool BindAll, string? StateFile, string ViewCode, string Room, int ExitAfterSeconds)
+sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool BindAll, string? StateFile, string ViewCode, string Room, int ExitAfterSeconds, int NodeKeys)
 {
     public static RigOptions? Parse(string[] args)
     {
-        var o = new RigOptions(19940, 19941, 19942, "4321", false, null, "", "Rig Hall", 0);
+        var o = new RigOptions(19940, 19941, 19942, "4321", false, null, "", "Rig Hall", 0, 0);
         for (var i = 0; i < args.Length; i++)
         {
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value");
             int Port() => int.Parse(Next(), CultureInfo.InvariantCulture) is var p and >= 0 and <= 65535 ? p : throw new ArgumentException("ports are 0-65535");
+            int Keys() => int.Parse(Next(), CultureInfo.InvariantCulture) is var n and >= 0 and <= ApiKeys.Max ? n : throw new ArgumentException($"--node-keys is 0-{ApiKeys.Max}");
             try
             {
                 o = args[i] switch
@@ -39,6 +50,7 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                     "--view" => o with { ViewCode = Next() },
                     "--room" => o with { Room = Next() },
                     "--exit-after" => o with { ExitAfterSeconds = int.Parse(Next(), CultureInfo.InvariantCulture) },
+                    "--node-keys" => o with { NodeKeys = Keys() },
                     _ => throw new ArgumentException($"unknown option {args[i]}"),
                 };
             }
@@ -76,6 +88,28 @@ sealed class Rig : ICompanionBridge, IDisposable
     private readonly HoldingSelection _holding = new();
     private volatile string? _context;
 
+    // Node keys and what they speak for (Show Bus §11): the keys as saved, owner thread only; an immutable copy for the
+    // servers, swapped whole; the bindings every node route and /ws speak through; the contexts show apps post.
+    private readonly List<ApiKey> _keys;
+    private volatile IReadOnlyList<ApiKey> _apiKeys;
+    private readonly NodeBindings _nodes;
+    private readonly PeerContexts _peerContexts;
+    /// <summary>The node keys made in this run, with their secrets: printed once in the ready line, then forgotten.</summary>
+    private List<(string Id, string Secret)>? _madeKeys;
+    /// <summary>The show network as last joined (owner thread, once a second), for any thread to read.</summary>
+    private volatile NetworkView _network = NetworkView.Empty;
+
+    // Screens: the names the operator gave them and the saved setups, immutable copies swapped whole on the owner thread.
+    private volatile IReadOnlyDictionary<string, string> _screenNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private volatile IReadOnlyList<(string Name, string Path)> _presets = new[] { ("lobby", "/audience?holding=0") };
+
+    // The control reader's stall: 1 from the line's acceptance until the owner thread runs again, so stalls never overlap.
+    public const int MaxStallMs = 30_000;
+    private int _stalling;
+    private readonly CancellationTokenSource _stopping = new();
+    private int _tickQueued;
+    private readonly object _stdout = new();
+
     private static readonly (string Title, string Speaker, SegmentKind Kind, int Seconds, string Group)[] Agenda =
     {
         ("Welcome", "Host", SegmentKind.Talk, 600, "Opening"),
@@ -94,7 +128,15 @@ sealed class Rig : ICompanionBridge, IDisposable
     public Rig(RigOptions o)
     {
         _o = o;
-        _windows = new WindowDirector(LoadWindows(), SaveWindows);
+        var state = LoadState();
+        _keys = state.Keys;
+        MakeNodeKeys(o.NodeKeys);
+        _apiKeys = CopyKeys(_keys);
+        _nodes = new NodeBindings(_keys);   // a pair saved on a key is put back: a restart keeps what each key speaks for
+        _peerContexts = new PeerContexts(_nodes);
+        _windows = new WindowDirector(state.Windows, SaveWindows);
+        _nodes.Bound += OnBound;   // raised on any thread; logged and saved on the owner thread
+        if (_madeKeys is { Count: > 0 }) SaveState(state.Windows);
         Settings.Remote.Pin = o.Pin;
         Settings.Integrations.RoomName = o.Room;
         Settings.Holding.Images.Add(Sponsors);
@@ -128,13 +170,16 @@ sealed class Rig : ICompanionBridge, IDisposable
             Console.Error.WriteLine("Stagewatch.Rig: couldn't listen: " + ex.Message);
             return 3;
         }
-        _ticker = new Timer(_ => Post(Tick), null, 0, 250);
-        Console.WriteLine(JsonSerializer.Serialize(new
+        _ticker = new Timer(_ => QueueTick(), null, 0, 250);
+        Say(new
         {
             rig = "ready", http = _o.Http, companion = _o.Companion, osc = _o.Osc, pin = _o.Pin, node = _nodeId,
             windows = _windows.Windows.Select(w => new { name = w.Name, path = "/w/" + w.Token }),
-        }));
-        Console.Out.Flush();
+            nodeKeys = (_madeKeys ?? new()).Select(k => new { id = k.Id, secret = k.Secret }),
+        });
+        _madeKeys = null;
+        // After the ready line, so it stays the first line on standard output.
+        new Thread(ReadControl) { IsBackground = true, Name = "rig control" }.Start();
         if (_o.ExitAfterSeconds > 0) _ = Task.Delay(TimeSpan.FromSeconds(_o.ExitAfterSeconds)).ContinueWith(_ => stop.TrySetResult(), TaskScheduler.Default);
         await stop.Task;
         await StopAsync();
@@ -144,17 +189,49 @@ sealed class Rig : ICompanionBridge, IDisposable
     private async Task StopAsync()
     {
         _ticker?.Dispose();
+        _stopping.Cancel();   // a stall in progress ends now
         if (_web is not null) await _web.StopAsync();
         if (_companion is not null) await _companion.StopAsync();
         _osc?.Stop();
-        _queue.CompleteAdding();
+        // No route is open now, so no key is used for the first time from here on. A restart never leaves a used key free:
+        // the owner thread runs what it was handed (each binding's save among it) before the rig ends, and a binding whose
+        // save never reached it is saved here, once this thread is the one writer.
+        if (!EndOwner())
+        {
+            Log("stop: the show thread did not end in time; a binding made since its last save is not kept");
+            return;
+        }
+        if (_nodes.Unsaved(_keys))
+        {
+            _nodes.SaveTo(_keys);
+            SaveState(_windows.Windows);
+        }
     }
 
     public void Dispose()
     {
         _ticker?.Dispose();
+        _stopping.Cancel();
+        var ended = EndOwner();
+        _nodes.Bound -= OnBound;
         Engine.Dispose();
+        // The queue and the stall's token belong to the owner thread until it has ended.
+        if (!ended) return;
         _queue.Dispose();
+        _stopping.Dispose();
+    }
+
+    /// <summary>How long a stopping rig waits for the owner thread to run what it was handed (a stall ends at once).</summary>
+    private static readonly TimeSpan OwnerEnds = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The owner queue takes nothing more; the owner thread runs what it already holds and ends. True once it has ended (or
+    /// never started): from then on the calling thread is the one writer.
+    /// </summary>
+    private bool EndOwner()
+    {
+        _queue.CompleteAdding();
+        return (_owner.ThreadState & ThreadState.Unstarted) != 0 || _owner.Join(OwnerEnds);
     }
 
     // ---------------------------------------------------------------- the owner thread
@@ -174,6 +251,90 @@ sealed class Rig : ICompanionBridge, IDisposable
     }
 
     private static void Log(string line) => Console.Error.WriteLine(DateTime.UtcNow.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture) + " " + line);
+
+    /// <summary>
+    /// One JSON line on standard output, whole and flushed (the ready line and the control reader's answers). Anything
+    /// outside ASCII is escaped, so a line reads the same through a pipe in any console code page.
+    /// </summary>
+    private void Say(object line)
+    {
+        var json = JsonSerializer.Serialize(line);
+        lock (_stdout)
+        {
+            Console.Out.WriteLine(json);
+            Console.Out.Flush();
+        }
+    }
+
+    private static long UnixMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    /// <summary>
+    /// The ticker's turn: at most one tick waits in the owner's queue, so a show thread that stops (a stall) comes back to
+    /// one tick, never to a backlog of them.
+    /// </summary>
+    private void QueueTick()
+    {
+        if (Interlocked.Exchange(ref _tickQueued, 1) == 1) return;
+        Post(() =>
+        {
+            Volatile.Write(ref _tickQueued, 0);
+            Tick();
+        });
+    }
+
+    // ---------------------------------------------------------------- the control reader (standard input)
+    /// <summary>
+    /// One line at a time from standard input, each answered in JSON lines (a stall twice); a blank line is ignored, and an
+    /// unknown line is refused with the lines there are, never guessed. The end of input ends the reader, never the rig.
+    /// </summary>
+    private void ReadControl()
+    {
+        try
+        {
+            while (Console.In.ReadLine() is { } line)
+            {
+                var words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (words.Length == 0) continue;
+                switch (words[0])
+                {
+                    case "stall": Stall(words); break;
+                    default: Say(new { rig = "refused", line = Clip(words[0]), error = "unknown (stall <ms>)" }); break;
+                }
+            }
+        }
+        catch (IOException ex) { Log("control: " + ex.Message); }
+
+        static string Clip(string word) => word.Length > 32 ? word[..32] : word;
+    }
+
+    /// <summary>
+    /// <c>stall &lt;ms&gt;</c>: the owner thread is blocked for that long, as a show thread that stops turning over is: no tick
+    /// marks the show alive, no command runs (a receipt says only accepted), and after <see cref="SnapshotHub.StuckAfter"/>
+    /// every link hears the server's own stuck beat instead of a frame. The owner thread itself says "stalled" as it stops and
+    /// "running" as it turns over again. One stall at a time; stopping the rig ends one.
+    /// </summary>
+    private void Stall(string[] words)
+    {
+        if (words.Length != 2 || !int.TryParse(words[1], NumberStyles.None, CultureInfo.InvariantCulture, out var ms) || ms is < 1 or > MaxStallMs)
+        {
+            Say(new { rig = "refused", line = "stall", error = $"stall takes a time of 1-{MaxStallMs.ToString(CultureInfo.InvariantCulture)} ms" });
+            return;
+        }
+        if (Interlocked.CompareExchange(ref _stalling, 1, 0) != 0)
+        {
+            Say(new { rig = "refused", line = "stall", error = "already stalled" });
+            return;
+        }
+        Post(() =>
+        {
+            Say(new { rig = "stalled", ms, at = UnixMs() });
+            Log($"stalled the show thread for {ms.ToString(CultureInfo.InvariantCulture)} ms (control line)");
+            _stopping.Token.WaitHandle.WaitOne(ms);
+            Volatile.Write(ref _stalling, 0);
+            Say(new { rig = "running", at = UnixMs() });
+            Log("the show thread runs again");
+        });
+    }
 
     public void Execute(ShowCommand command) => Post(() =>
     {
@@ -214,6 +375,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.Holding => HoldingImage(c.Text ?? "toggle"),
             ShowCommandKind.Note => (true, "noted"),
             ShowCommandKind.Window => WindowCommand(c.Get<WindowArgs>()),
+            ShowCommandKind.Screen => ScreenDirector.Run(c.Get<ScreenArgs>(), _web, PeerName, RenameScreen, SaveScreenPreset, ResolveScreenTarget),
             _ => (false, $"the rig doesn't simulate {c.Kind.ToString().ToLowerInvariant()} (the app does)"),
         };
         if (result.Ok) { CommandRecorded?.Invoke(c.Kind.ToString().ToLowerInvariant()); Tick(); }
@@ -241,17 +403,18 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     private (bool, string) WindowCommand(WindowArgs a)
     {
-        var change = _windows.Run(a, name => name.Equals("lobby", StringComparison.OrdinalIgnoreCase) ? "/audience?holding=0" : null, Settings.Holding.Images);
+        var change = _windows.Run(a, ScreenPresetPath, Settings.Holding.Images);
         return (change.Ok, change.Words);
     }
 
     /// <summary>Owner thread, 4 Hz and after every command: the frame (published only when something visible changed) and,
-    /// once a second, the context.</summary>
+    /// once a second, the context. Alive is marked before the frame is published, so a link the frame wakes never reads
+    /// the show as stuck.</summary>
     private int _tick;
     private void Tick()
     {
-        Snapshots.Publish(Frame());
         Snapshots.MarkAlive();
+        Snapshots.Publish(Frame());
         if (++_tick % 4 == 0 || _context is null) _context = Context();
     }
 
@@ -293,12 +456,22 @@ sealed class Rig : ICompanionBridge, IDisposable
         };
     }
 
+    /// <summary>
+    /// Owner thread: the context, with the show network joined as the app joins it (<see cref="ShowNetwork.Summaries"/>): the
+    /// contexts show apps posted and their node links on /ws, by node id. The rig hears no hellos.
+    /// </summary>
     private string Context()
     {
+        var now = DateTime.UtcNow;
         var links = ScreenWindows.ContextItems(_windows.Windows, _web?.WindowStatus() ?? Array.Empty<WindowObserved>()).ToList();
-        return ShowContext.Build(new ContextInput(_nodeId, _o.Room, DateTime.UtcNow, Snapshots.Latest, Snapshots.ProducerStuck, links,
-            Array.Empty<PeerSummary>(), Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0));
+        var view = ShowNetwork.Summaries(Array.Empty<HeardNode>(), _peerContexts.Held(now), _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
+        _network = view;
+        return ShowContext.Build(new ContextInput(_nodeId, _o.Room, now, Snapshots.Latest, Snapshots.ProducerStuck, links,
+            view.Rows.Select(r => r.Peer).ToList(), Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0));
     }
+
+    /// <summary>A show app's name as it told this rig (its context), or null: what a screen command naming it is refused with.</summary>
+    private string? PeerName(string id) => _network.Rows.FirstOrDefault(r => r.Peer.Id == id && r.Named)?.Peer.Name;
 
     // ---------------------------------------------------------------- what the servers read (any thread)
     public RemoteConfig GetRemoteConfig() => new(
@@ -310,8 +483,18 @@ sealed class Rig : ICompanionBridge, IDisposable
     public string? ViewCode => _o.ViewCode.Length == 0 ? null : _o.ViewCode;
     public bool McpAllowed => true;
     public string? ContextJson() => _context;
-    public string? ScreenPresetPath(string name) => name.Equals("lobby", StringComparison.OrdinalIgnoreCase) ? "/audience?holding=0" : null;
-    public IReadOnlyList<(string Name, string Path)> ScreenPresets => new[] { ("lobby", "/audience?holding=0") };
+    public string? OwnNodeId => _nodeId;
+    public IReadOnlyList<ApiKey> ApiKeys => _apiKeys;
+    public NodeBindings Nodes => _nodes;
+
+    /// <summary>A show app's context, taken only from a credential that may speak for its node, and held with that proof.</summary>
+    public (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)
+        => _peerContexts.Accept(json, address, DateTime.UtcNow, _nodeId, credential);
+
+    public string? ScreenName(string screenId) => _screenNames.TryGetValue(screenId, out var n) ? n : null;
+    public string? ScreenPresetPath(string name)
+        => _presets.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) is { Name: not null } hit ? hit.Path : null;
+    public IReadOnlyList<(string Name, string Path)> ScreenPresets => _presets;
     public string? LayoutJson(string name) => name is "lobby" or "foyer" ? ScreenLayouts.ToJson(ScreenLayouts.Starter(name)) : null;
     public IReadOnlyList<string> LayoutNames => new[] { "foyer", "lobby" };
     public (byte[] Data, string ContentType)? HoldingImageData(string id) => id == Sponsors.Id ? (SponsorsPng, "image/png") : null;
@@ -328,18 +511,89 @@ sealed class Rig : ICompanionBridge, IDisposable
     public void SetFlash(FlashRate rate) => Post(() => { _flash = rate; Tick(); });
     public void SetTimerFlash(bool flashTimer) => Post(Tick);
 
-    // ---------------------------------------------------------------- windows kept between runs (--state)
-    private IReadOnlyList<ScreenWindow> LoadWindows()
+    // ---------------------------------------------------------------- screens (owner thread)
+    /// <summary>As the app names a screen: trimmed, at most 40 characters, and an empty name takes the name away.</summary>
+    private void RenameScreen(string id, string name)
     {
-        if (_o.StateFile is not { } path || !File.Exists(path)) return Array.Empty<ScreenWindow>();
-        try { return JsonSerializer.Deserialize<List<ScreenWindow>>(File.ReadAllText(path)) ?? new List<ScreenWindow>(); }
-        catch (JsonException ex) { Log("state: " + ex.Message + " — starting with no windows"); return Array.Empty<ScreenWindow>(); }
+        name = name.Trim();
+        if (!Screens.ValidId(id)) return;
+        var names = new Dictionary<string, string>(_screenNames, StringComparer.OrdinalIgnoreCase);
+        if (name.Length == 0) names.Remove(id); else names[id] = name.Length > 40 ? name[..40] : name;
+        _screenNames = names;
     }
 
-    private void SaveWindows(IReadOnlyList<ScreenWindow> windows)
+    private void SaveScreenPreset(string name, string path)
+    {
+        if (!ScreenPreset.ValidName(name) || !ScreenPreset.ValidPath(path)) return;
+        _presets = _presets.Where(p => !p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).Append((name, path)).ToList();
+    }
+
+    /// <summary>A saved setup's name or a page → the page to open, or null.</summary>
+    private string? ResolveScreenTarget(string target) => ScreenPreset.ValidPath(target) ? target : ScreenPresetPath(target);
+
+    // ---------------------------------------------------------------- node keys
+    /// <summary>Make node keys until there are <paramref name="count"/>: their secrets go out once, in the ready line.</summary>
+    private void MakeNodeKeys(int count)
+    {
+        _madeKeys = new();
+        for (var i = _keys.Count; i < count; i++)
+        {
+            var (key, secret) = Stagewatch.Core.ApiKeys.Create($"Rig node {(i + 1).ToString(CultureInfo.InvariantCulture)}", ApiKeyScope.Node, DateTime.UtcNow);
+            _keys.Add(key);
+            _madeKeys.Add((key.Id, secret));
+        }
+    }
+
+    /// <summary>The keys copied whole for other threads: the servers never read an object the owner thread writes.</summary>
+    private static IReadOnlyList<ApiKey> CopyKeys(IEnumerable<ApiKey> keys)
+        => keys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind }).ToArray();
+
+    /// <summary>
+    /// A key came to speak for a node, on whichever thread it happened: the owner thread logs it (names and ids, never a
+    /// secret) and saves what the bindings hold, so a restarted rig keeps the pair.
+    /// </summary>
+    private void OnBound(NodeBound bound) => Post(() =>
+    {
+        Log(KeyBindingWords.JournalLine(bound, id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name));
+        if (!_nodes.Unsaved(_keys)) return;
+        _nodes.SaveTo(_keys);
+        _apiKeys = CopyKeys(_keys);
+        SaveState(_windows.Windows);
+    });
+
+    // ---------------------------------------------------------------- what --state keeps between runs
+    /// <summary>The windows, and the node keys with the node each speaks for: hashes, ids and names, never a secret.</summary>
+    private sealed class RigState
+    {
+        [JsonPropertyName("windows")] public List<ScreenWindow> Windows { get; set; } = new();
+        [JsonPropertyName("keys")] public List<ApiKey> Keys { get; set; } = new();
+    }
+
+    /// <summary>The state as saved; a list alone is windows (a state file from before the rig kept keys).</summary>
+    private RigState LoadState()
+    {
+        if (_o.StateFile is not { } path || !File.Exists(path)) return new RigState();
+        try
+        {
+            var text = File.ReadAllText(path);
+            using var doc = JsonDocument.Parse(text);
+            var state = doc.RootElement.ValueKind == JsonValueKind.Array
+                ? new RigState { Windows = JsonSerializer.Deserialize<List<ScreenWindow>>(text) ?? new() }
+                : JsonSerializer.Deserialize<RigState>(text) ?? new RigState();
+            state.Windows ??= new();
+            state.Keys = Stagewatch.Core.ApiKeys.Sanitise(state.Keys).Where(k => k.Scope == ApiKeyScope.Node).ToList();
+            return state;
+        }
+        catch (JsonException ex) { Log("state: " + ex.Message + " — starting with no windows and no keys"); return new RigState(); }
+    }
+
+    private void SaveWindows(IReadOnlyList<ScreenWindow> windows) => SaveState(windows);
+
+    /// <summary>Owner thread (or the constructor, before it starts): the whole state, written atomically.</summary>
+    private void SaveState(IReadOnlyList<ScreenWindow> windows)
     {
         if (_o.StateFile is not { } path) return;
-        try { AtomicFile.Write(path, JsonSerializer.Serialize(windows)); }
+        try { AtomicFile.Write(path, JsonSerializer.Serialize(new RigState { Windows = windows.ToList(), Keys = _keys })); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log("state: " + ex.Message); }
     }
 }

@@ -10,7 +10,8 @@
 #   holo     the 3D display's tests (src/Timer.Remote/holo, npm test)
 #   e2e      browser workflows against the rig: windows, pages, every transport (tests/e2e; screenshots to $SW_E2E_OUT)
 #   pageshot PageShot's screenshots of the pages with the real server (artifacts/pages)
-#   rig      not a test: start the rig in the foreground and print its addresses (Ctrl+C stops it)
+#   rig      not a test: start the rig in the foreground and print its addresses (Ctrl+C stops it); $SW_RIG_ARGS adds
+#            options (SW_RIG_ARGS="--node-keys 2"); type "stall <ms>" to stop its show thread that long, as a stuck show
 # First time on a machine: tools/setup-dev.sh. The Windows-only lanes (UI smoke, the installer) are tools/smoke.ps1 and
 # tools/release.ps1 on the Windows job.
 set -uo pipefail
@@ -57,7 +58,9 @@ for l in "${lanes[@]}"; do
     rig)
       build || { failed+=(build); continue; }
       lane rig
-      dotnet tools/Stagewatch.Rig/bin/Debug/net10.0-windows/Stagewatch.Rig.dll --state "$root/artifacts/rig-windows.json" ;;
+      read -ra rig_args <<< "${SW_RIG_ARGS:-}"
+      dotnet tools/Stagewatch.Rig/bin/Debug/net10.0-windows/Stagewatch.Rig.dll --state "$root/artifacts/rig-windows.json" \
+        ${rig_args[@]+"${rig_args[@]}"} ;;
     *) echo "unknown lane: $l (build unit module holo e2e pageshot rig)" >&2; failed+=("$l") ;;
   esac
 done
