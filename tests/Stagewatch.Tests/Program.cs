@@ -1273,7 +1273,8 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
           && !ShowCommandParser.TryParse("patterns", new List<string> { "send", "STOP" }, out _, out _), "patterns: commands (no raw lines)");
     Check(Stagewatch.Integrations.Copilot.Classify(pe) == Stagewatch.Integrations.CopilotRisk.High, "patterns: the copilot never pre-ticks a clip jump");
 
-    // A fake Patterns desk on loopback: handshake, STATE → reading, VIDEO END on command, reconnect after a drop.
+    // A fake Patterns desk on loopback, older than Show Bus 1.1: no NONCE, the token taken as plain AUTH from this PC and
+    // answered "OK paired" as a real desk does; STATE → reading, VIDEO END on command, reconnect after a drop.
     var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
     listener.Start();
     var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
@@ -1295,7 +1296,7 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
                 var r = new StreamReader(st);
                 new Thread(() =>
                 {
-                    try { for (var l = r.ReadLine(); l is not null; l = r.ReadLine()) { heard.Enqueue(l); if (l.StartsWith("PING")) w.WriteLine("OK pong"); } }
+                    try { for (var l = r.ReadLine(); l is not null; l = r.ReadLine()) { heard.Enqueue(l); if (l.StartsWith("PING")) w.WriteLine("OK pong"); else if (l == "AUTH s3cret") w.WriteLine("OK paired"); } }
                     catch (IOException) { } catch (ObjectDisposedException) { }
                 }) { IsBackground = true }.Start();
                 // Keep the clip "playing": a frame a second, like Patterns.
@@ -1318,12 +1319,14 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
         link.Start();
         Check(WaitFor(() => link.Connected && link.Value is not null), $"patterns: connects ({link.Status})");
         Check(WaitFor(() => heard.Contains("HELLO Stagewatch") && heard.Contains("AUTH s3cret")), "patterns: HELLO then AUTH with the pairing token");
+        Check(link.Pairing == Stagewatch.Integrations.PatternsPairing.Paired && link.SetAsideBeforePairing >= 1 && link.Health == Stagewatch.Integrations.LinkHealth.Ok,
+              $"patterns: a desk on this PC pairs by its token; its greeting STATE before OK paired is set aside ({link.SetAsideBeforePairing}, {link.Status})");
         var v = link.Value!;
         Check(v.Source == "Patterns" && v.DurationSeconds == 210 && v.RemainingSeconds is > 100 and <= 110 && v.Title == "VT sponsor.mp4", $"patterns: STATE → VT countdown ({v.RemainingSeconds:0.0} left)");
         Check(link.EndIn(10) is null && WaitFor(() => heard.Contains("VIDEO END 10")), "patterns: Last 10 s sends VIDEO END 10");
         Check(link.Restart() is null && WaitFor(() => heard.Contains("VIDEO RESTART")), "patterns: restart");
         current!.Close();   // the desk drops us
-        Check(WaitFor(() => Volatile.Read(ref accepted) >= 2 && link.Connected, 8000), $"patterns: reconnects after a drop ({link.Status})");
+        Check(WaitFor(() => Volatile.Read(ref accepted) >= 2 && link.Connected && link.Value is not null, 8000), $"patterns: reconnects after a drop, pairs again and reads ({link.Status})");
         Check(!heard.Any(l => l.Trim().Equals("STOP", StringComparison.OrdinalIgnoreCase)), "patterns: never a bare STOP");
         Check(link.Play() is { } old && old.Contains("older") && link.Seek(30) is not null && !heard.Any(l => l.StartsWith("VIDEO PLAY") || l.StartsWith("VIDEO SEEK")),
               "patterns: an older desk isn't sent transport commands it doesn't know");
@@ -1354,9 +1357,16 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
             var c = listener2.AcceptTcpClient();
             var st = c.GetStream();
             var w = new StreamWriter(st) { AutoFlush = true, NewLine = "\n" };
-            w.WriteLine("""STATE {"video":{"file":"reel.mp4","position":10,"length":60,"playing":true,"positionMs":10000,"lengthMs":60000,"remainingMs":50000,"paused":false,"rate":1,"seq":3}}""");
+            const string reel = """STATE {"video":{"file":"reel.mp4","position":10,"length":60,"playing":true,"positionMs":10000,"lengthMs":60000,"remainingMs":50000,"paused":false,"rate":1,"seq":3}}""";
+            lock (w) w.WriteLine(reel);
+            // The clip plays on: a frame every half second, as Patterns pushes while a clip is on air.
+            new Thread(() =>
+            {
+                try { for (var i = 0; i < 30 && c.Connected; i++) { Thread.Sleep(500); lock (w) w.WriteLine(reel); } }
+                catch (IOException) { } catch (ObjectDisposedException) { } catch (InvalidOperationException) { }
+            }) { IsBackground = true }.Start();
             var r = new StreamReader(st);
-            for (var l = r.ReadLine(); l is not null; l = r.ReadLine()) { heard2.Enqueue(l); w.WriteLine(l.StartsWith("PING") ? "OK pong" : "OK"); }
+            for (var l = r.ReadLine(); l is not null; l = r.ReadLine()) { heard2.Enqueue(l); lock (w) w.WriteLine(l.StartsWith("PING") ? "OK pong" : "OK"); }
         }
         catch (IOException) { } catch (System.Net.Sockets.SocketException) { } catch (ObjectDisposedException) { }
     }) { IsBackground = true }.Start();
@@ -1364,6 +1374,8 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     {
         link2.Start();
         Check(WaitFor(() => link2.Connected && link2.Video is { Transport: true }), "patterns: a Round 86 desk connects");
+        Check(link2.Pairing == Stagewatch.Integrations.PatternsPairing.Open && link2.Health == Stagewatch.Integrations.LinkHealth.Ok && !heard2.Any(l => l.StartsWith("AUTH")),
+              $"patterns: with no token, a desk on this PC that asks for no NONCE is followed as open, green ({link2.Status})");
         Check(link2.Pause() is null && link2.Play() is null && link2.StopClip() is null && link2.Seek(42) is null && link2.Seek(500) is { } tooFar && tooFar.Contains("only"),
               "patterns: transport commands accepted (seek past the end refused here)");
         Check(WaitFor(() => heard2.Contains("VIDEO PAUSE") && heard2.Contains("VIDEO PLAY") && heard2.Contains("VIDEO STOP") && heard2.Contains("VIDEO SEEK 42")),

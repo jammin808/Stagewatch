@@ -89,6 +89,7 @@ static class ShowBusTests
         await OpenDesk(Check);
         await Gate(Check);
         await PatternsDesk(Check);
+        await PatternsPairingRules(Check);
     }
 
     static void Pure(Action<bool, string> Check)
@@ -349,6 +350,8 @@ static class ShowBusTests
         var until = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < until && (link.Context is null || link.ClockOffset is null)) await Task.Delay(100);
         Check(paired && !heard.Any(l => l.Contains("AB12CD34") || l.StartsWith("AUTH ")), "patterns link: pairs by proof — the token never crosses the wire");
+        Check(link.Pairing == PatternsPairing.Paired && link.Health == LinkHealth.Ok && link.SetAsideBeforePairing >= 1 && link.Video is null,
+              $"patterns link: the greeting STATE came before OK paired, so it is set aside and no clip is read from it ({link.SetAsideBeforePairing} set aside, {link.Status})");
         Check(link.Context is { } ctx && ctx.Contains("3 screens green"), "patterns link: reads the desk's context");
         Check(link.ClockOffset is { } off && Math.Abs(off.TotalMilliseconds - 5000) < 1000, $"patterns link: measures the desk's clock offset ({link.ClockOffset})");
         Check(link.EndIn(10) is null, "patterns link: sends a command");
@@ -358,6 +361,329 @@ static class ShowBusTests
         link.Dispose();
         listener.Stop();
         try { await desk.WaitAsync(TimeSpan.FromSeconds(3)); } catch (TimeoutException) { }
+    }
+
+    /// <summary>
+    /// A desk on loopback for one connection, scripted: it greets with its first lines, answers each line it hears with
+    /// <c>answer</c>'s lines (none = silence) and says more when the test asks. Every line it heard is kept.
+    /// </summary>
+    sealed class ScriptedDesk : IAsyncDisposable
+    {
+        private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+        private readonly object _gate = new();
+        private readonly Task _run;
+        private StreamWriter? _writer;
+        private TcpClient? _client;
+        public System.Collections.Concurrent.ConcurrentQueue<string> Heard { get; } = new();
+        public int Port { get; }
+
+        public ScriptedDesk(IReadOnlyList<string> greeting, Func<string, IEnumerable<string>> answer)
+        {
+            _listener.Start();
+            Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            _run = Task.Run(async () =>
+            {
+                try
+                {
+                    _client = await _listener.AcceptTcpClientAsync();
+                    var stream = _client.GetStream();
+                    var reader = new StreamReader(stream);
+                    lock (_gate) _writer = new StreamWriter(stream) { AutoFlush = true, NewLine = "\n" };
+                    foreach (var g in greeting) Say(g);
+                    for (var l = await reader.ReadLineAsync(); l is not null; l = await reader.ReadLineAsync())
+                    {
+                        Heard.Enqueue(l);
+                        foreach (var a in answer(l)) Say(a);
+                    }
+                }
+                catch (IOException) { }
+                catch (ObjectDisposedException) { }
+                catch (SocketException) { }
+            });
+        }
+
+        public void Say(string line)
+        {
+            lock (_gate) _writer?.WriteLine(line);
+        }
+
+        /// <summary>A line the link wrote that carries the token in clear, or plain AUTH of any kind.</summary>
+        public bool HeardSecret(string token) => Heard.Any(l => l.Contains(token, StringComparison.Ordinal) || l.StartsWith("AUTH ", StringComparison.Ordinal));
+
+        public async ValueTask DisposeAsync()
+        {
+            _listener.Stop();
+            _client?.Dispose();
+            try { await _run.WaitAsync(TimeSpan.FromSeconds(3)); } catch (TimeoutException) { }
+        }
+    }
+
+    /// <summary>
+    /// PatternsLink's pairing rules against scripted desks: plain AUTH only to a loopback socket (the seam plays a desk on
+    /// another PC from loopback), a proof only for a NONCE of 32 lowercase hex, and nothing taken before the desk pairs.
+    /// The scenarios run side by side; their checks are reported in order.
+    /// </summary>
+    public static async Task PatternsPairingRules(Action<bool, string> Check)
+    {
+        const string token = "AB12CD34";
+        const string nonce = "00112233445566778899aabbccddeeff";
+        static bool Remote(IPAddress _) => false;
+        static async Task<bool> Until(Func<bool> cond, int ms = 5000)
+        {
+            var until = DateTime.UtcNow.AddMilliseconds(ms);
+            while (DateTime.UtcNow < until && !cond()) await Task.Delay(25);
+            return cond();
+        }
+        // A clock sample the link would take if it read it: sent now, the desk 5 s ahead.
+        static string AheadBy5s()
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            return FormattableString.Invariant($"OK PONG {now} {now + 5000} {now + 5000}");
+        }
+        static string State(string file) => "STATE {\"video\":{\"file\":\"" + file + "\",\"positionMs\":1000,\"lengthMs\":60000,\"playing\":true,\"seq\":1}}";
+        static string Pong(string ping) => "OK @hi PONG " + ping["@hi PING ".Length..] + " " + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + " " + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // A desk older than Show Bus 1.1: no NONCE, "@hi" refused, the token taken as plain AUTH.
+        static IEnumerable<string> Older(string l) => l.StartsWith("@hi ", StringComparison.Ordinal) ? new[] { "ERR unknown command: @hi" }
+            : l == "AUTH " + token ? new[] { "OK paired" } : l == "PING" ? new[] { "OK", State("older.mp4") } : new[] { "OK" };
+        // Past the link's wait for a NONCE (1.5 s from the connection), with margin.
+        const int pastTheWait = 2300;
+
+        async Task<List<(bool, string)>> OlderOffThisPc()
+        {
+            var r = new List<(bool, string)>();
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4") }, Older);
+            using var link = new PatternsLink("127.0.0.1", desk.Port, token, Remote);
+            link.Start();
+            await Task.Delay(pastTheWait);
+            r.Add((!desk.HeardSecret(token) && !desk.Heard.Any(l => l.StartsWith("AUTH", StringComparison.Ordinal)) && desk.Heard.Contains("HELLO Stagewatch"),
+                $"patterns pairing: an older desk on another PC (no NONCE) never hears AUTH or the token ({string.Join(" | ", desk.Heard)})"));
+            r.Add((link.Pairing == PatternsPairing.None && link.Health == LinkHealth.Starting
+                   && link.Status == $"127.0.0.1:{desk.Port} is older than Show Bus 1.1 and pairs only by sending its token in clear — update Patterns; the token stays on this PC",
+                $"patterns pairing: that link is amber and names the desk and why ({link.Health}: {link.Status})"));
+            r.Add((link.Video is null && link.Value is null && link.SetAsideBeforePairing >= 1 && link.Context is null && !desk.Heard.Contains("@ctx CONTEXT"),
+                $"patterns pairing: nothing it says is taken — its STATE set aside ({link.SetAsideBeforePairing}), no context asked"));
+            r.Add((link.EndIn(10) is { } end && end.Contains("hasn't paired") && link.Play() is { } play && play.Contains("hasn't paired")
+                   && !desk.Heard.Any(l => l.Contains("VIDEO", StringComparison.Ordinal)),
+                $"patterns pairing: commands to an unpaired desk are refused here with the reason, nothing written ({link.EndIn(10)})"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> OlderOnThisPc()
+        {
+            var r = new List<(bool, string)>();
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4") }, Older);
+            using var link = new PatternsLink("127.0.0.1", desk.Port, token);
+            link.Start();
+            var paired = await Until(() => link.Pairing == PatternsPairing.Paired);
+            r.Add((paired && desk.Heard.Contains("AUTH " + token) && link.Health == LinkHealth.Ok && !desk.Heard.Any(l => l.Contains("STATUS", StringComparison.Ordinal)),
+                $"patterns pairing: the same older desk on this PC (a loopback socket) gets the token as AUTH and pairs; it answers untagged, so it is not asked for its STATE ({link.Status})"));
+            desk.Say(State("after.mp4"));
+            r.Add((await Until(() => link.Video is { File: "after.mp4" }) && link.SetAsideBeforePairing >= 1,
+                $"patterns pairing: a STATE after OK paired is read; the greeting before it was not ({link.Video?.File})"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> NonceShapes()
+        {
+            var r = new List<(bool, string)>();
+            const string short31 = "00112233445566778899aabbccddeef";
+            const string upper = "00112233445566778899AABBCCDDEEFF";
+            await using var desk31 = new ScriptedDesk(new[] { State("greeting.mp4"), "NONCE " + short31 }, Older);
+            await using var deskUp = new ScriptedDesk(new[] { State("greeting.mp4"), "NONCE " + upper }, l => l.StartsWith("AUTH-PROOF ", StringComparison.Ordinal) ? new[] { "OK paired" } : Array.Empty<string>());
+            // The default seam: both desks are on this PC, where plain AUTH could go — but not on a connection that heard a NONCE.
+            using var link31 = new PatternsLink("127.0.0.1", desk31.Port, token);
+            using var linkUp = new PatternsLink("127.0.0.1", deskUp.Port, token);
+            link31.Start();
+            linkUp.Start();
+            await Task.Delay(pastTheWait);
+            r.Add((!desk31.Heard.Any(l => l.StartsWith("AUTH", StringComparison.Ordinal)) && !desk31.HeardSecret(token) && link31.Pairing == PatternsPairing.None
+                   && link31.Status.Contains("not 32 lowercase hex") && link31.Health == LinkHealth.Starting,
+                $"patterns pairing: a 31-hex NONCE is not proved, and the connection that heard it never gets plain AUTH ({link31.Status})"));
+            r.Add((!deskUp.Heard.Any(l => l.StartsWith("AUTH", StringComparison.Ordinal)) && linkUp.Pairing == PatternsPairing.None && linkUp.Status.Contains("not 32 lowercase hex"),
+                $"patterns pairing: an upper-case NONCE is not proved ({string.Join(" | ", deskUp.Heard)})"));
+            deskUp.Say("NONCE " + nonce);
+            r.Add((await Until(() => linkUp.Pairing == PatternsPairing.Paired) && deskUp.Heard.Count(l => l.StartsWith("AUTH", StringComparison.Ordinal)) == 1
+                   && deskUp.Heard.Contains("AUTH-PROOF " + PatternsLink.Proof(token, nonce, "Stagewatch")) && !deskUp.HeardSecret(token),
+                $"patterns pairing: the desk's next NONCE, 32 lowercase hex, gets the one proof and pairs ({linkUp.Status})"));
+            r.Add((PatternsLink.IsProvableNonce(nonce) && !PatternsLink.IsProvableNonce(short31) && !PatternsLink.IsProvableNonce(upper)
+                   && !PatternsLink.IsProvableNonce(nonce + "0") && !PatternsLink.IsProvableNonce(" " + nonce[1..]) && !PatternsLink.IsProvableNonce(nonce[..31] + "g"),
+                "patterns pairing: only exactly 32 lowercase hex is a nonce this link proves"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> NothingBeforePaired()
+        {
+            var r = new List<(bool, string)>();
+            // A desk on another PC that answers the proof only after a STATE, a receipt, a clock sample and a context:
+            // all of them came before OK paired.
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4"), "NONCE " + nonce }, l => l.StartsWith("AUTH-PROOF ", StringComparison.Ordinal)
+                ? new[] { State("early.mp4"), "OK @s1 jumped to the last 10 s", AheadBy5s(),
+                          "OK @ctx {\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"forged\"},\"light\":\"green\",\"headline\":\"forged\"}", "OK paired" }
+                : Array.Empty<string>());
+            using var link = new PatternsLink("127.0.0.1", desk.Port, token, Remote);
+            var receipts = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            link.Receipt += (line, ok, words) => receipts.Enqueue(line + "|" + words);
+            link.Start();
+            var paired = await Until(() => link.Pairing == PatternsPairing.Paired);
+            r.Add((paired && desk.Heard.Contains("AUTH-PROOF " + PatternsLink.Proof(token, nonce, "Stagewatch")) && !desk.HeardSecret(token),
+                $"patterns pairing: a desk on another PC pairs by proof alone ({link.Status})"));
+            r.Add((link.Video is null && link.ClockOffset is null && link.Context is null && receipts.IsEmpty && link.SetAsideBeforePairing >= 5,
+                $"patterns pairing: a STATE, a receipt, a clock sample and a context before OK paired move nothing ({link.SetAsideBeforePairing} set aside; clip {link.Video?.File ?? "none"}, offset {link.ClockOffset})"));
+            desk.Say(State("late.mp4"));
+            r.Add((await Until(() => link.Video is { File: "late.mp4" }) && link.Health == LinkHealth.Ok && link.Status.StartsWith("late.mp4", StringComparison.Ordinal),
+                $"patterns pairing: the first STATE after OK paired is the one read ({link.Status})"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> OpenDeskOffThisPc(string held)
+        {
+            var r = new List<(bool, string)>();
+            // A Show Bus 1.1 desk with no token: no NONCE, so its answer to the probe says it asks for none.
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4") }, l =>
+                l.StartsWith("@hi PING ", StringComparison.Ordinal) ? new[] { Pong(l) }
+                : l == "@ctx CONTEXT" ? new[] { "OK @ctx {\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"open1\"},\"light\":\"amber\",\"headline\":\"open desk\"}" }
+                : Array.Empty<string>());
+            using var link = new PatternsLink("127.0.0.1", desk.Port, held, Remote);
+            link.Start();
+            var open = await Until(() => link.Pairing == PatternsPairing.Open);
+            desk.Say(State("open.mp4"));
+            var read = await Until(() => link.Video is { File: "open.mp4" } && link.Context is not null);
+            var what = held.Length > 0 ? "holding a token" : "holding none";
+            r.Add((open && read && !desk.Heard.Any(l => l.StartsWith("AUTH", StringComparison.Ordinal)) && (held.Length == 0 || !desk.HeardSecret(held)) && link.SetAsideBeforePairing >= 1,
+                $"patterns pairing: an open 1.1 desk on another PC ({what}) is followed once its answer to the probe shows it asks for no key; no AUTH, the greeting set aside ({link.Status})"));
+            r.Add((held.Length > 0
+                    ? link.Health == LinkHealth.Starting && link.Status.EndsWith("· asks for no key — the token stays on this PC", StringComparison.Ordinal)
+                    : link.Health == LinkHealth.Ok && link.Status.EndsWith("· asks this link for no key", StringComparison.Ordinal),
+                $"patterns pairing: it is {(held.Length > 0 ? "amber while this link holds a token it never asked for" : "green, and says it asks for no key")} ({link.Health}: {link.Status})"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> TokenDeskNoTokenHere()
+        {
+            var r = new List<(bool, string)>();
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4"), "NONCE " + nonce }, l =>
+                l.StartsWith("@hi PING ", StringComparison.Ordinal) ? new[] { Pong(l) } : l.StartsWith("PING ", StringComparison.Ordinal) ? new[] { State("still.mp4") } : Array.Empty<string>());
+            using var link = new PatternsLink("127.0.0.1", desk.Port, "");
+            link.Start();
+            await Task.Delay(pastTheWait);
+            r.Add((link.Pairing == PatternsPairing.None && link.Health == LinkHealth.Starting && link.Status.Contains("asks for its pairing token")
+                   && link.Video is null && !desk.Heard.Any(l => l.StartsWith("AUTH", StringComparison.Ordinal)) && !desk.Heard.Contains("@ctx CONTEXT"),
+                $"patterns pairing: a desk that asks for a proof, with no token here, stays unpaired and amber with the reason; nothing read, no context asked ({link.Status})"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> OlderOffThisPcNoTokenHere()
+        {
+            var r = new List<(bool, string)>();
+            // Neither side holds a token: the older desk off this PC asks for nothing, and is still not followed.
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4") }, Older);
+            using var link = new PatternsLink("127.0.0.1", desk.Port, "", Remote);
+            link.Start();
+            await Task.Delay(pastTheWait);
+            desk.Say(State("pushed.mp4"));
+            await Task.Delay(300);
+            r.Add((link.Pairing == PatternsPairing.None && link.Health == LinkHealth.Starting && link.Video is null && link.SetAsideBeforePairing >= 2
+                   && !desk.Heard.Any(l => l.StartsWith("AUTH", StringComparison.Ordinal))
+                   && link.Status == $"127.0.0.1:{desk.Port} is older than Show Bus 1.1 and pairs only on its own PC — update Patterns; nothing is taken from it until it pairs",
+                $"patterns pairing: an older desk on another PC is not followed even when neither side holds a token; amber, its STATEs set aside ({link.SetAsideBeforePairing}, {link.Status})"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> SilentOffThisPc()
+        {
+            var r = new List<(bool, string)>();
+            // A desk on another PC that sends no NONCE and never answers the probe: nothing secret goes, and it is called
+            // older only once the probe has gone unanswered (3 s), not at the end of the wait for a NONCE (1.5 s).
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4") }, _ => Array.Empty<string>());
+            using var link = new PatternsLink("127.0.0.1", desk.Port, token, Remote);
+            var since = System.Diagnostics.Stopwatch.StartNew();
+            link.Start();
+            await Task.Delay(2000);
+            var early = link.Status;
+            var earlyInTime = since.ElapsedMilliseconds < 3000;   // read before the probe could have timed out
+            r.Add((!earlyInTime || (!early.Contains("older", StringComparison.Ordinal) && link.Health == LinkHealth.Starting && link.Pairing == PatternsPairing.None),
+                $"patterns pairing: past the wait for a NONCE, a silent desk off this PC is still pairing, not yet called older ({early})"));
+            var older = $"127.0.0.1:{desk.Port} is older than Show Bus 1.1 and pairs only by sending its token in clear — update Patterns; the token stays on this PC";
+            var named = await Until(() => link.Status == older, 4000);
+            r.Add((named && link.Health == LinkHealth.Starting && link.Pairing == PatternsPairing.None && !desk.HeardSecret(token)
+                   && !desk.Heard.Any(l => l.StartsWith("AUTH", StringComparison.Ordinal)) && link.Video is null,
+                $"patterns pairing: once the probe goes unanswered, the silent desk is amber, named and told to update; no AUTH, nothing read ({link.Status})"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> WrongProof()
+        {
+            var r = new List<(bool, string)>();
+            const string fresh = "ffeeddccbbaa99887766554433221100";
+            // A 1.1 desk on another PC that refuses the proof as Patterns does: its words, then a fresh NONCE. It leaves the
+            // probe unanswered, so the refusal arrives while the probe is still out.
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4"), "NONCE " + nonce }, l => l.StartsWith("AUTH-PROOF ", StringComparison.Ordinal)
+                ? new[] { "ERR wrong token — the pairing token is on the desk's Remote page, TRUST", "NONCE " + fresh, State("refused.mp4") }
+                : Array.Empty<string>());
+            using var link = new PatternsLink("127.0.0.1", desk.Port, "ZZ99YY88", Remote);
+            link.Start();
+            var red = await Until(() => link.Health == LinkHealth.Error);
+            await Task.Delay(pastTheWait);
+            r.Add((red && link.Health == LinkHealth.Error && link.Status.Contains("wrong token", StringComparison.Ordinal) && link.Pairing == PatternsPairing.None
+                   && desk.Heard.Count(l => l.StartsWith("AUTH", StringComparison.Ordinal)) == 1 && desk.Heard.Contains("AUTH-PROOF " + PatternsLink.Proof("ZZ99YY88", nonce, "Stagewatch")),
+                $"patterns pairing: a refused proof turns the link red; the desk's fresh NONCE gets no second proof ({link.Health}: {link.Status}; {desk.Heard.Count(l => l.StartsWith("AUTH", StringComparison.Ordinal))} proof)"));
+            r.Add((link.Video is null && link.SetAsideBeforePairing >= 2 && !desk.Heard.Contains("@ctx CONTEXT") && !desk.Heard.Contains("@st STATUS") && !desk.HeardSecret("ZZ99YY88"),
+                $"patterns pairing: nothing a desk that refused the proof says is read, and nothing is asked of it ({link.SetAsideBeforePairing} set aside)"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> WrongTokenOnThisPc()
+        {
+            var r = new List<(bool, string)>();
+            // An older desk on this PC and a token that is not its own: the one plain AUTH is refused, and the link stays
+            // unread although the desk would answer this PC's lines.
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4") }, l => l.StartsWith("@hi ", StringComparison.Ordinal) ? new[] { "ERR unknown command: @hi" }
+                : l.StartsWith("AUTH ", StringComparison.Ordinal) ? new[] { "ERR wrong token — the pairing token is on the desk's Remote page, TRUST" }
+                : l == "PING" ? new[] { "OK", State("older.mp4") } : new[] { "OK" });
+            using var link = new PatternsLink("127.0.0.1", desk.Port, "STALE1");
+            link.Start();
+            var red = await Until(() => link.Health == LinkHealth.Error);
+            desk.Say(State("pushed.mp4"));
+            await Task.Delay(300);
+            r.Add((red && link.Status.Contains("wrong token", StringComparison.Ordinal) && link.Pairing == PatternsPairing.None && link.Video is null
+                   && link.SetAsideBeforePairing >= 2 && desk.Heard.Count(l => l.StartsWith("AUTH", StringComparison.Ordinal)) == 1 && link.EndIn(10) is { } why && why.Contains("hasn't paired"),
+                $"patterns pairing: a wrong token on this PC is red and unread — one AUTH, its STATEs set aside, commands refused here ({link.Status})"));
+            return r;
+        }
+
+        async Task<List<(bool, string)>> AskedAfterPairing()
+        {
+            var r = new List<(bool, string)>();
+            // A 1.1 desk that pushes nothing after its greeting (a still desk): the link asks for its STATE once it paired.
+            await using var desk = new ScriptedDesk(new[] { State("greeting.mp4"), "NONCE " + nonce }, l =>
+                l.StartsWith("@hi PING ", StringComparison.Ordinal) ? new[] { Pong(l) }
+                : l.StartsWith("AUTH-PROOF ", StringComparison.Ordinal) ? new[] { "OK paired" }
+                : l == "@st STATUS" ? new[] { "OK @st " + State("asked.mp4")["STATE ".Length..] }
+                : Array.Empty<string>());
+            using var link = new PatternsLink("127.0.0.1", desk.Port, token, Remote);
+            link.Start();
+            var read = await Until(() => link.Video is { File: "asked.mp4" });
+            var lines = desk.Heard.ToList();
+            var proof = lines.FindIndex(l => l.StartsWith("AUTH-PROOF ", StringComparison.Ordinal));
+            r.Add((read && link.Pairing == PatternsPairing.Paired && link.Health == LinkHealth.Ok && lines.Count(l => l == "@st STATUS") == 1
+                   && proof >= 0 && lines.IndexOf("@st STATUS") > proof,
+                $"patterns pairing: once paired, a 1.1 desk is asked for its STATE once and the clip is read without waiting for a push ({link.Status})"));
+            return r;
+        }
+
+        var scenarios = new[]
+        {
+            OlderOffThisPc(), OlderOnThisPc(), NonceShapes(), NothingBeforePaired(), OpenDeskOffThisPc(token), OpenDeskOffThisPc(""), TokenDeskNoTokenHere(),
+            OlderOffThisPcNoTokenHere(), SilentOffThisPc(), WrongProof(), WrongTokenOnThisPc(), AskedAfterPairing(),
+        };
+        await Task.WhenAll(scenarios);
+        foreach (var scenario in scenarios)
+            foreach (var (ok, name) in scenario.Result) Check(ok, name);
+        Check(PatternsLink.IsLoopbackAddress(IPAddress.Loopback) && PatternsLink.IsLoopbackAddress(IPAddress.IPv6Loopback)
+              && PatternsLink.IsLoopbackAddress(IPAddress.Loopback.MapToIPv6()) && !PatternsLink.IsLoopbackAddress(IPAddress.Parse("10.0.0.5"))
+              && !PatternsLink.IsLoopbackAddress(IPAddress.Parse("::ffff:10.0.0.5")),
+              "patterns pairing: the default seam calls a socket loopback by its address alone (IPv4, IPv6, IPv4-mapped)");
     }
 
     /// <summary>The shared approval queue's rules (Show Bus §11), pure.</summary>
