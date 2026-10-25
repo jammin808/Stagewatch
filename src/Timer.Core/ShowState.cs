@@ -504,6 +504,12 @@ public interface IShowAccess
 
     /// <summary>The code browser screens need to view the show, or null/empty when screens are open.</summary>
     string? ViewCode => null;
+
+    /// <summary>
+    /// Which node each node key speaks for (Show Bus §11). A surface that keeps none still gets bindings of its own, one
+    /// per surface and first-bind-wins, so no surface lets one key speak for two nodes.
+    /// </summary>
+    NodeBindings Nodes => NodeBindings.For(this);
 }
 
 /// <summary>Crew pages: crew links and each department's notes. Thread-safe.</summary>

@@ -12,24 +12,35 @@ namespace Stagewatch.App.ViewModels;
 public sealed partial class MainViewModel
 {
     private ProposalDesk? _deskStore;
-    private ProposalDesk Desk
+    private ProposalDesk Desk => LazyInitializer.EnsureInitialized(ref _deskStore, () =>
     {
-        get
-        {
-            if (_deskStore is not null) return _deskStore;
-            var d = new ProposalDesk(() => _store.Snapshot.NodeId);
-            d.Changed += p => _ui.BeginInvoke(() => OnSharedProposal(p));
-            return _deskStore = d;
-        }
-    }
+        // Network threads may race to the first proposal: exactly one desk is published, and only it is ever used.
+        var d = new ProposalDesk(() => _store.Snapshot.NodeId, _nodes);
+        d.Changed += p => _ui.BeginInvoke(() => OnSharedProposal(p));
+        return d;
+    });
 
     private static string Json(object o) => JsonSerializer.Serialize(o);
 
-    /// <summary>IShowApprovals: an app proposes (network thread).</summary>
+    /// <summary>
+    /// What a node route's request proved, as far as the node key id the routes pass tells: a node key proves its own id;
+    /// without one the proof is read from the PIN setting, not from the credential the server checked. Known gap: with a
+    /// PIN set an MCP key's proposal counts as the operator (a read or MCP key proves nothing), on an open Stagewatch a
+    /// control key counts as nothing (it proves the operator), and the PIN is read again after the server's check. The
+    /// bindings answer the operator and nothing alike, and a proposal's proof is not kept, so only a context's kept proof
+    /// can differ: an open Stagewatch's control-key context is held unverified (under-trusted, never over-trusted, since
+    /// the context route admits no MCP key). It holds until the routes pass the credential they checked (the key's
+    /// scope, or the PIN actually given).
+    /// </summary>
+    private NodeCredential NodeCredentialOf(string? nodeKeyId)
+        => nodeKeyId is { Length: > 0 } ? NodeCredential.Key(nodeKeyId)
+            : string.IsNullOrEmpty(_store.Snapshot.Remote.Pin) ? NodeCredential.None : NodeCredential.Operator;
+
+    /// <summary>IShowApprovals: an app proposes (network thread). 403 when the credential may not speak for its <c>from</c>.</summary>
     public (int Status, string Json) SubmitProposal(string body, string? nodeKeyId)
     {
-        var (p, error) = Desk.Submit(body, nodeKeyId, RiskFor, DateTime.UtcNow);
-        return p is null ? (400, Json(new { ok = false, error })) : (201, Json(new { ok = true, id = p.Id, state = p.StateName, risk = p.Risk }));
+        var (p, error, forbidden) = Desk.Submit(body, NodeCredentialOf(nodeKeyId), RiskFor, DateTime.UtcNow);
+        return p is null ? (forbidden ? 403 : 400, Json(new { ok = false, error })) : (201, Json(new { ok = true, id = p.Id, state = p.StateName, risk = p.Risk }));
     }
 
     public (int Status, string Json) GetProposal(string id)
@@ -40,7 +51,7 @@ public sealed partial class MainViewModel
 
     public (int Status, string Json) CollectApproved(string targetId, string? nodeKeyId)
     {
-        var (items, error) = Desk.Collect(targetId, nodeKeyId, DateTime.UtcNow);
+        var (items, error) = Desk.Collect(targetId, NodeCredentialOf(nodeKeyId), DateTime.UtcNow);
         return items is null ? (403, Json(new { ok = false, error })) : (200, Json(new { proposals = items.Select(p => p.ToJson()) }));
     }
 
@@ -58,18 +69,18 @@ public sealed partial class MainViewModel
         {
             return (400, Json(new { ok = false, error = "a result is {\"ok\":true|false,\"words\":\"…\"}" }));
         }
-        return Desk.Result(id, ok, words, nodeKeyId, DateTime.UtcNow) is { } error ? (409, Json(new { ok = false, error })) : (200, Json(new { ok = true }));
+        return Desk.Result(id, ok, words, NodeCredentialOf(nodeKeyId), DateTime.UtcNow) is { } error ? (409, Json(new { ok = false, error })) : (200, Json(new { ok = true }));
     }
 
-    /// <summary>IShowContext with a node key: the key is bound to the node it speaks for (it can only collect that node's approvals).</summary>
+    /// <summary>IShowContext from a node route: taken only when the request may speak for the context's node.</summary>
     public string? AcceptPeerContext(string json, string address, string? nodeKeyId)
-    {
-        var refused = AcceptPeerContext(json, address);
-        if (refused is null && nodeKeyId is not null && PeerContexts.Parse(json, address, DateTime.UtcNow) is { } e) Desk.BindKey(nodeKeyId, e.Id);
-        return refused;
-    }
+        => _peerContexts.Accept(json, address, DateTime.UtcNow, _store.Snapshot.NodeId, NodeCredentialOf(nodeKeyId)).Error;
 
-    /// <summary>How risky a line is for its target: the desk's own rules for itself, the target's listed verbs otherwise; unknown is high.</summary>
+    /// <summary>
+    /// How risky a line is for its target: the desk's own rules for itself, the target's listed verbs otherwise. Unknown is
+    /// high, and so is a target whose context proves nothing now. Patterns' context, pulled over this desk's own link to
+    /// the address the operator set, counts while no key speaks for that id (<see cref="PeerContexts.RiskFor"/>).
+    /// </summary>
     private string RiskFor(NodeRef target, string line)
     {
         if (target.Id == _store.Snapshot.NodeId)
@@ -78,9 +89,7 @@ public sealed partial class MainViewModel
             if (tokens.Count == 0 || !ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out _)) return "high";
             return Copilot.Classify(cmd) switch { CopilotRisk.Low => "low", CopilotRisk.Review => "review", _ => "high" };
         }
-        var entry = _peerContexts.Find(target.Id, DateTime.UtcNow);
-        if (entry is null && _patterns?.Context is { } pc && PeerContexts.Parse(pc, "", DateTime.UtcNow) is { } pe && pe.Id == target.Id) entry = pe;
-        return entry is null ? "high" : ProposalDesk.RiskFromCommands(entry.Commands, line);
+        return _peerContexts.RiskFor(target.Id, line, DateTime.UtcNow, _patterns?.Context);
     }
 
     private static List<string> McpTokens(string line) => Stagewatch.Remote.McpEndpoint.Tokenize(line);

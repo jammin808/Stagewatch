@@ -122,6 +122,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     {
         _store = store;
         _license = license;
+        _peerContexts = new PeerContexts(_nodes);
         _ui = Dispatcher.CurrentDispatcher;
         _supervisor = new Stagewatch.Integrations.IntegrationSupervisor(work => _ui.BeginInvoke(work), () => { if (!_disposed) ApplyIntegrations(); }, m => StatusLine = m);
 

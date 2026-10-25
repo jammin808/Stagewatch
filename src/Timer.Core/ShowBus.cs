@@ -35,7 +35,8 @@ public sealed record PeerSummary(string Kind, string Id, string Name, string Lig
 
 /// <summary>
 /// The contexts other show apps posted here or that we fetched (Show Bus §6), kept for 30 s, validated and size-capped:
-/// anything on the network can post anything. Thread-safe.
+/// anything on the network can post anything. A context is taken only from a credential that may speak for its node
+/// (<see cref="NodeBindings"/>), and keeps the proof it came with. Thread-safe.
 /// </summary>
 public sealed class PeerContexts
 {
@@ -47,26 +48,84 @@ public sealed class PeerContexts
     {
         /// <summary>The verbs this node accepts with their risk (§6 "commands") — the approval desk shows its proposals with them.</summary>
         public IReadOnlyList<(string Verb, string Risk)> Commands { get; init; } = Array.Empty<(string, string)>();
+
+        /// <summary>
+        /// How the poster proved it speaks for this node when it posted. What it still proves is <see cref="ProofOf"/>;
+        /// <see cref="NodeProof.None"/> is held and shown, but sets no risk.
+        /// </summary>
+        public NodeProof Proof { get; init; }
+
+        /// <summary>The node key it was posted with when <see cref="Proof"/> is <see cref="NodeProof.Key"/>, else null.</summary>
+        public string? KeyId { get; init; }
     }
+
+    private readonly NodeBindings _nodes;
+
+    /// <summary>Contexts checked against <paramref name="nodes"/>: the same bindings every other node route speaks through.</summary>
+    public PeerContexts(NodeBindings nodes) => _nodes = nodes;
 
     /// <summary>The newest context from a node, by id (null when none is held).</summary>
     public Entry? Find(string nodeId, DateTime nowUtc) => All(nowUtc).FirstOrDefault(e => e.Id == nodeId);
 
     private readonly Dictionary<string, Entry> _byId = new(StringComparer.Ordinal);
 
-    /// <summary>Take a context. Null = taken, else why not.</summary>
-    public string? Accept(string json, string address, DateTime nowUtc, string? ownId = null)
+    /// <summary>
+    /// Take a context from <paramref name="credential"/>: parsed, then spoken for (the bindings), then never over a stronger
+    /// proof for the same node within <see cref="KeepFor"/>, then stored. Status 200 with the proof it is held with; 400 when
+    /// it isn't a context this Stagewatch can hold; 403 when the credential may not speak for that node. A refusal stores
+    /// nothing.
+    /// </summary>
+    public (int Status, string? Error, NodeProof Proof) Accept(string json, string address, DateTime nowUtc, string? ownId, NodeCredential credential)
     {
-        if (json.Length is 0 or > MaxBytes) return "a context is 1 byte to 64 KB";
-        if (Parse(json, address, nowUtc) is not { } e) return "not a Show Bus context (v 1, node.t, node.id)";
-        if (e.Id == ownId) return "that's this Stagewatch";
+        if (json.Length is 0 or > MaxBytes) return (400, "a context is 1 byte to 64 KB", NodeProof.None);
+        if (Parse(json, address, nowUtc) is not { } e) return (400, "not a Show Bus context (v 1, node.t, node.id)", NodeProof.None);
+        if (e.Id == ownId) return (400, "that's this Stagewatch", NodeProof.None);
+        // Spoken for only when there is room for it, so a full store binds no key. The room is checked again when it is
+        // stored: two posts racing for the last place can leave the loser's key bound to the node it named, which is that
+        // key's own first proven use. A key's post is never refused after it spoke: no proof is stronger than a key.
         lock (_byId)
         {
             Prune(nowUtc);
-            if (_byId.Count >= MaxPeers && !_byId.ContainsKey(e.Id)) return "too many peers";
+            if (_byId.Count >= MaxPeers && !_byId.ContainsKey(e.Id)) return (400, "too many peers", NodeProof.None);
+        }
+        var said = _nodes.Speak(credential, e.Kind, e.Id, nowUtc);
+        if (!said.Ok) return (403, said.Error, NodeProof.None);
+        e = e with { Proof = said.Proof, KeyId = said.Proof == NodeProof.Key ? credential.KeyId : null };
+        lock (_byId)
+        {
+            Prune(nowUtc);
+            if (_byId.TryGetValue(e.Id, out var held) && ProofOf(held) > e.Proof)
+                return (403, $"{NodeBindings.Describe(held.Kind, held.Id)} spoke with a stronger proof {NodeBindings.SecondsSince(held.AtUtc, nowUtc)} s ago", NodeProof.None);
+            if (_byId.Count >= MaxPeers && !_byId.ContainsKey(e.Id)) return (400, "too many peers", NodeProof.None);
             _byId[e.Id] = e;
         }
-        return null;
+        return (200, null, e.Proof);
+    }
+
+    /// <summary>
+    /// What a held context still proves: a key's proof only while that key still speaks for the node (a revoked or moved
+    /// key proves nothing from that moment), the operator's only while no key speaks for it (a key-bound id is spoken for
+    /// with its key alone), and none stays none.
+    /// </summary>
+    public NodeProof ProofOf(Entry entry) => entry.Proof switch
+    {
+        NodeProof.Key => entry.KeyId is { } k && _nodes.KeyOf(entry.Id) == k ? NodeProof.Key : NodeProof.None,
+        NodeProof.Operator => _nodes.KeyOf(entry.Id) is null ? NodeProof.Operator : NodeProof.None,
+        _ => NodeProof.None,
+    };
+
+    /// <summary>
+    /// How risky a line is for a node, from the verbs its context lists: high without a context, and high when its context
+    /// proves nothing now (<see cref="ProofOf"/>), so an unverified context never lowers a risk. <paramref name="linked"/>
+    /// is a context this Stagewatch pulled over its own link to the node's address, which the operator set; it counts
+    /// only when no held context proves anything and no key speaks for that id (a key-bound id speaks with its key alone).
+    /// </summary>
+    public string RiskFor(string nodeId, string line, DateTime nowUtc, string? linked = null)
+    {
+        if (Find(nodeId, nowUtc) is { } held && ProofOf(held) != NodeProof.None) return ProposalDesk.RiskFromCommands(held.Commands, line);
+        if (linked is not null && Parse(linked, "", nowUtc) is { } pulled && pulled.Id == nodeId && _nodes.KeyOf(nodeId) is null)
+            return ProposalDesk.RiskFromCommands(pulled.Commands, line);
+        return "high";
     }
 
     public IReadOnlyList<Entry> All(DateTime nowUtc)
@@ -93,7 +152,7 @@ public sealed class PeerContexts
             if (root["node"] is not JsonObject node) return null;
             var kind = Str(node["t"], 16);
             var id = Str(node["id"], 40);
-            if (kind.Length == 0 || id.Length == 0 || !id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')) return null;
+            if (!NodeBindings.ValidKind(kind) || !NodeBindings.ValidId(id)) return null;
             var items = (root["items"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().Take(64)
                 .Select(i => new ContextItem(Str(i["id"], 60), Str(i["kind"], 30), Str(i["label"], 80), Light.Clean(Str(i["light"], 8)), Str(i["state"], 160)))
                 .ToList();

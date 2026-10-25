@@ -31,6 +31,7 @@ public partial class MainWindow : Window, IContextActions
         // Torn-out panels need the main window up first (they're owned by it).
         Loaded += (_, _) => _dock.Restore();
         _vm.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(MainViewModel.LiveRundownName)) SyncRundownPicker(); };
+        _vm.NodeKeyMade += ShowNewNodeKey;
 
         if (App.SettingsStore.Settings.MainWindowBounds is { } b)
         {
@@ -799,6 +800,10 @@ public partial class MainWindow : Window, IContextActions
                 yield return I("Copy", () => CopyText(_vm.StatusLine), _vm.StatusLine.Length > 0);
                 break;
 
+            case "show-network" when element.DataContext is PeerRow peer:
+                if (peer.MakeKeyLabel.Length > 0) yield return I(peer.MakeKeyLabel, () => _vm.MakeKeyForPeerCommand.Execute(peer));
+                break;
+
             case "remote-line":
                 yield return I("Copy", () => CopyText(_vm.RemoteLine), _vm.RemoteLine.Length > 0);
                 yield return I("Remote settings…", () => OnOpenSettings(this, new RoutedEventArgs()));
@@ -857,6 +862,29 @@ public partial class MainWindow : Window, IContextActions
         if (_vm.RemoteBaseUrl is not { } baseUrl) return;
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(baseUrl + path) { UseShellExecute = true }); }
         catch (Exception) { }
+    }
+
+    /// <summary>A node key made for a refused app: shown once and put on the clipboard; Stagewatch keeps only its fingerprint.</summary>
+    private void ShowNewNodeKey(string words, string secret)
+    {
+        var panel = new StackPanel { Margin = new Thickness(20), MaxWidth = 460 };
+        panel.Children.Add(new TextBlock { Text = words, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(new TextBlock { Text = "Copy this key now — Stagewatch keeps only a fingerprint of it and can't show it again.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(new TextBox { Text = secret, IsReadOnly = true, FontFamily = new System.Windows.Media.FontFamily("Consolas"), Margin = new Thickness(0, 0, 0, 8) });
+        try
+        {
+            Clipboard.SetText(secret);
+            panel.Children.Add(new TextBlock { Text = "(Already copied to the clipboard.)", Opacity = 0.6 });
+        }
+        catch (System.Runtime.InteropServices.ExternalException) { panel.Children.Add(new TextBlock { Text = "(The clipboard is busy: copy it from the box.)", Opacity = 0.6 }); }
+        var win = new Window { Title = "A key of its own", Owner = this, SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Background };
+        var done = new Button { Content = "Done", IsDefault = true, IsCancel = true, MinWidth = 90, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, Margin = new Thickness(20, 0, 20, 16) };
+        done.Click += (_, _) => win.Close();
+        var root = new StackPanel();
+        root.Children.Add(panel);
+        root.Children.Add(done);
+        win.Content = root;
+        win.ShowDialog();
     }
 
     private static void CopyText(string text)

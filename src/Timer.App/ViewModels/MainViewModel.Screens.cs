@@ -18,7 +18,8 @@ public sealed partial class MainViewModel
         _customCss = Settings.Remote.CustomCss ?? "";
         _viewCode = (Settings.Remote.ViewCode ?? "").Trim();
         _layouts = Settings.Remote.Layouts.ToDictionary(l => l.Name, ScreenLayouts.ToJson, StringComparer.OrdinalIgnoreCase);
-        _apiKeys = Settings.Remote.ApiKeys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc }).ToArray();
+        _apiKeys = Settings.Remote.ApiKeys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind }).ToArray();
+        _nodes.Keep(_apiKeys);   // a revoked key speaks for nothing; a pair saved on a key is put back
         _screenNames = new Dictionary<string, string>(Settings.Remote.ScreenNames, StringComparer.OrdinalIgnoreCase);
         _screenPresets = Settings.Remote.ScreenPresets
             .Where(p => ScreenPreset.ValidName(p.Name) && ScreenPreset.ValidPath(p.Path))

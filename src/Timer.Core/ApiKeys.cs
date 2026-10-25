@@ -34,6 +34,13 @@ public sealed class ApiKey
     /// <summary>The secret's last four characters, so the operator can tell keys apart.</summary>
     [JsonPropertyName("hint")] public string Hint { get; set; } = "";
     [JsonPropertyName("created")] public DateTime CreatedUtc { get; set; }
+    /// <summary>
+    /// The node id a node key speaks for (Show Bus §11), or null while it speaks for none. Kept only on node keys; the
+    /// binding itself is <see cref="NodeBindings"/>, seeded from here.
+    /// </summary>
+    [JsonPropertyName("node")] public string? Node { get; set; }
+    /// <summary>That node's kind (patterns, messenger, playmap…), or null while not yet named.</summary>
+    [JsonPropertyName("nodeKind")] public string? NodeKind { get; set; }
 }
 
 public static class ApiKeys
@@ -96,7 +103,14 @@ public static class ApiKeys
     public static List<ApiKey> Sanitise(IEnumerable<ApiKey?>? keys)
         => (keys ?? Array.Empty<ApiKey?>())
             .Where(k => k is not null && k.Hash.Length == 64 && k.Hash.All(char.IsAsciiHexDigit) && Enum.IsDefined(k.Scope) && k.Id.Length is > 0 and <= 16)
-            .Select(k => { k!.Name = Clean(k.Name); return k; })
+            .Select(k =>
+            {
+                k!.Name = Clean(k.Name);
+                // A node binding belongs on a node key only, with an id Show Bus can name; the kind only beside an id.
+                if (k.Scope != ApiKeyScope.Node || !NodeBindings.ValidId(k.Node)) k.Node = null;
+                if (k.Node is null || !NodeBindings.ValidKind(k.NodeKind)) k.NodeKind = null;
+                return k;
+            })
             .DistinctBy(k => k.Id).Take(Max).ToList();
 
     private static string Clean(string? name)

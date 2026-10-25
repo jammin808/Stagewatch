@@ -35,7 +35,9 @@ public sealed record SharedProposal(
 /// <summary>
 /// The shared approval queue (Show Bus §11), held by the desk: every app's AI proposes here, one person approves, and each
 /// target collects what was approved for it, runs it through its own command path and reports the result. The desk never
-/// holds another app's credentials. Pure and thread-safe; the app's UI mirrors it and journals the decisions.
+/// holds another app's credentials. Every request that names a node (a proposal's from, a collect, a result) is spoken
+/// for through <see cref="NodeBindings"/> before anything is queued or claimed. Pure and thread-safe; the app's UI mirrors
+/// it and journals the decisions.
 /// </summary>
 public sealed class ProposalDesk
 {
@@ -47,65 +49,65 @@ public sealed class ProposalDesk
 
     private readonly object _lock = new();
     private readonly Dictionary<string, SharedProposal> _byId = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _keyNode = new(StringComparer.Ordinal);
     private readonly Func<string> _deskId;
+    private readonly NodeBindings _nodes;
     private int _next;
 
-    public ProposalDesk(Func<string> deskId) => _deskId = deskId;
+    /// <summary>A desk whose node routes speak through <paramref name="nodes"/>, the bindings every node route shares.</summary>
+    public ProposalDesk(Func<string> deskId, NodeBindings nodes)
+    {
+        _deskId = deskId;
+        _nodes = nodes;
+    }
 
     /// <summary>Raised (on the caller's thread) whenever a proposal is added or changes.</summary>
     public event Action<SharedProposal>? Changed;
 
     /// <summary>
-    /// A node key belongs to the first node id it spoke for, and a node id to the first key that spoke for it: neither can
-    /// then act as another (one app's key can't collect another app's approvals). False when that would break the pairing.
+    /// A proposal from the network, sent with <paramref name="credential"/>, which must speak for the proposal's
+    /// <c>from</c>. <paramref name="risk"/> says how risky a line is for its target (the target's own word). Returns the
+    /// proposal, or why not; <c>Forbidden</c> when the credential may not speak for that node (an HTTP 403).
     /// </summary>
-    public bool BindKey(string keyId, string nodeId)
-    {
-        lock (_lock)
-        {
-            if (_keyNode.TryGetValue(keyId, out var bound)) return bound == nodeId;
-            if (_keyNode.Any(kv => kv.Value == nodeId)) return false;
-            _keyNode[keyId] = nodeId;
-            return true;
-        }
-    }
-
-    public string? NodeOfKey(string keyId) { lock (_lock) return _keyNode.TryGetValue(keyId, out var n) ? n : null; }
-
-    /// <summary>
-    /// A proposal from the network. <paramref name="nodeKeyId"/> is the node key that sent it (null for the PIN, a control
-    /// or an MCP key). <paramref name="risk"/> says how risky a line is for its target (the target's own word). Returns the
-    /// proposal, or why not.
-    /// </summary>
-    public (SharedProposal? Proposal, string? Error) Submit(string json, string? nodeKeyId, Func<NodeRef, string, string> risk, DateTime nowUtc)
+    public (SharedProposal? Proposal, string? Error, bool Forbidden) Submit(string json, NodeCredential credential, Func<NodeRef, string, string> risk, DateTime nowUtc)
     {
         JsonObject root;
         try { root = JsonNode.Parse(json) as JsonObject ?? throw new JsonException(); }
-        catch (JsonException) { return (null, "a proposal is a JSON object"); }
+        catch (JsonException) { return (null, "a proposal is a JSON object", false); }
         var from = Ref(root["from"]);
         var target = Ref(root["target"]);
         var line = Str(root["line"], MaxLine);
-        if (from is null || from.Id.Length == 0) return (null, "from.t and from.id are required");
-        if (target is null) return (null, "target.t is required");
-        if (line.Length == 0) return (null, "line is required");
-        if (nodeKeyId is not null && !BindKey(nodeKeyId, from.Id)) return (null, "this key speaks for another node (or that node has its own key)");
+        if (from is null || from.Id.Length == 0) return (null, "from.t and from.id are required", false);
+        if (target is null) return (null, "target.t is required", false);
+        if (line.Length == 0) return (null, "line is required", false);
         var deskId = _deskId();
         var toDesk = target.Kind == "main" && (target.Id.Length == 0 || target.Id == deskId);
         if (toDesk) target = target with { Id = deskId };
-        else if (target.Id.Length == 0) return (null, "target.id is required for another node");
+        else if (target.Id.Length == 0) return (null, "target.id is required for another node", false);
+        if (from.Id == deskId) return (null, "that's this Stagewatch — its own proposals are made at its desk", true);
+        // Spoken for only once the proposal is whole and there is room for it, so a malformed proposal or a full desk binds
+        // no key. The room is checked again when it is queued: two proposals racing for the last place can leave the
+        // loser's key bound to the node it named, which is that key's own first proven use.
         lock (_lock)
         {
             Expire(nowUtc);
-            if (_byId.Values.Count(p => p.State == SharedProposalState.Pending) >= MaxOpen) return (null, "too many proposals waiting");
+            if (PendingCount() >= MaxOpen) return (null, "too many proposals waiting", false);
+        }
+        var said = _nodes.Speak(credential, from.Kind, from.Id, nowUtc);
+        if (!said.Ok) return (null, said.Error, true);
+        lock (_lock)
+        {
+            Expire(nowUtc);
+            if (PendingCount() >= MaxOpen) return (null, "too many proposals waiting", false);
             var id = "p" + (++_next).ToString(System.Globalization.CultureInfo.InvariantCulture);
             var p = new SharedProposal(id, from, target, line, Str(root["reason"], MaxReason), Risk(risk(target, line)), toDesk,
                 SharedProposalState.Pending, nowUtc);
             _byId[id] = p;
             Raise(p);
-            return (p, null);
+            return (p, null, false);
         }
     }
+
+    private int PendingCount() => _byId.Values.Count(p => p.State == SharedProposalState.Pending);   // under _lock
 
     public SharedProposal? Get(string id) { lock (_lock) return _byId.TryGetValue(id, out var p) ? p : null; }
 
@@ -129,12 +131,16 @@ public sealed class ProposalDesk
     }
 
     /// <summary>
-    /// A target collects what was approved for it (and marks it collected). Null + error when the key may not collect
-    /// for that node.
+    /// A target collects what was approved for it (and marks it collected). Null + error when the credential may not speak
+    /// for that node (an HTTP 403).
     /// </summary>
-    public (IReadOnlyList<SharedProposal>? Items, string? Error) Collect(string targetId, string? nodeKeyId, DateTime nowUtc)
+    public (IReadOnlyList<SharedProposal>? Items, string? Error) Collect(string targetId, NodeCredential credential, DateTime nowUtc)
     {
-        if (nodeKeyId is not null && !BindKey(nodeKeyId, targetId)) return (null, "this key speaks for another node (or that node has its own key)");
+        if (targetId == _deskId()) return (null, "that's this Stagewatch — it runs what was approved for it");
+        // A collect speaks for the id alone: a proposal's target kind is the proposer's word, never the target's, so it
+        // neither refuses the target's own key nor names the kind a first collect binds.
+        var said = _nodes.Speak(credential, "", targetId, nowUtc);
+        if (!said.Ok) return (null, said.Error);
         lock (_lock)
         {
             Expire(nowUtc);
@@ -145,15 +151,29 @@ public sealed class ProposalDesk
         }
     }
 
-    /// <summary>The target ran it (or refused): done / failed with its words. Null = taken, else why not.</summary>
-    public string? Result(string id, bool ok, string words, string? nodeKeyId, DateTime nowUtc)
+    /// <summary>
+    /// The target ran it (or refused): done / failed with its words, from a credential that speaks for the target. Null =
+    /// taken, else why not.
+    /// </summary>
+    public string? Result(string id, bool ok, string words, NodeCredential credential, DateTime nowUtc)
     {
+        static bool Open(SharedProposal p) => p.State == SharedProposalState.Approved || (p.State == SharedProposalState.Undelivered && p.ClaimedUtc is not null);
+        NodeRef target;
+        lock (_lock)
+        {
+            if (!_byId.TryGetValue(id, out var asked)) return "no such proposal";
+            if (asked.TargetIsDesk) return "this Stagewatch runs its own proposals and records what they did";
+            if (!Open(asked)) return $"proposal {id} is {asked.StateName}";
+            target = asked.Target;
+        }
+        // Spoken for only when the result could be taken, so a result refused for its state binds no key; for the id alone,
+        // as a collect is (the target's kind in a proposal is the proposer's word).
+        var said = _nodes.Speak(credential, "", target.Id, nowUtc);
+        if (!said.Ok) return said.Error;
         lock (_lock)
         {
             if (!_byId.TryGetValue(id, out var p)) return "no such proposal";
-            if (nodeKeyId is not null && NodeOfKey(nodeKeyId) is { } bound && bound != p.Target.Id) return "this key speaks for another node";
-            if (p.State != SharedProposalState.Approved && !(p.State == SharedProposalState.Undelivered && p.ClaimedUtc is not null))
-                return $"proposal {id} is {p.StateName}";
+            if (!Open(p)) return $"proposal {id} is {p.StateName}";
             p = p with { State = ok ? SharedProposalState.Done : SharedProposalState.Failed, Result = Str(JsonValue.Create(words), 300) };
             _byId[id] = p;
             Raise(p);

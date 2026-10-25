@@ -716,6 +716,12 @@
                                                     <TextBlock Text="{Binding Headline}" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
                                                     <TextBlock Text="{Binding Problems}" FontSize="12" Foreground="{StaticResource NeonAmberBrush}" TextWrapping="Wrap"
                                                                Visibility="{Binding Problems, Converter={StaticResource NonEmptyToVis}}" />
+                                                    <!-- A key two apps shared: why it was refused for this one, and one press to give it a key of its own (also on right-click). -->
+                                                    <TextBlock Text="{Binding KeyNote}" FontSize="12" Foreground="{StaticResource NeonAmberBrush}" TextWrapping="Wrap"
+                                                               Visibility="{Binding KeyNote, Converter={StaticResource NonEmptyToVis}}" />
+                                                    <Button Content="{Binding MakeKeyLabel}" HorizontalAlignment="Left" FontSize="12" Padding="8,2" MinHeight="0" MinWidth="0" Margin="0,4,0,0"
+                                                            Command="{Binding DataContext.MakeKeyForPeerCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
+                                                            Visibility="{Binding MakeKeyLabel, Converter={StaticResource NonEmptyToVis}}" />
                                                 </StackPanel>
                                             </Grid>
                                         </DataTemplate>

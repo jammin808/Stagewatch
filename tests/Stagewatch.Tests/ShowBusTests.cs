@@ -28,27 +28,37 @@ static class ShowBusTests
                 ? CommandReceipt.Refused(id, "Start needs a licence")
                 : new CommandReceipt(id, true, "applied", "Message on the speaker screen", null, new Dictionary<string, long> { ["messageId"] = 12 }));
         }
-        public readonly PeerContexts Peers = new();
-        public readonly ProposalDesk Desk = new(() => "desk01");
+        // One set of bindings for every node route, as the desk keeps them.
+        public NodeBindings Nodes { get; } = new();
+        public readonly PeerContexts Peers;
+        public readonly ProposalDesk Desk;
+        public BusControl()
+        {
+            Peers = new PeerContexts(Nodes);
+            Desk = new ProposalDesk(() => "desk01", Nodes);
+        }
+        // The server's PIN is set ("4321"), so a node route's request without a node key proved the operator.
+        static NodeCredential Cred(string? nodeKeyId) => nodeKeyId is null ? NodeCredential.Operator : NodeCredential.Key(nodeKeyId);
         public (int Status, string Json) SubmitProposal(string body, string? nodeKeyId)
         {
-            var (p, error) = Desk.Submit(body, nodeKeyId, (_, line) => line.StartsWith("note") ? "low" : "high", DateTime.UtcNow);
-            return p is null ? (400, JsonSerializer.Serialize(new { ok = false, error })) : (201, JsonSerializer.Serialize(new { ok = true, id = p.Id, state = p.StateName }));
+            var (p, error, forbidden) = Desk.Submit(body, Cred(nodeKeyId), (_, line) => line.StartsWith("note") ? "low" : "high", DateTime.UtcNow);
+            return p is null ? (forbidden ? 403 : 400, JsonSerializer.Serialize(new { ok = false, error })) : (201, JsonSerializer.Serialize(new { ok = true, id = p.Id, state = p.StateName }));
         }
         public (int Status, string Json) GetProposal(string id) => Desk.Get(id) is { } p ? (200, JsonSerializer.Serialize(p.ToJson())) : (404, "{}");
         public (int Status, string Json) CollectApproved(string targetId, string? nodeKeyId)
         {
-            var (items, error) = Desk.Collect(targetId, nodeKeyId, DateTime.UtcNow);
+            var (items, error) = Desk.Collect(targetId, Cred(nodeKeyId), DateTime.UtcNow);
             return items is null ? (403, JsonSerializer.Serialize(new { ok = false, error })) : (200, JsonSerializer.Serialize(new { proposals = items.Select(x => x.ToJson()) }));
         }
         public (int Status, string Json) ProposalResult(string id, string body, string? nodeKeyId)
         {
             using var d = JsonDocument.Parse(body);
-            return Desk.Result(id, d.RootElement.GetProperty("ok").GetBoolean(), d.RootElement.GetProperty("words").GetString() ?? "", nodeKeyId, DateTime.UtcNow) is { } e
+            return Desk.Result(id, d.RootElement.GetProperty("ok").GetBoolean(), d.RootElement.GetProperty("words").GetString() ?? "", Cred(nodeKeyId), DateTime.UtcNow) is { } e
                 ? (409, JsonSerializer.Serialize(new { ok = false, error = e })) : (200, "{\"ok\":true}");
         }
         public string? ContextJson() => "{\"v\":1,\"node\":{\"t\":\"main\",\"id\":\"abc123abc123\",\"name\":\"Hall A\"},\"light\":\"green\",\"headline\":\"Keynote\"}";
-        public string? AcceptPeerContext(string json, string address) => Peers.Accept(json, address, DateTime.UtcNow, "abc123abc123");
+        public string? AcceptPeerContext(string json, string address) => Peers.Accept(json, address, DateTime.UtcNow, "abc123abc123", NodeCredential.None).Error;
+        public string? AcceptPeerContext(string json, string address, string? nodeKeyId) => Peers.Accept(json, address, DateTime.UtcNow, "abc123abc123", Cred(nodeKeyId)).Error;
     }
 
     public static async Task Run(Action<bool, string> Check)
@@ -93,14 +103,17 @@ static class ShowBusTests
         Check(est.Offset == TimeSpan.FromMilliseconds(3000) && est.Apart, $"clock: offset from the fastest round trip ({est.Offset})");
 
         // Peer contexts: validated, capped, kept 30 s, never ourselves.
-        var peers = new PeerContexts();
+        var peers = new PeerContexts(new NodeBindings());
+        var patKey = NodeCredential.Key("kPat");
         var t0 = new DateTime(2026, 10, 10, 19, 0, 0, DateTimeKind.Utc);
         var pat = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"Patterns FOH\"},\"light\":\"red\",\"headline\":\"Projector 1 mismatch\"," +
                   "\"items\":[{\"id\":\"screen:1\",\"kind\":\"screen\",\"label\":\"Projector 1\",\"light\":\"red\",\"state\":\"MISMATCH 1080p60 vs 50\"},{\"id\":\"x\",\"light\":\"purple\"}]," +
                   "\"recent\":[{\"at\":1,\"text\":\"TAKE VT1\"}]}";
-        Check(peers.Accept(pat, "10.0.0.5", t0) is null && peers.All(t0) is [{ Name: "Patterns FOH", Light: "red", Items.Count: 2 } e] && e.Items[1].Light == Light.Grey && e.Recent[0] == "TAKE VT1",
-              "context: a peer's context is kept, unknown lights read as grey");
-        Check(peers.Accept("{\"v\":1}", "x", t0) is not null && peers.Accept("not json", "x", t0) is not null && peers.Accept(pat, "x", t0, ownId: "9f8e7d6c") is not null,
+        Check(peers.Accept(pat, "10.0.0.5", t0, null, patKey) is (200, null, NodeProof.Key) && peers.All(t0) is [{ Name: "Patterns FOH", Light: "red", Items.Count: 2, Proof: NodeProof.Key } e]
+              && e.Items[1].Light == Light.Grey && e.Recent[0] == "TAKE VT1",
+              "context: a peer's context is kept with its proof, unknown lights read as grey");
+        Check(peers.Accept("{\"v\":1}", "x", t0, null, patKey) is (400, not null, _) && peers.Accept("not json", "x", t0, null, patKey).Status == 400
+              && peers.Accept(pat, "x", t0, "9f8e7d6c", patKey) is (400, "that's this Stagewatch", _),
               "context: junk and our own context are refused");
         Check(peers.All(t0.AddSeconds(31)).Count == 0, "context: a peer that stops talking is forgotten after 30 s");
 
@@ -198,7 +211,16 @@ static class ShowBusTests
         {
             req.Headers.Add("Authorization", "Bearer " + nodeSecret);
             var res = await http.SendAsync(req);
-            Check(res.StatusCode == HttpStatusCode.OK && control.Peers.All(DateTime.UtcNow) is [{ Headline: "2 action prompts open" }], "web: another app posts its context with a node key");
+            Check(res.StatusCode == HttpStatusCode.OK && control.Peers.All(DateTime.UtcNow) is [{ Headline: "2 action prompts open", Proof: NodeProof.Key }], "web: another app posts its context with a node key");
+        }
+        var forged = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"light\":\"green\",\"headline\":\"all fine\"}";
+        using (var req = new HttpRequestMessage(HttpMethod.Post, "/api/peers/context") { Content = new StringContent(forged, Encoding.UTF8, "application/json") })
+        {
+            req.Headers.Add("Authorization", "Bearer " + nodeSecret);
+            var res = await http.SendAsync(req);
+            var body = await res.Content.ReadAsStringAsync();
+            Check(!res.IsSuccessStatusCode && body.Contains("this key speaks for messenger ag1") && control.Peers.All(DateTime.UtcNow) is [{ Id: "ag1" }],
+                  $"web: a node key can't post a context for another node, and nothing is stored ({(int)res.StatusCode} {body})");
         }
         using (var req = new HttpRequestMessage(HttpMethod.Post, "/api/peers/context") { Content = new StringContent(agContext, Encoding.UTF8, "application/json") })
         {
@@ -291,28 +313,31 @@ static class ShowBusTests
     /// <summary>The shared approval queue's rules (Show Bus §11), pure.</summary>
     static void DeskRules(Action<bool, string> Check)
     {
-        var desk = new ProposalDesk(() => "desk01");
+        var desk = new ProposalDesk(() => "desk01", new NodeBindings());
         var t0 = new DateTime(2026, 10, 11, 19, 0, 0, DateTimeKind.Utc);
+        var keyP = NodeCredential.Key("keyP");
+        var keyA = NodeCredential.Key("keyA");
         string Risk(NodeRef target, string line) => target.Id == "desk01" ? "review" : ProposalDesk.RiskFromCommands(new[] { ("EYE FOCUS <thing>", "low"), ("VIDEO END <n>", "high") }, line);
-        var (a, _) = desk.Submit("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"line\":\"EYE FOCUS screen 2\",\"reason\":\"Projector 1 is wrong\"}", "keyP", Risk, t0);
-        var (b, _) = desk.Submit("{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\"},\"target\":{\"t\":\"main\"},\"line\":\"message Wrap up\"}", "keyA", Risk, t0);
-        var (_, refused) = desk.Submit("{\"from\":{\"t\":\"messenger\",\"id\":\"pat1\"},\"target\":{\"t\":\"main\"},\"line\":\"next\"}", "keyA", Risk, t0);
-        Check(a is { State: SharedProposalState.Pending, Risk: "low", TargetIsDesk: false } && b is { TargetIsDesk: true, Target.Id: "desk01" } && refused is not null,
-              "desk: proposals queue with the target's own risk; a key can't speak for another node");
+        var (a, _, _) = desk.Submit("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"line\":\"EYE FOCUS screen 2\",\"reason\":\"Projector 1 is wrong\"}", keyP, Risk, t0);
+        var (b, _, _) = desk.Submit("{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\"},\"target\":{\"t\":\"main\"},\"line\":\"message Wrap up\"}", keyA, Risk, t0);
+        var (none, refused, forbidden) = desk.Submit("{\"from\":{\"t\":\"messenger\",\"id\":\"pat1\"},\"target\":{\"t\":\"main\"},\"line\":\"next\"}", keyA, Risk, t0);
+        Check(a is { State: SharedProposalState.Pending, Risk: "low", TargetIsDesk: false } && b is { TargetIsDesk: true, Target.Id: "desk01" }
+              && none is null && forbidden && refused == "this key speaks for messenger ag1 — make a key for messenger pat1",
+              "desk: proposals queue with the target's own risk; a key can't speak for another node (forbidden, with words)");
         Check(ProposalDesk.RiskFromCommands(new[] { ("VIDEO END <n>", "high") }, "VIDEO PLAY") == "high" && ProposalDesk.RiskFromCommands(new[] { ("note <text>", "low") }, "note hi") == "low",
               "desk: an unknown verb is high risk");
-        Check(desk.Collect("pat1", "keyP", t0).Items!.Count == 0, "desk: nothing to collect before approval");
+        Check(desk.Collect("pat1", keyP, t0).Items!.Count == 0, "desk: nothing to collect before approval");
         desk.Approve(a!.Id, "operator", t0);
-        Check(desk.Collect("pat1", "keyA", t0).Error is not null, "desk: a node can't collect another node's approvals");
-        var got = desk.Collect("pat1", "keyP", t0.AddSeconds(2)).Items!;
-        Check(got.Count == 1 && got[0].Line == "EYE FOCUS screen 2" && desk.Collect("pat1", "keyP", t0.AddSeconds(3)).Items!.Count == 0, "desk: the target collects an approved proposal once");
-        Check(desk.Result(a.Id, true, "focused screen 2", "keyP", t0.AddSeconds(4)) is null && desk.Get(a.Id) is { State: SharedProposalState.Done, Result: "focused screen 2" },
+        Check(desk.Collect("pat1", keyA, t0).Error is not null, "desk: a node can't collect another node's approvals");
+        var got = desk.Collect("pat1", keyP, t0.AddSeconds(2)).Items!;
+        Check(got.Count == 1 && got[0].Line == "EYE FOCUS screen 2" && desk.Collect("pat1", keyP, t0.AddSeconds(3)).Items!.Count == 0, "desk: the target collects an approved proposal once");
+        Check(desk.Result(a.Id, true, "focused screen 2", keyP, t0.AddSeconds(4)) is null && desk.Get(a.Id) is { State: SharedProposalState.Done, Result: "focused screen 2" },
               "desk: the target reports what it did");
-        var (c, _) = desk.Submit("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"line\":\"VIDEO END 10\"}", "keyP", Risk, t0);
+        var (c, _, _) = desk.Submit("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"line\":\"VIDEO END 10\"}", keyP, Risk, t0);
         desk.Approve(c!.Id, "operator", t0);
         desk.Expire(t0.AddSeconds(61));
         Check(desk.Get(c.Id) is { State: SharedProposalState.Undelivered } && c.Risk == "high", "desk: approved but never collected becomes undelivered");
-        var (d, _) = desk.Submit("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"line\":\"EYE RESET\"}", "keyP", Risk, t0);
+        var (d, _, _) = desk.Submit("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"line\":\"EYE RESET\"}", keyP, Risk, t0);
         desk.Reject(d!.Id, "operator", t0);
         Check(desk.Get(d.Id)!.State == SharedProposalState.Rejected && desk.Approve(d.Id, "x", t0) is null && desk.From("pat1").Count == 3, "desk: a rejected proposal stays rejected");
 
@@ -398,6 +423,13 @@ static class ShowBusTests
         var id = made.TryGetProperty("id", out var idEl) ? idEl.GetString()! : "";
         Check(code == HttpStatusCode.Created && made.GetProperty("state").GetString() == "pending", "approvals: an app proposes with its node key");
         Check((await Call(HttpMethod.Post, "/api/proposals", readSecret, proposal)).Code == HttpStatusCode.Forbidden, "approvals: a read key can't propose");
+        var (stolenCode, stolen) = await Call(HttpMethod.Post, "/api/proposals", otherSecret, proposal);
+        Check(stolenCode == HttpStatusCode.Forbidden && stolen.GetProperty("error").GetString() == "patterns pat1 speaks with its own key",
+              $"approvals: another app's key can't propose from a node that has its own key (403, {stolenCode})");
+        var (asOtherCode, asOther) = await Call(HttpMethod.Post, "/api/proposals", nodeSecret,
+            "{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}");
+        Check(asOtherCode == HttpStatusCode.Forbidden && asOther.GetProperty("error").GetString() == "this key speaks for patterns pat1 — make a key for messenger ag1"
+              && control.Desk.All().Count == 1, $"approvals: a key speaking for another node's from is 403 with words, and nothing is queued ({asOtherCode})");
         control.Desk.Approve(id, "operator", DateTime.UtcNow);
         Check((await Call(HttpMethod.Get, "/api/proposals?target=pat1&state=approved", otherSecret)).Code == HttpStatusCode.Forbidden,
               "approvals: another app's key can't collect this node's approvals");
