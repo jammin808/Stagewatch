@@ -2200,6 +2200,7 @@ await IntegrationTests.Run(Check);
 await WebV2Tests.Run(Check);
 NodeTests.Run(Check);
 await ShowBusTests.Run(Check);
+ShowBusSpecTests.Run(Check);
 await CompanionV2Tests.Run(Check);
 if (args.Contains("--powerpoint")) await PowerPointLiveTest.Run(Check);
 
