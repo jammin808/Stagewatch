@@ -24,6 +24,77 @@ static class NodeTests
         Room(Check);
         Refusals(Check);
         Keys(Check);
+        Gate(Check);
+    }
+
+    /// <summary>
+    /// The server's gate (Check): Speak's answer on what a request shows, binding nothing, so the store that takes the
+    /// request is the one that binds, and a request it refuses binds no key.
+    /// </summary>
+    static void Gate(Action<bool, string> Check)
+    {
+        var nodes = new NodeBindings();
+        var bound = 0;
+        nodes.Bound += _ => bound++;
+        var kP = NodeCredential.Key("kP");
+        Check(nodes.Check(kP, "patterns", "pat1", T0) == NodeVerdict.Allowed(NodeProof.Key) && nodes.NodeOf("kP") is null && nodes.KeyOf("pat1") is null && bound == 0,
+              "gate: an unbound key for a free id is let through with its key's proof, and stays unbound");
+        Check(nodes.Check(kP, "messenger", "ag1", T0).Ok && nodes.NodeOf("kP") is null,
+              "gate: checking never binds, so the same unbound key passes for another id until a store takes one");
+        Check(nodes.Check(NodeCredential.Operator, "patterns", "pat1", T0) == NodeVerdict.Allowed(NodeProof.Operator)
+              && nodes.Check(NodeCredential.None, "patterns", "pat1", T0) == NodeVerdict.Allowed(NodeProof.None),
+              "gate: the operator and no credential pass for a free id with their own proof");
+
+        nodes.Speak(kP, "patterns", "pat1", T0);
+        Check(bound == 1 && nodes.Check(kP, "patterns", "pat1", T0) == NodeVerdict.Allowed(NodeProof.Key) && nodes.Check(kP, "", "pat1", T0).Ok,
+              "gate: once bound, the key passes for its own node (by kind and id, or the id alone)");
+        var other = nodes.Check(kP, "messenger", "ag1", T0.AddSeconds(1));
+        Check(!other.Ok && other.Error == "this key speaks for patterns pat1 — make a key for messenger ag1" && nodes.LastRefused("kP") is { Id: "ag1", Kind: "messenger" }
+              && nodes.NodeOf("kP") == ("patterns", "pat1"),
+              $"gate: a bound key is refused for another node with Speak's words, remembered for the operator ({other.Error})");
+        Check(nodes.Check(NodeCredential.Key("kQ"), "patterns", "pat1", T0) is { Ok: false, Error: "patterns pat1 speaks with its own key" } && nodes.NodeOf("kQ") is null
+              && nodes.Check(NodeCredential.Operator, "patterns", "pat1", T0) is { Ok: false, Error: "patterns pat1 speaks with its own key" }
+              && nodes.Check(NodeCredential.None, "", "pat1", T0) is { Ok: false, Error: "patterns pat1 speaks with its own key" },
+              "gate: another key, the operator and no credential are refused for a key-bound id");
+        Check(nodes.Check(kP, "patterns", "bad id", T0) is { Ok: false, Error: "a node id is 1-40 letters, digits, - or _" } && bound == 1,
+              "gate: a malformed id is refused, nothing bound");
+
+        // A key bound by a collect (the id alone) learns its kind only from a store that takes its words.
+        nodes.Speak(NodeCredential.Key("kC"), "", "pm1", T0);
+        Check(nodes.Check(NodeCredential.Key("kC"), "playmap", "pm1", T0).Ok && nodes.NodeOf("kC") == ("", "pm1") && bound == 2,
+              "gate: checking a kind for a key bound by the id alone names no kind");
+        nodes.Keep(new[] { NodeKey("kP", "patterns", "pat1") });
+        nodes.Keep(Array.Empty<ApiKey>());
+        Check(nodes.Check(kP, "patterns", "pat1", T0) is { Ok: false, Error: "unknown or revoked API key" }, "gate: a revoked key is refused");
+
+        Check(NodeBindings.Word(NodeProof.Key) == "key" && NodeBindings.Word(NodeProof.Operator) == "operator" && NodeBindings.Word(NodeProof.None) == "none",
+              "gate: a proof's word on the wire");
+
+        // The server reads a proposal's from exactly as the desk does, with the desk's words when it names none.
+        Check(ProposalDesk.FromOf("{\"from\":{\"t\":\"patterns\",\"id\":\" pat1 \",\"name\":\"FOH\"},\"line\":\"x\"}") == (new NodeRef("patterns", "pat1", "FOH"), null)
+              && ProposalDesk.FromOf("{\"from\":{\"t\":\"patterns\"}}") == (null, ProposalDesk.NoFrom) && ProposalDesk.FromOf("{\"from\":{\"t\":\"bad kind\",\"id\":\"p1\"}}") == (null, ProposalDesk.NoFrom)
+              && ProposalDesk.FromOf("{\"from\":{\"t\":\"patterns\",\"id\":7}}") == (null, ProposalDesk.NoFrom)
+              && ProposalDesk.FromOf("not json") == (null, ProposalDesk.NotAProposal) && ProposalDesk.FromOf("[1]") == (null, ProposalDesk.NotAProposal),
+              "gate: a proposal's from is read as the desk reads it (trimmed), and the desk's words when it names no node");
+
+        // A repeated key, at any depth, makes a body unreadable: never a lookup that throws, never two readings of one key.
+        var twoFroms = "{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"from\":{\"t\":\"patterns\",\"id\":\"pat2\"},\"target\":{\"t\":\"main\"},\"line\":\"note x\"}";
+        var twoIds = "{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\",\"id\":\"pat2\"},\"target\":{\"t\":\"main\"},\"line\":\"note x\"}";
+        var desk = new ProposalDesk(() => "desk01", nodes);
+        var boundBefore = bound;
+        Check(ProposalDesk.FromOf(twoFroms) == (null, ProposalDesk.NotAProposal) && ProposalDesk.FromOf(twoIds) == (null, ProposalDesk.NotAProposal)
+              && desk.Submit(twoFroms, NodeCredential.Key("kD"), LowRisk, T0) == (null, ProposalDesk.NotAProposal, false)
+              && desk.Submit(twoIds, NodeCredential.Key("kD"), LowRisk, T0) == (null, ProposalDesk.NotAProposal, false)
+              && desk.All().Count == 0 && nodes.NodeOf("kD") is null && bound == boundBefore,
+              "gate: a proposal that repeats a key (its from, or an id inside it) is not a proposal: refused with words, nothing queued or bound");
+        Check(PeerContexts.Parse("{\"v\":1,\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\"}}", "", T0) is null
+              && PeerContexts.Parse("{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\",\"id\":\"pat8\"}}", "", T0) is null
+              && PeerContexts.Parse("{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\"},\"items\":[{\"id\":\"a\",\"id\":\"b\"}]}", "", T0) is null
+              && PeerContexts.Parse("{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\"},\"items\":[{\"id\":\"a\"}]}", "", T0) is { Id: "pat9" },
+              "gate: a context that repeats a key at any depth is not a context; the same context without the repeat is");
+        Check(new PeerContexts(nodes).Accept("{\"v\":1,\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\"}}", "", T0, null, NodeCredential.Key("kD"))
+                  == (400, PeerContexts.NotAContext, NodeProof.None) && nodes.NodeOf("kD") is null,
+              "gate: the store refuses a repeated key with the same words, and binds nothing");
     }
 
     static string LowRisk(NodeRef target, string line) => "low";

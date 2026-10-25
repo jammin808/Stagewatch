@@ -154,7 +154,8 @@ public static class Program
                               "\"items\":[{\"id\":\"prompts\",\"kind\":\"prompts\",\"label\":\"Action prompts\",\"light\":\"amber\",\"state\":\"2 waiting for the chair\"}]}";
                     var pat = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"Patterns FOH\"},\"light\":\"red\",\"headline\":\"14 things · 1 red — Projector 1 MISMATCH\"," +
                               "\"items\":[{\"id\":\"screen:1\",\"kind\":\"screen\",\"label\":\"Projector 1\",\"light\":\"red\",\"state\":\"MISMATCH: carries 1080p60 against a 50 contract\"}]}";
-                    Expect(vm.AcceptPeerContext(agm, "10.0.0.7") is null && vm.AcceptPeerContext(pat, "10.0.0.5") is null, "two show apps post their context");
+                    Expect(vm.AcceptPeerContext(agm, "10.0.0.7", NodeCredential.None) is (200, null, NodeProof.None) && vm.AcceptPeerContext(pat, "10.0.0.5", NodeCredential.None) is (200, null, NodeProof.None),
+                           "two show apps post their context (held unverified: no credential names them)");
                     Pump(1600);
                     Expect(vm.PeerRows.Any(r => r is { Name: "Patterns FOH", Kind: "Patterns", Light: "red" }) && vm.PeerRows.Any(r => r is { Name: "AGM backchannel", Light: "amber" }) && vm.ContextJson() is { } ctx && ctx.Contains("AGM backchannel"),
                            $"Producer lists them, and this Stagewatch's context names them ({vm.PeerRows.Count})");
@@ -306,8 +307,8 @@ public static class Program
 
             // The shared approval queue: another app's proposal lands in the Copilot list; approving it here lets that app
             // collect it; one aimed at this Stagewatch runs here with a receipt.
-            var forPatterns = vm.SubmitProposal("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"line\":\"EYE FOCUS screen 2\",\"reason\":\"Projector 1 is on the wrong mode\"}", "keyP");
-            var forUs = vm.SubmitProposal("{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\",\"name\":\"AGM\"},\"target\":{\"t\":\"main\"},\"line\":\"note From the board\",\"reason\":\"log it\"}", "keyA");
+            var forPatterns = vm.SubmitProposal("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"line\":\"EYE FOCUS screen 2\",\"reason\":\"Projector 1 is on the wrong mode\"}", NodeCredential.Key("keyP"));
+            var forUs = vm.SubmitProposal("{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\",\"name\":\"AGM\"},\"target\":{\"t\":\"main\"},\"line\":\"note From the board\",\"reason\":\"log it\"}", NodeCredential.Key("keyA"));
             Pump(300);
             var pPat = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("Patterns FOH"));
             var pUs = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("AGM"));
@@ -315,8 +316,8 @@ public static class Program
             vm.ApproveProposalCommand.Execute(pPat);
             vm.ApproveProposalCommand.Execute(pUs);
             Pump(300);
-            var collected = vm.CollectApproved("pat1", "keyP");
-            var stolen = vm.CollectApproved("pat1", "keyA");
+            var collected = vm.CollectApproved("pat1", NodeCredential.Key("keyP"));
+            var stolen = vm.CollectApproved("pat1", NodeCredential.Key("keyA"));
             var okD = queued && collected.Json.Contains("EYE FOCUS screen 2") && stolen.Status == 403 && pUs!.Steps[0].Result.StartsWith("done");
             Console.WriteLine((okD ? "OK   " : "FAIL ") + $"approval desk: queued, approved, collected by its own app only; ours ran here ({forPatterns.Status}/{forUs.Status}, {pUs?.Steps[0].Result})");
             if (!okD) failures++;

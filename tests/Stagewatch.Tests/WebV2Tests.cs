@@ -464,6 +464,115 @@ static class WebV2Tests
         Check(holdPage.Contains("holding.js") && (await http.GetStringAsync("/holding.js")).Contains("SW.holding"), "holding page served");
         Check((await http.GetStringAsync("/holo")).Contains("holo.bundle.js") && (await http.GetByteArrayAsync("/holo.bundle.js")).Length > 200_000
               && (await http.GetStringAsync("/holo-page.js")).Contains("chrome.webview"), "holo page and three.js bundle served");
+
+        await NodeRoutes(Check);
+    }
+
+    /// <summary>
+    /// The node routes on a real server, with a fresh lockout table (every request here comes from 127.0.0.1 within one
+    /// minute, so the lockout is read by counts, not clocks). One node key speaks for one node, checked before anything is
+    /// stored; the lockout counts guesses only: wrong PINs lock an address out, an unknown or revoked key and a missing
+    /// PIN never do, so an app polling or redialling with a revoked key, or with none, never locks its machine out.
+    /// </summary>
+    static async Task NodeRoutes(Action<bool, string> Check)
+    {
+        var control = new ShowBusTests.BusControl();
+        var (patKey, patSecret) = ApiKeys.Create("Patterns FOH", ApiKeyScope.Node, DateTime.UtcNow);
+        var (agKey, agSecret) = ApiKeys.Create("AGMessage", ApiKeyScope.Node, DateTime.UtcNow);
+        control.ApiKeys = new[] { patKey, agKey };
+        var port = FreePort();
+        await using var web = new WebServer(control, () => "4321");
+        web.Start(port, bindAll: false);
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        control.Snapshots.Publish(new ShowSnapshot { Text = "05:00", Seconds = 300, Title = "Keynote" });
+        async Task<(HttpStatusCode Code, string? Error, string Body)> Send(HttpMethod m, string path, string? secret, string? json = null)
+        {
+            using var req = new HttpRequestMessage(m, path);
+            if (secret is not null) req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
+            if (json is not null) req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            var res = await http.SendAsync(req);
+            var body = await res.Content.ReadAsStringAsync();
+            string? error = null;
+            if (body.StartsWith('{'))
+            {
+                using var d = JsonDocument.Parse(body);
+                if (d.RootElement.TryGetProperty("error", out var e)) error = e.GetString();
+            }
+            return (res.StatusCode, error, body);
+        }
+        static string Ctx(string id, string headline) => "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"" + id + "\",\"name\":\"FOH\"},\"light\":\"green\",\"headline\":\"" + headline + "\"}";
+
+        // One node, one key: a forged context answers 403 and stores nothing; a key pasted into a second install is refused there.
+        var own = await Send(HttpMethod.Post, "/api/peers/context", patSecret, Ctx("pat1", "FOH fine"));
+        Check(own is (HttpStatusCode.OK, null, "{\"ok\":true,\"verified\":\"key\"}") && control.Nodes.NodeOf(patKey.Id) == ("patterns", "pat1"),
+              $"node routes: a node key's first context binds it to its node, held as verified by key ({own.Body})");
+        var forged = await Send(HttpMethod.Post, "/api/peers/context", agSecret, Ctx("pat1", "forged"));
+        Check(forged is (HttpStatusCode.Forbidden, "patterns pat1 speaks with its own key", _) && control.Peers.Find("pat1", DateTime.UtcNow) is { Headline: "FOH fine", Proof: NodeProof.Key }
+              && control.Nodes.NodeOf(agKey.Id) is null,
+              $"node routes: a forged context for a node with its own key answers 403 with words and stores nothing; the forging key binds to nothing ({forged.Error})");
+        var twin = await Send(HttpMethod.Post, "/api/peers/context", patSecret, Ctx("pat2", "the twin"));
+        Check(twin is (HttpStatusCode.Forbidden, "this key speaks for patterns pat1 — make a key for patterns pat2", _) && control.Peers.Find("pat2", DateTime.UtcNow) is null
+              && control.Nodes.NodeOf(patKey.Id) == ("patterns", "pat1"),
+              $"node routes: one key shared by two installs is refused for the second id, nothing stored, and still speaks for the first ({twin.Error})");
+
+        // A body that repeats a key is not read two ways (or thrown on): the server refuses it with words before the store.
+        var asked = control.Credentials.Count;
+        var queued = control.Desk.All().Count;
+        var twoVs = await Send(HttpMethod.Post, "/api/peers/context", patSecret, "{\"v\":1,\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"light\":\"red\",\"headline\":\"repeated\"}");
+        var twoNodeIds = await Send(HttpMethod.Post, "/api/peers/context", agSecret, "{\"v\":1,\"node\":{\"t\":\"messenger\",\"id\":\"ag1\",\"id\":\"pat1\"},\"light\":\"red\",\"headline\":\"repeated\"}");
+        var twoFroms = await Send(HttpMethod.Post, "/api/proposals", agSecret,
+            "{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\"},\"from\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"target\":{\"t\":\"main\"},\"line\":\"note x\"}");
+        Check(twoVs is (HttpStatusCode.BadRequest, PeerContexts.NotAContext, _) && twoNodeIds is (HttpStatusCode.BadRequest, PeerContexts.NotAContext, _)
+              && twoFroms is (HttpStatusCode.BadRequest, ProposalDesk.NotAProposal, _)
+              && control.Credentials.Count == asked && control.Desk.All().Count == queued && control.Nodes.NodeOf(agKey.Id) is null
+              && control.Peers.Find("pat1", DateTime.UtcNow) is { Headline: "FOH fine" } && control.Peers.Find("ag1", DateTime.UtcNow) is null,
+              $"node routes: a context or proposal that repeats a key answers 400 with words; the store is never asked, nothing is stored or bound ({twoVs.Error} / {twoNodeIds.Error} / {twoFroms.Error})");
+
+        // Unknown and revoked keys, and requests with no PIN, are never counted toward the address's lockout.
+        control.ApiKeys = new[] { agKey };   // Patterns FOH's key revoked
+        var revoked = new List<(HttpStatusCode, string?)>();
+        for (var i = 0; i < 12; i++)
+        {
+            var r = await Send(HttpMethod.Post, "/api/peers/context", patSecret, Ctx("pat1", "still here"));
+            revoked.Add((r.Code, r.Error));
+        }
+        Check(revoked.All(r => r == (HttpStatusCode.Unauthorized, "unknown or revoked API key")) && control.Peers.Find("pat1", DateTime.UtcNow) is { Headline: "FOH fine" },
+              "node routes: a revoked key is refused (401, the same words every time) and stores nothing");
+        var unknownSecret = ApiKeys.Create("never saved", ApiKeyScope.Node, DateTime.UtcNow).Secret;
+        var framed = 0;
+        for (var i = 0; i < 12; i++)
+        {
+            using var ws = new ClientWebSocket();
+            ws.Options.SetRequestHeader("Authorization", "Bearer " + unknownSecret);
+            await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?cid=legacy01&page=/patterns"), CancellationToken.None);
+            if ((await Receive(ws)).Contains("\"seq\"")) framed++;
+            await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "redial", CancellationToken.None);
+        }
+        Check(framed == 12, $"node routes: a socket redialled with an unknown key still follows the timer ({framed} of 12 heard a frame)");
+        var bare = new List<(HttpStatusCode, string?)>();
+        for (var i = 0; i < 12; i++)
+        {
+            var r = await Send(HttpMethod.Get, "/api/context", null);
+            bare.Add((r.Code, r.Error));
+        }
+        Check(bare.All(r => r == (HttpStatusCode.Unauthorized, "PIN required")), "node routes: a keyless app's context read is refused, PIN required");
+        Check((await Send(HttpMethod.Get, "/api/context?pin=4321", null)).Code == HttpStatusCode.OK,
+              "node routes: after 12 revoked-key posts, 12 unknown-key redials and 12 reads with no PIN, the PIN still opens this machine's address");
+        using (var control2 = new ClientWebSocket())
+        {
+            await control2.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?role=control&pin=4321"), CancellationToken.None);
+            var auth = await Receive(control2);
+            Check(auth.Contains("\"type\":\"auth\"") && auth.Contains("\"ok\":true"), $"node routes: and a control page on it still signs in ({auth})");
+            await control2.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        }
+        Check((await Send(HttpMethod.Get, "/api/context", agSecret)).Code == HttpStatusCode.OK, "node routes: and a key in force still reads");
+
+        // Wrong PINs are guesses, and still count: five lock the address out for the minute, a valid key included.
+        for (var i = 0; i < 5; i++) await Send(HttpMethod.Get, "/api/context?pin=0000", null);
+        var lockedPin = await Send(HttpMethod.Get, "/api/context?pin=4321", null);
+        var lockedKey = await Send(HttpMethod.Get, "/api/context", agSecret);
+        Check(lockedPin is (HttpStatusCode.Unauthorized, "too many wrong PINs — wait a minute", _) && lockedKey is (HttpStatusCode.Unauthorized, "too many wrong PINs — wait a minute", _),
+              $"node routes: five wrong PINs lock the address out, the right PIN and a valid key too ({lockedPin.Error} / {lockedKey.Error})");
     }
 
     static int FreePort()

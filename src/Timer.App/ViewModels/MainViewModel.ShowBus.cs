@@ -51,10 +51,6 @@ public sealed partial class MainViewModel
     /// <summary>IShowContext: this node's context, rebuilt once a second on the show thread (any thread may read it).</summary>
     public string? ContextJson() => _contextJson;
 
-    /// <summary>IShowContext: another app's context with no credential that names a node (network thread). Kept 30 s, unverified.</summary>
-    public string? AcceptPeerContext(string json, string address)
-        => _peerContexts.Accept(json, address, DateTime.UtcNow, _store.Snapshot.NodeId, NodeCredential.None).Error;
-
     /// <summary>4 Hz (owner thread): once a second, rebuild the context and the Show network rows.</summary>
     private void RefreshShowBus()
     {

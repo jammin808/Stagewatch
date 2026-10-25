@@ -70,13 +70,11 @@ public sealed class ProposalDesk
     /// </summary>
     public (SharedProposal? Proposal, string? Error, bool Forbidden) Submit(string json, NodeCredential credential, Func<NodeRef, string, string> risk, DateTime nowUtc)
     {
-        JsonObject root;
-        try { root = JsonNode.Parse(json) as JsonObject ?? throw new JsonException(); }
-        catch (JsonException) { return (null, "a proposal is a JSON object", false); }
+        if (Root(json) is not { } root) return (null, NotAProposal, false);
         var from = Ref(root["from"]);
         var target = Ref(root["target"]);
         var line = Str(root["line"], MaxLine);
-        if (from is null || from.Id.Length == 0) return (null, "from.t and from.id are required", false);
+        if (from is null || from.Id.Length == 0) return (null, NoFrom, false);
         if (target is null) return (null, "target.t is required", false);
         if (line.Length == 0) return (null, "line is required", false);
         var deskId = _deskId();
@@ -105,6 +103,27 @@ public sealed class ProposalDesk
             Raise(p);
             return (p, null, false);
         }
+    }
+
+    /// <summary>Why <see cref="Submit"/> refuses a body it can't read as a proposal, and one that names no node it speaks for.</summary>
+    public const string NotAProposal = "a proposal is a JSON object that names each key once", NoFrom = "from.t and from.id are required";
+
+    /// <summary>
+    /// The node a proposal speaks for (its <c>from</c>), read exactly as <see cref="Submit"/> reads it, or Submit's own words
+    /// for why it names none: what a server checks against the bindings before the desk is called, and refuses (400) for
+    /// the desk when there is no node to check.
+    /// </summary>
+    public static (NodeRef? From, string? Error) FromOf(string json)
+    {
+        if (Root(json) is not { } root) return (null, NotAProposal);
+        return Ref(root["from"]) is { Id.Length: > 0 } from ? (from, null) : (null, NoFrom);
+    }
+
+    /// <summary>A proposal's body as an object, or null when it isn't one (not JSON, not an object, or a key repeated).</summary>
+    private static JsonObject? Root(string json)
+    {
+        try { return BusJson.Parse(json) as JsonObject; }
+        catch (JsonException) { return null; }
     }
 
     private int PendingCount() => _byId.Values.Count(p => p.State == SharedProposalState.Pending);   // under _lock

@@ -23,23 +23,12 @@ public sealed partial class MainViewModel
     private static string Json(object o) => JsonSerializer.Serialize(o);
 
     /// <summary>
-    /// What a node route's request proved, as far as the node key id the routes pass tells: a node key proves its own id;
-    /// without one the proof is read from the PIN setting, not from the credential the server checked. Known gap: with a
-    /// PIN set an MCP key's proposal counts as the operator (a read or MCP key proves nothing), on an open Stagewatch a
-    /// control key counts as nothing (it proves the operator), and the PIN is read again after the server's check. The
-    /// bindings answer the operator and nothing alike, and a proposal's proof is not kept, so only a context's kept proof
-    /// can differ: an open Stagewatch's control-key context is held unverified (under-trusted, never over-trusted, since
-    /// the context route admits no MCP key). It holds until the routes pass the credential they checked (the key's
-    /// scope, or the PIN actually given).
+    /// IShowApprovals: an app proposes (network thread) with what its request proved (the server's credential: a node
+    /// key, the operator, or nothing). 403 when the credential may not speak for its <c>from</c>.
     /// </summary>
-    private NodeCredential NodeCredentialOf(string? nodeKeyId)
-        => nodeKeyId is { Length: > 0 } ? NodeCredential.Key(nodeKeyId)
-            : string.IsNullOrEmpty(_store.Snapshot.Remote.Pin) ? NodeCredential.None : NodeCredential.Operator;
-
-    /// <summary>IShowApprovals: an app proposes (network thread). 403 when the credential may not speak for its <c>from</c>.</summary>
-    public (int Status, string Json) SubmitProposal(string body, string? nodeKeyId)
+    public (int Status, string Json) SubmitProposal(string body, NodeCredential credential)
     {
-        var (p, error, forbidden) = Desk.Submit(body, NodeCredentialOf(nodeKeyId), RiskFor, DateTime.UtcNow);
+        var (p, error, forbidden) = Desk.Submit(body, credential, RiskFor, DateTime.UtcNow);
         return p is null ? (forbidden ? 403 : 400, Json(new { ok = false, error })) : (201, Json(new { ok = true, id = p.Id, state = p.StateName, risk = p.Risk }));
     }
 
@@ -49,19 +38,19 @@ public sealed partial class MainViewModel
     public (int Status, string Json) ProposalsFrom(string nodeId)
         => (200, Json(new { proposals = (nodeId.Length > 0 ? Desk.From(nodeId) : Desk.All()).Select(p => p.ToJson()) }));
 
-    public (int Status, string Json) CollectApproved(string targetId, string? nodeKeyId)
+    public (int Status, string Json) CollectApproved(string targetId, NodeCredential credential)
     {
-        var (items, error) = Desk.Collect(targetId, NodeCredentialOf(nodeKeyId), DateTime.UtcNow);
+        var (items, error) = Desk.Collect(targetId, credential, DateTime.UtcNow);
         return items is null ? (403, Json(new { ok = false, error })) : (200, Json(new { proposals = items.Select(p => p.ToJson()) }));
     }
 
-    public (int Status, string Json) ProposalResult(string id, string body, string? nodeKeyId)
+    public (int Status, string Json) ProposalResult(string id, string body, NodeCredential credential)
     {
         bool ok;
         string words;
         try
         {
-            var root = JsonNode.Parse(body) as JsonObject ?? throw new JsonException();
+            var root = BusJson.Parse(body) as JsonObject ?? throw new JsonException();
             ok = root["ok"]?.GetValue<bool>() ?? false;
             words = root["words"]?.GetValueKind() == JsonValueKind.String ? root["words"]!.GetValue<string>() : "";
         }
@@ -69,12 +58,15 @@ public sealed partial class MainViewModel
         {
             return (400, Json(new { ok = false, error = "a result is {\"ok\":true|false,\"words\":\"…\"}" }));
         }
-        return Desk.Result(id, ok, words, NodeCredentialOf(nodeKeyId), DateTime.UtcNow) is { } error ? (409, Json(new { ok = false, error })) : (200, Json(new { ok = true }));
+        return Desk.Result(id, ok, words, credential, DateTime.UtcNow) is { } error ? (409, Json(new { ok = false, error })) : (200, Json(new { ok = true }));
     }
 
-    /// <summary>IShowContext from a node route: taken only when the request may speak for the context's node.</summary>
-    public string? AcceptPeerContext(string json, string address, string? nodeKeyId)
-        => _peerContexts.Accept(json, address, DateTime.UtcNow, _store.Snapshot.NodeId, NodeCredentialOf(nodeKeyId)).Error;
+    /// <summary>
+    /// IShowContext: another app's context (network thread), taken only when the request's credential may speak for its
+    /// node, and held with that proof (none is kept 30 s, shown, and never sets a risk).
+    /// </summary>
+    public (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)
+        => _peerContexts.Accept(json, address, DateTime.UtcNow, _store.Snapshot.NodeId, credential);
 
     /// <summary>
     /// How risky a line is for its target: the desk's own rules for itself, the target's listed verbs otherwise. Unknown is

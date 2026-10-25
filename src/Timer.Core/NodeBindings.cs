@@ -100,13 +100,27 @@ public sealed class NodeBindings
     /// <summary>"patterns 9f8e7d6c", or "node 9f8e7d6c" while the kind is not known.</summary>
     public static string Describe(string? kind, string id) => string.IsNullOrEmpty(kind) ? "node " + id : kind + " " + id;
 
+    /// <summary>A proof as the wire says it (a context's <c>verified</c>): key, operator or none.</summary>
+    public static string Word(NodeProof proof) => proof switch { NodeProof.Key => "key", NodeProof.Operator => "operator", _ => "none" };
+
     /// <summary>
     /// May <paramref name="credential"/> speak for the node (<paramref name="kind"/>, <paramref name="id"/>)? A node key
     /// bound to nothing is bound to it now, when the id is free. An empty kind (a collect names only the id) matches any
     /// kind, and a binding made without one takes the first kind named later. Refusals by a key are remembered (the
     /// latest per key) for the operator.
     /// </summary>
-    public NodeVerdict Speak(NodeCredential credential, string? kind, string id, DateTime nowUtc)
+    public NodeVerdict Speak(NodeCredential credential, string? kind, string id, DateTime nowUtc) => Decide(credential, kind, id, nowUtc, bind: true);
+
+    /// <summary>
+    /// What <see cref="Speak"/> answers now, binding nothing: the gate a server runs on what a request shows before the node
+    /// route's store is called, so no store can skip a refusal. Refusals are remembered as Speak's are. A key bound to
+    /// nothing stays unbound (allowed with its key's proof) until a store takes its request: then the store speaks, and the
+    /// server speaks again for what was taken (a no-op after the store), so a request the store refuses (malformed, no
+    /// room) binds no key and a store that never speaks still can't let one key speak for two nodes.
+    /// </summary>
+    public NodeVerdict Check(NodeCredential credential, string? kind, string id, DateTime nowUtc) => Decide(credential, kind, id, nowUtc, bind: false);
+
+    private NodeVerdict Decide(NodeCredential credential, string? kind, string id, DateTime nowUtc, bool bind)
     {
         kind ??= "";
         if (!ValidId(id)) return NodeVerdict.Refused("a node id is 1-40 letters, digits, - or _");
@@ -130,7 +144,7 @@ public sealed class NodeBindings
                     verdict = Refuse(keyId, kind, id, nowUtc, $"this key speaks for {Describe(mine.Kind, mine.Id)} — make a key for {Describe(kind, id)}");
                 else
                 {
-                    if (mine.Kind.Length == 0 && kind.Length > 0)
+                    if (bind && mine.Kind.Length == 0 && kind.Length > 0)
                     {
                         _byKey[keyId] = (kind, id);
                         bound = new NodeBound(keyId, kind, id, "", id, null, false);
@@ -144,9 +158,12 @@ public sealed class NodeBindings
             }
             else
             {
-                _byKey[keyId] = (kind, id);
-                _keyById[id] = keyId;
-                bound = new NodeBound(keyId, kind, id, null, null, null, false);
+                if (bind)
+                {
+                    _byKey[keyId] = (kind, id);
+                    _keyById[id] = keyId;
+                    bound = new NodeBound(keyId, kind, id, null, null, null, false);
+                }
                 verdict = NodeVerdict.Allowed(NodeProof.Key);
             }
         }

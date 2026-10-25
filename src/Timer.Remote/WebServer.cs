@@ -443,7 +443,9 @@ public sealed class WebServer : IAsyncDisposable
                 await HandleProposalsAsync(stream, req, remote, null, ct); return;
             case "/api/context":
             {
-                // Show Bus §6: what this node is doing, for other apps and their AI. Read access (PIN or any key).
+                // Show Bus §6: what this node is doing, for other apps and their AI. Read access (PIN or any key). Only a
+                // read: a node's own context goes to /api/peers/context, and a post here is never answered as if taken.
+                if (req.Method == "POST") { await WriteJsonError(stream, 405, "this is Stagewatch's own context — POST yours to /api/peers/context", ct); return; }
                 if (Authorize(req, remote, ApiKeyScope.Read) is { } denied) { await WriteDenied(stream, denied, ct); return; }
                 var json = _control.ContextJson();
                 if (json is null) { await WriteJsonError(stream, 404, "no context", ct); return; }
@@ -452,12 +454,22 @@ public sealed class WebServer : IAsyncDisposable
             case "/api/peers/context":
             {
                 // Another show app tells us what it's doing (its own context, §6). A node key, a control key or the PIN.
+                // The server reads the node it names and speaks for it before the store is called: a body it can't read
+                // is a 400 and a refusal a 403, both with words, and neither reaches the store or stores anything. Taken,
+                // the answer says what the context is held as (verified: key, operator or none).
                 if (req.Method != "POST") { await WriteJsonError(stream, 405, "POST the context", ct); return; }
                 if (Authorize(req, remote, ApiKeyScope.Node) is { } denied) { await WriteDenied(stream, denied, ct); return; }
                 if (req.Body.Length is 0 or > 64 * 1024) { await WriteJsonError(stream, 400, "a context is 1 byte to 64 KB of JSON", ct); return; }
-                if (_control.AcceptPeerContext(Encoding.UTF8.GetString(req.Body), Screens.AddressOf(remote), NodeKeyId(req)) is { } refused)
-                { await WriteJsonError(stream, 400, refused, ct); return; }
-                await WriteAsync(stream, 200, "application/json", "{\"ok\":true}"u8.ToArray(), ct, extra: RateHeaders(req)); return;
+                var json = Encoding.UTF8.GetString(req.Body);
+                if (PeerContexts.Parse(json, "", DateTime.UtcNow) is not { } claimed) { await WriteJsonError(stream, 400, PeerContexts.NotAContext, ct); return; }
+                var credential = CredentialOf(req);
+                if (_control.Nodes.Check(credential, claimed.Kind, claimed.Id, DateTime.UtcNow) is { Ok: false } refused)
+                { await WriteJsonError(stream, 403, refused.Error ?? "refused", ct); return; }
+                var taken = _control.AcceptPeerContext(json, Screens.AddressOf(remote), credential);
+                if (taken.Status != 200 || taken.Error is not null)
+                { await WriteJsonError(stream, taken.Status is >= 400 and < 500 ? taken.Status : 400, taken.Error ?? "not taken", ct); return; }
+                BindTaken(taken.Status, credential, claimed.Kind, claimed.Id);
+                await WriteAsync(stream, 200, "application/json", Encoding.UTF8.GetBytes("{\"ok\":true,\"verified\":\"" + NodeBindings.Word(taken.Proof) + "\"}"), ct, extra: RateHeaders(req)); return;
             }
             case "/api/state":
             {
@@ -566,14 +578,47 @@ public sealed class WebServer : IAsyncDisposable
         await WriteJsonError(stream, 404, "not found", ct);
     }
 
-    /// <summary>The node key behind a request, if it carries one (Show Bus §11 binds it to the node it speaks for).</summary>
-    private string? NodeKeyId(HttpRequest req)
-        => ApiKeys.Find(_control.ApiKeys, PinFrom(req)) is { Scope: ApiKeyScope.Node } k ? k.Id : null;
+    /// <summary>
+    /// What a request proves about which node it may speak for (Show Bus §11), from the credential it carries: a node key
+    /// proves its own node (by the key's id); a control key, or the PIN this Stagewatch asks for given right, proves the
+    /// operator; a read or MCP key, a PIN this Stagewatch doesn't ask for, or nothing proves nothing. Read after Authorize
+    /// admitted the request, so it counts nothing; a key revoked in between proves nothing.
+    /// </summary>
+    private NodeCredential CredentialOf(HttpRequest req)
+    {
+        var supplied = PinFrom(req);
+        if (ApiKeys.LooksLikeKey(supplied))
+            return ApiKeys.Find(_control.ApiKeys, supplied) switch
+            {
+                { Scope: ApiKeyScope.Node } k => NodeCredential.Key(k.Id),
+                { Scope: ApiKeyScope.Control } => NodeCredential.Operator,
+                _ => NodeCredential.None,
+            };
+        var pin = _pin();
+        return !string.IsNullOrEmpty(pin) && supplied is not null
+               && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(pin))
+            ? NodeCredential.Operator : NodeCredential.None;
+    }
+
+    /// <summary>
+    /// A node key's request the store took (2xx) binds that key to the node it named, as the store's own speaking does: a
+    /// no-op when the store already spoke, and the first binding when a store didn't, so no store behind this server can
+    /// skip first-bind-wins any more than it can skip a refusal. A request the store refused binds nothing, and the
+    /// operator's or no credential never binds.
+    /// </summary>
+    private void BindTaken(int status, NodeCredential credential, string? kind, string id)
+    {
+        if (status is >= 200 and < 300 && credential.Proof == NodeProof.Key) _control.Nodes.Speak(credential, kind, id, DateTime.UtcNow);
+    }
 
     /// <summary>
     /// The shared approval queue (Show Bus §11). POST /api/proposals (a node, MCP or control key, or the PIN);
     /// GET /api/proposals/&lt;id&gt; and ?from=&lt;node&gt; (read); GET ?target=&lt;node&gt;&amp;state=approved collects what was
-    /// approved for a node (its node key, or control/PIN); POST /api/proposals/&lt;id&gt;/result reports what it did.
+    /// approved for a node (its node key, or control/PIN); POST /api/proposals/&lt;id&gt;/result reports what it did. A
+    /// proposal's from and a collect's target are read and spoken for before the desk is called (a 400 when there is no
+    /// node to speak for, a 403 when the credential may not, each with words, nothing queued or claimed), and a node key's
+    /// request the desk took binds it (<see cref="BindTaken"/>); a result's node is the proposal's target, which only the
+    /// desk knows, so the desk speaks for it.
     /// </summary>
     private async Task HandleProposalsAsync(Stream stream, HttpRequest req, IPAddress remote, string? rest, CancellationToken ct)
     {
@@ -591,14 +636,28 @@ public sealed class WebServer : IAsyncDisposable
             {
                 if (Proposer() is { } denied) { await WriteDenied(stream, denied, ct); return; }
                 if (req.Body.Length is 0 or > 16 * 1024) { await WriteJsonError(stream, 400, "a proposal is 1 byte to 16 KB of JSON", ct); return; }
-                await Reply(_control.SubmitProposal(Encoding.UTF8.GetString(req.Body), NodeKeyId(req)));
+                var json = Encoding.UTF8.GetString(req.Body);
+                var (proposer, unread) = ProposalDesk.FromOf(json);
+                if (proposer is null) { await WriteJsonError(stream, 400, unread ?? ProposalDesk.NoFrom, ct); return; }
+                var credential = CredentialOf(req);
+                if (_control.Nodes.Check(credential, proposer.Kind, proposer.Id, DateTime.UtcNow) is { Ok: false } refused)
+                { await WriteJsonError(stream, 403, refused.Error ?? "refused", ct); return; }
+                var proposed = _control.SubmitProposal(json, credential);
+                BindTaken(proposed.Status, credential, proposer.Kind, proposer.Id);
+                await Reply(proposed);
                 return;
             }
             if (req.Query.GetValueOrDefault("target") is { Length: > 0 } target)
             {
                 if (Authorize(req, remote, ApiKeyScope.Node) is { } denied) { await WriteDenied(stream, denied, ct); return; }
                 if (req.Query.GetValueOrDefault("state") is not (null or "approved")) { await WriteJsonError(stream, 400, "targets collect state=approved", ct); return; }
-                await Reply(_control.CollectApproved(target, NodeKeyId(req)));
+                if (!NodeBindings.ValidId(target)) { await WriteJsonError(stream, 400, "a node id is 1-40 letters, digits, - or _", ct); return; }
+                var credential = CredentialOf(req);
+                if (_control.Nodes.Check(credential, "", target, DateTime.UtcNow) is { Ok: false } refused)
+                { await WriteJsonError(stream, 403, refused.Error ?? "refused", ct); return; }
+                var collected = _control.CollectApproved(target, credential);
+                BindTaken(collected.Status, credential, "", target);
+                await Reply(collected);
                 return;
             }
             if (Authorize(req, remote, ApiKeyScope.Read) is { } readDenied) { await WriteDenied(stream, readDenied, ct); return; }
@@ -610,7 +669,7 @@ public sealed class WebServer : IAsyncDisposable
         {
             if (req.Method != "POST") { await WriteJsonError(stream, 405, "POST the result", ct); return; }
             if (Authorize(req, remote, ApiKeyScope.Node) is { } denied) { await WriteDenied(stream, denied, ct); return; }
-            await Reply(_control.ProposalResult(parts[0], Encoding.UTF8.GetString(req.Body), NodeKeyId(req)));
+            await Reply(_control.ProposalResult(parts[0], Encoding.UTF8.GetString(req.Body), CredentialOf(req)));
             return;
         }
         if (Authorize(req, remote, ApiKeyScope.Read) is { } getDenied) { await WriteDenied(stream, getDenied, ct); return; }
@@ -820,7 +879,7 @@ public sealed class WebServer : IAsyncDisposable
             await WriteJsonError(stream, 400, error, ct);
             return;
         }
-        // Only test a PIN that was actually given: a missing one would count as a wrong guess.
+        // Only a PIN or key that was given is tested: a crew page without one is a crew page, not a wrong guess.
         // Asked only for crew routes, so a key's request isn't counted twice.
         bool IsOperator() => authorized || IsAuthorized(req, remote, ApiKeyScope.Control);
         if (cmd.Kind == ShowCommandKind.DeptNote && !IsOperator() && CheckDeptKey(DeptOf(cmd), req.Query.GetValueOrDefault("key")) is { } noteRefused)
@@ -873,9 +932,10 @@ public sealed class WebServer : IAsyncDisposable
         if (_authFailures.TryGetValue(remote, out var f) && f.Failures >= 5 && now - f.WindowStartMs < 60_000)
             return "too many wrong PINs — wait a minute";
 
-        var ok = supplied is not null &&
-                 CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(pin));
-        if (ok)
+        // A request with no PIN guesses nothing, so it is refused without being counted: a keyless app polling this
+        // Stagewatch never locks its machine's address (and the browsers on it) out.
+        if (supplied is null) return "PIN required";
+        if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(pin)))
         {
             _authFailures.TryRemove(remote, out _);
             return null;
@@ -883,7 +943,7 @@ public sealed class WebServer : IAsyncDisposable
         _authFailures.AddOrUpdate(remote,
             _ => (1, now),
             (_, old) => now - old.WindowStartMs > 60_000 ? (1, now) : (old.Failures + 1, old.WindowStartMs));
-        return supplied is null ? "PIN required" : "wrong PIN";
+        return "wrong PIN";
     }
 
     private void Reject(string error)
@@ -1065,7 +1125,11 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>
     /// The one door for HTTP routes: the PIN opens everything; an API key (swk_…) opens what its scope allows and is
-    /// rate limited. Wrong PINs and unknown keys both count toward the lockout. Null = allowed.
+    /// rate limited. Wrong PINs count toward the address's lockout (with wrong viewing codes and window addresses); an
+    /// unknown or revoked key and a missing PIN never do, since neither is a guess (a key is 160 random bits), and an app
+    /// still polling with a revoked key would lock its whole machine out. A locked address is refused even a valid key.
+    /// Known gap, not this door's invariant: a valid key's request clears the address's count, so a key holder on that
+    /// address can go on guessing the PIN below the lockout (counts per address and key close it). Null = allowed.
     /// </summary>
     private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need)
     {
@@ -1075,12 +1139,9 @@ public sealed class WebServer : IAsyncDisposable
 
         var now = Environment.TickCount64;
         if (_authFailures.TryGetValue(remote, out var f) && f.Failures >= 5 && now - f.WindowStartMs < 60_000)
-            return new Denied(401, "too many wrong PINs or keys — wait a minute");
+            return new Denied(401, "too many wrong PINs — wait a minute");
         if (ApiKeys.Find(_control.ApiKeys, supplied) is not { } key)
-        {
-            _authFailures.AddOrUpdate(remote, _ => (1, now), (_, old) => now - old.WindowStartMs > 60_000 ? (1, now) : (old.Failures + 1, old.WindowStartMs));
             return new Denied(401, "unknown or revoked API key");
-        }
         _authFailures.TryRemove(remote, out _);
         if (!ApiKeys.Allows(key.Scope, need))
             return new Denied(403, $"this API key is {ApiKeys.Describe(key.Scope)}");

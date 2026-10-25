@@ -14,7 +14,7 @@ using Stagewatch.Show;
 /// </summary>
 static class ShowBusTests
 {
-    sealed class BusControl : IShowControl
+    internal sealed class BusControl : IShowControl
     {
         public SnapshotHub Snapshots { get; } = new();
         public List<ShowCommand> Commands { get; } = new();
@@ -37,28 +37,30 @@ static class ShowBusTests
             Peers = new PeerContexts(Nodes);
             Desk = new ProposalDesk(() => "desk01", Nodes);
         }
-        // The server's PIN is set ("4321"), so a node route's request without a node key proved the operator.
-        static NodeCredential Cred(string? nodeKeyId) => nodeKeyId is null ? NodeCredential.Operator : NodeCredential.Key(nodeKeyId);
-        public (int Status, string Json) SubmitProposal(string body, string? nodeKeyId)
+        // What each node route's request proved, as the server classed it (newest last).
+        public readonly List<NodeCredential> Credentials = new();
+        NodeCredential Seen(NodeCredential c) { lock (Credentials) Credentials.Add(c); return c; }
+        public NodeCredential LastCredential { get { lock (Credentials) return Credentials.Count > 0 ? Credentials[^1] : default; } }
+        public (int Status, string Json) SubmitProposal(string body, NodeCredential credential)
         {
-            var (p, error, forbidden) = Desk.Submit(body, Cred(nodeKeyId), (_, line) => line.StartsWith("note") ? "low" : "high", DateTime.UtcNow);
+            var (p, error, forbidden) = Desk.Submit(body, Seen(credential), (_, line) => line.StartsWith("note") ? "low" : "high", DateTime.UtcNow);
             return p is null ? (forbidden ? 403 : 400, JsonSerializer.Serialize(new { ok = false, error })) : (201, JsonSerializer.Serialize(new { ok = true, id = p.Id, state = p.StateName }));
         }
         public (int Status, string Json) GetProposal(string id) => Desk.Get(id) is { } p ? (200, JsonSerializer.Serialize(p.ToJson())) : (404, "{}");
-        public (int Status, string Json) CollectApproved(string targetId, string? nodeKeyId)
+        public (int Status, string Json) CollectApproved(string targetId, NodeCredential credential)
         {
-            var (items, error) = Desk.Collect(targetId, Cred(nodeKeyId), DateTime.UtcNow);
+            var (items, error) = Desk.Collect(targetId, Seen(credential), DateTime.UtcNow);
             return items is null ? (403, JsonSerializer.Serialize(new { ok = false, error })) : (200, JsonSerializer.Serialize(new { proposals = items.Select(x => x.ToJson()) }));
         }
-        public (int Status, string Json) ProposalResult(string id, string body, string? nodeKeyId)
+        public (int Status, string Json) ProposalResult(string id, string body, NodeCredential credential)
         {
             using var d = JsonDocument.Parse(body);
-            return Desk.Result(id, d.RootElement.GetProperty("ok").GetBoolean(), d.RootElement.GetProperty("words").GetString() ?? "", Cred(nodeKeyId), DateTime.UtcNow) is { } e
+            return Desk.Result(id, d.RootElement.GetProperty("ok").GetBoolean(), d.RootElement.GetProperty("words").GetString() ?? "", Seen(credential), DateTime.UtcNow) is { } e
                 ? (409, JsonSerializer.Serialize(new { ok = false, error = e })) : (200, "{\"ok\":true}");
         }
         public string? ContextJson() => "{\"v\":1,\"node\":{\"t\":\"main\",\"id\":\"abc123abc123\",\"name\":\"Hall A\"},\"light\":\"green\",\"headline\":\"Keynote\"}";
-        public string? AcceptPeerContext(string json, string address) => Peers.Accept(json, address, DateTime.UtcNow, "abc123abc123", NodeCredential.None).Error;
-        public string? AcceptPeerContext(string json, string address, string? nodeKeyId) => Peers.Accept(json, address, DateTime.UtcNow, "abc123abc123", Cred(nodeKeyId)).Error;
+        public (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)
+            => Peers.Accept(json, address, DateTime.UtcNow, "abc123abc123", Seen(credential));
     }
 
     public static async Task Run(Action<bool, string> Check)
@@ -68,6 +70,8 @@ static class ShowBusTests
         await Web(Check);
         await Tls(Check);
         await Approvals(Check);
+        await OpenDesk(Check);
+        await Gate(Check);
         await PatternsDesk(Check);
     }
 
@@ -165,7 +169,8 @@ static class ShowBusTests
         var control = new BusControl();
         var (nodeKey, nodeSecret) = ApiKeys.Create("AGMessage", ApiKeyScope.Node, DateTime.UtcNow);
         var (readKey, readSecret) = ApiKeys.Create("Patterns", ApiKeyScope.Read, DateTime.UtcNow);
-        control.ApiKeys = new[] { nodeKey, readKey };
+        var (ctlKey, ctlSecret) = ApiKeys.Create("Deck", ApiKeyScope.Control, DateTime.UtcNow);
+        control.ApiKeys = new[] { nodeKey, readKey, ctlKey };
         var port = FreePort();
         await using var web = new WebServer(control, () => "4321");
         web.Start(port, bindAll: false);
@@ -211,17 +216,46 @@ static class ShowBusTests
         {
             req.Headers.Add("Authorization", "Bearer " + nodeSecret);
             var res = await http.SendAsync(req);
-            Check(res.StatusCode == HttpStatusCode.OK && control.Peers.All(DateTime.UtcNow) is [{ Headline: "2 action prompts open", Proof: NodeProof.Key }], "web: another app posts its context with a node key");
+            var body = await res.Content.ReadAsStringAsync();
+            Check(res.StatusCode == HttpStatusCode.OK && body == "{\"ok\":true,\"verified\":\"key\"}" && control.LastCredential == NodeCredential.Key(nodeKey.Id)
+                  && control.Peers.All(DateTime.UtcNow) is [{ Headline: "2 action prompts open", Proof: NodeProof.Key }],
+                  $"web: another app posts its context with a node key, and hears it is held as verified by its key ({body})");
         }
         var forged = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"light\":\"green\",\"headline\":\"all fine\"}";
         using (var req = new HttpRequestMessage(HttpMethod.Post, "/api/peers/context") { Content = new StringContent(forged, Encoding.UTF8, "application/json") })
         {
             req.Headers.Add("Authorization", "Bearer " + nodeSecret);
+            var asked = control.Credentials.Count;
             var res = await http.SendAsync(req);
             var body = await res.Content.ReadAsStringAsync();
-            Check(!res.IsSuccessStatusCode && body.Contains("this key speaks for messenger ag1") && control.Peers.All(DateTime.UtcNow) is [{ Id: "ag1" }],
-                  $"web: a node key can't post a context for another node, and nothing is stored ({(int)res.StatusCode} {body})");
+            var error = JsonDocument.Parse(body).RootElement.GetProperty("error").GetString();
+            Check(res.StatusCode == HttpStatusCode.Forbidden && error == "this key speaks for messenger ag1 — make a key for patterns pat1"
+                  && control.Peers.All(DateTime.UtcNow) is [{ Id: "ag1" }] && control.Credentials.Count == asked
+                  && control.Nodes.LastRefused(nodeKey.Id) is { Kind: "patterns", Id: "pat1" },
+                  $"web: a node key can't post a context for another node: 403 with words before the store is asked, nothing stored, the refusal kept for the operator ({(int)res.StatusCode} {error})");
         }
+        async Task<(HttpStatusCode Code, string Body)> PostContext(string path, string json, string? credential)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            if (credential is not null) req.Headers.Add("Authorization", "Bearer " + credential);
+            var res = await http.SendAsync(req);
+            return (res.StatusCode, await res.Content.ReadAsStringAsync());
+        }
+        var pinPost = await PostContext("/api/peers/context", "{\"v\":1,\"node\":{\"t\":\"playmap\",\"id\":\"pm1\",\"name\":\"Stage left\"},\"light\":\"green\",\"headline\":\"playing\"}", "4321");
+        Check(pinPost is (HttpStatusCode.OK, "{\"ok\":true,\"verified\":\"operator\"}") && control.LastCredential == NodeCredential.Operator
+              && control.Peers.Find("pm1", DateTime.UtcNow) is { Proof: NodeProof.Operator },
+              $"web: the PIN posts a context for a node with no key, held as the operator's ({pinPost.Body})");
+        var ctlPost = await PostContext("/api/peers/context", "{\"v\":1,\"node\":{\"t\":\"playmap\",\"id\":\"pm2\"},\"light\":\"green\",\"headline\":\"idle\"}", ctlSecret);
+        Check(ctlPost is (HttpStatusCode.OK, "{\"ok\":true,\"verified\":\"operator\"}") && control.LastCredential == NodeCredential.Operator,
+              $"web: a control key proves the operator too ({ctlPost.Body})");
+        var pinForKeyed = await PostContext("/api/peers/context", "{\"v\":1,\"node\":{\"t\":\"messenger\",\"id\":\"ag1\",\"name\":\"AGM\"},\"light\":\"red\",\"headline\":\"all wrong\"}", "4321");
+        Check(pinForKeyed.Code == HttpStatusCode.Forbidden && JsonDocument.Parse(pinForKeyed.Body).RootElement.GetProperty("error").GetString() == "messenger ag1 speaks with its own key"
+              && control.Peers.Find("ag1", DateTime.UtcNow) is { Headline: "2 action prompts open", Proof: NodeProof.Key },
+              $"web: the PIN can't speak for a node that has its own key (403 with words), and its context is unchanged ({pinForKeyed.Body})");
+        var heldBefore = control.Peers.All(DateTime.UtcNow).Count;
+        var misdirected = await PostContext("/api/context", agContext, nodeSecret);
+        Check(misdirected.Code == HttpStatusCode.MethodNotAllowed && misdirected.Body.Contains("/api/peers/context") && control.Peers.All(DateTime.UtcNow).Count == heldBefore,
+              $"web: /api/context is only read — a context posted there is refused (405, pointing at /api/peers/context), never answered as if taken ({misdirected.Body})");
         using (var req = new HttpRequestMessage(HttpMethod.Post, "/api/peers/context") { Content = new StringContent(agContext, Encoding.UTF8, "application/json") })
         {
             req.Headers.Add("Authorization", "Bearer " + readSecret);
@@ -404,7 +438,9 @@ static class ShowBusTests
         var (nodeKey, nodeSecret) = ApiKeys.Create("Patterns", ApiKeyScope.Node, DateTime.UtcNow);
         var (otherKey, otherSecret) = ApiKeys.Create("AGMessage", ApiKeyScope.Node, DateTime.UtcNow);
         var (readKey, readSecret) = ApiKeys.Create("Dashboard", ApiKeyScope.Read, DateTime.UtcNow);
-        control.ApiKeys = new[] { nodeKey, otherKey, readKey };
+        var (mcpKey, mcpSecret) = ApiKeys.Create("Agent", ApiKeyScope.Mcp, DateTime.UtcNow);
+        var (ctlKey, ctlSecret) = ApiKeys.Create("Deck", ApiKeyScope.Control, DateTime.UtcNow);
+        control.ApiKeys = new[] { nodeKey, otherKey, readKey, mcpKey, ctlKey };
         var port = FreePort();
         await using var web = new WebServer(control, () => "4321");
         web.Start(port, bindAll: false);
@@ -430,16 +466,168 @@ static class ShowBusTests
             "{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}");
         Check(asOtherCode == HttpStatusCode.Forbidden && asOther.GetProperty("error").GetString() == "this key speaks for patterns pat1 — make a key for messenger ag1"
               && control.Desk.All().Count == 1, $"approvals: a key speaking for another node's from is 403 with words, and nothing is queued ({asOtherCode})");
+        var (pinFromCode, pinFrom) = await Call(HttpMethod.Post, "/api/proposals", "4321", proposal);
+        Check(pinFromCode == HttpStatusCode.Forbidden && pinFrom.GetProperty("error").GetString() == "patterns pat1 speaks with its own key" && control.Desk.All().Count == 1,
+              $"approvals: the PIN can't propose from a node that has its own key ({pinFromCode})");
+        var (mcpCode, _) = await Call(HttpMethod.Post, "/api/proposals", mcpSecret, "{\"from\":{\"t\":\"assistant\",\"id\":\"ai1\"},\"target\":{\"t\":\"main\"},\"line\":\"note from the agent\"}");
+        Check(mcpCode == HttpStatusCode.Created && control.LastCredential == NodeCredential.None,
+              $"approvals: an MCP key proposes, and proves no node (its from is only claimed) ({mcpCode})");
+        var (opCode, _) = await Call(HttpMethod.Post, "/api/proposals", ctlSecret, "{\"from\":{\"t\":\"messenger\",\"id\":\"ag9\"},\"target\":{\"t\":\"main\"},\"line\":\"note from the deck\"}");
+        Check(opCode == HttpStatusCode.Created && control.LastCredential == NodeCredential.Operator, $"approvals: a control key proposes as the operator ({opCode})");
         control.Desk.Approve(id, "operator", DateTime.UtcNow);
         Check((await Call(HttpMethod.Get, "/api/proposals?target=pat1&state=approved", otherSecret)).Code == HttpStatusCode.Forbidden,
               "approvals: another app's key can't collect this node's approvals");
+        var asked = control.Credentials.Count;
+        var (pinCollectCode, pinCollect) = await Call(HttpMethod.Get, "/api/proposals?target=pat1&state=approved", "4321");
+        var (ctlCollectCode, _) = await Call(HttpMethod.Get, "/api/proposals?target=pat1&state=approved", ctlSecret);
+        Check(pinCollectCode == HttpStatusCode.Forbidden && ctlCollectCode == HttpStatusCode.Forbidden && pinCollect.GetProperty("error").GetString() == "patterns pat1 speaks with its own key"
+              && control.Credentials.Count == asked && control.Desk.Get(id) is { ClaimedUtc: null },
+              $"approvals: neither the PIN nor a control key collects a key-bound node's approvals, and nothing is claimed ({pinCollectCode}/{ctlCollectCode})");
+        Check((await Call(HttpMethod.Get, "/api/proposals?target=no.such&state=approved", nodeSecret)).Code == HttpStatusCode.BadRequest,
+              "approvals: a collect for something that isn't a node id is a bad request");
         var (_, collected) = await Call(HttpMethod.Get, "/api/proposals?target=pat1&state=approved", nodeSecret);
         Check(collected.GetProperty("proposals").GetArrayLength() == 1 && collected.GetProperty("proposals")[0].GetProperty("line").GetString() == "EYE FOCUS screen 2",
               "approvals: the target collects what was approved for it");
+        var (pinResultCode, pinResult) = await Call(HttpMethod.Post, $"/api/proposals/{id}/result", "4321", "{\"ok\":false,\"words\":\"not me\"}");
+        Check(pinResultCode == HttpStatusCode.Conflict && pinResult.GetProperty("error").GetString() == "patterns pat1 speaks with its own key"
+              && control.LastCredential == NodeCredential.Operator && control.Desk.Get(id) is { State: SharedProposalState.Approved },
+              $"approvals: the PIN can't report a key-bound node's result ({pinResultCode})");
         var (rc, _) = await Call(HttpMethod.Post, $"/api/proposals/{id}/result", nodeSecret, "{\"ok\":true,\"words\":\"focused screen 2\"}");
         var (_, final) = await Call(HttpMethod.Get, $"/api/proposals/{id}", readSecret);
         Check(rc == HttpStatusCode.OK && final.GetProperty("state").GetString() == "done" && final.GetProperty("result").GetString() == "focused screen 2",
               "approvals: the target reports back; anyone with read access sees the outcome");
+    }
+
+    /// <summary>An open Stagewatch (no PIN): a control key still proves the operator; nothing, or a PIN it doesn't ask for, proves nothing.</summary>
+    static async Task OpenDesk(Action<bool, string> Check)
+    {
+        var control = new BusControl();
+        var (ctlKey, ctlSecret) = ApiKeys.Create("Deck", ApiKeyScope.Control, DateTime.UtcNow);
+        var (mcpKey, mcpSecret) = ApiKeys.Create("Agent", ApiKeyScope.Mcp, DateTime.UtcNow);
+        var (readKey, readSecret) = ApiKeys.Create("Dashboard", ApiKeyScope.Read, DateTime.UtcNow);
+        control.ApiKeys = new[] { ctlKey, mcpKey, readKey };
+        var port = FreePort();
+        await using var web = new WebServer(control, () => null);
+        web.Start(port, bindAll: false);
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        async Task<(HttpStatusCode Code, string Body)> Post(string path, string json, string? credential)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            if (credential is not null) req.Headers.Add("Authorization", "Bearer " + credential);
+            var res = await http.SendAsync(req);
+            return (res.StatusCode, await res.Content.ReadAsStringAsync());
+        }
+        static string Ctx(string id) => "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"" + id + "\"},\"light\":\"green\",\"headline\":\"fine\"}";
+        var byKey = await Post("/api/peers/context", Ctx("pat1"), ctlSecret);
+        Check(byKey is (HttpStatusCode.OK, "{\"ok\":true,\"verified\":\"operator\"}") && control.LastCredential == NodeCredential.Operator,
+              $"open: a control key proves the operator on an open Stagewatch ({byKey.Body})");
+        var bare = await Post("/api/peers/context", Ctx("pat2"), null);
+        Check(bare is (HttpStatusCode.OK, "{\"ok\":true,\"verified\":\"none\"}") && control.LastCredential == NodeCredential.None
+              && control.Peers.Find("pat2", DateTime.UtcNow) is { Proof: NodeProof.None },
+              $"open: a context with no credential is held unverified ({bare.Body})");
+        var unasked = await Post("/api/peers/context", Ctx("pat3"), "1234");
+        Check(unasked is (HttpStatusCode.OK, "{\"ok\":true,\"verified\":\"none\"}") && control.LastCredential == NodeCredential.None,
+              $"open: a PIN this Stagewatch doesn't ask for proves nothing ({unasked.Body})");
+        Check((await Post("/api/peers/context", Ctx("pat4"), readSecret)).Code == HttpStatusCode.Forbidden && control.Peers.Find("pat4", DateTime.UtcNow) is null,
+              "open: a read key still can't post a context");
+        var proposal = await Post("/api/proposals", "{\"from\":{\"t\":\"assistant\",\"id\":\"ai1\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", mcpSecret);
+        Check(proposal.Code == HttpStatusCode.Created && control.LastCredential == NodeCredential.None, $"open: an MCP key's proposal proves no node ({proposal.Code})");
+    }
+
+    /// <summary>
+    /// A store that takes whatever it is handed (or, with <see cref="Refuse"/>, refuses it all) and never speaks for a node:
+    /// the server's own gate refuses for it before it is asked, and binds what it took.
+    /// </summary>
+    sealed class NaiveControl : IShowControl
+    {
+        public SnapshotHub Snapshots { get; } = new();
+        public void Execute(ShowCommand command) { }
+        public RemoteConfig GetRemoteConfig() => new(Array.Empty<(int, string, int)>(), Array.Empty<(string, string, MessageUrgency, FlashRate)>(), Array.Empty<(string, string?, int)>());
+        public IReadOnlyList<ApiKey> ApiKeys { get; set; } = Array.Empty<ApiKey>();
+        public NodeBindings Nodes { get; } = new();
+        public int Taken, Asked;
+        public bool Refuse;
+        bool Take()
+        {
+            Interlocked.Increment(ref Asked);
+            if (Refuse) return false;
+            Interlocked.Increment(ref Taken);
+            return true;
+        }
+        public (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)
+            => Take() ? (200, null, NodeProof.Key) : (400, "no room", NodeProof.None);
+        public (int Status, string Json) SubmitProposal(string body, NodeCredential credential)
+            => Take() ? (201, "{\"ok\":true,\"id\":\"p1\",\"state\":\"pending\"}") : (400, "{\"ok\":false,\"error\":\"too many proposals waiting\"}");
+        public (int Status, string Json) CollectApproved(string targetId, NodeCredential credential)
+            => Take() ? (200, "{\"proposals\":[]}") : (403, "{\"ok\":false,\"error\":\"no\"}");
+    }
+
+    /// <summary>The checks a request shows run in the server, before the store: a store that skips them can't let a key speak for another node.</summary>
+    static async Task Gate(Action<bool, string> Check)
+    {
+        var control = new NaiveControl();
+        var (patKey, patSecret) = ApiKeys.Create("Patterns", ApiKeyScope.Node, DateTime.UtcNow);
+        var (agKey, agSecret) = ApiKeys.Create("AGMessage", ApiKeyScope.Node, DateTime.UtcNow);
+        control.ApiKeys = new[] { patKey, agKey };
+        control.Nodes.Speak(NodeCredential.Key(patKey.Id), "patterns", "pat1", DateTime.UtcNow);
+        var port = FreePort();
+        await using var web = new WebServer(control, () => "4321");
+        web.Start(port, bindAll: false);
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        async Task<HttpStatusCode> Send(HttpMethod m, string path, string secret, string? json = null)
+        {
+            using var req = new HttpRequestMessage(m, path);
+            req.Headers.Add("Authorization", "Bearer " + secret);
+            if (json is not null) req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            return (await http.SendAsync(req)).StatusCode;
+        }
+        var forged = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"light\":\"green\",\"headline\":\"all fine\"}";
+        var codes = new[]
+        {
+            await Send(HttpMethod.Post, "/api/peers/context", agSecret, forged),
+            await Send(HttpMethod.Post, "/api/peers/context", "4321", forged),
+            await Send(HttpMethod.Post, "/api/proposals", agSecret, "{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"target\":{\"t\":\"main\"},\"line\":\"note x\"}"),
+            await Send(HttpMethod.Get, "/api/proposals?target=pat1&state=approved", agSecret),
+        };
+        Check(codes.All(c => c == HttpStatusCode.Forbidden) && control.Taken == 0,
+              $"gate: another key or the PIN speaking for a key-bound node is refused by the server itself, and the store is never asked ({string.Join(",", codes.Select(c => (int)c))})");
+        Check(await Send(HttpMethod.Post, "/api/peers/context", patSecret, forged) == HttpStatusCode.OK && control.Taken == 1,
+              "gate: the node's own key is let through to the store");
+
+        // First-bind-wins doesn't rest on the store speaking either: what it took binds the key that sent it.
+        static string Ctx(string kind, string id) => "{\"v\":1,\"node\":{\"t\":\"" + kind + "\",\"id\":\"" + id + "\"},\"light\":\"green\",\"headline\":\"fine\"}";
+        var first = await Send(HttpMethod.Post, "/api/peers/context", agSecret, Ctx("messenger", "ag1"));
+        Check(first == HttpStatusCode.OK && control.Taken == 2 && control.Nodes.NodeOf(agKey.Id) == ("messenger", "ag1") && control.Nodes.KeyOf("ag1") == agKey.Id,
+              "gate: a store that never speaks took a key's first context, and the server bound the key to its node");
+        var second = new[]
+        {
+            await Send(HttpMethod.Post, "/api/peers/context", agSecret, Ctx("messenger", "ag2")),
+            await Send(HttpMethod.Post, "/api/proposals", agSecret, "{\"from\":{\"t\":\"messenger\",\"id\":\"ag2\"},\"target\":{\"t\":\"main\"},\"line\":\"note x\"}"),
+            await Send(HttpMethod.Get, "/api/proposals?target=ag2&state=approved", agSecret),
+        };
+        Check(second.All(c => c == HttpStatusCode.Forbidden) && control.Taken == 2 && control.Nodes.LastRefused(agKey.Id) is { Id: "ag2" },
+              $"gate: so the same key is refused for a second node on every route, and the store isn't asked ({string.Join(",", second.Select(c => (int)c))})");
+
+        var (pmKey, pmSecret) = ApiKeys.Create("PlayMap", ApiKeyScope.Node, DateTime.UtcNow);
+        var (amKey, amSecret) = ApiKeys.Create("AGMessage 2", ApiKeyScope.Node, DateTime.UtcNow);
+        control.ApiKeys = new[] { patKey, agKey, pmKey, amKey };
+        Check(await Send(HttpMethod.Get, "/api/proposals?target=pm1&state=approved", pmSecret) == HttpStatusCode.OK && control.Nodes.NodeOf(pmKey.Id) == ("", "pm1"),
+              "gate: a key's first collect the store took binds it to the id alone");
+        Check(await Send(HttpMethod.Post, "/api/proposals", amSecret, "{\"from\":{\"t\":\"messenger\",\"id\":\"am1\"},\"target\":{\"t\":\"main\"},\"line\":\"note x\"}") == HttpStatusCode.Created
+              && control.Nodes.NodeOf(amKey.Id) == ("messenger", "am1"),
+              "gate: a key's first proposal the store took binds it to its from");
+
+        control.Refuse = true;
+        var (newKey, newSecret) = ApiKeys.Create("Fresh", ApiKeyScope.Node, DateTime.UtcNow);
+        control.ApiKeys = new[] { patKey, agKey, pmKey, amKey, newKey };
+        var refusedByStore = new[]
+        {
+            await Send(HttpMethod.Post, "/api/peers/context", newSecret, Ctx("playmap", "pm9")),
+            await Send(HttpMethod.Post, "/api/proposals", newSecret, "{\"from\":{\"t\":\"playmap\",\"id\":\"pm9\"},\"target\":{\"t\":\"main\"},\"line\":\"note x\"}"),
+            await Send(HttpMethod.Get, "/api/proposals?target=pm9&state=approved", newSecret),
+        };
+        Check(refusedByStore is [HttpStatusCode.BadRequest, HttpStatusCode.BadRequest, HttpStatusCode.Forbidden] && control.Nodes.NodeOf(newKey.Id) is null && control.Nodes.KeyOf("pm9") is null,
+              $"gate: a request the store refused binds no key ({string.Join(",", refusedByStore.Select(c => (int)c))})");
     }
 
     static async Task<string> Receive(ClientWebSocket ws)

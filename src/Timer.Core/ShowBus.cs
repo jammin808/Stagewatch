@@ -20,6 +20,20 @@ public static class Light
     public static string Clean(string? light) => light is Red or Amber or Green ? light : Grey;
 }
 
+/// <summary>
+/// How a Show Bus body from another app is read: JSON whose objects name each key once. A repeated key, at any depth, is
+/// malformed (a <see cref="JsonException"/> from the parse itself, before anything reads the body), so a server's gate and
+/// the store behind it can never read two different values for one key, and no lookup meets the duplicate-key
+/// <see cref="ArgumentException"/> a lenient parse defers to the first read.
+/// </summary>
+public static class BusJson
+{
+    private static readonly JsonDocumentOptions Strict = new() { AllowDuplicateProperties = false };
+
+    /// <summary>The body as a node, or a <see cref="JsonException"/> when it isn't JSON or repeats a key.</summary>
+    public static JsonNode? Parse(string json) => JsonNode.Parse(json, documentOptions: Strict);
+}
+
 /// <summary>One part of a node, as the Eye and an AI read it (Show Bus §6 "items").</summary>
 public sealed record ContextItem(string Id, string Kind, string Label, string Light, string State);
 
@@ -59,6 +73,9 @@ public sealed class PeerContexts
         public string? KeyId { get; init; }
     }
 
+    /// <summary>Why a body is refused when <see cref="Parse"/> can't read a context from it (the server and the store say the same).</summary>
+    public const string NotAContext = "not a Show Bus context (v 1, node.t, node.id; each key once)";
+
     private readonly NodeBindings _nodes;
 
     /// <summary>Contexts checked against <paramref name="nodes"/>: the same bindings every other node route speaks through.</summary>
@@ -78,7 +95,7 @@ public sealed class PeerContexts
     public (int Status, string? Error, NodeProof Proof) Accept(string json, string address, DateTime nowUtc, string? ownId, NodeCredential credential)
     {
         if (json.Length is 0 or > MaxBytes) return (400, "a context is 1 byte to 64 KB", NodeProof.None);
-        if (Parse(json, address, nowUtc) is not { } e) return (400, "not a Show Bus context (v 1, node.t, node.id)", NodeProof.None);
+        if (Parse(json, address, nowUtc) is not { } e) return (400, NotAContext, NodeProof.None);
         if (e.Id == ownId) return (400, "that's this Stagewatch", NodeProof.None);
         // Spoken for only when there is room for it, so a full store binds no key. The room is checked again when it is
         // stored: two posts racing for the last place can leave the loser's key bound to the node it named, which is that
@@ -142,12 +159,12 @@ public sealed class PeerContexts
         foreach (var id in _byId.Where(kv => nowUtc - kv.Value.AtUtc > KeepFor).Select(kv => kv.Key).ToList()) _byId.Remove(id);
     }
 
-    /// <summary>Pure: a §6 context → an entry (strings capped), or null when it isn't one.</summary>
+    /// <summary>Pure: a §6 context → an entry (strings capped), or null when it isn't one (a repeated key included).</summary>
     public static Entry? Parse(string json, string address, DateTime nowUtc)
     {
         try
         {
-            if (JsonNode.Parse(json) is not JsonObject root) return null;
+            if (BusJson.Parse(json) is not JsonObject root) return null;
             if (root["v"]?.GetValueKind() != JsonValueKind.Number || root["v"]!.GetValue<double>() < 1) return null;
             if (root["node"] is not JsonObject node) return null;
             var kind = Str(node["t"], 16);

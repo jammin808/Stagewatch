@@ -577,24 +577,27 @@ public interface IShowContext
     /// <summary>This node's context (the §6 JSON), or null when there isn't one.</summary>
     string? ContextJson() => null;
 
-    /// <summary>A peer posted its context. Null = taken, else why not.</summary>
-    string? AcceptPeerContext(string json, string address) => "not supported";
-
-    /// <summary>As <see cref="AcceptPeerContext(string, string)"/>, from a node key (bound to the node it speaks for).</summary>
-    string? AcceptPeerContext(string json, string address, string? nodeKeyId) => AcceptPeerContext(json, address);
+    /// <summary>
+    /// A peer posted its context with <paramref name="credential"/>, what the request proved (Show Bus §11). Status 200
+    /// with the proof the context is held with; 400 when it isn't a context this node can hold; 403 when the credential
+    /// may not speak for its node. A refusal stores nothing.
+    /// </summary>
+    (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)
+        => (400, "not supported", NodeProof.None);
 }
 
 /// <summary>
 /// The shared approval queue (Show Bus §11): this node is the desk. Thread-safe. Each returns an HTTP status and a JSON
-/// body. <c>nodeKeyId</c> is the node key that made the request (null for the PIN or another kind of key).
+/// body. <c>credential</c> is what the request proved: a node key (by its id), the operator (a control key, or the PIN
+/// this node asks for), or nothing (a read or MCP key, or no credential on an open node).
 /// </summary>
 public interface IShowApprovals
 {
-    (int Status, string Json) SubmitProposal(string body, string? nodeKeyId) => (404, "{\"ok\":false,\"error\":\"no approval desk here\"}");
+    (int Status, string Json) SubmitProposal(string body, NodeCredential credential) => (404, "{\"ok\":false,\"error\":\"no approval desk here\"}");
     (int Status, string Json) GetProposal(string id) => (404, "{\"ok\":false,\"error\":\"no such proposal\"}");
     (int Status, string Json) ProposalsFrom(string nodeId) => (200, "{\"proposals\":[]}");
-    (int Status, string Json) CollectApproved(string targetId, string? nodeKeyId) => (200, "{\"proposals\":[]}");
-    (int Status, string Json) ProposalResult(string id, string body, string? nodeKeyId) => (404, "{\"ok\":false,\"error\":\"no such proposal\"}");
+    (int Status, string Json) CollectApproved(string targetId, NodeCredential credential) => (200, "{\"proposals\":[]}");
+    (int Status, string Json) ProposalResult(string id, string body, NodeCredential credential) => (404, "{\"ok\":false,\"error\":\"no such proposal\"}");
 }
 
 /// <summary>The planned-vs-actual show report. Thread-safe.</summary>
