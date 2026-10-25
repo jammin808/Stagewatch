@@ -51,8 +51,10 @@ public sealed class PatternsLink : IPlayoutSource
     public const int MaxLine = 256 * 1024;
     public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(3);
     // Show Bus 1.1 liveness: a ping every 2 s; a link silent for 12 s is dropped and redialled.
-    private static readonly TimeSpan PingEvery = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan DeadAfter = TimeSpan.FromSeconds(12);
+    public static readonly TimeSpan PingEvery = TimeSpan.FromSeconds(2);
+    public static readonly TimeSpan DeadAfter = TimeSpan.FromSeconds(12);
+    /// <summary>The wait before a redial: <see cref="RedialFirstMs"/> at first and after a connection that came up, doubled after each wait to at most <see cref="RedialMaxMs"/>.</summary>
+    public const int RedialFirstMs = 250, RedialMaxMs = 5000;
     private static readonly TimeSpan ContextEvery = TimeSpan.FromSeconds(5);
     /// <summary>How long to wait for a desk's NONCE before judging it asks for none (desks older than Show Bus 1.1 never send one).</summary>
     private static readonly TimeSpan NonceWait = TimeSpan.FromMilliseconds(1500);
@@ -225,7 +227,7 @@ public sealed class PatternsLink : IPlayoutSource
     private void Run()
     {
         var ct = _cts.Token;
-        var backoff = 250;
+        var backoff = RedialFirstMs;
         while (!ct.IsCancellationRequested)
         {
             using var tcp = new TcpClient { NoDelay = true };
@@ -249,7 +251,7 @@ public sealed class PatternsLink : IPlayoutSource
                 Write(stream, "@hi PING " + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
                 Interlocked.Exchange(ref _lastLineMs, _clock.ElapsedMilliseconds);
                 _connected = true;
-                backoff = 250;
+                backoff = RedialFirstMs;
                 Report(LinkHealth.Starting, $"connected to {_host}:{_port} — pairing");
                 ReadLoop(stream, ct);
             }
@@ -272,7 +274,7 @@ public sealed class PatternsLink : IPlayoutSource
             }
             if (ct.IsCancellationRequested) break;
             ct.WaitHandle.WaitOne(backoff);
-            backoff = Math.Min(5000, backoff * 2);
+            backoff = Math.Min(RedialMaxMs, backoff * 2);
         }
         Report(LinkHealth.Off, "off");
     }

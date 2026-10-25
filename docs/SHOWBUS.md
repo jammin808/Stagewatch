@@ -1,16 +1,24 @@
 # Show Bus 1.3 (draft) — the contract between Stagewatch, Patterns, PlayMap, AGMessage and their micro-apps
 
-*Version 1.3, a draft (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello
-`tls` and caps `approvals`). 1.3 so far adds §13 PeerLink: one authenticated link between two nodes, with the vectors every
-tree checks itself against. Before 1.3 is final it gains §14, the numbers §13 names (the scripted peer's hash among them);
-§12 windows, with §1 rule 5's words for view passes; the Eye's rules in §6; and 1.3's words for §1–§11, the `playmap` kind,
-its §8 row and each node's named exemptions among them. The scripted peer §13.20 names comes with the conformance kit. Until
-1.3 is final every node keeps 1.2, and a node offers LINK only once its tree passes §13.20. This page is the contract.
-`docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns
-`docs/REMOTE.md`, AGMessage `docs/NODES.md`) shows how its endpoints implement this. Patterns and AGMessage keep copies of
-1.2; this one is the master. Its body — from `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends
-and one final LF — is held by a SHA-256 pinned in Stagewatch's own test, so every edit to it is deliberate; that hash is
-printed here, for the copies to hold, once 1.3 is final.*
+*Version 1.3, a draft (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello `tls`
+and caps `approvals`). 1.3 so far adds §13 PeerLink: one authenticated link between two nodes, with the vectors every tree
+checks itself against; and §14 The numbers: every number the contract names, with its node kinds, doors and caps, in one block
+each tree's test reads. Before 1.3 is final it gains §12 windows, with §1 rule 5's words for view passes; the Eye's rules in
+§6; and 1.3's words for §1–§11, each citing its §14 rows — §2's hello limits, `proto` as the revision and the `playmap` kind,
+§6's sizes, §10's whole span, the `playmap` §8 row, and each node's §8 row with what it does not keep yet and its named
+exemptions, among them. Until those words land, a §14 row's name, §14's own words and its section's 1.2 words say what it
+bounds; a row whose idea none of those words holds yet binds nothing until its section's words land: `window.token.chars`,
+`window.token.alphabet`, `window.max`, `window.grants` and `view.wrong.per.minute` (§12), `hello.inst.chars` and
+`peer.conflict.clear.ms` (§2), `context.link.end.chars`, `context.post.min.ms` and `context.post.max.ms` (§6),
+`cert.backdate.hours` (§10) and `proposal.result.ms` (§11). The scripted peer §13.20 names comes with the conformance kit, and
+its hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is final every node keeps 1.2, and a node
+offers LINK only once its tree passes §13.20. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each
+app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, AGMessage `docs/NODES.md`) shows how
+its endpoints implement this. Patterns and AGMessage keep copies of 1.2; this one is the master. Its body — from
+`## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends and one final LF — is held by a SHA-256 pinned in
+Stagewatch's own test, so every edit to it is deliberate; that hash is printed here, for the copies to hold, once 1.3 is final.*
+
+*Landed (§14): Stagewatch.*
 
 Everything here works **on the local network with no internet and no AI**. The only parts that need the internet are
 the language models (drafting, summaries, answering questions) and AGMessage's optional Cloudflare tunnel for people
@@ -697,7 +705,7 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
 | a command line an acceptor reads | ≤ `link.command.bytes`; longer: `ERR … — closed` |
 | a message a connector reads | at least `link.read.min.bytes`. A longer one is counted and shown amber with its size (`oversize`), read only for the fields it can reach, and never taken as whole; the link stays up |
 | a message a connector sends to Stagewatch's `/ws` | ≤ `link.ws.in.bytes` |
-| a posted context | ≤ 64 KiB (§6) |
+| a posted context | ≤ `context.bytes` (§6) |
 | replies waiting at an acceptor, per connection | ≤ `link.replies.max`, plus one pending push per kind; past that the connection is cut: "not reading its answers" |
 | one write | within `link.write.deadline.max.ms`, or the connection is cut |
 | commands in flight per link | ≤ `link.inflight.max` (13.12.8) |
@@ -736,10 +744,10 @@ The show writer never writes to, reads from or waits on a socket.
 |---|---|---|---|---|---|
 | `off` | not configured | ○ grey | "link off" | not-sent | none |
 | `finding` | no address, and no live hello of the kind | ○ grey | "listening for a Stagewatch on the show network" | not-sent | none |
-| `connecting` | dialling, TLS, LINK | ○ grey; △ amber after 10 s | "dialling Hall A at 10.0.0.5:9924 over TLS (attempt 3)" | not-sent | `?` |
-| `live` | heard within 6 s; verified, or up with `legacy`, `open` or `keyless` | ✓ green; △ amber with an amber flag | "Hall A · pinned 03e9 b152 · key e63c… · scope post · PeerLink 1 · +12 ms ±3" | sent | shown while its show is live |
-| `stale` | silent 6–12 s | △ amber | "Hall A quiet for 8 s" | sent; may end unconfirmed | `?` |
-| `down` | silent past 12 s, dropped or unreachable; redialling | ✕ red when the show needs it, else △ amber | "Hall A not answering — dialling again in 2.4 s; nothing is queued" | not-sent | none |
+| `connecting` | dialling, TLS, LINK | ○ grey; △ amber after `peerlink.handshake.ms` | "dialling Hall A at 10.0.0.5:9924 over TLS (attempt 3)" | not-sent | `?` |
+| `live` | heard within `link.stale.ms`; verified, or up with `legacy`, `open` or `keyless` | ✓ green; △ amber with an amber flag | "Hall A · pinned 03e9 b152 · key e63c… · scope post · PeerLink 1 · +12 ms ±3" | sent | shown while its show is live |
+| `stale` | silent past `link.stale.ms`, up to `link.drop.ms` | △ amber | "Hall A quiet for 8 s" | sent; may end unconfirmed | `?` |
+| `down` | silent past `link.drop.ms`, dropped or unreachable; redialling | ✕ red when the show needs it, else △ amber | "Hall A not answering — dialling again in 2.4 s; nothing is queued" | not-sent | none |
 | `held` | a key refused; its hold runs | ✕ red when the show needs it, else △ amber | "Hall A refused this desk's key (revoked) — next try 20:15:05; make a node key on Hall A" | not-sent | public view only |
 | `refused` | CERTIFICATE CHANGED, a floor, another id, an id conflict: a person must act | ✕ red | "CERTIFICATE CHANGED: Hall A now shows ab12 … — nothing sent; accept it on the Nodes page" | not-sent | public view only, where the carrier has one |
 
@@ -853,7 +861,7 @@ follows from it.
    - Kept lines read `AUTH (token)`, `AUTH-PROOF (proof)`, `LINK PROOF (proof)`.
 4. One log line per change of state: the link, the peer's kind and id, the address, from → to, the reason and the attempt. Never per
    beat.
-   - While a state repeats, one summary a minute: "still dialling Stage left: 11 attempts, last: refused".
+   - While a state repeats, one summary every `log.repeat.summary.ms`: "still dialling Stage left: 11 attempts, last: refused".
    - Counters are published (13.16.3), not only logged.
 5. Each tree runs 13.20's rows and its scripted-peer scenarios with canary secrets. It fails when a canary — or a proof or credential
    made with one — appears in anything it captured.
@@ -1027,4 +1035,242 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 {"case":"machine","name":"open after a floor","config":{"carrier":"line","key":"code","floor":{"tls":false,"level":1,"proof":"mutual"}},"events":[[0,"answer",{"line":"ERR @l1 LINK open \u2014 this node asks for no key"}]],"expect":[[0,{"state":"refused","refusal":"floor","follows":false}]]}
 {"case":"machine","name":"a 401 that asks for a relink holds nothing","config":{"carrier":"ws","key":"e63c317763b14546"},"events":[[0,"verified"],[100,"closed"],[150,"side-call",{"http":401,"body":{"ok":false,"error":"the link ended","relink":true}}]],"expect":[[150,{"state":"down","waitMs":[400,600]}]]}
 {"case":"machine","name":"a 401 without a relink holds the key","config":{"carrier":"ws","key":"e63c317763b14546"},"events":[[0,"verified"],[1000,"side-call",{"http":401,"body":{"ok":false,"error":"unknown key"}}]],"expect":[[1000,{"state":"held","refusal":"key","heldUntil":61000}]]}
+```
+
+## 14. The numbers (1.3)
+
+Every number this contract names in `code` (`link.stale.ms`) is a row of the block below, and so are its node kinds, the doors a
+hello may name and its cap words. The block is inside the hashed body: a copy that holds the body holds every number. Each tree's own
+test reads the block from its copy and holds its code to every row that code implements; what a node does not keep yet is said in
+its §8 row, with what ends it.
+
+1. **Rows.** One row per line, its words separated by one space, the first word naming the row. The block is ASCII and has no empty
+   line. A name stands on one row, but for `kind`, `port`, `cap`, `reserved` and `peerlink.feature`, which take a row per word.
+
+| row | what it says |
+|---|---|
+| `revision <major>.<minor>` | this contract's revision |
+| `proto <n>` | the hello's `proto` for this revision (§2): the revision's minor number |
+| `<name> <value>` | a number: lowercase words joined by dots, and a whole number — but `peerlink.label`, a word; `window.token.alphabet`, its symbols; and `peerlink.peer.sha256`, 64 lowercase hex, or `pending` while this contract is a draft |
+| `kind <t> <name>` | a node kind (§2's `t`) and the name a reader shows for it |
+| `port <word>` | a door a hello's `ports` may name (§2) |
+| `cap <word> <t> …` | a cap word (§2) and the kinds that may send it; a dotted word is a finer ability of the word before its dot |
+| `reserved <word> <t>` | a word one kind names on its own node page; it becomes a `cap` row when a second kind reads it |
+| `peerlink.feature <word>` | a feature a verdict's `can` may list (13.1) |
+
+2. **Units.** A name's unit is the one unit word in it: `ms` milliseconds, `hours` and `days` wall-clock hours and days, `bytes`
+   bytes (text as UTF-8), `chars` characters, `bits` bits, `pct` per cent; a name ending in `.per.minute` counts in a minute and holds
+   no unit word. `hello.id.min` and `hello.id.max` bound an id's characters, `hello.port` is a UDP port and `peerlink.version` a
+   version; `peerlink.label`, `window.token.alphabet` and `peerlink.peer.sha256` are the words 14.1 names. Every other name without a
+   unit word is a count.
+3. **Limits.** A limit on what a node sends — a hello's bytes, caps and names, a context's sizes, a line, a request id — is the
+   sender's maximum, and every reader accepts at least it; where a byte limit and a count both apply, the byte limit binds first.
+   `hello.read.bytes` and `link.read.min.bytes` are what a reader takes at least; a reader accepts a command's `words` up to
+   `context.words.chars` and keeps at least `context.words.read.chars` of them. Every other row is its own section's: a time, a
+   table's bound, a count kept.
+4. **Whose rows.** `proto`, `kind`, `port`, `cap`, `reserved`, `hello.*`, `peers.max` and `peer.*` are §2's; `context.*` §6's;
+   `cert.*` §10's; `proposal.*` §11's; `window.*` and `view.*` §12's; the rest are §3–§5's and §13's. §13 names every number of its
+   own in `code` but these, whose meaning is here:
+   - `peerlink.version`: the PeerLink version this contract defines (13.9.1);
+   - `peerlink.label`: the transcript's first line, and the start of the code, kid and lid labels (13.5.1, 13.6.1, 13.6.2);
+   - `peerlink.can.words`: the most words a verdict's `can` lists (13.6.6);
+   - `peerlink.nonce.bytes`: a nonce's bytes (13.6.1);
+   - `peerlink.redial.jitter.pct`: how far 13.15.1's jitter moves a wait either way;
+   - `link.connect.timeout.ms`: how long a dial waits for its connection before it counts as a failed dial (13.15.1).
+5. **Copies.** A tree that copies this body copies the scripted peer with it. The master's header names, in its line
+   `*Landed (§14): …*`, the trees whose copies the hashes hold — the body's and `peerlink.peer.sha256` — by repository name, from
+   (Stagewatch, Patterns, Mapper, AGMessage), each once, separated by a comma and a space, Stagewatch's own first. A tree joins once
+   its copy passes its own test against both, or against the body's alone while `peerlink.peer.sha256` reads `pending`. The line is
+   outside the body, so it grows without changing the hash; a comparison of the trees holds only the trees it names to this master.
+6. **Caps.** What each cap word says a node does:
+
+| cap | the node |
+|---|---|
+| `timer` | runs a show timer and sends its frames (§4) |
+| `cues` | calls cues: departments standing by, and their GO |
+| `messages` | carries messages for people to read |
+| `context` | answers §6's context |
+| `receipts` | answers a command's request id with a receipt (§3) |
+| `clock` | answers §5's ping with its times |
+| `screens` | drives browsers that show its pages |
+| `windows` | controls windows at their own addresses (§12) |
+| `aux` | runs extra timers beside the show's |
+| `slides-in` | follows Slides agents' feeds |
+| `slides` | sends a slide feed (a Slides agent) |
+| `copilot` | proposes plans of its own verbs for a person to approve |
+| `approvals` | keeps §11's approval queue |
+| `mcp` | serves an MCP endpoint |
+| `ai` | drafts with a language model |
+| `video` | plays clips to air |
+| `video.clock` | publishes the clip's time left, with a counter that moves on every discontinuity (§4) |
+| `video.transport` | takes play, pause, stop and restart |
+| `video.seek` | takes a seek to a time in the clip |
+| `video.end` | takes END: the clip jumps to its last seconds |
+| `state` | pushes STATE on its line wire |
+| `eye` | draws the room's nodes and links: the Eye |
+| `pages` | opens a page granted to it in its own browser (§12) |
+| `window-draw` | draws a granted window's content itself (§12) |
+| `action-prompts` | asks people action prompts, with their titles in its context |
+| `documents` | keeps documents for its people, never in its context (§6) |
+| `proposals` | sends its AI's proposals to a desk (§11) |
+| `playlist` | plays playlists |
+| `media` | keeps a media library, each item known by its hash |
+| `mapping` | maps content onto surfaces |
+| `scan` | scans a surface with structured light |
+| `show` | publishes Show Mode's facts in its STATE and context |
+| `video.anchor` (reserved) | sends timeline anchors for a sync group |
+
+```showbus
+revision 1.3
+proto 3
+hello.port 9928
+hello.every.ms 2000
+hello.bytes 1200
+hello.read.bytes 2048
+hello.caps 32
+hello.cap.chars 24
+hello.ports 8
+hello.name.chars 64
+hello.kind.chars 16
+hello.id.min 6
+hello.id.max 40
+hello.inst.chars 8
+peers.max 128
+peer.stale.ms 6000
+peer.gone.ms 12000
+peer.forget.ms 60000
+peer.conflict.clear.ms 60000
+link.beat.ms 2000
+link.stale.ms 6000
+link.drop.ms 12000
+link.redial.first.ms 500
+link.redial.max.ms 5000
+ping.min.ms 1000
+ping.max.ms 2000
+clock.apart.ms 2000
+receipt.deadline.ms 3000
+request.id.chars 32
+context.bytes 65536
+context.items 200
+context.links 400
+context.link.end.chars 120
+context.recent 20
+context.commands 256
+context.peers 32
+context.headline.chars 200
+context.item.id.chars 60
+context.item.kind.chars 30
+context.item.label.chars 80
+context.item.state.chars 160
+context.recent.chars 200
+context.verb.chars 512
+context.words.chars 512
+context.words.read.chars 200
+context.post.min.ms 1000
+context.post.max.ms 10000
+context.kept.ms 30000
+proposal.line.chars 2048
+proposal.undelivered.ms 60000
+proposal.result.ms 300000
+cert.days 825
+cert.backdate.hours 24
+cert.renew.days 30
+window.token.chars 26
+window.token.alphabet abcdefghijkmnpqrstuvwxyz23456789
+window.max 64
+view.wrong.per.minute 5
+window.grants 4
+kind main Stagewatch
+kind agent Stagewatch Slides
+kind patterns Patterns
+kind playmap PlayMap
+kind messenger AGMessage
+port http
+port https
+port ws
+port wire
+port osc
+port companion
+port sync
+cap timer main
+cap cues main
+cap messages main messenger
+cap context main patterns playmap messenger
+cap receipts main patterns playmap messenger
+cap clock main patterns playmap
+cap screens main
+cap windows main
+cap aux main
+cap slides-in main
+cap slides agent
+cap copilot main
+cap approvals main
+cap mcp main playmap
+cap ai messenger
+cap video patterns playmap
+cap video.clock patterns playmap
+cap video.transport patterns playmap
+cap video.seek patterns playmap
+cap video.end patterns playmap
+cap state patterns playmap
+cap eye patterns playmap
+cap pages patterns
+cap window-draw playmap
+cap action-prompts messenger
+cap documents messenger
+cap proposals messenger
+cap playlist playmap
+cap media playmap
+cap mapping playmap
+cap scan playmap
+cap show playmap
+reserved video.anchor playmap
+peerlink.version 1
+peerlink.label showbus-peerlink-1
+peerlink.feature final
+peerlink.feature receipts
+peerlink.feature stuck
+peerlink.feature expire
+peerlink.feature enrol
+peerlink.can.words 8
+peerlink.nonce.bytes 16
+peerlink.kid.bytes 8
+peerlink.lid.bytes 8
+peerlink.key.bits.min 128
+peerlink.handshake.ms 10000
+peerlink.unpaired.per.address 4
+peerlink.wrong.proofs.per.minute 5
+peerlink.hold.refused.ms 60000
+peerlink.hold.disconnect.ms 30000
+peerlink.cert.probe.ms 60000
+peerlink.stable.ms 10000
+peerlink.redial.jitter.pct 20
+peerlink.pings.matched 8
+peerlink.peer.sha256 pending
+link.check.max.ms 1000
+link.selfgap.ms 2000
+link.connect.timeout.ms 5000
+link.inflight.max 32
+link.replies.max 256
+link.write.deadline.max.ms 10000
+link.command.bytes 65536
+link.read.min.bytes 262144
+link.ws.in.bytes 4096
+link.sidecall.inflight 1
+link.sidecall.timeout.ms 4000
+clock.window 8
+clock.rtt.max.ms 60000
+clock.fresh.ms 10000
+show.stuck.min.ms 1000
+show.stuck.max.ms 10000
+receipt.final.ms 30000
+receipt.late.ms 1000
+receipts.kept 256
+receipts.kept.ms 600000
+receipts.ask.max 32
+cmd.expire.max.ms 10000
+report.retry.first.ms 3000
+report.retry.max.ms 30000
+report.retry.for.ms 1800000
+log.repeat.summary.ms 60000
 ```

@@ -104,6 +104,30 @@ public sealed class SlidesBeacon : IDisposable
 {
     public const int Port = 9928;
 
+    /// <summary>How often a hello goes out.</summary>
+    public static readonly TimeSpan Every = TimeSpan.FromSeconds(2);
+
+    /// <summary>The largest datagram read as a hello; a longer one is dropped unread.</summary>
+    public const int ReadBytes = 2048;
+
+    /// <summary>The longest kind and id a heard hello may carry; a longer one drops the hello.</summary>
+    public const int KindChars = 16, IdChars = 40;
+
+    /// <summary>
+    /// A heard hello keeps its first <see cref="KeptCaps"/> caps and <see cref="KeptPorts"/> doors; its name, machine, host and
+    /// each cap are cut to <see cref="NameChars"/> characters.
+    /// </summary>
+    public const int KeptCaps = 16, KeptPorts = 8, NameChars = 60;
+
+    /// <summary>A new id is dropped once more than this many peers are held (<see cref="HasRoom"/>).</summary>
+    public const int MaxPeers = 128;
+
+    /// <summary>A peer not heard for this long is forgotten.</summary>
+    public static readonly TimeSpan ForgetAfter = TimeSpan.FromSeconds(60);
+
+    /// <summary>Whether a hello from a new id is taken while <paramref name="held"/> peers are held: the table holds at most <see cref="MaxPeers"/> + 1.</summary>
+    public static bool HasRoom(int held) => held <= MaxPeers;
+
     public sealed record Hello(
         [property: JsonPropertyName("t")] string Kind,      // "main" (a Stagewatch), "agent" (a presenter PC), "patterns", "messenger"…
         [property: JsonPropertyName("v")] int Version,
@@ -153,7 +177,7 @@ public sealed class SlidesBeacon : IDisposable
             Listening = true;
         }
         catch (SocketException) { Listening = false; }
-        _timer = new Timer(_ => Send(port), null, 200, 2000);
+        _timer = new Timer(_ => Send(port), null, TimeSpan.FromMilliseconds(200), Every);
     }
 
     public bool Listening { get; }
@@ -178,21 +202,21 @@ public sealed class SlidesBeacon : IDisposable
             catch (OperationCanceledException) { return; }
             catch (ObjectDisposedException) { return; }
             catch (SocketException) { continue; }
-            if (r.Buffer.Length > 2048) continue;
+            if (r.Buffer.Length > ReadBytes) continue;
             try
             {
                 var h = JsonSerializer.Deserialize<Hello>(r.Buffer);
                 // Every kind of show node is heard (Show Bus 1.1 discovery); presenter PCs still need a valid feed id.
-                if (h is null || h.Version != 1 || !ValidToken(h.Kind, 16) || !ValidToken(h.Id, 40)) continue;
+                if (h is null || h.Version != 1 || !ValidToken(h.Kind, KindChars) || !ValidToken(h.Id, IdChars)) continue;
                 if (h.Kind == "agent" && !SlideFeed.Valid(h.Id)) continue;
                 h = h with
                 {
-                    Name = h.Name ?? "", Machine = h.Machine ?? h.Host ?? "", Caps = h.Caps?.Where(c => c is not null).Take(16).Select(Cap).ToArray(),
-                    Ports = h.Ports?.Where(kv => ValidToken(kv.Key, 16) && kv.Value is > 0 and < 65536).Take(8).ToDictionary(kv => kv.Key, kv => kv.Value),
+                    Name = h.Name ?? "", Machine = h.Machine ?? h.Host ?? "", Caps = h.Caps?.Where(c => c is not null).Take(KeptCaps).Select(Cap).ToArray(),
+                    Ports = h.Ports?.Where(kv => ValidToken(kv.Key, 16) && kv.Value is > 0 and < 65536).Take(KeptPorts).ToDictionary(kv => kv.Key, kv => kv.Value),
                     Host = h.Host is null ? null : Cap(h.Host),
                 };
                 if (_hello() is { } me && me.Id == h.Id) continue;
-                if (_peers.Count > 128 && !_peers.ContainsKey(h.Id)) continue;
+                if (!HasRoom(_peers.Count) && !_peers.ContainsKey(h.Id)) continue;
                 var clean = h with { Name = Cap(h.Name), Machine = Cap(h.Machine), WebPort = Math.Clamp(h.WebPort, 0, 65535) };
                 _peers[h.Id] = (clean, r.RemoteEndPoint.Address.ToString(), Environment.TickCount64);
             }
@@ -211,13 +235,13 @@ public sealed class SlidesBeacon : IDisposable
         foreach (var (id, p) in _peers)
         {
             var age = (now - p.SeenMs) / 1000.0;
-            if (age > 60) { _peers.TryRemove(id, out _); continue; }
+            if (age > ForgetAfter.TotalSeconds) { _peers.TryRemove(id, out _); continue; }
             list.Add(new Peer(p.Hello, p.Address, age));
         }
         return list.OrderBy(p => p.Hello.Kind).ThenBy(p => p.Hello.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static string Cap(string s) => s.Length > 60 ? s[..60] : s;
+    private static string Cap(string s) => s.Length > NameChars ? s[..NameChars] : s;
 
     public void Dispose()
     {

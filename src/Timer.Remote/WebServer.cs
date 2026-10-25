@@ -25,7 +25,8 @@ public sealed class WebServer : IAsyncDisposable
 {
     private const int MaxConnections = 64;
     private const int MaxHeaderBytes = 8192;
-    private const int MaxWsMessageBytes = 4096;
+    /// <summary>The largest message a /ws client may send; a longer one ends the socket.</summary>
+    public const int MaxWsMessageBytes = 4096;
     private static readonly TimeSpan HeaderTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(5);
 
