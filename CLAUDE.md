@@ -36,7 +36,9 @@ the copilot's risk, the papers.
 - **One writer.** The show thread (`MainViewModel`, the rig's owner thread) runs every command; other threads read
   immutable snapshots (`SnapshotHub`, `SettingsStore.Snapshot`, the window list).
 - **Fail closed on the wire.** An unknown word is refused, never defaulted; the PIN, keys and window addresses ride in no
-  log line, no journal row and no frame; wrong PINs, keys, viewing codes and window addresses lock a device out.
+  log line, no journal row and no frame; wrong PINs, viewing codes and window addresses lock a device out, and unknown or
+  revoked keys never count toward that lockout (a key cannot be guessed; counting it only lets a peer's old key lock out
+  its own machine's PIN).
 - **Measured, then governed.** No limit or governor without a measured cause and a deterministic test.
 
 ## Constraints that bite
