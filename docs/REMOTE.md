@@ -182,6 +182,10 @@ and when it will now finish. Leave it blank and the plan starts when the first i
 Use the Remote PIN as `Authorization: Bearer <pin>`. Commands run through the same single input path as a
 button press, so an AI tool can never do anything an operator can't.
 
+Every body is answered. One that isn't JSON or repeats a key anywhere is `-32700` (parse error); a `method` that isn't
+a string is `-32600` (invalid request); an unknown method is `-32601`; a `tools/call` whose `name`,
+`arguments.command` or `arguments.reason` isn't a string is `-32602` (invalid params). None of them runs anything.
+
 **Human in the loop (2.8):** by default `run_command` doesn't run the command — it becomes a proposal in the
 operator's **Copilot** window with the agent's `reason`, and the tool result says so ("Queued for the operator's
 approval (proposal #12)"). The operator ticks and runs it, or discards it; both go in the show journal and the

@@ -438,6 +438,27 @@ static class WebV2Tests
         Check(ro.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!.Contains("\"title\":\"Keynote\""), "mcp: get_running_order");
         var unknown = await Mcp("{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"nope\"}");
         Check(unknown.GetProperty("error").GetProperty("code").GetInt32() == -32601, "mcp: unknown method");
+        // Every body gets a JSON-RPC answer, never a dropped connection: a repeated key at any depth is a parse error, a
+        // method that isn't a string an invalid request, a tool field of the wrong type invalid params. Nothing runs.
+        async Task<(int? Code, string Id)> McpRefusal(string json)
+        {
+            try
+            {
+                var e = await Mcp(json);
+                return e.ValueKind == JsonValueKind.Object && e.TryGetProperty("error", out var err)
+                    ? (err.GetProperty("code").GetInt32(), e.GetProperty("id").GetRawText()) : (null, "answered without an error");
+            }
+            catch (HttpRequestException ex) { return (null, "dropped: " + ex.Message); }
+        }
+        var mcpRan = control.Commands.Count;
+        var dupId = await McpRefusal("{\"jsonrpc\":\"2.0\",\"id\":1,\"id\":2,\"method\":\"tools/list\"}");
+        Check(dupId == (-32700, "null"), $"mcp: a repeated id is a parse error ({dupId})");
+        var dupParam = await McpRefusal("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/call\",\"params\":{\"name\":\"get_state\",\"name\":\"run_command\",\"arguments\":{\"command\":\"next\"}}}");
+        Check(dupParam == (-32700, "null") && control.Commands.Count == mcpRan, $"mcp: a repeated key inside params is a parse error and runs nothing ({dupParam})");
+        var numMethod = await McpRefusal("{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":7}");
+        Check(numMethod == (-32600, "8"), $"mcp: a numeric method is an invalid request ({numMethod})");
+        var numCommand = await McpRefusal("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"run_command\",\"arguments\":{\"command\":7}}}");
+        Check(numCommand == (-32602, "9") && control.Commands.Count == mcpRan, $"mcp: a numeric command is invalid params and runs nothing ({numCommand})");
 
         // Holding images: PIN-protected upload (bigger than the 64 KB request cap), then served cacheably.
         var big = new byte[300_000];

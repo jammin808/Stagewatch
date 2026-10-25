@@ -35,7 +35,7 @@ public sealed class McpEndpoint
     public byte[]? Handle(byte[] body)
     {
         JsonNode? root;
-        try { root = JsonNode.Parse(body); }
+        try { root = BusJson.Parse(body); }
         catch (JsonException) { return Encode(Error(null, -32700, "parse error")); }
 
         if (root is JsonArray batch)
@@ -51,7 +51,7 @@ public sealed class McpEndpoint
     {
         if (msg is null) return Error(null, -32600, "invalid request");
         var id = msg["id"]?.DeepClone();
-        var method = msg["method"]?.GetValue<string>() ?? "";
+        if (Str(msg["method"]) is not { } method) return Error(id, -32600, "invalid request: method is a string");
         if (id is null) return null; // notification (e.g. notifications/initialized)
 
         switch (method)
@@ -70,7 +70,9 @@ public sealed class McpEndpoint
             case "tools/list":
                 return Result(id, new JsonObject { ["tools"] = Tools() });
             case "tools/call":
-                return Result(id, Call(msg["params"] as JsonObject));
+                return Call(msg["params"] as JsonObject) is { } called
+                    ? Result(id, called)
+                    : Error(id, -32602, "invalid params: name, arguments.command and arguments.reason are strings");
             default:
                 return Error(id, -32601, "method not found: " + method);
         }
@@ -115,9 +117,10 @@ public sealed class McpEndpoint
     private static JsonObject Tool(string name, string description, JsonObject schema)
         => new() { ["name"] = name, ["description"] = description, ["inputSchema"] = schema };
 
-    private JsonObject Call(JsonObject? p)
+    /// <summary>A tool's result, or null when a field it reads is there with the wrong type.</summary>
+    private JsonObject? Call(JsonObject? p)
     {
-        var name = p?["name"]?.GetValue<string>() ?? "";
+        if (Str(p?["name"]) is not { } name) return null;
         var args = p?["arguments"] as JsonObject;
         switch (name)
         {
@@ -132,13 +135,12 @@ public sealed class McpEndpoint
                 return Text(_reports.Report("csv") ?? "No running order yet.");
             case "run_command":
             {
-                var line = args?["command"]?.GetValue<string>() ?? "";
+                if (Str(args?["command"]) is not { } line || Str(args?["reason"]) is not { } reason) return null;
                 var tokens = Tokenize(line);
                 if (tokens.Count == 0) return Text("Empty command.", isError: true);
                 if (!ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out var error))
                     return Text("Rejected: " + error + ". Grammar: " + ShowCommandParser.Help, isError: true);
                 // Human in the loop: by default an agent proposes and the operator decides.
-                var reason = args?["reason"]?.GetValue<string>() ?? "";
                 if (_agents.ProposeFromAgent(line, reason) is { } queued) return Text(queued);
                 // Acting directly: say what actually happened (Show Bus receipt), not just that it was sent.
                 var receipt = _commands.ExecuteWithReceiptAsync(cmd, "mcp", TimeSpan.FromSeconds(3));
@@ -159,6 +161,9 @@ public sealed class McpEndpoint
                 return Text("Unknown tool: " + name, isError: true);
         }
     }
+
+    /// <summary>A string field: its text, "" when absent or null, null when it is there with another type.</summary>
+    private static string? Str(JsonNode? n) => n is null ? "" : n.GetValueKind() == JsonValueKind.String ? n.GetValue<string>() : null;
 
     private static JsonObject Text(string text, bool isError = false)
         => new() { ["content"] = new JsonArray(new JsonObject { ["type"] = "text", ["text"] = text }), ["isError"] = isError };

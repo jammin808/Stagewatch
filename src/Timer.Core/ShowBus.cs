@@ -3,6 +3,19 @@ using System.Text.Json.Nodes;
 
 namespace Stagewatch.Core;
 
+/// <summary>
+/// JSON from the network as nodes. A repeated key at any depth is a <see cref="JsonException"/>, like any other malformed
+/// body: a <see cref="JsonObject"/> that holds one throws <see cref="ArgumentException"/> at its first lookup by name.
+/// </summary>
+public static class BusJson
+{
+    private static readonly JsonDocumentOptions Strict = new() { AllowDuplicateProperties = false };
+
+    public static JsonNode? Parse(string json) => JsonNode.Parse(json, documentOptions: Strict);
+
+    public static JsonNode? Parse(ReadOnlySpan<byte> utf8) => JsonNode.Parse(utf8, documentOptions: Strict);
+}
+
 /// <summary>A light (Show Bus §6): worst wins — red, amber, green, grey (unknown, never guessed).</summary>
 public static class Light
 {
@@ -88,7 +101,7 @@ public sealed class PeerContexts
     {
         try
         {
-            if (JsonNode.Parse(json) is not JsonObject root) return null;
+            if (BusJson.Parse(json) is not JsonObject root) return null;
             if (root["v"]?.GetValueKind() != JsonValueKind.Number || root["v"]!.GetValue<double>() < 1) return null;
             if (root["node"] is not JsonObject node) return null;
             var kind = Str(node["t"], 16);

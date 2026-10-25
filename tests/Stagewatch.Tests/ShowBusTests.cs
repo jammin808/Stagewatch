@@ -205,6 +205,20 @@ static class ShowBusTests
             req.Headers.Add("Authorization", "Bearer " + readSecret);
             Check((await http.SendAsync(req)).StatusCode == HttpStatusCode.Forbidden, "web: a read key can't post a context");
         }
+        // A repeated key is refused like any other malformed body: an answer, never a dropped connection.
+        async Task<HttpStatusCode?> PostWithNodeKey(string path, string body)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+            req.Headers.Add("Authorization", "Bearer " + nodeSecret);
+            try { return (await http.SendAsync(req)).StatusCode; }
+            catch (HttpRequestException) { return null; }
+        }
+        var (peersHeld, proposalsHeld) = (control.Peers.All(DateTime.UtcNow).Count, control.Desk.All().Count);
+        var dupContext = await PostWithNodeKey("/api/peers/context", "{\"v\":1,\"node\":{\"t\":\"messenger\",\"id\":\"ag2\",\"id\":\"ag3\"},\"light\":\"red\"}");
+        var dupProposal = await PostWithNodeKey("/api/proposals", "{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\",\"line\":\"next\"}");
+        Check(dupContext == HttpStatusCode.BadRequest && dupProposal == HttpStatusCode.BadRequest
+              && control.Peers.All(DateTime.UtcNow).Count == peersHeld && control.Desk.All().Count == proposalsHeld,
+              $"web: a context or a proposal with a repeated key is refused with an answer ({dupContext?.ToString() ?? "dropped"}, {dupProposal?.ToString() ?? "dropped"})");
 
         // WebSocket: a key in the Authorization header (never the URL), the operator frame, a timed ping.
         using (var ws = new ClientWebSocket())

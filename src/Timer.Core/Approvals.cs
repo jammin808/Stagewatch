@@ -81,7 +81,7 @@ public sealed class ProposalDesk
     public (SharedProposal? Proposal, string? Error) Submit(string json, string? nodeKeyId, Func<NodeRef, string, string> risk, DateTime nowUtc)
     {
         JsonObject root;
-        try { root = JsonNode.Parse(json) as JsonObject ?? throw new JsonException(); }
+        try { root = BusJson.Parse(json) as JsonObject ?? throw new JsonException(); }
         catch (JsonException) { return (null, "a proposal is a JSON object"); }
         var from = Ref(root["from"]);
         var target = Ref(root["target"]);

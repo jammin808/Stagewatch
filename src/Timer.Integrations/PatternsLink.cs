@@ -456,9 +456,9 @@ public sealed class PatternsLink : IPlayoutSource
             string S(string n) => root.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() ?? "" : "";
             // Patterns' own beacon ({"patterns":1,…}) or the show network's hello ({"t":"patterns","v":1,…}).
             var isBeacon = root.TryGetProperty("patterns", out var proto) && proto.ValueKind == JsonValueKind.Number;
-            var isHello = S("t") == "patterns" && root.TryGetProperty("v", out var hv) && hv.ValueKind == JsonValueKind.Number && hv.GetInt32() == 1;
+            var isHello = S("t") == "patterns" && root.TryGetProperty("v", out var hv) && hv.ValueKind == JsonValueKind.Number && hv.TryGetInt32(out var hello) && hello == 1;
             if (!isBeacon && !isHello) return null;
-            var wire = root.TryGetProperty("wire", out var w) && w.TryGetInt32(out var wp) ? wp : 0;
+            var wire = root.TryGetProperty("wire", out var w) && w.ValueKind == JsonValueKind.Number && w.TryGetInt32(out var wp) ? wp : 0;
             if (wire is <= 0 or > 65535) return null;
             var name = S("machine") is { Length: > 0 } mn ? mn : S("name");
             return new PatternsMachine(name.Length > 60 ? name[..60] : name, address, wire, isBeacon ? S("kind") : S("role"));

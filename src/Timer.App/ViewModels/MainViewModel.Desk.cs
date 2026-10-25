@@ -50,7 +50,7 @@ public sealed partial class MainViewModel
         string words;
         try
         {
-            var root = JsonNode.Parse(body) as JsonObject ?? throw new JsonException();
+            var root = BusJson.Parse(body) as JsonObject ?? throw new JsonException();
             ok = root["ok"]?.GetValue<bool>() ?? false;
             words = root["words"]?.GetValueKind() == JsonValueKind.String ? root["words"]!.GetValue<string>() : "";
         }
