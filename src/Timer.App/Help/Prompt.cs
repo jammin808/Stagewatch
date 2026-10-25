@@ -33,6 +33,36 @@ public static class Prompt
     }
 }
 
+/// <summary>Choose one of a few labelled items, in the app's dark style: the first is selected; null when cancelled.</summary>
+public static class Pick
+{
+    public static T? One<T>(Window owner, string title, string label, IReadOnlyList<T> items, Func<T, string> text, string okLabel) where T : class
+    {
+        var list = new ListBox { MaxHeight = 260, Width = 520, Margin = new Thickness(0, 6, 0, 14) };
+        foreach (var item in items) list.Items.Add(new ListBoxItem { Content = text(item), Tag = item });
+        if (list.Items.Count > 0) list.SelectedIndex = 0;
+        var ok = new Button { Content = okLabel, IsDefault = true, MinWidth = 90, Margin = new Thickness(0, 0, 8, 0) };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, MinWidth = 90 };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+        buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
+        var panel = new StackPanel { Margin = new Thickness(20) };
+        panel.Children.Add(new TextBlock { Text = label, Opacity = 0.7, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 });
+        panel.Children.Add(list);
+        panel.Children.Add(buttons);
+        var win = new Window
+        {
+            Title = title, Owner = owner, Content = panel, SizeToContent = SizeToContent.WidthAndHeight,
+            ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false,
+            Background = (System.Windows.Media.Brush)owner.FindResource("BgDeepBrush")
+        };
+        ok.Click += (_, _) => win.DialogResult = true;
+        list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is not null) win.DialogResult = true; };
+        win.Loaded += (_, _) => { list.Focus(); Keyboard.Focus(list); };
+        return win.ShowDialog() == true && list.SelectedItem is ListBoxItem { Tag: T chosen } ? chosen : null;
+    }
+}
+
 /// <summary>A larger text box to paste into or review AI drafts before they're kept (OK = keep, Cancel = discard).</summary>
 public static class TextReview
 {

@@ -565,7 +565,7 @@ public partial class MainWindow : Window, IContextActions
         {
             Owner = this,
             Sounds = new SettingsDialog.SoundHooks(_vm.AddSound, _vm.RemoveSound, _vm.PreviewChime),
-            Keys = new SettingsDialog.KeyHooks(_vm.CreateApiKey, _vm.RevokeApiKey, _vm.ApiKeyLastUsed),
+            Keys = new SettingsDialog.KeyHooks(_vm.CreateApiKey, _vm.RevokeApiKey, _vm.ApiKeyLastUsed, _vm.ApiKeyBindingLine, _vm.ApiKeyNodeChoices, _vm.RebindApiKey),
         };
         if (dlg.ShowDialog() == true)
         {
@@ -801,9 +801,10 @@ public partial class MainWindow : Window, IContextActions
                 break;
 
             case "show-network" when element.DataContext is PeerRow peer:
-                // The row's button (Make a key) and Settings → Remote's Revoke run the same code as these.
+                // The row's button (Make a key) and Settings → Remote's "Let it speak for…" and Revoke run the same code as these.
                 yield return I("Copy node id", () => CopyText(peer.NodeId), peer.NodeId.Length > 0);
                 if (peer.MakeKeyLabel.Length > 0) yield return I(peer.MakeKeyLabel, () => _vm.MakeKeyForPeerCommand.Execute(peer));
+                yield return I("Let a key speak for this node…", () => LetKeySpeakFor(peer), peer.NodeId.Length > 0);
                 yield return I("Revoke its key…", () => RevokePeerKey(peer), peer.KeyId.Length > 0);
                 break;
 
@@ -879,6 +880,25 @@ public partial class MainWindow : Window, IContextActions
                 "its context and proposals are refused, and its link on /ws keeps only the public frame until it has a key again.",
                 "Show network", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
         _vm.RevokeApiKey(key.Id);
+    }
+
+    /// <summary>
+    /// Let a node key speak for a Show network row's node: the keys refused for it first, then free keys, then keys that
+    /// would move off the node they speak for (each says so). The same rebind as Settings → Remote → "Let it speak for…".
+    /// </summary>
+    private void LetKeySpeakFor(PeerRow peer)
+    {
+        var choices = _vm.KeyChoicesFor(peer);
+        if (choices.Count == 0)
+        {
+            MessageBox.Show(this, $"No other node key to choose. Make one for {peer.Name}: Make a key for… on its row, or Settings → Remote → New key… (another show app).",
+                "Show network", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var label = $"Which node key speaks for {peer.Name} ({NodeBindings.Describe(peer.NodeKind, peer.NodeId)})? From now on its context, proposals and " +
+                    "results are taken only with that key, and a key that spoke for another node stops.";
+        if (Help.Pick.One(this, "Let a key speak for this node", label, choices, c => c.Label, "Let it speak") is { } chosen)
+            _vm.LetKeySpeakForPeer(peer, chosen.KeyId);
     }
 
     /// <summary>A node key made for a refused app: shown once and put on the clipboard; Stagewatch keeps only its fingerprint.</summary>

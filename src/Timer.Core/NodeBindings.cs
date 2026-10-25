@@ -73,6 +73,8 @@ public sealed class NodeBindings
     private readonly HashSet<string> _revoked = new(StringComparer.Ordinal);
     private readonly Queue<string> _revokedOrder = new();
     private HashSet<string>? _live;
+    // Keys in force whose scope is not the node scope: they never speak for a node, so the operator can't bind one.
+    private readonly HashSet<string> _otherScope = new(StringComparer.Ordinal);
 
     /// <summary>Empty bindings (first proven use wins), or seeded from the keys in force and the pairs saved on them.</summary>
     public NodeBindings(IEnumerable<ApiKey>? keys = null)
@@ -179,22 +181,32 @@ public sealed class NodeBindings
         return verdict;
     }
 
+    /// <summary>Why the operator can't let a key of another scope speak for a node.</summary>
+    public const string NotANodeKey = "only a node key speaks for a node — make one for it (Settings → Remote → New key…, or Make a key for… on its Show network row)";
+
     /// <summary>
     /// The operator lets a key speak for a node: the id moves off any other key (which then speaks for nothing), and the
-    /// key's own earlier id is freed. Returns the change, or why not.
+    /// key's own earlier id is freed. An empty <paramref name="kind"/> leaves the kind to the node's own first words, as a
+    /// first use that names only the id does. Only a node key in force can be bound, and never to <paramref name="ownId"/>:
+    /// every node route and /ws refuses this Stagewatch's own id, so a key bound to it would speak for nothing it could use.
+    /// Returns the change, or why not.
     /// </summary>
-    public (NodeBound? Bound, string? Error) Rebind(string keyId, string kind, string id)
+    public (NodeBound? Bound, string? Error) Rebind(string keyId, string? kind, string id, string? ownId = null)
     {
+        kind ??= "";
         if (string.IsNullOrEmpty(keyId)) return (null, "which key?");
         if (!ValidId(id)) return (null, "a node id is 1-40 letters, digits, - or _");
-        if (!ValidKind(kind)) return (null, "a node kind is 1-16 letters, digits, - or _");
+        if (!string.IsNullOrEmpty(ownId) && string.Equals(id, ownId, StringComparison.Ordinal)) return (null, $"{id} is this Stagewatch's own id");
+        if (kind.Length > 0 && !ValidKind(kind)) return (null, "a node kind is 1-16 letters, digits, - or _");
         NodeBound change;
         lock (_lock)
         {
             if (_revoked.Contains(keyId)) return (null, "that key was revoked");
+            if (_live is not null && !_live.Contains(keyId)) return (null, "no such key");
+            if (_otherScope.Contains(keyId)) return (null, NotANodeKey);
             var had = _byKey.TryGetValue(keyId, out var mine) ? mine : ((string Kind, string Id)?)null;
             var takenFrom = _keyById.TryGetValue(id, out var holder) && holder != keyId ? holder : null;
-            if (had is { } old && old.Id == id && old.Kind == kind) return (null, $"it already speaks for {Describe(kind, id)}");
+            if (had is { } old && old.Id == id && (old.Kind == kind || kind.Length == 0)) return (null, $"it already speaks for {Describe(old.Kind, id)}");
             if (takenFrom is not null) _byKey.Remove(takenFrom);
             if (had is { } prev) _keyById.Remove(prev.Id);
             _byKey[keyId] = (kind, id);
@@ -226,6 +238,8 @@ public sealed class NodeBindings
                 if (wasLive?.Contains(id) == true && _revoked.Add(id)) _revokedOrder.Enqueue(id);
             }
             foreach (var id in live) _revoked.Remove(id);
+            _otherScope.Clear();
+            foreach (var k in list.Where(k => k.Scope != ApiKeyScope.Node)) _otherScope.Add(k.Id);
             // Revoked ids are random and never come back; the newest ApiKeys.Max cover any request still in flight.
             while (_revokedOrder.Count > ApiKeys.Max) _revoked.Remove(_revokedOrder.Dequeue());
             foreach (var k in list)
@@ -237,6 +251,36 @@ public sealed class NodeBindings
             }
             _live = live;
         }
+    }
+
+    /// <summary>
+    /// Write what the bindings hold onto the keys as saved: each node key in force gets the node it speaks for (the kind
+    /// only once named), or none. A key the bindings were not given (<see cref="Keep"/>) is left as it is. Returns true when
+    /// a key changed. The saved pairs are what <see cref="Keep"/> puts back after a restart, so this runs after every
+    /// binding made or moved: a first use, a kind first named, the operator's choice and the key it took the id from.
+    /// </summary>
+    public bool SaveTo(IEnumerable<ApiKey> keys) => Save(keys, write: true);
+
+    /// <summary>Whether <see cref="SaveTo"/> would change any of <paramref name="keys"/>: the saved pairs are behind the bindings.</summary>
+    public bool Unsaved(IEnumerable<ApiKey> keys) => Save(keys, write: false);
+
+    private bool Save(IEnumerable<ApiKey> keys, bool write)
+    {
+        var changed = false;
+        lock (_lock)
+        {
+            foreach (var k in keys)
+            {
+                if (k is null || k.Scope != ApiKeyScope.Node || (_live is not null && !_live.Contains(k.Id))) continue;
+                var (kind, id) = _byKey.TryGetValue(k.Id, out var pair) ? (pair.Kind.Length > 0 ? pair.Kind : null, pair.Id) : ((string?)null, (string?)null);
+                if (string.Equals(k.Node, id, StringComparison.Ordinal) && string.Equals(k.NodeKind, kind, StringComparison.Ordinal)) continue;
+                changed = true;
+                if (!write) break;
+                k.Node = id;
+                k.NodeKind = kind;
+            }
+        }
+        return changed;
     }
 
     /// <summary>The node a key speaks for, or null.</summary>

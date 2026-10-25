@@ -18,7 +18,7 @@ public sealed partial class MainViewModel
         _customCss = Settings.Remote.CustomCss ?? "";
         _viewCode = (Settings.Remote.ViewCode ?? "").Trim();
         _layouts = Settings.Remote.Layouts.ToDictionary(l => l.Name, ScreenLayouts.ToJson, StringComparer.OrdinalIgnoreCase);
-        _apiKeys = Settings.Remote.ApiKeys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind }).ToArray();
+        CopyApiKeys();
         _nodes.Keep(_apiKeys);   // a revoked key speaks for nothing; a pair saved on a key is put back
         _screenNames = new Dictionary<string, string>(Settings.Remote.ScreenNames, StringComparer.OrdinalIgnoreCase);
         _screenPresets = Settings.Remote.ScreenPresets
@@ -29,6 +29,10 @@ public sealed partial class MainViewModel
 
     private volatile IReadOnlyList<ApiKey> _apiKeys = Array.Empty<ApiKey>();
     public IReadOnlyList<ApiKey> ApiKeys => _apiKeys;
+
+    /// <summary>The keys as saved, copied whole for other threads (the web server's key checks). Show thread.</summary>
+    private void CopyApiKeys()
+        => _apiKeys = Settings.Remote.ApiKeys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind }).ToArray();
 
     /// <summary>When a key was last used (this session), for the Settings list.</summary>
     public DateTime? ApiKeyLastUsed(string id) => _web?.KeyLastUsed(id);
@@ -85,6 +89,41 @@ public sealed partial class MainViewModel
         _journal.Add(DateTime.UtcNow, JournalKind.Note, -1, $"API key made: {key.Name} ({Stagewatch.Core.ApiKeys.Describe(scope)})");
         return secret;
     }
+
+    /// <summary>
+    /// The operator lets a node key speak for a node (Settings → Remote "Let it speak for…", or "Let a key speak for this
+    /// node…" on a Show network row): the id moves off any key that had it, the key's old node is freed, the pair is saved
+    /// at once (a restart keeps it), the links already open on /ws hear their new verdict, and the journal says what moved.
+    /// An empty kind is left to the node's own first words; this Stagewatch's own id is refused. Keys are never managed over
+    /// the wire. Show thread.
+    /// </summary>
+    public (bool Ok, string Words) RebindApiKey(string keyId, string kind, string id)
+    {
+        var (bound, error) = _nodes.Rebind(keyId, kind, id, _nodeId);
+        if (bound is not { } b)
+        {
+            StatusLine = $"Not changed: {error}.";
+            return (false, StatusLine);
+        }
+        SaveBindings();
+        RefreshScreenCopies();   // the open sockets are checked again with the new binding
+        var words = KeyBindingWords.JournalLine(b, ApiKeyName);
+        StatusLine = words;
+        return (true, words);
+    }
+
+    /// <summary>A key's words in Settings → Remote: the node it speaks for (or "no node yet") and what it was last refused for; "" for other scopes.</summary>
+    public string ApiKeyBindingLine(string keyId)
+        => Settings.Remote.ApiKeys.FirstOrDefault(k => k.Id == keyId) is { } key
+            ? KeyBindingWords.KeyLine(key, _nodes.NodeOf(keyId), _nodes.LastRefused(keyId), DateTime.UtcNow)
+            : "";
+
+    /// <summary>
+    /// The nodes Settings' "Let it speak for…" offers a key: the node it was last refused for, then the show network's rows
+    /// and every node refused this session (<see cref="KeyBindingWords.NodeChoices"/>).
+    /// </summary>
+    public IReadOnlyList<NodeChoice> ApiKeyNodeChoices(string keyId)
+        => KeyBindingWords.NodeChoices(keyId, _nodes, _network, _nodes.RefusedSince(DateTime.MinValue, _nodeId), _nodeId, ApiKeyName, DateTime.UtcNow);
 
     /// <summary>Revoke an API key: the next request with it is refused, and a socket it opened drops to the public frame at once.</summary>
     public void RevokeApiKey(string id)

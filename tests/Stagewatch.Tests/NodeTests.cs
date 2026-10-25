@@ -37,6 +37,190 @@ static class NodeTests
         NetworkWords(Check);
         DeskRows(Check);
         Readers(Check);
+        Persist(Check);
+        Rebinds(Check);
+        BindingWords(Check);
+        Choices(Check);
+    }
+
+    // ------------------------------------------------------------------ the bindings kept and moved (Settings, the Show network)
+
+    static ApiKey ScopedKey(string id, ApiKeyScope scope, string name)
+        => new() { Id = id, Name = name, Scope = scope, Hash = new string('b', 64), Hint = id[^2..].PadLeft(4, 'x') };
+
+    /// <summary>
+    /// The saved pairs follow the bindings: a first use, a kind first named, the operator's move and the key it took the id
+    /// from are all written onto the keys, and a restart (the settings file read back) holds exactly the same pairs.
+    /// </summary>
+    static void Persist(Action<bool, string> Check)
+    {
+        var saved = new List<ApiKey> { NodeKey("kP", null, null), NodeKey("kA", null, null), NodeKey("kN", null, null), ScopedKey("kR", ApiKeyScope.Read, "Dashboard") };
+        var nodes = new NodeBindings(saved);
+        Check(!nodes.Unsaved(saved) && !nodes.SaveTo(saved), "persist: nothing bound, nothing to save");
+
+        nodes.Speak(NodeCredential.Key("kP"), "patterns", "pat1", T0);
+        nodes.Speak(NodeCredential.Key("kA"), "", "ag1", T0);   // a collect names the id alone
+        Check(nodes.Unsaved(saved) && saved[0].Node is null, "persist: a first use leaves the saved keys behind the bindings until saved");
+        Check(nodes.SaveTo(saved) && saved[0] is { Node: "pat1", NodeKind: "patterns" } && saved[1] is { Node: "ag1", NodeKind: null }
+              && saved[2] is { Node: null, NodeKind: null } && saved[3] is { Node: null } && !nodes.Unsaved(saved),
+              "persist: each node key gets the node it speaks for (the kind only once named); a key bound to nothing and a read key stay bare");
+        nodes.Speak(NodeCredential.Key("kA"), "messenger", "ag1", T0);
+        Check(nodes.SaveTo(saved) && saved[1] is { Node: "ag1", NodeKind: "messenger" }, "persist: the kind first named is saved");
+
+        // The operator moves pat1 onto kN: kN is saved with it, and kP, which it was taken from, is saved with nothing.
+        nodes.Rebind("kN", "patterns", "pat1");
+        Check(nodes.SaveTo(saved) && saved[2] is { Node: "pat1", NodeKind: "patterns" } && saved[0] is { Node: null, NodeKind: null },
+              "persist: the operator's move is saved on both keys, so the old pair can't come back");
+
+        // A restart reads the settings file back: the same pairs, and kP can't reclaim pat1 even once kN is revoked.
+        var opts = new JsonSerializerOptions { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
+        var reread = ApiKeys.Sanitise(JsonSerializer.Deserialize<List<ApiKey>>(JsonSerializer.Serialize(saved, opts), opts));
+        var restarted = new NodeBindings(reread);
+        Check(restarted.KeyOf("pat1") == "kN" && restarted.NodeOf("kA") == ("messenger", "ag1") && restarted.NodeOf("kP") is null && !restarted.Unsaved(reread),
+              "persist: after a restart the bindings are what they were");
+        restarted.Keep(reread.Where(k => k.Id != "kN"));
+        Check(restarted.KeyOf("pat1") is null && restarted.Speak(NodeCredential.Key("kP"), "patterns", "pat1", T0).Ok,
+              "persist: once the new holder is revoked, the id is free (the old key binds only by a new first use)");
+
+        // Saving touches only keys the bindings were given.
+        var stranger = NodeKey("kZ", "patterns", "pat9");
+        Check(!restarted.SaveTo(new[] { stranger }) && stranger is { Node: "pat9", NodeKind: "patterns" },
+              "persist: a key the bindings were never given is left as saved");
+
+        // A key saved for an id another key holds (a hand-edited file) is cleared on the next save.
+        var twice = new List<ApiKey> { NodeKey("k1", "patterns", "pat1"), NodeKey("k2", "patterns", "pat1") };
+        var dup = new NodeBindings(twice);
+        Check(dup.KeyOf("pat1") == "k1" && dup.Unsaved(twice) && dup.SaveTo(twice) && twice[1].Node is null && twice[0].Node == "pat1",
+              "persist: a second key saved for a held id is cleared, never bound");
+    }
+
+    /// <summary>Only the operator moves a binding, and only onto a node key in force; an empty kind is left to the node's own words.</summary>
+    static void Rebinds(Action<bool, string> Check)
+    {
+        var keys = new List<ApiKey> { NodeKey("kP", null, null), NodeKey("kQ", null, null), ScopedKey("kC", ApiKeyScope.Control, "Stream Deck"), ScopedKey("kR", ApiKeyScope.Read, "Dashboard") };
+        var nodes = new NodeBindings(keys);
+        Check(nodes.Rebind("kC", "patterns", "pat1").Error == NodeBindings.NotANodeKey && nodes.Rebind("kR", "patterns", "pat1").Error == NodeBindings.NotANodeKey
+              && nodes.KeyOf("pat1") is null, "rebind: a control or read key never speaks for a node");
+        Check(nodes.Rebind("kGone", "patterns", "pat1").Error == "no such key" && nodes.KeyOf("pat1") is null, "rebind: a key not in force can't be bound");
+        Check(nodes.Rebind("kP", "patterns", "desk01", "desk01").Error == "desk01 is this Stagewatch's own id" && nodes.KeyOf("desk01") is null && nodes.NodeOf("kP") is null
+              && nodes.Rebind("kP", "patterns", "desk01x", "desk01").Bound is { Id: "desk01x" } && nodes.Rebind("kP", "", "desk01x").Error is not null,
+              "rebind: this Stagewatch's own id is refused (no node route or link can use it); any other id is not");
+        Check(nodes.Rebind("kP", "Bad Kind!", "pat1").Error is not null && nodes.Rebind("kP", "patterns", "bad id").Error is not null, "rebind: a malformed kind or id is refused");
+
+        var (b, error) = nodes.Rebind("kP", "", "pm1");
+        Check(error is null && b is { Kind: "", Id: "pm1", ByOperator: true } && nodes.NodeOf("kP") == ("", "pm1"), "rebind: an empty kind binds the id alone");
+        Check(nodes.Rebind("kP", "", "pm1").Error == "it already speaks for node pm1" && nodes.Rebind("kP", null, "pm1").Error is not null,
+              "rebind: the same id again changes nothing and says so");
+        Check(nodes.Speak(NodeCredential.Key("kP"), "playmap", "pm1", T0).Ok && nodes.NodeOf("kP") == ("playmap", "pm1")
+              && nodes.Rebind("kP", "", "pm1").Error == "it already speaks for playmap pm1",
+              "rebind: the node's own first words name the kind, and an empty kind never erases it");
+
+        // A key refused for a node, then let speak for it: its refusal is answered and forgotten.
+        nodes.Speak(NodeCredential.Key("kQ"), "patterns", "pat2", T0);
+        nodes.Speak(NodeCredential.Key("kQ"), "messenger", "ag3", T0.AddSeconds(5));
+        Check(nodes.LastRefused("kQ") is { Id: "ag3" } && nodes.Rebind("kQ", "messenger", "ag3").Bound is { PreviousId: "pat2", TakenFromKeyId: null }
+              && nodes.LastRefused("kQ") is null && nodes.KeyOf("pat2") is null && nodes.Speak(NodeCredential.Key("kQ"), "messenger", "ag3", T0).Ok,
+              "rebind: the refused node is now the key's, its old one is free, and the refusal is gone");
+    }
+
+    /// <summary>The journal rows and Settings' words: names and ids, never a secret.</summary>
+    static void BindingWords(Action<bool, string> Check)
+    {
+        string? Names(string id) => id switch { "kP" => "Patterns FOH", "kO" => "Old Patterns", _ => null };
+        Check(KeyBindingWords.JournalLine(new NodeBound("kP", "patterns", "9f8e7d6c", null, null, null, false), Names)
+              == "API key 'Patterns FOH' now speaks for patterns 9f8e7d6c (first use)", "words: a first use");
+        Check(KeyBindingWords.JournalLine(new NodeBound("kP", "playmap", "pm1", "", "pm1", null, false), Names)
+              == "API key 'Patterns FOH' speaks for playmap pm1 (its kind, first named)", "words: a kind first named");
+        Check(KeyBindingWords.JournalLine(new NodeBound("kP", "patterns", "9f8e7d6c", "patterns", "1a2b3c4d", "kO", true), Names)
+              == "API key 'Patterns FOH' now speaks for patterns 9f8e7d6c (the operator's choice; it spoke for patterns 1a2b3c4d; key 'Old Patterns' speaks for no node now)",
+              "words: the operator's choice names what the key spoke for and the key the id moved off");
+        Check(KeyBindingWords.JournalLine(new NodeBound("kX", "", "ag1", null, null, null, true), Names)
+              == "API key (a revoked key) now speaks for node ag1 (the operator's choice; it spoke for no node)", "words: a key gone by the time the row is written");
+
+        var node = NodeKey("kP", null, null);
+        var refused = new NodeRefusal("kP", "messenger", "ag2", T0, "this key speaks for patterns pat1 — make a key for messenger ag2");
+        Check(KeyBindingWords.KeyLine(node, ("patterns", "pat1"), null, T0) == "speaks for patterns pat1"
+              && KeyBindingWords.KeyLine(node, null, null, T0) == "no node yet"
+              && KeyBindingWords.KeyLine(node, ("patterns", "pat1"), refused, T0.AddSeconds(12)) == "speaks for patterns pat1 · refused for messenger ag2 12 s ago"
+              && KeyBindingWords.KeyLine(node, ("messenger", "ag2"), refused, T0) == "speaks for messenger ag2"
+              && KeyBindingWords.KeyLine(ScopedKey("kC", ApiKeyScope.Control, "Deck"), null, refused, T0) == "",
+              "words: a node key says what it speaks for, or no node yet, and what it was refused for; other keys say nothing");
+        Check(KeyBindingWords.Ago(T0, T0.AddSeconds(59)) == "59 s ago" && KeyBindingWords.Ago(T0, T0.AddSeconds(125)) == "2 min ago"
+              && KeyBindingWords.Ago(T0, T0.AddHours(3)) == "3 h ago" && KeyBindingWords.Ago(T0.AddSeconds(5), T0) == "0 s ago",
+              "words: how long ago, in whole units");
+    }
+
+    /// <summary>What "Let it speak for…" offers: in Settings the nodes for a key, on the Show network the keys for a node.</summary>
+    static void Choices(Action<bool, string> Check)
+    {
+        var keys = new List<ApiKey>
+        {
+            NodeKey("kP", null, null), NodeKey("kA", null, null), NodeKey("kF", null, null), NodeKey("kB", null, null),
+            ScopedKey("kC", ApiKeyScope.Control, "Stream Deck"),
+        };
+        keys[0].Name = "Patterns FOH";
+        keys[1].Name = "AGMessage";
+        keys[2].Name = "Spare";
+        keys[3].Name = "Booth";
+        foreach (var k in keys) k.Hint = k.Id[^2..].PadLeft(4, 'x');
+        var nodes = new NodeBindings(keys);
+        nodes.Speak(NodeCredential.Key("kP"), "patterns", "pat1", T0);
+        nodes.Speak(NodeCredential.Key("kB"), "playmap", "pm1", T0);
+        nodes.Speak(NodeCredential.Key("kP"), "patterns", "pat2", T0.AddSeconds(10));   // a second install pasted Patterns' key
+        nodes.Speak(NodeCredential.Key("kB"), "messenger", "ag9", T0.AddSeconds(4));    // and the booth's key went into an AGMessage
+        var view = ShowNetwork.Summaries(
+            new[] { new HeardNode("patterns", "pat1", "FOH desk", "10.0.0.5", 1), new HeardNode("messenger", "ag1", "AGM", "10.0.0.7", 1), new HeardNode("playmap", "pm1", "Stage", "10.0.0.8", 1) },
+            Array.Empty<HeldContext>(),
+            new[] { Fact("patterns", "pat2", NodeProof.None, "kP", "Patterns FOH", "this key speaks for patterns pat1 — make a key for patterns pat2", address: "10.0.0.6") },
+            "desk01", T0.AddSeconds(12));
+        string? Names(string id) => keys.FirstOrDefault(k => k.Id == id)?.Name;
+
+        var forP = KeyBindingWords.NodeChoices("kP", nodes, view, nodes.RefusedSince(T0, "desk01"), "desk01", Names, T0.AddSeconds(12));
+        Check(forP.Select(c => c.Id).SequenceEqual(new[] { "pat2", "ag1", "pm1", "ag9" }) && forP[0].Kind == "patterns"
+              && forP[0].Label == "patterns pat2 — this key was refused for it 2 s ago · no key of its own yet"
+              && forP[2].Label == "Stage — playmap pm1 · speaks with key 'Booth', which would speak for no node"
+              && forP[3].Label == "messenger ag9 — a key was refused for it 8 s ago · no key of its own yet",
+              $"choices: the node this key was refused for first, then the rows and the refused nodes, never its own node ({string.Join(" | ", forP.Select(c => c.Label))})");
+        var forF = KeyBindingWords.NodeChoices("kF", nodes, view, Array.Empty<NodeRefusal>(), "desk01", Names, T0.AddSeconds(12));
+        Check(forF.Select(c => c.Id).SequenceEqual(new[] { "ag1", "pat1", "pm1", "pat2" }) && forF[1].Label == "FOH desk — patterns pat1 · speaks with key 'Patterns FOH', which would speak for no node"
+              && forF[3].Label == "patterns pat2 — on /ws, unverified · no key of its own yet",
+              $"choices: a key that was never refused is offered every node heard, the held ones saying whose they are ({string.Join(" | ", forF.Select(c => c.Id))})");
+
+        var forPat2 = KeyBindingWords.KeyChoices("pat2", keys, nodes, T0.AddSeconds(12));
+        Check(forPat2.Select(c => c.KeyId).SequenceEqual(new[] { "kP", "kA", "kF", "kB" }) && forPat2[0].Label == "Patterns FOH (…xxkP) · refused for this node 2 s ago · speaks for patterns pat1 now, and would stop"
+              && forPat2[1].Label == "AGMessage (…xxkA) · speaks for no node yet" && forPat2[3].Label == "Booth (…xxkB) · speaks for playmap pm1 now, and would stop",
+              $"choices: the keys refused for the node first, then free keys, then keys that would move, each saying what it speaks for now; never a control key ({string.Join(" | ", forPat2.Select(c => c.Label))})");
+        Check(KeyBindingWords.KeyChoices("pat1", keys, nodes, T0).All(c => c.KeyId != "kP"), "choices: never the key that already speaks for the node");
+
+        Check(forF[0] is { Id: "ag1", Kind: "" } && forF[0].Label == "AGM — node ag1 · no key of its own yet" && forF[1].Kind == "patterns" && forF[2].Kind == "playmap",
+              "choices: a node heard only by its hello is offered with no kind (a hello is anyone's word); one a key speaks for, with that key's kind");
+
+        // The kind saved on a key is one a credential named: the node's own keyed words, then the key that holds it, then its
+        // row's credentialed facts; never a hello's word nor an unverified context's, whatever the row shows.
+        var peers = new PeerContexts(nodes);
+        Check(peers.Accept(Context("messenger", "ag5", "Claimed"), "10.0.0.20", T0, "desk01", NodeCredential.None).Status == 200
+              && peers.Accept(Context("playmap", "pm7", "Booth PlayMap"), "10.0.0.21", T0, "desk01", NodeCredential.Operator).Status == 200,
+              "choices: an open context and one the operator's credential proves are held");
+        var told = ShowNetwork.Summaries(
+            new[] { new HeardNode("messenger", "pl3", "Spoofed", "10.0.0.22", 1), new HeardNode("messenger", "pat1", "Spoofed FOH", "10.0.0.23", 1) },
+            peers.Held(T0), new[] { Fact("playmap", "pl3", NodeProof.Operator, null, "", address: "10.0.0.24") }, "desk01", T0);
+        NetworkRow Told(string id) => told.Rows.Single(r => r.Peer.Id == id);
+        Check(KeyBindingWords.CredentialKind(Told("ag5")) == "" && Told("ag5").Peer.Kind == "messenger"
+              && KeyBindingWords.CredentialKind(Told("pm7")) == "playmap"
+              && KeyBindingWords.CredentialKind(Told("pl3")) == "playmap" && Told("pl3").Peer.Kind == "messenger"
+              && KeyBindingWords.CredentialKind(Told("pat1")) == "" && Told("pat1").Peer.Kind == "messenger"
+              && KeyBindingWords.CredentialKind(view.Rows.Single(r => r.Peer.Id == "ag1")) == "",
+              "choices: a row's credentialed kind is its proven context's or its proven link's, never an unverified context's nor a hello's");
+        Check(KeyBindingWords.KindFor(KeyBindingWords.CredentialKind(Told("ag5")), "ag5", nodes) == ""
+              && KeyBindingWords.KindFor(KeyBindingWords.CredentialKind(Told("pl3")), "pl3", nodes) == "playmap"
+              && KeyBindingWords.KindFor(KeyBindingWords.CredentialKind(Told("pat1")), "pat1", nodes) == "patterns"
+              && KeyBindingWords.KindFor("messenger", "pat2", nodes) == "patterns" && KeyBindingWords.KindFor("", "ag9", nodes) == "messenger"
+              && KeyBindingWords.KindFor("", "nobody", nodes) == "",
+              "choices: a key is let speak with the node's own keyed words, else the holding key's kind, else its row's credential, else none (its first keyed words name it)");
+        var forA = KeyBindingWords.NodeChoices("kA", nodes, told, Array.Empty<NodeRefusal>(), "desk01", Names, T0);
+        Check(forA.SingleOrDefault(c => c.Id == "ag5") is { Kind: "", Label: "Claimed — node ag5 · no key of its own yet" }
+              && forA.SingleOrDefault(c => c.Id == "pat1") is { Kind: "patterns" } && forA.SingleOrDefault(c => c.Id == "pl3") is { Kind: "playmap" },
+              $"choices: Settings offers a node an unverified context names with no kind, and a spoofed hello never names a held node's kind ({string.Join(" | ", forA.Select(c => c.Kind + ":" + c.Id))})");
     }
 
     static NodeLinkFact Fact(string kind, string? id, NodeProof verified, string? keyId, string keyName, string? words = null, int links = 1, string address = "10.0.0.5", int at = 0)

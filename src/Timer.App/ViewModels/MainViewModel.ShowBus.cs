@@ -37,6 +37,12 @@ public sealed partial class PeerRow : ObservableObject
     public bool RefusalOnly { get; set; }
     /// <summary>A link on /ws that proves no node id (a key two installs share, a key that names no id): the desk's own row, never in the context.</summary>
     public bool Apart { get; set; }
+    /// <summary>
+    /// The kind a credential named for this node (<see cref="KeyBindingWords.CredentialKind"/>, an apart link's, a keyed
+    /// refusal's); "" when only a hello or an unverified context names it. What "Let a key speak for this node…" may save
+    /// on the key, unlike <see cref="NodeKind"/>, which shows whatever named it.
+    /// </summary>
+    public string CredentialKind { get; set; } = "";
 }
 
 // Show Bus 1.1 (docs/SHOWBUS.md): this Stagewatch's context for other apps and their AI, and what it hears from them —
@@ -146,6 +152,7 @@ public sealed partial class MainViewModel
             row.Apart = false;
             row.Name = p.Name;
             row.NodeKind = p.Kind;
+            row.CredentialKind = KeyBindingWords.CredentialKind(r);
             row.Kind = AppName(p.Kind);
             row.Light = p.Liveness == "gone" ? Light.Grey : p.Light;
             row.Headline = p.Liveness == "live" ? p.Headline : $"not heard for {p.AgeSeconds:0} s — " + p.Headline;
@@ -165,6 +172,7 @@ public sealed partial class MainViewModel
             row.RefusalOnly = false;
             row.Apart = true;
             row.NodeKind = a.Kind;
+            row.CredentialKind = a.Kind;   // a node link on /ws came with a node key in force or the operator's credential
             row.Kind = AppName(a.Kind);
             row.Name = a.Name;
             row.Light = Light.Grey;
@@ -188,6 +196,7 @@ public sealed partial class MainViewModel
                 row.Kind = AppName(r.Kind);
             }
             if (!named) row.Name = $"{AppName(row.NodeKind)} {row.Id}";
+            row.CredentialKind = r.Kind;   // what the refused keyed request named
             row.RefusalOnly = true;
             row.Apart = false;
             row.Light = Light.Grey;
@@ -213,6 +222,42 @@ public sealed partial class MainViewModel
 
     /// <summary>A key's name by its id, or null once it is gone.</summary>
     private string? ApiKeyName(string keyId) => _apiKeys.FirstOrDefault(k => k.Id == keyId)?.Name;
+
+    /// <summary>
+    /// A key came to speak for a node, on whichever thread it happened (a node's first proven use on a request or a link,
+    /// its kind first named, or the operator's choice): the show thread saves what the bindings hold and journals the change.
+    /// </summary>
+    private void OnNodeBound(NodeBound bound) => _ui.BeginInvoke(() =>
+    {
+        if (_disposed) return;
+        SaveBindings();
+        _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, KeyBindingWords.JournalLine(bound, ApiKeyName));
+    });
+
+    /// <summary>
+    /// Show thread: the keys as saved follow the bindings (<see cref="NodeBindings.SaveTo"/>), so a restart puts back the
+    /// pairs as they are now and never one the operator moved. Writes only when the saved keys are behind.
+    /// </summary>
+    private void SaveBindings()
+    {
+        if (!_nodes.Unsaved(Settings.Remote.ApiKeys)) return;
+        _store.Update(s => _nodes.SaveTo(s.Remote.ApiKeys));
+        CopyApiKeys();
+    }
+
+    /// <summary>The node keys "Let a key speak for this node…" offers for a Show network row's node (<see cref="KeyBindingWords.KeyChoices"/>).</summary>
+    public IReadOnlyList<KeyChoice> KeyChoicesFor(PeerRow row) => KeyBindingWords.KeyChoices(row.NodeId, _apiKeys, _nodes, DateTime.UtcNow);
+
+    /// <summary>
+    /// "Let a key speak for this node…" on a Show network row: the chosen node key speaks for the row's node from now on,
+    /// bound with a kind a credential named (<see cref="KeyBindingWords.KindFor"/>: never a hello's word nor an unverified
+    /// context's, else none and the node's own first keyed words name it), through the same <see cref="RebindApiKey"/> as Settings.
+    /// </summary>
+    public (bool Ok, string Words) LetKeySpeakForPeer(PeerRow row, string keyId)
+    {
+        if (row.NodeId.Length == 0) return (false, StatusLine = "Not changed: that row names no node id.");
+        return RebindApiKey(keyId, KeyBindingWords.KindFor(row.CredentialKind, row.NodeId, _nodes), row.NodeId);
+    }
 
     /// <summary>Each (key, node) refusal once this session: the key's name and both nodes, never a secret.</summary>
     private void JournalRefusals(IEnumerable<NodeRefusal> refusals)

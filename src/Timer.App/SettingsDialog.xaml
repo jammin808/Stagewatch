@@ -294,14 +294,26 @@
                         <TextBlock Text="API keys — for scripts, dashboards and AI agents, so you needn't share the PIN" Opacity="0.7" Margin="0,0,0,4" TextWrapping="Wrap" />
                         <Grid Margin="0,0,0,4">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                            <ListBox x:Name="ApiKeyList" Height="84" DisplayMemberPath="Label" />
+                            <!-- The buttons and the right-click menu offer the same actions, enabled by the same rule (SyncKeyActions). -->
+                            <ListBox x:Name="ApiKeyList" Height="110" DisplayMemberPath="Label" SelectionChanged="OnApiKeySelected">
+                                <ListBox.ContextMenu>
+                                    <ContextMenu Opened="OnApiKeyMenuOpened">
+                                        <MenuItem Header="New key…" Click="OnNewApiKey" Tag="new" />
+                                        <MenuItem Header="Let it speak for…" Click="OnLetKeySpeak" Tag="speak" />
+                                        <MenuItem Header="Revoke" Click="OnRevokeApiKey" Tag="revoke" />
+                                    </ContextMenu>
+                                </ListBox.ContextMenu>
+                            </ListBox>
                             <StackPanel Grid.Column="1" Margin="8,0,0,0">
                                 <Button Content="New key…" Click="OnNewApiKey" Margin="0,0,0,4" />
-                                <Button Content="Revoke" Click="OnRevokeApiKey" />
+                                <Button x:Name="ApiKeySpeakButton" Content="Let it speak for…" Click="OnLetKeySpeak" Margin="0,0,0,4" IsEnabled="False"
+                                        ToolTip="A node key speaks for one show app (its node id): choose which. The app it spoke for, and any key that spoke for the chosen one, speak for nothing until given a key." />
+                                <Button x:Name="ApiKeyRevokeButton" Content="Revoke" Click="OnRevokeApiKey" IsEnabled="False" />
                             </StackPanel>
                         </Grid>
+                        <TextBlock x:Name="ApiKeyNote" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,4" Visibility="Collapsed" />
                         <TextBlock Opacity="0.5" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,12"
-                                   Text="Send a key as  Authorization: Bearer swk_…  (or ?pin=swk_…). Read keys see the operator's state, reports and screens; control keys also run /api commands; MCP keys also reach /mcp. 600 requests a minute each — replies carry X-RateLimit-Remaining. Revoking works at once." />
+                                   Text="Send a key as  Authorization: Bearer swk_…  (or ?pin=swk_…). Read keys see the operator's state, reports and screens; control keys also run /api commands; MCP keys also reach /mcp; a node key is another show app's, and speaks for one app: the first that uses it, or the one you choose with Let it speak for…. 600 requests a minute each — replies carry X-RateLimit-Remaining. Revoking works at once, on links already open too." />
                         <TextBlock Text="Custom CSS for browser screens" Opacity="0.7" Margin="0,0,0,4" />
                         <TextBox x:Name="CustomCss" AcceptsReturn="True" AcceptsTab="True" Height="110" FontFamily="Consolas" FontSize="12"
                                  VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto"

@@ -50,18 +50,94 @@ public partial class SettingsDialog : Window
 
     private sealed record SoundRow(string Id, string Label);
 
-    /// <summary>API keys change at once (revoking must not wait for Save): the dialog uses these hooks.</summary>
-    public sealed record KeyHooks(Func<string, ApiKeyScope, string?> Create, Action<string> Revoke, Func<string, DateTime?> LastUsed);
-    public KeyHooks? Keys { get; init; }
+    /// <summary>
+    /// API keys change at once (revoking must not wait for Save): the dialog uses these hooks. <see cref="Binding"/> says
+    /// which node a node key speaks for, <see cref="Choices"/> offers the nodes a key may speak for, and <see cref="Rebind"/>
+    /// lets it speak for one (the same rebind as a Show network row's "Let a key speak for this node…").
+    /// </summary>
+    public sealed record KeyHooks(Func<string, ApiKeyScope, string?> Create, Action<string> Revoke, Func<string, DateTime?> LastUsed,
+        Func<string, string>? Binding = null, Func<string, IReadOnlyList<NodeChoice>>? Choices = null,
+        Func<string, string, string, (bool Ok, string Words)>? Rebind = null);
 
-    private sealed record KeyRow(string Id, string Label);
+    private readonly KeyHooks? _keys;
+
+    /// <summary>Set after the dialog is built: the key list is drawn again with what the hooks know (last use, which node each speaks for).</summary>
+    public KeyHooks? Keys
+    {
+        get => _keys;
+        init { _keys = value; RefreshApiKeys(); }
+    }
+
+    private sealed record KeyRow(string Id, string Name, string Label, bool IsNode);
 
     private void RefreshApiKeys()
-        => ApiKeyList.ItemsSource = _store.Settings.Remote.ApiKeys.Select(k =>
+    {
+        var selected = (ApiKeyList.SelectedItem as KeyRow)?.Id;
+        var rows = _store.Settings.Remote.ApiKeys.Select(k =>
         {
-            var used = Keys?.LastUsed(k.Id) is { } t ? "used " + t.ToLocalTime().ToString("HH:mm") : "not used yet";
-            return new KeyRow(k.Id, $"{k.Name}  ·  {ApiKeys.Describe(k.Scope)}  ·  …{k.Hint}  ·  {used}");
+            var used = Keys?.LastUsed(k.Id) is { } t ? "used " + t.ToLocalTime().ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture) : "not used yet";
+            var speaks = Keys?.Binding?.Invoke(k.Id) is { Length: > 0 } line ? "  ·  " + line : "";
+            return new KeyRow(k.Id, k.Name, $"{k.Name}  ·  {ApiKeys.Describe(k.Scope)}  ·  …{k.Hint}  ·  {used}{speaks}", k.Scope == ApiKeyScope.Node);
         }).ToList();
+        ApiKeyList.ItemsSource = rows;
+        ApiKeyList.SelectedItem = rows.FirstOrDefault(r => r.Id == selected);
+        SyncKeyActions();
+    }
+
+    /// <summary>The key buttons and the list's right-click menu are enabled together, by the same rule.</summary>
+    private void SyncKeyActions()
+    {
+        var row = ApiKeyList.SelectedItem as KeyRow;
+        var canSpeak = row is { IsNode: true } && Keys?.Rebind is not null;
+        ApiKeySpeakButton.IsEnabled = canSpeak;
+        ApiKeyRevokeButton.IsEnabled = row is not null && Keys is not null;
+        if (ApiKeyList.ContextMenu is { } menu)
+            foreach (var item in menu.Items.OfType<MenuItem>())
+                item.IsEnabled = item.Tag switch { "speak" => canSpeak, "revoke" => row is not null && Keys is not null, _ => Keys is not null };
+    }
+
+    private void OnApiKeySelected(object sender, SelectionChangedEventArgs e) => SyncKeyActions();
+
+    private void OnApiKeyMenuOpened(object sender, RoutedEventArgs e) => SyncKeyActions();
+
+    /// <summary>
+    /// Let the selected node key speak for a node: one it was refused for, one heard on the show network, or a typed id.
+    /// The node moves off any key that spoke for it; the pair is saved and journalled at once.
+    /// </summary>
+    private void OnLetKeySpeak(object sender, RoutedEventArgs e)
+    {
+        if (ApiKeyList.SelectedItem is not KeyRow { IsNode: true } r || Keys?.Rebind is not { } rebind) return;
+        var choices = Keys.Choices?.Invoke(r.Id) ?? Array.Empty<NodeChoice>();
+        var now = Keys.Binding?.Invoke(r.Id) is { Length: > 0 } line ? $"Now: {line}. " : "";
+        var panel = new StackPanel { Margin = new Thickness(20), MaxWidth = 520 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"Which node may key '{r.Name}' speak for? {now}From then on that node's context, proposals and results are taken only with this key. " +
+                   "The node this key speaks for now, and any key that spoke for the one you choose, are left with no key.",
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+        });
+        var list = new ListBox { MaxHeight = 200, Margin = new Thickness(0, 0, 0, 8) };
+        foreach (var c in choices) list.Items.Add(new ListBoxItem { Content = c.Label, Tag = c });
+        if (list.Items.Count > 0) { list.SelectedIndex = 0; panel.Children.Add(list); }
+        else panel.Children.Add(new TextBlock { Text = "No node heard or refused yet.", Opacity = 0.6, Margin = new Thickness(0, 0, 0, 8) });
+        panel.Children.Add(new TextBlock { Text = "…or type its node id, and its kind if you know it (else its first request names it):", Opacity = 0.7, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) });
+        var typedId = new TextBox { Width = 220, MaxLength = 40, Margin = new Thickness(0, 0, 8, 0) };
+        var typedKind = new ComboBox { Width = 140, IsEditable = true };
+        foreach (var k in new[] { "", "patterns", "playmap", "messenger", "main" }) typedKind.Items.Add(k);
+        var typed = new StackPanel { Orientation = Orientation.Horizontal };
+        typed.Children.Add(typedId);
+        typed.Children.Add(typedKind);
+        panel.Children.Add(typed);
+        if (!AskDialog(panel, "Let it speak for…", "Let it speak")) return;
+        string id, kind;
+        if (typedId.Text.Trim().Length > 0) { id = typedId.Text.Trim(); kind = typedKind.Text.Trim().ToLowerInvariant(); }
+        else if (list.SelectedItem is ListBoxItem { Tag: NodeChoice chosen }) { id = chosen.Id; kind = chosen.Kind; }
+        else return;
+        var (_, words) = rebind(r.Id, kind, id);
+        ApiKeyNote.Text = words;
+        ApiKeyNote.Visibility = Visibility.Visible;
+        RefreshApiKeys();
+    }
 
     private void OnNewApiKey(object sender, RoutedEventArgs e)
     {

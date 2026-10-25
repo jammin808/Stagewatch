@@ -194,6 +194,36 @@ public static class Program
                            && vm.ShowNetworkLine.Contains("· 2 unverified on /ws", StringComparison.Ordinal) && vm.ContextJson() is { } apartCtx
                            && PeerIds(apartCtx) is var peerIds && peerIds.Contains("9f8e7d6c") && !peerIds.Contains("9f8e7d6d") && !peerIds.Any(id => id.StartsWith("key:", StringComparison.Ordinal)),
                            $"a node key that names no id is a row of its own with no node id to copy; the headline counts both, and the context lists neither ({vm.ShowNetworkLine})");
+
+                    // The bindings are kept: Patterns' first use is saved on its key and journalled; Settings' row says what it
+                    // speaks for and what it was refused for. Letting the old key speak for the second install (the row's
+                    // right-click, the same rebind as Settings) saves both, journals the operator's choice, and the row's
+                    // right-click offers what the buttons do.
+                    var patSaved = vm.Settings.Remote.ApiKeys.SingleOrDefault(k => k.Id == patKey);
+                    Expect(patSaved is { Node: "9f8e7d6c", NodeKind: "patterns" } && vm.ContextJson() is { } boundCtx
+                           && RecentLines(boundCtx).Any(l => l.EndsWith("API key 'Patterns FOH' now speaks for patterns 9f8e7d6c (first use)", StringComparison.Ordinal)),
+                           $"a key's first use is saved on the key (a restart keeps it) and journalled ({patSaved?.Node} {patSaved?.NodeKind})");
+                    Expect(vm.ApiKeyBindingLine(patKey).StartsWith("speaks for patterns 9f8e7d6c · refused for patterns 9f8e7d6d ", StringComparison.Ordinal),
+                           $"Settings: the key's row says what it speaks for and what it was refused for ({vm.ApiKeyBindingLine(patKey)})");
+                    var oldKey = vm.ApiKeys.SingleOrDefault(k => k.Name == "Old AGMessage")?.Id ?? "";
+                    var menu = twinRow is null ? new List<string>() : main.ActionsFor("show-network", new Border { DataContext = twinRow }).OfType<MenuItem>().Select(m => m.Header as string ?? "").ToList();
+                    Expect(menu.SequenceEqual(new[] { "Copy node id", "Make a key for Patterns", "Let a key speak for this node…", "Revoke its key…" }),
+                           $"the row's right-click offers its button's action and the rebind ({string.Join(", ", menu)})");
+                    var keyChoices = twinRow is null ? Array.Empty<KeyChoice>() : vm.KeyChoicesFor(twinRow);
+                    Expect(keyChoices.Count == 2 && keyChoices[0].KeyId == patKey && keyChoices[0].Label.Contains("refused for this node", StringComparison.Ordinal)
+                           && keyChoices[0].Label.EndsWith("speaks for patterns 9f8e7d6c now, and would stop", StringComparison.Ordinal)
+                           && keyChoices[1].KeyId == oldKey && keyChoices[1].Label.EndsWith("speaks for no node yet", StringComparison.Ordinal),
+                           $"Let a key speak for this node… lists the key refused for it first, saying what each speaks for now ({string.Join(" | ", keyChoices.Select(c => c.Label))})");
+                    var (rebound, rebindWords) = twinRow is null ? (false, "") : vm.LetKeySpeakForPeer(twinRow, oldKey);
+                    Pump(1600);
+                    var oldSaved = vm.Settings.Remote.ApiKeys.SingleOrDefault(k => k.Id == oldKey);
+                    Expect(rebound && rebindWords == "API key 'Old AGMessage' now speaks for patterns 9f8e7d6d (the operator's choice; it spoke for no node)"
+                           && oldSaved is { Node: "9f8e7d6d", NodeKind: "patterns" } && vm.ApiKeyBindingLine(oldKey) == "speaks for patterns 9f8e7d6d"
+                           && vm.ContextJson() is { } reboundCtx && RecentLines(reboundCtx).Any(l => l.EndsWith(rebindWords, StringComparison.Ordinal)),
+                           $"the operator's choice is saved and journalled ({rebindWords})");
+                    Expect(vm.RebindApiKey(oldKey, "patterns", "9f8e7d6d") is (false, var same) && same.StartsWith("Not changed: it already speaks for patterns 9f8e7d6d", StringComparison.Ordinal)
+                           && vm.ApiKeyNodeChoices(patKey).FirstOrDefault()?.Id == "9f8e7d6d",
+                           "a rebind that changes nothing is refused with the reason; Settings offers the node a key was refused for first");
                     tabs.SelectedItem = (TabItem)w.FindName("TabProducer");
                     Pump(400);
                     Save(w, "producer-show-network");
@@ -397,7 +427,62 @@ public static class Program
                 case "copilot": Shot(new CopilotWindow(vm2), "copilot"); break;
                 case "slides-agent": Shot(new SlidesAgentWindow(), "slides-agent"); break;
                 case "rundown-editor": Shot(new RundownEditor(store, _ => Task.FromResult(new Stagewatch.Integrations.AgendaDraft(Array.Empty<Stagewatch.Integrations.AgendaDraftItem>(), Array.Empty<string>()))), "rundown-editor"); break;
-                case "settings": Shot(new SettingsDialog(store, license, null, vm2.IntegrationStatus, vm2.PresenterPcs), "settings"); break;
+                case "settings":
+                {
+                    // Settings on the view model's own key hooks (as the desk opens it): a node key's row says what it speaks
+                    // for, a typed id that is this Stagewatch's own is refused, and Remote's key buttons and the list's
+                    // right-click menu are enabled together for a node key, a read key and nothing.
+                    var nodeSecret = vm2.CreateApiKey("Patterns FOH", ApiKeyScope.Node);
+                    var readSecret = vm2.CreateApiKey("Dashboard", ApiKeyScope.Read);
+                    var nodeKey = vm2.ApiKeys.SingleOrDefault(k => k.Name == "Patterns FOH")?.Id ?? "";
+                    var readKey = vm2.ApiKeys.SingleOrDefault(k => k.Name == "Dashboard")?.Id ?? "";
+                    var patJson = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"Patterns FOH\"},\"light\":\"green\",\"headline\":\"14 things\"}";
+                    Expect(nodeSecret is not null && readSecret is not null && vm2.AcceptPeerContext(patJson, "10.0.0.5", NodeCredential.Key(nodeKey)) is (200, null, NodeProof.Key),
+                           "settings: Patterns posts with a node key of its own, and its first use binds the key");
+                    Pump(600);
+                    var own = vm2.Settings.NodeId;
+                    Expect(vm2.RebindApiKey(nodeKey, "", own) is (false, var ownWords) && ownWords == $"Not changed: {own} is this Stagewatch's own id."
+                           && vm2.ApiKeyBindingLine(nodeKey) == "speaks for patterns 9f8e7d6c" && vm2.ApiKeyNodeChoices(nodeKey).All(c => c.Id != own),
+                           "settings: this Stagewatch's own id, typed, is refused with the reason and never offered; the key keeps its node");
+                    var dlg = new SettingsDialog(store, license, null, vm2.IntegrationStatus, vm2.PresenterPcs)
+                    {
+                        Keys = new SettingsDialog.KeyHooks(vm2.CreateApiKey, vm2.RevokeApiKey, vm2.ApiKeyLastUsed, vm2.ApiKeyBindingLine, vm2.ApiKeyNodeChoices, vm2.RebindApiKey),
+                    };
+                    Shot(dlg, "settings", w =>
+                    {
+                        var tabs = (TabControl)w.FindName("Tabs");
+                        var first = tabs.SelectedIndex;
+                        tabs.SelectedItem = tabs.Items.OfType<TabItem>().FirstOrDefault(t => t.Header as string == "Remote");
+                        Pump(300);
+                        var list = (ListBox)w.FindName("ApiKeyList");
+                        var speak = (Button)w.FindName("ApiKeySpeakButton");
+                        var revoke = (Button)w.FindName("ApiKeyRevokeButton");
+                        var menu = list.ContextMenu?.Items.OfType<MenuItem>().ToDictionary(m => m.Tag as string ?? "", m => m) ?? new Dictionary<string, MenuItem>();
+                        object? RowOf(string id) => list.Items.Cast<object>().FirstOrDefault(r => r.GetType().GetProperty("Id")?.GetValue(r) as string == id);
+                        static string LabelOf(object? row) => row?.GetType().GetProperty("Label")?.GetValue(row) as string ?? "";
+                        bool InStep(bool speakOn, bool revokeOn)
+                            => menu.TryGetValue("speak", out var sp) && menu.TryGetValue("revoke", out var rv) && menu.TryGetValue("new", out var nw) && nw.IsEnabled
+                               && speak.IsEnabled == speakOn && sp.IsEnabled == speakOn && revoke.IsEnabled == revokeOn && rv.IsEnabled == revokeOn
+                               && sp.Header as string == speak.Content as string && rv.Header as string == revoke.Content as string;
+                        string State() => $"buttons {speak.IsEnabled}/{revoke.IsEnabled}, menu {string.Join("/", menu.Select(m => m.Key + "=" + m.Value.IsEnabled))}";
+                        var nodeRow = RowOf(nodeKey);
+                        Expect(LabelOf(nodeRow).Contains("speaks for patterns 9f8e7d6c", StringComparison.Ordinal) && !LabelOf(RowOf(readKey)).Contains("speaks for", StringComparison.Ordinal),
+                               $"settings: the node key's row says what it speaks for, a read key's says nothing of a node ({LabelOf(nodeRow)})");
+                        list.SelectedItem = nodeRow;
+                        Pump(100);
+                        Expect(InStep(speakOn: true, revokeOn: true), $"settings: a node key — Let it speak for… and Revoke on, the buttons and the right-click alike ({State()})");
+                        list.SelectedItem = RowOf(readKey);
+                        Pump(100);
+                        Expect(InStep(speakOn: false, revokeOn: true), $"settings: a read key — Revoke on, Let it speak for… off, the buttons and the right-click alike ({State()})");
+                        list.SelectedItem = null;
+                        Pump(100);
+                        Expect(InStep(speakOn: false, revokeOn: false), $"settings: nothing selected — both off, the buttons and the right-click alike ({State()})");
+                        list.SelectedItem = nodeRow;
+                        Save(w, "settings-remote-keys");
+                        tabs.SelectedIndex = first;
+                    });
+                    break;
+                }
             }
             vm2.Dispose();
             Console.WriteLine(failures == 0 ? "ALL OK" : $"{failures} FAILED");
@@ -471,6 +556,13 @@ public static class Program
     {
         using var doc = JsonDocument.Parse(contextJson);
         return doc.RootElement.GetProperty("peers").EnumerateArray().Select(p => p.GetProperty("id").GetString() ?? "").ToList();
+    }
+
+    /// <summary>A context's recent journal lines (Show Bus §6), as text.</summary>
+    private static List<string> RecentLines(string contextJson)
+    {
+        using var doc = JsonDocument.Parse(contextJson);
+        return doc.RootElement.GetProperty("recent").EnumerateArray().Select(r => r.GetProperty("text").GetString() ?? "").ToList();
     }
 
     /// <summary>Pumps the dispatcher until <paramref name="task"/> ends or <paramref name="ms"/> pass; true when it ran to completion.</summary>
