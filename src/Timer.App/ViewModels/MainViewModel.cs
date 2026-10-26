@@ -950,12 +950,16 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         if (!allowed) { RemoteLine = ""; return; }
 
         var problems = new List<string>();
+        string? noCertificate = null;
         if (r.WebEnabled)
         {
             var web = new WebServer(this, () => _store.Snapshot.Remote.Pin);   // web threads read the snapshot, never the live settings
             web.CommandRejected += m => _ui.BeginInvoke(() => StatusLine = m);
             if (r.Https) web.Certificate = Certificate;
             web.RequireHttps = r.Https && r.RequireHttps && web.Certificate is not null;
+            // HTTPS asked for and no certificate: said at every start of the server, never a quiet plain HTTP.
+            if (r.Https && web.Certificate is null)
+                noCertificate = "Remote: " + (r.RequireHttps ? "Require HTTPS is not in force. " : "") + (_certificateProblem ?? "No certificate this run: HTTPS is off");
             try { web.Start(r.WebPort, r.WebBindAll); _web = web; Windowing.Web = web; }
             catch (Exception ex) when (ex is SocketException or ArgumentOutOfRangeException) { problems.Add($"web port {r.WebPort} is unavailable"); }
         }
@@ -966,7 +970,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             try { osc.Start(r.OscPort, r.OscBindAll, r.OscFeedbackHost, r.OscFeedbackPort); _osc = osc; }
             catch (Exception ex) when (ex is SocketException or ArgumentOutOfRangeException) { problems.Add($"OSC port {r.OscPort} is unavailable"); osc.Dispose(); }
         }
-        if (problems.Count > 0) StatusLine = "Remote: " + string.Join(", ", problems) + " — change it in Settings → Remote";
+        if (problems.Count > 0) StatusLine = "Remote: " + string.Join(", ", problems) + " — change it in Settings → Remote" + (noCertificate is null ? "" : ". " + noCertificate);
+        else if (noCertificate is not null) StatusLine = noCertificate;
         UpdateRemoteLine();
     }
 
@@ -974,18 +979,40 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     {
         if (_web is null) { RemoteLine = _osc is null ? "" : $"OSC :{_osc.Port}"; return; }
         var host = Settings.Remote.WebBindAll ? LanAddresses().FirstOrDefault() ?? "localhost" : "localhost";
-        RemoteLine = $"Remote: {(_web.RequireHttps ? "https" : "http")}://{host}:{_web.Port}" + (_osc is null ? "" : $"  ·  OSC :{_osc.Port}");
+        RemoteLine = $"Remote: {(_web.RequireHttps ? "https" : "http")}://{host}:{_web.Port}"
+                     + (Settings.Remote.Https && _web.Certificate is null ? " (HTTPS off: no certificate)" : "") + (_osc is null ? "" : $"  ·  OSC :{_osc.Port}");
     }
 
     private System.Security.Cryptography.X509Certificates.X509Certificate2? _certificate;
     private bool _certificateTried;
+    /// <summary>What this run's certificate read said (a replacement or a problem), journalled; null when it said nothing.</summary>
+    private JournalEntry? _certificateNote;
+    /// <summary>What went wrong at this run's certificate read (always said when there is no certificate); null when nothing did.</summary>
+    private string? _certificateProblem;
 
-    /// <summary>This install's certificate, made on first use (null if it couldn't be — the web stays plain HTTP).</summary>
+    /// <summary>
+    /// This install's certificate, read or made once per run on its first use (null if it couldn't be — the web stays plain HTTP).
+    /// Show thread. Whatever that read has to say — a kept certificate replaced, which every app and presenter PC that pinned the old
+    /// one sees as CERTIFICATE CHANGED until its operator accepts the new one, or why there is none or it was kept — is journalled and
+    /// put on the status line, and goes again into a show journal resumed after it (<see cref="OpenJournal"/>).
+    /// </summary>
     public System.Security.Cryptography.X509Certificates.X509Certificate2? Certificate
     {
         get
         {
-            if (!_certificateTried) { _certificateTried = true; _certificate = NodeCertificate.LoadOrCreate(Settings.Integrations.RoomName); }
+            if (!_certificateTried)
+            {
+                _certificateTried = true;
+                var read = NodeCertificate.LoadOrCreate(Settings.Integrations.RoomName);
+                _certificate = read.Certificate;
+                _certificateProblem = read.Problem;
+                if (read.Note is { } note)
+                {
+                    _certificateNote = new JournalEntry(DateTime.UtcNow, JournalKind.Note, -1, note);
+                    _journal.Add(_certificateNote);
+                }
+                if (read.Line is { } line) StatusLine = line;
+            }
             return _certificate;
         }
     }

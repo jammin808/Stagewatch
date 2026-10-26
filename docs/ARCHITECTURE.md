@@ -100,7 +100,12 @@ department notes, undo (one history per running order) and session checkpoints. 
   JSON once a second; `PeerContexts` (Core) holds what peers post; the Producer's Show network, the advice and every AI
   brief read them. `ClockOffsetEstimator` (Core) does the NTP-style offset.
 - **TLS and the approval desk (Show Bus 1.2).** `WebServer` peeks the first byte of each connection: 0x16 → `SslStream`
-  with `NodeCertificate` (App; DPAPI-protected PKCS#12 in `%APPDATA%\Stagewatch\tls`), anything else plain HTTP.
+  with `NodeCertificate` (App; DPAPI-protected PKCS#12 in `%APPDATA%\Stagewatch\tls`), anything else plain HTTP. How
+  long it lives is `CertificateLife` (Remote, pure): 825 days in all, a day's backdating included, and replaced at a start
+  when fewer than 30 days remain or its span is longer. `CertificateFiles` (Remote; NodeCertificate gives it only DPAPI and
+  the making) keeps, replaces or makes it: a replacement is saved before it serves, one atomic swap of the PKCS#12 under
+  the stored password, and every outcome is a `CertificateRead` the desk journals and puts on the status line — a
+  replacement is a new fingerprint every pinned peer sees as CERTIFICATE CHANGED once.
   `TlsPins` (Core) is the pin store for outgoing TLS (Slides agent). `ProposalDesk` (Core, pure, thread-safe) is the
   shared approval queue; `MainViewModel.Desk.cs` mirrors it into the Copilot list (`CopilotProposal.SharedId`), runs
   desk-targeted lines through `RunWithReceipt`, and journals every decision. Node keys are bound one-to-one to node ids.

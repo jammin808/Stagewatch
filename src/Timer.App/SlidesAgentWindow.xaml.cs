@@ -215,7 +215,10 @@ public partial class SlidesAgentWindow : Window
         public event PropertyChangedEventHandler? PropertyChanged;
     }
 
-    /// <summary>After a Stagewatch was reinstalled: trust the certificate it presents now (check its fingerprint first).</summary>
+    /// <summary>
+    /// After a Stagewatch made a new certificate (reinstalled, or replaced at a start): trust the one its row names, once the operator
+    /// has matched the row's 8 hex with that Stagewatch's Settings → Remote.
+    /// </summary>
     private void OnTrustCertificate(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.Tag is TargetRow row) _agent.TrustNewCertificate(row.ToTarget());

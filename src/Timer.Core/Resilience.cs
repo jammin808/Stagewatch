@@ -13,26 +13,34 @@ public static class AtomicFile
     /// <summary>Write <paramref name="text"/> to <paramref name="path"/>. With <paramref name="isWhole"/>, the old file
     /// is kept as <c>path.bak</c> when it passes. Throws <see cref="IOException"/> / <see cref="UnauthorizedAccessException"/>.</summary>
     public static void Write(string path, string text, Func<string, bool>? isWhole = null)
+        => Commit(path, new UTF8Encoding(false).GetBytes(text), isWhole is null ? null : () =>
+        {
+            if (!File.Exists(path)) return;
+            try
+            {
+                var old = File.ReadAllText(path);
+                if (old.Length > 0 && old != text && isWhole(old)) File.Copy(path, path + ".bak", overwrite: true);
+            }
+            catch (IOException) { }   // the backup is a bonus; the write must still happen
+        });
+
+    /// <summary>Write <paramref name="bytes"/> to <paramref name="path"/>: the old file or the new one, never half of one, and no
+    /// backup. Throws <see cref="IOException"/> / <see cref="UnauthorizedAccessException"/>.</summary>
+    public static void Write(string path, byte[] bytes) => Commit(path, bytes, null);
+
+    /// <summary>The bytes go to a temporary file flushed to the disk, <paramref name="beforeSwap"/> runs, then the file is swapped in.</summary>
+    private static void Commit(string path, byte[] bytes, Action? beforeSwap)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         var tmp = $"{path}.{Environment.CurrentManagedThreadId}.{Guid.NewGuid():N}.tmp";
         try
         {
-            var bytes = new UTF8Encoding(false).GetBytes(text);
             using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
             {
                 fs.Write(bytes, 0, bytes.Length);
                 fs.Flush(flushToDisk: true);
             }
-            if (isWhole is not null && File.Exists(path))
-            {
-                try
-                {
-                    var old = File.ReadAllText(path);
-                    if (old.Length > 0 && old != text && isWhole(old)) File.Copy(path, path + ".bak", overwrite: true);
-                }
-                catch (IOException) { }   // the backup is a bonus; the write must still happen
-            }
+            beforeSwap?.Invoke();
             // Antivirus and backup tools sometimes hold the file for a moment: a few short retries.
             for (var attempt = 0; ; attempt++)
             {

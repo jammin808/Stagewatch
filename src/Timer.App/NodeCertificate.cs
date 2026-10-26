@@ -4,14 +4,17 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using Stagewatch.Remote;
 
 namespace Stagewatch.App;
 
 /// <summary>
-/// This install's TLS certificate (Show Bus §10): self-signed, ECDSA P-256, 825 days (Apple devices refuse longer), made on
-/// first use — and again 30 days before it ends — and kept
-/// beside the settings as a PKCS#12 file whose random password is protected for this Windows user (DPAPI). Never copied
-/// between machines; its fingerprint is what other apps pin and what a screen checks before trusting it.
+/// This install's TLS certificate (Show Bus §10): self-signed, ECDSA P-256, living as <see cref="CertificateLife"/> says — 825
+/// days in all, a day's backdating included (Apple devices refuse longer) — made on first use and again at a start when
+/// <see cref="CertificateLife.NeedsRenewal"/> says so (fewer than 30 days left, or a span longer than 825 days). It is kept
+/// beside the settings by <see cref="CertificateFiles"/> as a PKCS#12 file whose random password is sealed for this Windows user
+/// (DPAPI); this class gives it only the seal and the making. Never copied between machines; its fingerprint is what other apps pin
+/// and what a screen checks before trusting it, so each new one is a CERTIFICATE CHANGED for every peer that pinned the one before.
 /// </summary>
 public static class NodeCertificate
 {
@@ -19,37 +22,18 @@ public static class NodeCertificate
 
     public static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Stagewatch", "tls");
 
-    /// <summary>The certificate (made now if there isn't one), or null when it can't be made or read — the server then stays HTTP only.</summary>
-    public static X509Certificate2? LoadOrCreate(string name, string? folder = null)
-    {
-        folder ??= Folder;
-        var pfxPath = Path.Combine(folder, "node.pfx");
-        var keyPath = Path.Combine(folder, "node.key");
-        try
-        {
-            if (File.Exists(pfxPath) && File.Exists(keyPath))
-            {
-                var password = System.Text.Encoding.UTF8.GetString(ProtectedData.Unprotect(File.ReadAllBytes(keyPath), Entropy, DataProtectionScope.CurrentUser));
-                var loaded = X509CertificateLoader.LoadPkcs12(File.ReadAllBytes(pfxPath), password, X509KeyStorageFlags.UserKeySet);
-                if (loaded.HasPrivateKey && loaded.NotAfter > DateTime.Now.AddDays(30)) return loaded;
-                loaded.Dispose();
-            }
-            Directory.CreateDirectory(folder);
-            var pw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
-            var pfx = Create(name).Export(X509ContentType.Pkcs12, pw);
-            File.WriteAllBytes(keyPath, ProtectedData.Protect(System.Text.Encoding.UTF8.GetBytes(pw), Entropy, DataProtectionScope.CurrentUser));
-            File.WriteAllBytes(pfxPath, pfx);
-            // Loaded back from the PKCS#12, not used as created: Windows' TLS can't use an ephemeral key.
-            return X509CertificateLoader.LoadPkcs12(pfx, pw, X509KeyStorageFlags.UserKeySet);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException)
-        {
-            return null;
-        }
-    }
+    /// <summary>
+    /// The certificate kept, replaced or made now, with why a kept one was replaced and what went wrong (<see cref="CertificateFiles.Load"/>):
+    /// a null certificate leaves the server HTTP only, and says why.
+    /// </summary>
+    public static CertificateRead LoadOrCreate(string name, string? folder = null)
+        => new CertificateFiles(folder ?? Folder,
+            secret => ProtectedData.Protect(secret, Entropy, DataProtectionScope.CurrentUser),
+            sealedSecret => ProtectedData.Unprotect(sealedSecret, Entropy, DataProtectionScope.CurrentUser),
+            now => Create(name, now)).Load();
 
-    /// <summary>A fresh self-signed certificate for this machine's names and addresses.</summary>
-    public static X509Certificate2 Create(string name)
+    /// <summary>A fresh self-signed certificate for this machine's names and addresses, its span <see cref="CertificateLife.Window"/>'s from <paramref name="now"/>.</summary>
+    public static X509Certificate2 Create(string name, DateTimeOffset now)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var clean = new string((name.Length > 0 ? name : Environment.MachineName).Where(c => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_').ToArray()).Trim();
@@ -63,7 +47,8 @@ public static class NodeCertificate
         req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
         req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") }, critical: false));   // server auth
         req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, critical: true));
-        return req.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(825));
+        var (notBefore, notAfter) = CertificateLife.Window(now);
+        return req.CreateSelfSigned(notBefore, notAfter);
     }
 
     private static IEnumerable<IPAddress> LanAddresses()

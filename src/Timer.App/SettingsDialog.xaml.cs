@@ -495,7 +495,8 @@ public partial class SettingsDialog : Window
         WebBindAll.IsChecked = s.Remote.WebBindAll;
         WebHttps.IsChecked = s.Remote.Https;
         WebRequireHttps.IsChecked = s.Remote.RequireHttps;
-        CertFingerprint.Text = _fingerprint?.Invoke() is { } fp ? "SHA-256 " + string.Join(":", Enumerable.Range(0, 8).Select(i => fp.Substring(7 + i * 4, 4))) + "…" : "no certificate yet";
+        // Grouped as the show log, a presenter PC's row and a pinned peer group it: its first 8 hex are what they compare.
+        CertFingerprint.Text = _fingerprint?.Invoke() is { } fp ? "SHA-256 " + TlsPins.Shown(fp, 32) + " …" : "no certificate (the status line and the show log say why)";
         CertFingerprint.ToolTip = _fingerprint?.Invoke();
         RemotePin.Text = s.Remote.Pin ?? "";
         CrewKeysOn.IsChecked = s.Remote.CrewKeysRequired;

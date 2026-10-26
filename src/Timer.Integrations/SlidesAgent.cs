@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Globalization;
 using System.Collections.Concurrent;
 using System.Net.Http;
 using System.Text;
@@ -175,9 +176,7 @@ public sealed class SlidesAgent : IDisposable
         catch (HttpRequestException ex)
         {
             var changed = _expected.TryGetValue(t.Key, out var e) && _pins.Check(e.NodeId, e.Fingerprint) == TlsPins.Verdict.Changed;
-            st.Status = new AgentTargetStatus(t.Key, false, changed
-                ? "CERTIFICATE CHANGED — this Stagewatch's certificate isn't the one it had before. If it was reinstalled, press Trust new certificate."
-                : "can't reach it: " + ex.Message);
+            st.Status = new AgentTargetStatus(t.Key, false, changed ? ChangedWords(e.Fingerprint) : "can't reach it: " + ex.Message);
             st.LastSent = "";
         }
         catch (Exception) when (ct.IsCancellationRequested) { }
@@ -234,7 +233,22 @@ public sealed class SlidesAgent : IDisposable
         };
     }
 
-    /// <summary>The operator accepts a Stagewatch's new certificate (after a reinstall): the next one it presents is pinned.</summary>
+    /// <summary>
+    /// A target's row when the certificate its hello names (<paramref name="fingerprint"/>, the one <see cref="TrustNewCertificate"/>
+    /// pins) is not the one pinned for it: its first 8 hex, grouped as that Stagewatch's Settings → Remote and show log group them,
+    /// and when a Stagewatch makes a new one — reinstalled, or replaced at a start as <see cref="Remote.CertificateLife"/> says (an
+    /// over-long one, once, at the first start of 2.19; one near its end) — so the operator compares before trusting it.
+    /// </summary>
+    public static string ChangedWords(string fingerprint)
+        => "CERTIFICATE CHANGED — this Stagewatch now names a certificate starting " + TlsPins.Shown(fingerprint) + ", not the one pinned here. "
+           + "A Stagewatch makes a new one when it is reinstalled, at its first start of 2.19, and when one nears its end (about every "
+           + ((int)Remote.CertificateLife.Span.TotalDays - Remote.CertificateLife.RenewDays).ToString(CultureInfo.InvariantCulture)
+           + " days); its show log says so. If these 8 hex match that Stagewatch's Settings → Remote, press Trust new certificate.";
+
+    /// <summary>
+    /// The operator accepts a Stagewatch's new certificate (made at a reinstall, or replaced at a start), having compared the 8 hex
+    /// <see cref="ChangedWords"/> shows: the one its hello names is pinned, and the one it presents is held to it.
+    /// </summary>
     public void TrustNewCertificate(AgentTarget t)
     {
         if (!_expected.TryGetValue(t.Key, out var exp)) return;

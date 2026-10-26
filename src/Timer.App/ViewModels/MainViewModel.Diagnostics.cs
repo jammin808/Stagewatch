@@ -68,6 +68,12 @@ public sealed partial class MainViewModel
         Section("Connections");
         Line("Companion server", _companion.IsRunning ? $"listening on {_companion.Port}" : "off");
         Line("Web remote", _web is null ? "off" : $"listening on {_web.Port}, {_web.Census().Describe()}");
+        // Read from what this run's certificate read left, never a read of its own.
+        Line("Certificate", !_certificateTried ? "not read yet this run"
+            : _certificate is { } cert ? "SHA-256 " + TlsPins.Shown(TlsPins.Fingerprint(cert.RawData), 32) + " …, until "
+                                         + cert.NotAfter.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture)
+                                         + (_certificateNote is { } said ? " — " + said.Text : "")
+            : "none — " + (_certificateProblem ?? "HTTPS is off"));
         Line("OSC", _osc is null ? "off" : $"listening on {_osc.Port}, {_osc.MessagesReceived} received, {_osc.MessagesRejected} rejected");
         Line("LAN addresses", string.Join(", ", LanAddresses()));
 

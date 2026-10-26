@@ -497,3 +497,45 @@ Stagewatch's own link to a Patterns desk (TCP 9697, Settings → Integrations �
 Two things change for older desks: a Patterns older than Show Bus 1.1 on another PC is no longer followed, even when
 neither side holds a token ("pairs only on its own PC — update Patterns"), so its VT countdown stops until it is
 updated; and a wrong or stale token on this PC leaves the link red and unread, even though Patterns trusts this PC.
+
+## 2.19 (the release after 2.18): Show Bus 1.3
+
+The rest of 2.19's changes join this section as they land; the certificate's comes first, because an upgrade shows it.
+
+### The certificate: 825 days in all, replaced once
+
+This install's certificate (2.16) spans 825 days in all, NotBefore to NotAfter, its day of backdating for a skewed clock
+included (Show Bus 1.3 §10: Apple devices refuse a TLS server certificate valid for longer). Until 2.19 it spanned 826 —
+a day back and 825 on. Stagewatch reads its certificate once per run, the first time it needs it: at start with Remote and
+HTTPS on, otherwise when Settings opens. That read makes a new one when fewer than 30 days of the one it has remain, or
+when that one spans more than 825 days. So **the first start of 2.19 replaces a certificate an older Stagewatch made, once**;
+the new one is kept until fewer than 30 days of it remain, about 795 days on.
+
+A new certificate is a new fingerprint, so everything that pinned or trusted the old one says so once, until its operator
+accepts the new one:
+- Stagewatch Slides on presenter PCs: CERTIFICATE CHANGED on the target's row, with the first 8 hex of the new one —
+  compare them with this Stagewatch's Settings → Remote, then press **Trust new certificate**;
+- other apps' links to this Stagewatch that pinned it (Patterns', PlayMap's and AGMessage's do): CERTIFICATE CHANGED —
+  accept it there, after the same comparison;
+- browsers and devices that trusted the old certificate (`GET /tls`): a certificate warning on `https://` — trust the new
+  one the same way. With **Require HTTPS** on, their screens wait until they do.
+
+Settings → Remote shows the fingerprint's first 32 hex in groups of four (its tooltip has all 64), grouped as the show log,
+a presenter PC's row and the other apps group them; the first 8 are what each compares. The desk's status line says the
+replacement when it happens, and the show log says when and why ("Certificate replaced: it spanned 826 days, more than the
+825 Apple devices and Show Bus 1.3 allow. The new one's fingerprint starts ab12 cd34 …, as Settings → Remote shows it (its
+tooltip has all of it): …"). A show resumed after an unexpected close carries the same row, so its report says it too.
+Upgrade off show day, or allow for that one accept on each device.
+
+The certificate is replaced only once the new one is saved: the new one is written beside the old and swapped in whole,
+keeping the stored password, so the pair on disk is never half old and half new. When something gets in the way, the
+status line and the show log say what happened, and nothing is quiet:
+- the new one can't be made or saved while the old one has not ended: the old one stays ("Certificate kept, not replaced
+  …"), every peer keeps its pin, and the next start tries again;
+- the stored certificate can't be opened (damaged, or sealed for another Windows user): a new one is made, as on a first
+  start, and journalled as a replacement;
+- a new one can't be saved at all: it serves this run only, and the next start makes another;
+- the files can't be read (locked, denied): no certificate this run, and the files are left as they are for the next start.
+
+With HTTPS on and no certificate, the remote line says "HTTPS off: no certificate", and with **Require HTTPS** on the status
+line says it is not in force, rather than plain HTTP serving quietly.

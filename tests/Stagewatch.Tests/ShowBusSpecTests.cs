@@ -207,7 +207,6 @@ static class ShowBusSpecTests
         ("context.links", "SW21.1", "PeerContexts reads no links", _ => typeof(PeerContexts.Entry).GetProperty("Links") is null),
         ("context.link.end.chars", "SW21.1", "PeerContexts reads no links", _ => typeof(PeerContexts.Entry).GetProperty("Links") is null),
         ("context.words.read.chars", "SW21.1", "PeerContexts reads no command words", null),
-        ("cert.days", "SW19.5", "NodeCertificate spans 826 days: a day back and 825 on", n => Certificate() is { } c && c.Back + c.On != n.Of("cert.days")),
         ("proposal.line.chars", "SW21.2", $"ProposalDesk takes a line of {ProposalDesk.MaxLine} characters and cuts a longer one, which can run another command",
             n => ProposalDesk.MaxLine < n.Of("proposal.line.chars")),
         ("proposal.collect.ms", "SW21.2", "the desk sends and approves for a target whatever its last collect",
@@ -1605,10 +1604,9 @@ static class ShowBusSpecTests
             "its own context lists no more commands, with no longer verbs or words", "context.commands", "context.verb.chars", "context.words.chars");
         OwnContextSizes(Keeps, n);
 
-        // §10: Timer.App is not built beside this suite on every platform, so the certificate's numbers are read from its source.
-        var cert = Certificate();
-        Keeps(cert is { } back && back.Back * 24 <= n.Of("cert.backdate.hours"), "NodeCertificate backdates a certificate no further", "cert.backdate.hours");
-        Keeps(cert is { } renew && renew.Renew == n.Of("cert.renew.days"), "NodeCertificate makes a new one when that few days remain", "cert.renew.days");
+        // §10: CertificateLife holds the certificate's numbers; NodeCertificate (Timer.App, not built beside this suite on every
+        // platform) is held to making and keeping one only through it, from its source.
+        CertificateCode(Keeps, n);
 
         // §11 and §12.
         Keeps((long)ProposalDesk.CollectWithin.TotalMilliseconds == n.Of("proposal.undelivered.ms") && (long)ProposalDesk.ResultWithin.TotalMilliseconds == n.Of("proposal.result.ms"),
@@ -2247,17 +2245,38 @@ static class ShowBusSpecTests
     static string Many(string key, string item, long count) => ",\"" + key + "\":[" + string.Join(",", Enumerable.Repeat(item, (int)count)) + "]";
 
     /// <summary>
-    /// NodeCertificate's days back and on, and the days left at which it makes a new one, read from its source: Timer.App is not built
-    /// beside this suite on every platform. Null when its source no longer says them in these words.
+    /// §10's numbers as CertificateLife keeps them, at several moments of making (a fraction of a second included, which X.509 does
+    /// not keep), and NodeCertificate held to them from its source: Timer.App is not built beside this suite on every platform, so
+    /// its source must make a certificate only over <see cref="CertificateLife.Window"/>, keep, replace and save one only through
+    /// <see cref="CertificateFiles"/> (which ShowBusTests runs on every platform), and name no day count of its own.
     /// </summary>
-    static (int Back, int On, int Renew)? Certificate()
+    static void CertificateCode(KeepsRows Keeps, Numbers n)
     {
-        if (Source("src/Timer.App/NodeCertificate.cs") is not { } source) return null;
-        var span = Regex.Match(source, @"CreateSelfSigned\(DateTimeOffset\.UtcNow\.AddDays\(-(\d+)\), DateTimeOffset\.UtcNow\.AddDays\((\d+)\)\)");
-        var renew = Regex.Match(source, @"NotAfter > DateTime\.Now\.AddDays\((\d+)\)");
-        if (!span.Success || !renew.Success) return null;
-        static int Number(Group g) => int.Parse(g.Value, CultureInfo.InvariantCulture);
-        return (Number(span.Groups[1]), Number(span.Groups[2]), Number(renew.Groups[1]));
+        var days = TimeSpan.FromDays(n.Of("cert.days"));
+        DateTimeOffset[] moments = [Tonight, new DateTimeOffset(Tonight).AddTicks(7_654_321), new(2028, 2, 29, 23, 59, 59, 999, TimeSpan.FromHours(-8)),
+            new(2030, 3, 31, 1, 30, 0, TimeSpan.FromHours(2))];
+        var windows = moments.Select(m => (Made: m, Window: CertificateLife.Window(m))).ToList();
+        Keeps(CertificateLife.Span == days && windows.All(w => w.Window.NotAfter - w.Window.NotBefore == days && w.Window.NotBefore.Ticks % TimeSpan.TicksPerSecond == 0)
+              && windows.All(w => !CertificateLife.NeedsRenewal(w.Window.NotBefore, w.Window.NotAfter, w.Made))
+              && CertificateLife.NeedsRenewal(Tonight.AddDays(-1), Tonight.AddDays(-1) + days + TimeSpan.FromSeconds(1), Tonight),
+            "a certificate it makes spans exactly that long, NotBefore to NotAfter, and one a second longer is replaced at a start", "cert.days");
+        var back = TimeSpan.FromHours(n.Of("cert.backdate.hours"));
+        Keeps(CertificateLife.Backdate <= back && windows.All(w => w.Window.NotBefore >= w.Made - back && w.Window.NotBefore <= w.Made),
+            "a certificate's NotBefore lies no further before its making", "cert.backdate.hours");
+        var renew = TimeSpan.FromDays(n.Of("cert.renew.days"));
+        var (from, to) = CertificateLife.Window(Tonight);
+        Keeps(CertificateLife.RenewDays == n.Of("cert.renew.days") && !CertificateLife.NeedsRenewal(from, to, to - renew)
+              && CertificateLife.NeedsRenewal(from, to, to - renew + TimeSpan.FromSeconds(1)),
+            "it makes a new certificate at a start once fewer days than that remain", "cert.renew.days");
+        // Its code, its comments left out: they may name the numbers, the code may not.
+        var source = Regex.Replace(Source("src/Timer.App/NodeCertificate.cs") ?? "", @"//.*$", "", RegexOptions.Multiline);
+        Keeps(Regex.Matches(source, @"CreateSelfSigned\(").Count == 1 && source.Contains("var (notBefore, notAfter) = CertificateLife.Window(now);", StringComparison.Ordinal)
+              && source.Contains("req.CreateSelfSigned(notBefore, notAfter)", StringComparison.Ordinal)
+              && Regex.Matches(source, @"new CertificateFiles\(").Count == 1 && source.Contains("now => Create(name, now)).Load();", StringComparison.Ordinal)
+              && !Regex.IsMatch(source, @"\b(?:NotAfter|NotBefore|LoadPkcs12|WriteAllBytes|ReadAllBytes|UtcNow|Now)\b|Add(?:Days|Hours|Years|Months)\(|\b(?:825|826|30)\b"),
+            "NodeCertificate makes a certificate over CertificateLife's window from CertificateFiles' clock, and keeps, replaces and saves one only "
+            + "through CertificateFiles, with no number or file of its own",
+            "cert.days", "cert.backdate.hours", "cert.renew.days");
     }
 
     // ------------------------------------------------------------------ §1–§11's words

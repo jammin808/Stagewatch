@@ -11,6 +11,17 @@ the end-of-show forecast and curfew trim suggestions (producer assistant), the m
 LTC and the time-server drift check, vMix VT countdowns, speech pace, the full printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
 
+## 2.19 (the release after 2.18): Show Bus 1.3
+
+- **The certificate is replaced once.** iPhones, iPads and Macs refuse a certificate valid for more than 825 days, and
+  Stagewatch's spanned 826. The first start of 2.19 makes a new one, 825 days in all, and keeps it until it nears its
+  end. Presenter PCs and other apps that pinned the old certificate say CERTIFICATE CHANGED once, and browsers and devices
+  that trusted it show a certificate warning: compare the first 8 hex with Settings → Remote, then press **Trust new
+  certificate** on the presenter PC (its row shows them), accept it in the other app, and trust it again on the device
+  (from this Stagewatch's `/tls` page). The status line and the show log say when and why. The old certificate is
+  replaced only once the new one is saved; if something gets in the way, the old one stays and the status line says so.
+  Upgrade off show day.
+
 ## 2.18 (next release): show apps aren't screens, and each app has its own key
 
 - **Show apps leave Screens.** Patterns, PlayMap and AGMessage follow the timer too, but they aren't screens. A show app

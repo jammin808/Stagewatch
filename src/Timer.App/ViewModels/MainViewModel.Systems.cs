@@ -101,6 +101,9 @@ public sealed partial class MainViewModel
         // Continuing a show after a crash: the report must include everything before it.
         if (path is not null && File.Exists(path)) _journal.Seed(ShowJournal.Load(path));
         _show.Journal = _journal;   // the controller stamps entries with identities
+        // A show resumed after this run read its certificate: what that read said reaches the resumed show's report too, not
+        // only the run's first journal, which the resume leaves.
+        if (path is not null && _certificateNote is { } note) _journal.Add(note);
         _ = old.DisposeAsync();
     }
 

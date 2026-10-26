@@ -294,6 +294,18 @@ public sealed class TlsPins
 
     public static bool IsFingerprint(string? s) => s is { Length: 71 } && s.StartsWith("sha256:", StringComparison.Ordinal) && s[7..].All(char.IsAsciiHexDigitLower);
 
+    /// <summary>
+    /// A fingerprint's first <paramref name="hex"/> hex in groups of four, as a person compares it ("03e9 b152"), its
+    /// <c>sha256:</c> left off: one grouping for the journal, the desk's Settings → Remote and a presenter PC's row. A
+    /// fingerprint is public. Fewer are shown only when it has fewer.
+    /// </summary>
+    public static string Shown(string fingerprint, int hex = 8)
+    {
+        var all = fingerprint.StartsWith("sha256:", StringComparison.Ordinal) ? fingerprint[7..] : fingerprint;
+        var head = all[..Math.Clamp(hex, 0, all.Length)];
+        return string.Join(' ', Enumerable.Range(0, (head.Length + 3) / 4).Select(i => head.Substring(i * 4, Math.Min(4, head.Length - i * 4))));
+    }
+
     public enum Verdict { Trusted, FirstUse, Changed }
 
     /// <summary>Is this the certificate we know for the node? (A first one is accepted — and pinned by <see cref="Pin"/>.)</summary>
