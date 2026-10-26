@@ -34,6 +34,19 @@ install() {
   if ! have_shell; then
     (cd tests/e2e && npx --yes "playwright@$PLAYWRIGHT_VERSION" install --with-deps --only-shell chromium)
   fi
+  # The interop lane (tools/test.sh interop): Python 3.12 or later for tools/interop/lan.py (os.unshare, os.setns),
+  # util-linux's unshare and nsenter, mount (the run's secrets folder is a tmpfs of its own), and its driver's packages,
+  # installed with no install script run.
+  if ! command -v python3 >/dev/null || ! command -v unshare >/dev/null || ! command -v nsenter >/dev/null \
+      || ! command -v mount >/dev/null; then
+    apt-get update -qq
+    apt-get install -y -qq --no-install-recommends python3 util-linux mount
+  fi
+  if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'; then
+    echo "The interop lane needs Python 3.12 or later (tools/interop/lan.py): install it, then run this again." >&2
+    exit 1
+  fi
+  npm ci --ignore-scripts --no-audit --no-fund --prefix tests/interop >/dev/null
   dotnet restore Timer.slnf >/dev/null
 }
 

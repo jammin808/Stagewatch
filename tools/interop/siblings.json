@@ -1,0 +1,4 @@
+{"v":1,
+ "patterns": {"repo":"jammin808/Patterns","ref":"5a8ad8f8a3d7141cf52ae1b6b17b202a3b98a604","build":"tools/Patterns.Bench/Patterns.Bench.csproj"},
+ "mapper":   {"repo":"jammin808/Mapper","ref":"eda7cd4fe3653819fa792e14533f5d2e2a7583e1","build":"tools/PlayMap.Node/PlayMap.Node.csproj"},
+ "agmessage":{"repo":"jammin808/AGMessage","ref":"d0e3961722d56e1f01329017536d1a3d20bbb38a","build":"app"}}

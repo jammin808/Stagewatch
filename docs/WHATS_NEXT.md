@@ -170,7 +170,7 @@ connected): look at them in the running app with a show app linked.
   in its ready line, it has no line to read the lockout and doesn't stop when its input closes. *Since then (2.19's lane
   track):* `--node-id`, `--journal` with `/report`, `--pin-file`, `--secrets-out`, `--exit-on-eof` and the `auth` and
   `exit` control lines (`docs/BUILD.md`, `tests/e2e/rig-faults.e2e.cjs`). The lane that drives it against the real
-  apps is still to come.
+  apps has its ground since then too (`tools/test.sh interop`, below); its cross-app rows are still to come.
 - **A resumed show's earlier journal rows can go missing on Windows.** The app starts the journal's writer before it
   reads the file back (`OpenJournal`); the writer's handle shares reading only, so on Windows the read can fail and the
   report and the context's recent lines lose the rows from before the restart. The rig reads first since 2.19's lane
@@ -261,8 +261,13 @@ running app on a network: two copies of one install for the conflict, an old cer
   relaxed encoder waits for every reader's parser to be measured with it.
 - **The presenter PC's choice of certificate has no test of its own**: it needs a TLS Stagewatch on the bench.
 - **LB-1's Windows rows are not run** (below): 1.3 names no carrier that finds apps on one machine with no network.
-- **The interop lane is a track of its own.** The rig's options for it landed (2.18's list, above); the lane that runs the real
-  apps against each other, and CI's job for it, come after.
+- **The interop lane is a track of its own.** The rig's options for it landed (2.18's list, above), and so has the lane's
+  ground: `tools/test.sh interop` (not a default lane) builds Patterns' bench host, PlayMap's node and AGMessage at the pushed
+  commits `tools/interop/siblings.json` pins, in clones of its own, and runs them with the rig on a one-kernel LAN, each in a
+  network namespace of its own, inside a user, network and PID namespace that ends with the run; its one row, S0.1, holds
+  that each app is ready in its own namespace and reachable at its own address. The rows that run the apps against each
+  other, CI's job for the lane and its papers come after. Where the kernel gives no such namespaces, a sibling is absent or a
+  pin cannot be fetched, the lane says "not run", never passed.
 - **The agent brief's doctrine line** speaks of one lockout; since 2.19 there are two counts (wrong PINs; wrong view passes). It
   is the maintainer's to change.
 

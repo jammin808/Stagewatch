@@ -55,6 +55,7 @@ tools/setup-dev.sh            # .NET 10 SDK, Node packages, Chromium's headless 
 tools/test.sh                 # build, unit, module, holo, e2e — or name lanes: tools/test.sh unit e2e
 tools/test.sh pageshot        # PageShot's screenshots into artifacts/pages
 tools/test.sh rig             # the headless rig in the foreground: open its pages in a browser
+tools/test.sh interop         # not a default lane: the real apps at their pins, each in a namespace of its own on one LAN
 ```
 
 - The suite names the checks it leaves to the Windows job (`Bench.OnWindows`): today the WMI hardware id, the crafted

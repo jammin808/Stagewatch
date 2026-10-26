@@ -13,6 +13,12 @@
 #   pageshot PageShot's screenshots of the pages with the real server (artifacts/pages)
 #   rig      not a test: start the rig in the foreground and print its addresses (Ctrl+C stops it); $SW_RIG_ARGS adds
 #            options (SW_RIG_ARGS="--node-keys 2"); type "stall <ms>" to stop its show thread that long, as a stuck show
+#   interop  not a default lane: the rig, Patterns' bench host, PlayMap's node and AGMessage at the commits
+#            tools/interop/siblings.json pins, built in clones of the lane's own (tools/interop/build.sh), each app in a
+#            network namespace of its own on a one-kernel LAN, inside a user, network and PID namespace that ends with the
+#            run (tools/interop/run.sh); the matrix goes to artifacts/interop. Where a sibling's repository is absent, a pin
+#            or the Node AGMessage needs cannot be fetched, or the kernel gives no such namespaces, the lane is "not run",
+#            never passed, and SW_INTEROP_REQUIRED=1 makes that a failure
 # First time on a machine: tools/setup-dev.sh. The Windows-only lanes (UI smoke, the installer) are tools/smoke.ps1 and
 # tools/release.ps1 on the Windows job.
 set -uo pipefail
@@ -21,6 +27,7 @@ root=$(pwd)
 lanes=("$@")
 [ ${#lanes[@]} -eq 0 ] && lanes=(build unit module holo e2e)
 failed=()
+notrun=()
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && [ -d /opt/pw-browsers ]; then export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers; fi
 
@@ -57,18 +64,45 @@ for l in "${lanes[@]}"; do
       build || { failed+=(build); continue; }
       lane pageshot
       dotnet run --project tests/Stagewatch.PageShot -c Debug --no-build -- "$root/artifacts/pages" || failed+=(pageshot) ;;
+    interop)
+      build || { failed+=(build); continue; }
+      lane interop
+      tools/interop/build.sh
+      rc=$?
+      if [ $rc -eq 0 ] && ! unshare --user --map-root-user --net --pid --fork --mount-proc --kill-child true 2>/dev/null; then
+        echo "interop: not run (this machine gives no user, network and PID namespaces to its user)" >&2
+        rc=3
+      fi
+      if [ $rc -eq 0 ]; then
+        # In the foreground, so Ctrl+C reaches the run's processes. unshare holds off SIGTERM while it waits, so the end of
+        # the 20 minutes is its SIGKILL 10 s later, and --kill-child then ends run.sh, the PID namespace's first process,
+        # and with it every process of the run.
+        timeout --foreground -k 10 1200 unshare --user --map-root-user --net --pid --fork --mount-proc --kill-child tools/interop/run.sh
+        rc=$?
+      fi
+      case $rc in
+        0) ;;
+        3) if [ "${SW_INTEROP_REQUIRED:-}" = 1 ]; then failed+=("interop (not run)"); else notrun+=(interop); fi ;;
+        *) failed+=(interop) ;;
+      esac ;;
     rig)
       build || { failed+=(build); continue; }
       lane rig
       read -ra rig_args <<< "${SW_RIG_ARGS:-}"
       dotnet tools/Stagewatch.Rig/bin/Debug/net10.0-windows/Stagewatch.Rig.dll --state "$root/artifacts/rig-windows.json" \
         ${rig_args[@]+"${rig_args[@]}"} ;;
-    *) echo "unknown lane: $l (build unit module holo e2e pageshot rig)" >&2; failed+=("$l") ;;
+    *) echo "unknown lane: $l (build unit module holo e2e pageshot rig interop)" >&2; failed+=("$l") ;;
   esac
 done
 
 if [ ${#failed[@]} -gt 0 ]; then
   printf '\n\033[31mFailed: %s\033[0m\n' "${failed[*]}"
   exit 1
+fi
+if [ ${#notrun[@]} -gt 0 ]; then
+  passed=()
+  for l in "${lanes[@]}"; do [[ " ${notrun[*]} " == *" $l "* ]] || passed+=("$l"); done
+  printf '\n\033[33mNot run: %s (why is said above); passed: %s\033[0m\n' "${notrun[*]}" "${passed[*]:-none}"
+  exit 0
 fi
 printf '\n\033[32mAll lanes passed: %s\033[0m\n' "${lanes[*]}"
