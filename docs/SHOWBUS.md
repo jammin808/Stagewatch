@@ -11,9 +11,11 @@ node, posting a context — on a `line` link too, `CONTEXT POST` — and the kin
 and its link, how a node grants a window to another node's app and how that app holds it, with §1 rule 5's words for view passes and
 the two carriers they ride; §13 PeerLink, one authenticated link between two nodes, with the vectors every tree checks itself against;
 and §14 The numbers, every number the contract names, with its node kinds, doors and caps, in one block each tree's test reads. The
-scripted peer §13.20 names comes with the conformance kit, and its hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until
-then). Until 1.3 is final every node keeps 1.2, and a node offers LINK only once its tree passes §13.20. §8's Stagewatch row says what
-Stagewatch 2.19, which carries 1.3, does not keep of it; this tree does not keep these of 1.3 yet either, which Stagewatch 2.19 brings
+scripted peer §13.20 names is in this tree with its honest ends; this tree runs S1–S7 with it against its PeerLink core's connector,
+on `line`, `playmap.lines.v1` and `ws`; the acceptor's half comes with its `/ws` acceptor's LINK. Its attacker ends and S8–S22 come
+with the rest of the conformance kit, and its hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is
+final every node keeps 1.2, and a node offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19,
+which carries 1.3, does not keep of it; this tree does not keep these of 1.3 yet either, which Stagewatch 2.19 brings
 before it ships: `proto` (today a hello says proto 1); `hello.caps` (today the hello reader keeps 16 caps); `hello.name.chars` (today
 the hello reader cuts a name at 60 characters); `hello.inst.chars` (today no hello carries inst); `peers.max` (today the hello reader
 takes a new id while 128 peers are held, so it holds 129); `peer.conflict.clear.ms` (today no id is marked in conflict); §2's silence
@@ -1213,6 +1215,9 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
      show the current fingerprint.
 4. A pin store that cannot be read is said, amber: "pins lost — every node is new here; compare fingerprints". Floors are lost with it.
 5. An acceptor SHOULD serve TLS on every port a PeerLink uses, telling TLS from plain by the first byte (0x16), as §10 does for HTTP.
+   A connector speaks first on every carrier — its `HELLO`, its upgrade or its TLS handshake — and never waits for a greeting before
+   it, so an acceptor that sniffs greets once that byte has come; a connection that sends none is closed at `peerlink.handshake.ms`
+   (13.6.3).
 
 ### 13.9 Versions, features and floors
 
@@ -1559,6 +1564,51 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 
 - **The scripted peer** is `tools/showbus/peerlink-peer.mjs`: one dependency-free Node 22 file, byte-identical in every tree. Its SHA-256
   is §14's `peerlink.peer.sha256`.
+  - It plays either end of a link, the connector or the acceptor, honestly or as an attacker: on `line` (TCP, TLS told from plain by
+    its first byte, or `playmap.lines.v1`), on `ws` and on side calls.
+  - A tree's test drives it over its stdin and stdout, one JSON object a line: `listen`, `dial`, `send`, `call`, `set`, `expect`,
+    `silence`, `close` and `quit`, each answered by one event, with an event for what it reads, writes and decides on each
+    connection. The head of the file is its grammar. A command or a field it does not know, or a value of a shape its field does not
+    take, is refused, never defaulted.
+  - It takes no arguments. Keys, codes and certificates come from files their owner alone can read (mode 0600), named in a command.
+    On Windows, where no mode is read, the file's own ACL keeps it — a file in the user's profile — and the peer does not check it:
+    a named exemption.
+  - It has no clock of its own: the link under test keeps its injected clock, and the times the peer stamps are the ones the test
+    gives it. An `expect` or a `silence` waits at most 2 s of real time.
+  - It never writes a key, a code, `K` or S of its own — from its files, or made from them — to its stdout. What crossed a wire, its
+    own or the other end's, it reports as it was, so a test reads what went in clear.
+- **The scenarios.** A tree runs these with the scripted peer against its own links, on each carrier each link uses:
+
+| id | scenario |
+|---|---|
+| S1 | an honest link, each carrier and role: verified both ways, one lid at both ends, pinned over TLS, a command applied, a matched pong a clock sample |
+| S2 | a wrong key → 13.6.3's words; `line` ended by the acceptor, `ws` a public viewer; held `peerlink.hold.refused.ms`; the attempt not reset |
+| S3 | an unknown kid → S2's words, byte for byte, never counted (13.5.6) |
+| S4 | another certificate at first use, a machine between → no proof made over it, or one that fails; nothing pinned; no key, code or S on the wire |
+| S5 | a pinned id and a forged hello with no `tls`, another certificate or another address → TLS dialled anyway; a note; no refusal |
+| S6 | CERTIFICATE CHANGED → nothing of the connector's sent; public view only; a probe at most every `peerlink.cert.probe.ms`; accepted only with 8 hex of the new one typed |
+| S7 | LINK stripped (`unknown command` on `line`, a first frame on `ws`) on a floored id → floor-refused; never AUTH-PROOF, AUTH or a bearer sent |
+| S8 | a replayed client proof or a reused nonce → refused |
+| S9 | a server proof offered as a client proof → refused |
+| S10 | S replayed in clear from another machine → refused and the link ended; S after the link closed → 401 relink; a wrong lid → 401 |
+| S11 | silence: stale past `link.stale.ms`, down past `link.drop.ms`; each redial within 13.15.1's wait; the self-gap |
+| S12 | stuck: the `ws` beat; the `line` `PONG … STUCK` with the feature; a pong never clears it on `ws` |
+| S13 | a forged or unmatched pong → no sample; a clock over a plain link never schedules `AT` |
+| S14 | receipts: applied, accepted→final, refused, a drop→unconfirmed, `receipt.final.ms`→unconfirmed, one past `link.inflight.max` not-sent; RECEIPTS with the same inst and a new one; a repeated id answered `repeat` and run once |
+| S15 | an oversize message → counted, the link up; a slow reader → one push per kind, cut past `link.replies.max` |
+| S16 | an unpaired flood → at most `peerlink.unpaired.per.address` per address, each closed at `peerlink.handshake.ms` |
+| S17 | a key revoked while live → refused at once, its session ended |
+| S18 | a key bound to another connector → a binding refusal, not counted |
+| S19 | canary secrets: none of the key, code, K, S, proofs or nonces in any captured log, journal, STATE, context, report or error (13.19.5) |
+| S20 | loopback trust through a local forwarder or a foreign `Origin` → not trusted |
+| S21 | enrolment over TLS where offered; a code over plain → no enrolment; a new code revokes the keys enrolled from the old one |
+| S22 | a level-0 acceptor with Patterns 88.1's grammar (STATE, then NONCE) → `legacy` amber, AUTH-PROOF only on a 32-hex nonce, no plain AUTH off the machine, nothing taken before `OK paired` |
+
+- **Who passes what**, on each carrier its link uses:
+  - every connector: S1, S2, S4–S7, S11–S14, S17–S19 and S22, and S21 where it enrols;
+  - every acceptor: S1–S3, S8, S9, S12 (emitting), S14 (for the features it offers), S15–S20, S10 where it takes side calls, and S21
+    where it offers `enrol`;
+  - Patterns' twin (13.18): the `clock` rows and S19.
 - **The block** holds four kinds of rows:
   - crypto rows: `canon`, `key`, `proof`, `refuse`, `legacy`;
   - parse rows;

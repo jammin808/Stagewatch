@@ -103,7 +103,7 @@ static class PeerLinkVectors
         ("peerlink.unpaired.per.address", "the /ws acceptor's unfinished connections: SW22.1a"),
         ("peerlink.wrong.proofs.per.minute", "the /ws acceptor's wrong-proof table: SW22.1a"),
         ("peerlink.hold.disconnect.ms", "a hold for an acceptor operator's disconnect, which no verdict or message names yet: not scheduled"),
-        ("peerlink.cert.probe.ms", "the carrier's probe of a changed certificate: SW20.6"),
+        ("peerlink.cert.probe.ms", "13.8.3's MAY probe of a changed certificate: Stagewatch's carriers make none, no dial while refused (PeerLinkScenarios S6); not scheduled"),
         ("peerlink.peer.sha256", "the scripted peer's hash, pinned with 1.3 final: SW19.12"),
         ("link.beat.ms", "the /ws acceptor's beat: ShowBusSpecTests holds it against WebServer"),
         ("link.check.max.ms", "the carrier's timer that runs the evaluator: SW20.4a"),
