@@ -2,12 +2,17 @@
 // namespace on its default doors (HTTP 9696, wire 9697) on every interface, its pairing token read from an owner-only file,
 // its Stagewatch link typed at the rig's own address (the address the rig's hello comes from) with no key until the rig makes
 // keys for the lane, clips synthetic and control lines on its standard input, whose end stops it. Its first output line is
-// its ready line, with no secret in it.
+// its ready line, with no secret in it. The lane reads it as a deck would: over its wire, paired by proof (lib/wire.cjs), its
+// STATE asked for with STATUS.
 'use strict';
 const path = require('node:path');
 const { AppProcess, baseEnv } = require('../lib/proc.cjs');
 const { token } = require('../lib/run.cjs');
 const { greeting } = require('../lib/net.cjs');
+const { Wire } = require('../lib/wire.cjs');
+
+/** The name the lane's wire connections give in HELLO. */
+const HELLO = 'Interop';
 
 const DOORS = { http: 9696, wire: 9697 };
 
@@ -67,13 +72,50 @@ class Patterns {
     return line.slice(0, 5);
   }
 
-  stop() { return this.proc ? this.proc.stop('eof') : null; }
+  /** Its wire from the switch, paired by proof; one connection kept for the reads until the bench ends. */
+  async wireConn() {
+    if (this.conn && !this.conn.closed) return this.conn;
+    const conn = await Wire.connect(this.host.addr, DOORS.wire, { capture: this.run.log('patterns.wire') });
+    await conn.pair(HELLO, this.token);
+    this.conn = conn;
+    return conn;
+  }
 
-  /** What it keeps a secret in by design: its settings with its pairing token (the file, its .bak and its backups) and its
-   *  TLS certificate with the private key. */
+  /** STATE as its wire gives it now (STATUS). */
+  async state() { return (await this.wireConn()).json('STATUS'); }
+
+  /** The God's Eye picture as its wire gives it now (EYE): every card, a show app's naming the address it was heard from. */
+  async eyeJson() { return (await this.wireConn()).json('EYE'); }
+
+  /** A verb on its wire, paired; its answer line. */
+  async say(line) { return (await this.wireConn()).ask(line); }
+
+  /** A control line on its standard input; resolves with the first JSON answer that passes `answered`. */
+  async control(line, answered = () => true, ms = 10000) {
+    const from = this.proc.out.items.length;
+    const parsed = (l) => { try { return JSON.parse(l.line); } catch { return null; } };
+    const answer = this.proc.out.wait((l) => { const j = parsed(l); return j && answered(j); }, ms, `the answer to "${line.split(' ')[0]}"`, from);
+    this.proc.say(line);
+    return parsed(await answer);
+  }
+
+  /** A synthetic clip of `seconds` on its air (the bench's `clip` line); the answer ({ ok, key, lengthMs }) or its words. */
+  async clip(name, seconds) {
+    const said = await this.control(`clip ${name} ${seconds}`, (j) => j.control === 'clip');
+    if (!said.ok) throw new Error(`the bench refused the clip: ${said.error}`);
+    return said;
+  }
+
+  closeWire() { if (this.conn) { this.conn.close(); this.conn = null; } }
+
+  stop() { this.closeWire(); return this.proc ? this.proc.stop('eof') : null; }
+
+  /** What it keeps a secret in by design: its settings with its pairing token (the file, its .bak and its backups), the
+   *  recovery record that holds the same (and its .bak), and its TLS certificate with the private key. */
   secretFiles() {
     const h = this.folders.home;
-    return ['patterns.settings.json', 'patterns.settings.json.bak', 'backups', 'patterns.tls.json'].map((f) => path.join(h, f));
+    return ['patterns.settings.json', 'patterns.settings.json.bak', 'backups', 'patterns.recovery.json', 'patterns.recovery.json.bak',
+      'patterns.tls.json'].map((f) => path.join(h, f));
   }
 }
 

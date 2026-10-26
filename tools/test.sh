@@ -14,11 +14,13 @@
 #   rig      not a test: start the rig in the foreground and print its addresses (Ctrl+C stops it); $SW_RIG_ARGS adds
 #            options (SW_RIG_ARGS="--node-keys 2"); type "stall <ms>" to stop its show thread that long, as a stuck show
 #   interop  not a default lane: the rig, Patterns' bench host, PlayMap's node and AGMessage at the commits
-#            tools/interop/siblings.json pins, built in clones of the lane's own (tools/interop/build.sh), each app in a
-#            network namespace of its own on a one-kernel LAN, inside a user, network and PID namespace that ends with the
-#            run (tools/interop/run.sh); the matrix goes to artifacts/interop. Where a sibling's repository is absent, a pin
-#            or the Node AGMessage needs cannot be fetched, or the kernel gives no such namespaces, the lane is "not run",
-#            never passed, and SW_INTEROP_REQUIRED=1 makes that a failure
+#            tools/interop/siblings.json pins, built in clones of the lane's own (tools/interop/build.sh), run on each
+#            topology in turn, each in a user, network and PID namespace of its own that ends with its run
+#            (tools/interop/run.sh): lan (each app a host of its own on one switch) and laptop (the four on one host with
+#            its Wi-Fi up); SW_INTEROP_TOPOLOGY=lan or laptop runs one. Each topology's matrix goes to
+#            artifacts/interop/<topology>. Where a sibling's repository is absent, a pin or the Node AGMessage needs cannot
+#            be fetched, or the kernel gives no such namespaces, the lane is "not run", never passed, and
+#            SW_INTEROP_REQUIRED=1 makes that a failure
 # First time on a machine: tools/setup-dev.sh. The Windows-only lanes (UI smoke, the installer) are tools/smoke.ps1 and
 # tools/release.ps1 on the Windows job.
 set -uo pipefail
@@ -67,6 +69,12 @@ for l in "${lanes[@]}"; do
     interop)
       build || { failed+=(build); continue; }
       lane interop
+      case "${SW_INTEROP_TOPOLOGY:-all}" in
+        all) topologies=(lan laptop) ;;
+        lan|laptop) topologies=("$SW_INTEROP_TOPOLOGY") ;;
+        *) echo "interop: SW_INTEROP_TOPOLOGY is lan, laptop or all (given: \"$SW_INTEROP_TOPOLOGY\"); offline has no rows yet" >&2
+           failed+=(interop); continue ;;
+      esac
       tools/interop/build.sh
       rc=$?
       if [ $rc -eq 0 ] && ! unshare --user --map-root-user --net --pid --fork --mount-proc --kill-child true 2>/dev/null; then
@@ -74,11 +82,17 @@ for l in "${lanes[@]}"; do
         rc=3
       fi
       if [ $rc -eq 0 ]; then
-        # In the foreground, so Ctrl+C reaches the run's processes. unshare holds off SIGTERM while it waits, so the end of
-        # the 20 minutes is its SIGKILL 10 s later, and --kill-child then ends run.sh, the PID namespace's first process,
-        # and with it every process of the run.
-        timeout --foreground -k 10 1200 unshare --user --map-root-user --net --pid --fork --mount-proc --kill-child tools/interop/run.sh
-        rc=$?
+        # One topology at a time, each in namespaces of its own (lan.py builds only in a fresh one). In the foreground, so
+        # Ctrl+C reaches the run's processes. unshare holds off SIGTERM while it waits, so the end of the 20 minutes is its
+        # SIGKILL 10 s later, and --kill-child then ends run.sh, the PID namespace's first process, and with it every process
+        # of the run. A failed topology fails the lane; one not run leaves it not run unless another failed.
+        for topology in "${topologies[@]}"; do
+          printf '\n\033[36m==> interop: %s\033[0m\n' "$topology"
+          timeout --foreground -k 10 1200 unshare --user --map-root-user --net --pid --fork --mount-proc --kill-child \
+            tools/interop/run.sh "$topology"
+          one=$?
+          if [ $one -ne 0 ] && [ $one -ne 3 ]; then rc=1; elif [ $one -eq 3 ] && [ $rc -eq 0 ]; then rc=3; fi
+        done
       fi
       case $rc in
         0) ;;

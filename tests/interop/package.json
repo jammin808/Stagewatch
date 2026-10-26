@@ -1,8 +1,8 @@
 {
   "name": "stagewatch-interop",
   "private": true,
-  "description": "The interop lane's driver: Stagewatch's rig, Patterns' bench host, PlayMap's node and AGMessage on a one-kernel LAN, each in a network namespace of its own, at the commits tools/interop/siblings.json pins. Run through tools/test.sh interop, which builds them and makes the namespaces.",
+  "description": "The interop lane's driver: Stagewatch's rig, Patterns' bench host, PlayMap's node and AGMessage on a one-kernel LAN (lan.interop.cjs) and on one show laptop (laptop.interop.cjs), each topology in network namespaces of its own, at the commits tools/interop/siblings.json pins. Run through tools/test.sh interop, which builds them and makes the namespaces for each topology in turn.",
   "scripts": {
-    "test": "node --test --test-concurrency=1 *.interop.cjs"
+    "test": "cd ../.. && tools/test.sh interop"
   }
 }

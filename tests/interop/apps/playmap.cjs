@@ -3,6 +3,7 @@
 // to playmap.node.json in its home before it starts (a file meant to hold its token and Patterns'): its own pairing token, no
 // address trusted, Patterns followed at Patterns' own address with Patterns' token, and Stagewatch at the rig's address with
 // no key until the rig makes keys for the lane. It is ready when its log says "is up" with both doors open and a renderer.
+// The lane reads it as a deck would: over its wire, paired by proof (lib/wire.cjs): STATE, NODES and CONTEXT.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -10,6 +11,10 @@ const { AppProcess, baseEnv } = require('../lib/proc.cjs');
 const { token, hex } = require('../lib/run.cjs');
 const { greeting } = require('../lib/net.cjs');
 const { until, fatal } = require('../lib/inbox.cjs');
+const { Wire } = require('../lib/wire.cjs');
+
+/** The name the lane's wire connections give in HELLO. */
+const HELLO = 'Interop';
 
 const DOORS = { http: 9940, wire: 9941 };
 const UP = /is up: wire (\d+|closed), web (\d+|closed), renderer ([^;]+);/;
@@ -73,7 +78,27 @@ class PlayMap {
     return line.slice(0, 5);
   }
 
-  stop() { return this.proc ? this.proc.stop('SIGTERM') : null; }
+  /** Its wire from the switch, paired by proof; one connection kept for the reads until the node ends. */
+  async wireConn() {
+    if (this.conn && !this.conn.closed) return this.conn;
+    const conn = await Wire.connect(this.host.addr, DOORS.wire, { capture: this.run.log('playmap.wire') });
+    await conn.pair(HELLO, this.token);
+    this.conn = conn;
+    return conn;
+  }
+
+  /** STATE as its wire gives it now. */
+  async state() { return (await this.wireConn()).json('STATE'); }
+
+  /** NODES: the show apps it hears, as its wire gives them now. */
+  async nodes() { return (await this.wireConn()).json('NODES'); }
+
+  /** A verb on its wire, paired; its answer line. */
+  async say(line) { return (await this.wireConn()).ask(line); }
+
+  closeWire() { if (this.conn) { this.conn.close(); this.conn = null; } }
+
+  stop() { this.closeWire(); return this.proc ? this.proc.stop('SIGTERM') : null; }
 
   /** What it keeps a secret in by design: playmap.node.json (its token and Patterns') and its TLS key's folder. */
   secretFiles() { return [this.settings, path.join(this.folders.home, 'keys')]; }

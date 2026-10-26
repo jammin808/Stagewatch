@@ -1,5 +1,5 @@
 // What the switch (the driver, at 10.99.0.1) asks of an app over the LAN: the first line a wire says to a connection (an
-// unpaired one hears "NONCE <hex>" first) and HTTP GETs, with no credential unless a row gives one. node:http and node:net
+// unpaired one hears "NONCE <hex>" first) and HTTP requests, with no credential unless a row gives one. node:http and node:net
 // read no proxy variable, and none reaches into the lane's namespaces.
 'use strict';
 const http = require('node:http');
@@ -23,9 +23,14 @@ function greeting(host, port, ms = 5000) {
 }
 
 /** A GET (with no credential unless `headers` carries one): its status, text and JSON (null when the body is not JSON). */
-function get(url, ms = 5000, headers = {}) {
+function get(url, ms = 5000, headers = {}) { return request('GET', url, { ms, headers }); }
+
+/** A request with a method and an optional body (sent as JSON): its status, text and JSON. */
+function request(method, url, { ms = 5000, headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.get(url, { timeout: ms, agent: false, headers }, (res) => {
+    const data = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    const all = data ? { ...headers, 'Content-Type': 'application/json', 'Content-Length': data.length } : headers;
+    const req = http.request(url, { method, timeout: ms, agent: false, headers: all }, (res) => {
       let text = '';
       res.setEncoding('utf8');
       res.on('data', (d) => { text += d; });
@@ -37,7 +42,9 @@ function get(url, ms = 5000, headers = {}) {
     });
     req.on('timeout', () => req.destroy(new Error(`${url}: no answer within ${ms} ms`)));
     req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
   });
 }
 
-module.exports = { greeting, get };
+module.exports = { greeting, get, request };

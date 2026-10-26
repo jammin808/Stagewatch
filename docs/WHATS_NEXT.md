@@ -170,7 +170,7 @@ connected): look at them in the running app with a show app linked.
   in its ready line, it has no line to read the lockout and doesn't stop when its input closes. *Since then (2.19's lane
   track):* `--node-id`, `--journal` with `/report`, `--pin-file`, `--secrets-out`, `--exit-on-eof` and the `auth` and
   `exit` control lines (`docs/BUILD.md`, `tests/e2e/rig-faults.e2e.cjs`). The lane that drives it against the real
-  apps has its ground since then too (`tools/test.sh interop`, below); its cross-app rows are still to come.
+  apps has its ground and its first cross-app rows since then too (`tools/test.sh interop`, below).
 - **A resumed show's earlier journal rows can go missing on Windows.** The app starts the journal's writer before it
   reads the file back (`OpenJournal`); the writer's handle shares reading only, so on Windows the read can fail and the
   report and the context's recent lines lose the rows from before the restart. The rig reads first since 2.19's lane
@@ -186,7 +186,8 @@ connected): look at them in the running app with a show app linked.
   go into Show Bus 1.3 (2.19). Until then REMOTE.md's 2.18 section is the reference, and `tests/e2e/nodes.e2e.cjs` and
   `stall.e2e.cjs` pin the bytes against the rig (`tools/test.sh e2e`; `SW_RIG_ARGS="--node-keys 2" tools/test.sh rig`
   runs a rig with node keys by hand). The interop rows that replay them against the real apps come with the interop
-  lane. *Since then:* Show Bus 1.3 §7 and §7.1 have the words.
+  lane. *Since then:* Show Bus 1.3 §7 and §7.1 have the words, and the lane's row S6.2a replays the stall against
+  PlayMap's real link (below); the node-link rows wait for the rig's keys in the lane.
 - **The agent brief's doctrine line** still says keys lock a device out; it is the maintainer's to change (keys no
   longer count, wrong PINs, viewing codes and window addresses do). *Since then:* the brief says unknown and revoked keys
   never count; 2.19 splits the count in two, which its line does not say yet (2.19, below).
@@ -262,12 +263,34 @@ running app on a network: two copies of one install for the conflict, an old cer
 - **The presenter PC's choice of certificate has no test of its own**: it needs a TLS Stagewatch on the bench.
 - **LB-1's Windows rows are not run** (below): 1.3 names no carrier that finds apps on one machine with no network.
 - **The interop lane is a track of its own.** The rig's options for it landed (2.18's list, above), and so has the lane's
-  ground: `tools/test.sh interop` (not a default lane) builds Patterns' bench host, PlayMap's node and AGMessage at the pushed
-  commits `tools/interop/siblings.json` pins, in clones of its own, and runs them with the rig on a one-kernel LAN, each in a
-  network namespace of its own, inside a user, network and PID namespace that ends with the run; its one row, S0.1, holds
-  that each app is ready in its own namespace and reachable at its own address. The rows that run the apps against each
-  other, CI's job for the lane and its papers come after. Where the kernel gives no such namespaces, a sibling is absent or a
-  pin cannot be fetched, the lane says "not run", never passed.
+  ground: `tools/test.sh interop` (not a default lane) builds Patterns' bench host, PlayMap's node and AGMessage at the
+  pushed commits `tools/interop/siblings.json` pins, in clones of its own, and runs them with the rig on two topologies,
+  each inside a user, network and PID namespace of its own that ends with its run: a one-kernel LAN, each app a host of its
+  own on one switch, and one show laptop, the four apps on one host with its Wi-Fi up, typed 127.0.0.1 as the maintainer
+  types it. Its rows, each added once it passed against the real apps, hold that each app is ready in its own namespace
+  (S0.1); that, within 5 s of the last app ready, Patterns hears PlayMap and AGMessage, PlayMap hears Patterns and
+  AGMessage, and AGMessage hears Patterns, each from the address its hellos came from wherever the app says one (PlayMap's
+  NODES says none for the Patterns it follows once it holds that Patterns' context) (S1.1-S1.3, and S1c.1 on the laptop,
+  where every hello comes from the laptop's own addresses, its Wi-Fi's by the broadcast or 127.0.0.1 where a loopback copy
+  lands, and every link to the rig is live at 127.0.0.1); that PlayMap follows Patterns' clip and blackout, paired by proof,
+  on the LAN and at 127.0.0.1 (S4.5, S1c.2); that unknown words are refused by Patterns, PlayMap and the rig (S7.3's first
+  three); that a stuck Stagewatch leaves PlayMap's link live and showing no time, for Stagewatch's own reason, and the rig's
+  running time again once the show turns over (S6.2a); that the rig killed and restarted, or its cable pulled and put back,
+  lets every link go, then gone, and brings every link back (S6.1, S6.1b); and that no secret of the run's register (the
+  PIN, each app's token, AGMessage's admin token and the context token the lane learns from its admin) is in any log, frame,
+  STATE, context, report or capture a run keeps (S7.1). After every row both of the rig's lockout tables (wrong PINs; wrong
+  view passes) hold nothing against any address of the LAN, the switch's and every app's, nor, on the laptop, against
+  127.0.0.1 and the laptop's own address; a control from those addresses shows each table's reader sees them. Each
+  topology's matrix (`artifacts/interop/<topology>`) says what each row read and how long it took. Where the kernel gives no
+  such namespaces, a sibling is absent or a pin cannot be fetched, the lane says "not run", never passed. CI's job for the
+  lane and its papers come after.
+- **Interop rows that wait on another app.** Each is named here and not in the lane, which holds only rows that pass:
+  - S6.4 (Patterns killed) and S6.7 (Patterns' cable pulled) wait on PlayMap: at the pinned commit its air stays blacked out
+    by a Patterns that is gone (`air.blackout` and `air.patternsBlackout` still true 22 s after the desk was killed or its
+    cable pulled, the link down and still said `paired`), until that Patterns comes back and says otherwise. Whether a gone
+    desk's blackout is held or let go is PlayMap's owner's call; the rows assert the design's "let go".
+  - S6.2c (AGMessage shows no time while Stagewatch is stuck) waits on AGMessage: its link's pongs keep it fresh through the
+    stuck beat, so it stays connected and green with the last time.
 - **The agent brief's doctrine line** speaks of one lockout; since 2.19 there are two counts (wrong PINs; wrong view passes). It
   is the maintainer's to change.
 

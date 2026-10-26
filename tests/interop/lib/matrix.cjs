@@ -1,7 +1,8 @@
 // The matrix: one row per cross-app fact, each pass or fail (or "not run", only for a lane that could not start), with its
-// measured time, its deadline, the rig's lockout counts read after it and its evidence files; and what the run measured
-// beside the rows. Written as $SW_INTEROP_OUT/matrix.json and matrix.md after every run, a failed one included. A row is
-// written only for a test that ran: a row that cannot pass yet is not in the lane at all.
+// measured time, its deadline, the rig's lockout counts read after it (per address, its wrong PINs and its wrong view
+// passes) and its evidence files; and what the run measured
+// beside the rows. Written as $SW_INTEROP_OUT/<topology>/matrix.json and matrix.md after every run of that topology, a
+// failed one included. A row is written only for a test that ran: a row that cannot pass yet is not in the lane at all.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -36,12 +37,15 @@ class Matrix {
 
   measure(key, value) { this.doc.measured[key] = value; }
 
-  /** The files the apps kept a secret in by design, removed once they stopped (paths relative to the lane's folder). */
-  removed(paths) { this.doc.secretFilesRemoved = paths; }
+  /** The files the apps kept a secret in by design, removed once they stopped (paths relative to the topology's folder),
+   *  added to those removed before. */
+  removed(paths) { this.doc.secretFilesRemoved = [...new Set([...this.doc.secretFilesRemoved, ...paths])]; }
 
   /**
    * A row as a node:test body: runs fn(row) (which may fill row.evidence, row.auth and row.facts), times it, records pass
-   * or fail with the error's words, and rethrows so the test fails too.
+   * or fail with the error's words, and rethrows so the test fails too. deadlineMs is the row's deadline, or one per step
+   * for a row of steps (each counted from its own step's event, as the row says), or null for a row with none; ms is the
+   * whole row's time.
    */
   row({ id, title, apps, deadlineMs }, fn) {
     return async () => {
@@ -72,9 +76,15 @@ class Matrix {
       '',
       ...Object.entries(d.builds).map(([app, b]) => `- ${app}: ${b}`),
       '',
-      '| Row | Fact | Apps | Verdict | ms | Deadline ms | Lockout after it | Evidence |',
+      '| Row | Fact | Apps | Verdict | ms | Deadline ms | Lockout after it (wrong PINs/view passes) | Evidence |',
       '|---|---|---|---|---|---|---|---|',
-      ...d.rows.map((r) => `| ${r.id} | ${r.title} | ${r.apps.join(', ')} | ${r.verdict}${r.error ? ': ' + r.error.replace(/\|/g, '/').slice(0, 300) : ''} | ${r.ms} | ${r.deadlineMs} | ${Object.entries(r.auth).map(([a, n]) => `${a} ${n}`).join(', ')} | ${r.evidence.join(', ')} |`),
+      ...d.rows.map((r) => `| ${r.id} | ${r.title} | ${r.apps.join(', ')} | ${r.verdict}${r.error ? ': ' + r.error.replace(/\|/g, '/').slice(0, 300) : ''} | ${r.ms} | ${r.deadlineMs === null ? '—' : [].concat(r.deadlineMs).join(' / ')} | ${Object.entries(r.auth).map(([a, n]) => `${a} ${n.pins}/${n.viewPasses}`).join(', ')} | ${r.evidence.join(', ')} |`),
+      '',
+      'What each row read:',
+      '',
+      '```json',
+      JSON.stringify(Object.fromEntries(d.rows.map((r) => [r.id, r.facts])), null, 1),
+      '```',
       '',
       'Measured beside the rows:',
       '',

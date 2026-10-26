@@ -1,10 +1,11 @@
-// One run of the lane: its folder ($SW_INTEROP_OUT/run, made afresh and this user's alone by tools/interop/run.sh), what
-// tools/interop/build.sh built (builds.json, the only place the driver learns where an app is), and the register of every
-// secret the run makes or learns. Secrets go to the apps through 0600 files in run/secrets, a tmpfs of the run's own mount
-// namespace that ends with the run (or, for AGMessage's admin token, its environment, its one door), never through argv,
-// standard output or a log; the register lets a reader check that (the sweep, row S7.1) without printing one. A file an app
-// keeps a secret in by design (its settings with its token, its TLS key) is named by the app (secretFiles()) and removed once
-// the app has stopped; until then it is 0600 in a 0700 folder.
+// One run of the lane on one topology: its folder ($SW_INTEROP_OUT/<topology>/run, made afresh and this user's alone by
+// tools/interop/run.sh, with the topology's matrix beside it), what tools/interop/build.sh built ($SW_INTEROP_OUT/builds.json,
+// the only place the driver learns where an app is), and the register of every secret the run makes or learns. Secrets go
+// to the apps through 0600 files in run/secrets, a tmpfs of the run's own mount namespace that ends with the run (or, for
+// AGMessage's admin token, its environment, its one door), never through argv, standard output or a log; the register lets a
+// reader check that (the sweep, row S7.1) without printing one. A file an app keeps a secret in by design (its settings with
+// its token, its TLS key) is named by the app (secretFiles()) and removed once the app has stopped; until then it is 0600 in
+// a 0700 folder.
 'use strict';
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -35,14 +36,18 @@ class Secrets {
 
   names() { return [...this.byName.keys()]; }
 
-  /** The names of the registered secrets found in text (empty when none is). */
-  foundIn(text) { return [...this.byName].filter(([, v]) => text.includes(v)).map(([n]) => n); }
+  /** The names of the registered secrets found in text, in either case, as the sweep finds them (empty when none is). */
+  foundIn(text) {
+    const t = String(text).toLowerCase();
+    return [...this.byName].filter(([, v]) => t.includes(v.toLowerCase())).map(([n]) => n);
+  }
 
-  /** The driver's own words (an error, a matrix field) with every registered secret named instead of said. The apps' logs
-   *  are never scrubbed: they stay as each app said them, for the sweep to read. */
+  /** The driver's own words (an error, a matrix field) with every registered secret named instead of said, in either case
+   *  (a hex token an app says in the other case is still that token). The apps' logs are never scrubbed: they stay as each
+   *  app said them, for the sweep to read. */
   scrub(text) {
     let t = String(text);
-    for (const [name, value] of this.byName) t = t.split(value).join(`<${name}>`);
+    for (const [name, value] of this.byName) t = t.replace(new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), () => `<${name}>`);
     return t;
   }
 }
@@ -52,12 +57,17 @@ const token = () => crypto.randomBytes(16).toString('hex').toUpperCase();
 const hex = (bytes) => crypto.randomBytes(bytes).toString('hex');
 
 class Run {
-  constructor() {
+  /** topology: the run's own folder under $SW_INTEROP_OUT (lan, laptop), as run.sh named it. */
+  constructor(topology) {
     const doc = JSON.parse(fs.readFileSync(path.join(OUT, 'builds.json'), 'utf8'));
     if (doc.notRun) throw new Error(`the builds were not made: ${doc.notRun}`);
+    if (process.env.SW_INTEROP_RUN_TOPOLOGY !== topology) {
+      throw new Error(`this driver is the ${topology} topology's, and run.sh started ${process.env.SW_INTEROP_RUN_TOPOLOGY || 'none'}`);
+    }
     this.builds = doc;
-    this.out = OUT;
-    this.dir = path.join(OUT, 'run');
+    this.topology = topology;
+    this.out = path.join(OUT, topology);
+    this.dir = path.join(this.out, 'run');
     const secrets = path.join(this.dir, 'secrets');
     // run.sh made the folder afresh and its secrets folder a tmpfs; anything else is refused before a secret is made.
     const made = fs.existsSync(secrets) && fs.statfsSync(secrets).type === TMPFS_MAGIC
@@ -69,7 +79,7 @@ class Run {
     for (const dir of [this.dir, secrets]) {
       if ((fs.statSync(dir).mode & 0o077) !== 0) throw new Error(`${dir} is open to others than this user`);
     }
-    for (const sub of ['logs', 'apps']) fs.mkdirSync(path.join(this.dir, sub), { mode: 0o700 });
+    for (const sub of ['logs', 'apps', 'captures']) fs.mkdirSync(path.join(this.dir, sub), { mode: 0o700 });
     this.secrets = new Secrets(secrets);
     this.started = new Date();
   }
@@ -99,7 +109,14 @@ class Run {
 
   log(name) { return path.join(this.dir, 'logs', name); }
 
-  /** A path as the matrix names evidence: relative to the lane's folder. */
+  /** What the driver read from an app's door, kept as read (0600), for the sweep. */
+  capture(name, text) {
+    const where = path.join(this.dir, 'captures', name);
+    fs.writeFileSync(where, text, { mode: 0o600 });
+    return where;
+  }
+
+  /** A path as the matrix names evidence: relative to the topology's folder. */
   rel(p) { return path.relative(this.out, p); }
 
   /** The machine the run is on, as the matrix's header says it. */

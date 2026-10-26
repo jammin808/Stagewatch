@@ -11,7 +11,8 @@
 # pins (NODE_FOR_AGMESSAGE, its SHA-256 checked) fetched once into $SW_INTEROP_OUT/node, never installed on the machine.
 # Stagewatch's own rig is the build lane's (tools/test.sh build), named here by its commit.
 #   SW_PATTERNS_DIR, SW_MAPPER_DIR, SW_AGMESSAGE_DIR   the siblings' repositories (defaults ../Patterns, ../Mapper, ../AGMessage)
-#   SW_INTEROP_OUT     the lane's folder: clones, builds.json, the run, the matrix (default artifacts/interop, which git ignores)
+#   SW_INTEROP_OUT     the lane's folder: clones, builds.json, and each topology's run and matrix (default artifacts/interop, which
+#                      git ignores)
 #   SW_INTEROP_AGMESSAGE_NODE   the node AGMessage runs on, as given (its version is still held to the engines field)
 # Exit codes: 0 built; 1 a clone, a checkout or a build failed; 2 refused: siblings.json, a pin that is not pushed, or a
 # SW_INTEROP_AGMESSAGE_NODE its engines field does not accept; 3 not run (a sibling's repository absent, a pin it cannot fetch,
