@@ -2310,9 +2310,11 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// §10's numbers as CertificateLife keeps them, at several moments of making (a fraction of a second included, which X.509 does
-    /// not keep), and NodeCertificate held to them from its source: Timer.App is not built beside this suite on every platform, so
-    /// its source must make a certificate only over <see cref="CertificateLife.Window"/>, keep, replace and save one only through
-    /// <see cref="CertificateFiles"/> (which ShowBusTests runs on every platform), and name no day count of its own.
+    /// not keep); <see cref="CertificateMaker"/>, which makes every certificate Stagewatch serves, run at each of them and spanning
+    /// exactly <see cref="CertificateLife.Window"/>; and the two that serve one held to it from their sources (Timer.App is not built
+    /// beside this suite on every platform, nor is the rig): the desk's NodeCertificate and the rig's RigCertificate each make one
+    /// only through CertificateMaker, keep, replace and save one only through <see cref="CertificateFiles"/> (which ShowBusTests runs
+    /// on every platform), and name no day count of their own.
     /// </summary>
     static void CertificateCode(KeepsRows Keeps, Numbers n)
     {
@@ -2332,14 +2334,29 @@ static class ShowBusSpecTests
         Keeps(CertificateLife.RenewDays == n.Of("cert.renew.days") && !CertificateLife.NeedsRenewal(from, to, to - renew)
               && CertificateLife.NeedsRenewal(from, to, to - renew + TimeSpan.FromSeconds(1)),
             "it makes a new certificate at a start once fewer days than that remain", "cert.renew.days");
-        // Its code, its comments left out: they may name the numbers, the code may not.
-        var source = Regex.Replace(Source("src/Timer.App/NodeCertificate.cs") ?? "", @"//.*$", "", RegexOptions.Multiline);
-        Keeps(Regex.Matches(source, @"CreateSelfSigned\(").Count == 1 && source.Contains("var (notBefore, notAfter) = CertificateLife.Window(now);", StringComparison.Ordinal)
-              && source.Contains("req.CreateSelfSigned(notBefore, notAfter)", StringComparison.Ordinal)
-              && Regex.Matches(source, @"new CertificateFiles\(").Count == 1 && source.Contains("now => Create(name, now)).Load();", StringComparison.Ordinal)
-              && !Regex.IsMatch(source, @"\b(?:NotAfter|NotBefore|LoadPkcs12|WriteAllBytes|ReadAllBytes|UtcNow|Now)\b|Add(?:Days|Hours|Years|Months)\(|\b(?:825|826|30)\b"),
-            "NodeCertificate makes a certificate over CertificateLife's window from CertificateFiles' clock, and keeps, replaces and saves one only "
-            + "through CertificateFiles, with no number or file of its own",
+        // The maker, run: what it makes spans the window from its making, to the second.
+        var made = windows.Select(w =>
+        {
+            using var c = CertificateMaker.Create("Stagewatch", "Spec Hall", w.Made);
+            return (w.Window, NotBefore: new DateTimeOffset(c.NotBefore.ToUniversalTime(), TimeSpan.Zero), NotAfter: new DateTimeOffset(c.NotAfter.ToUniversalTime(), TimeSpan.Zero));
+        }).ToList();
+        Keeps(made.All(m => m.NotBefore == m.Window.NotBefore && m.NotAfter == m.Window.NotAfter),
+            "CertificateMaker makes a certificate over CertificateLife's window from the moment of its making", "cert.days", "cert.backdate.hours");
+        // Their code, its comments left out: they may name the numbers, the code may not.
+        string Code(string relative) => Regex.Replace(Source(relative) ?? "", @"//.*$", "", RegexOptions.Multiline);
+        const string Own = @"\b(?:NotAfter|NotBefore|LoadPkcs12|WriteAllBytes|ReadAllBytes|UtcNow|Now)\b|Add(?:Days|Hours|Years|Months)\(|\b(?:825|826|30)\b";
+        var maker = Code("src/Timer.Remote/CertificateMaker.cs");
+        var desk = Code("src/Timer.App/NodeCertificate.cs");
+        var rig = Code("tools/Stagewatch.Rig/RigCertificate.cs");
+        Keeps(Regex.Matches(maker, @"CreateSelfSigned\(").Count == 1 && maker.Contains("var (notBefore, notAfter) = CertificateLife.Window(now);", StringComparison.Ordinal)
+              && maker.Contains("req.CreateSelfSigned(notBefore, notAfter)", StringComparison.Ordinal) && !Regex.IsMatch(maker, Own)
+              && !desk.Contains("CreateSelfSigned(", StringComparison.Ordinal) && Regex.Matches(desk, @"new CertificateFiles\(").Count == 1
+              && desk.Contains("now => Create(name, now)).Load();", StringComparison.Ordinal)
+              && desk.Contains("=> CertificateMaker.Create(\"Stagewatch\", name, now);", StringComparison.Ordinal) && !Regex.IsMatch(desk, Own)
+              && !rig.Contains("CreateSelfSigned(", StringComparison.Ordinal) && Regex.Matches(rig, @"new CertificateFiles\(").Count == 1
+              && rig.Contains("now => CertificateMaker.Create(\"Stagewatch rig\", room, now))", StringComparison.Ordinal) && !Regex.IsMatch(rig, Own),
+            "CertificateMaker makes every certificate over CertificateLife's window from CertificateFiles' clock, and the desk and the rig each make "
+            + "one only through it and keep, replace and save one only through CertificateFiles, with no number or file of their own",
             "cert.days", "cert.backdate.hours", "cert.renew.days");
     }
 

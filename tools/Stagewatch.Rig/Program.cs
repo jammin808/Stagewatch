@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Stagewatch.Companion;
@@ -12,11 +13,11 @@ using Stagewatch.Show;
 // The headless rig: the real web server, Companion server and OSC server around a simulated show, on any OS.
 //   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321 | --pin-file FILE]
 //       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--node-keys N] [--exit-after SECONDS]
-//       [--bus PORT [--bus-to ADDRESS:PORT]] [--node-id ID] [--journal FILE|-] [--secrets-out FILE] [--exit-on-eof]
+//       [--bus PORT [--bus-to ADDRESS:PORT]] [--node-id ID] [--journal FILE|-] [--secrets-out FILE] [--exit-on-eof] [--tls FOLDER]
 // The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"node":…,
-// "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file"}; nodeKeys lists only the
-// node keys made in this run (--node-keys N makes them on a first start; --state keeps their hashes and the node each speaks for,
-// never a secret).
+// "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file","tls":"sha256:…"|null};
+// nodeKeys lists only the node keys made in this run (--node-keys N makes them on a first start; --state keeps their hashes and
+// the node each speaks for, never a secret).
 // Secrets: "pin" is "none" for no PIN, "set" when it came from --pin-file or --secrets-out is given, and the PIN itself only
 // when it came from --pin (or is the default) with no --secrets-out. With --secrets-out FILE the rig writes every secret it would
 // print to FILE (owner-only on Linux and macOS, written whole before the ready line): {"pin":"…","windows":[{"name","path"}],
@@ -36,6 +37,15 @@ using Stagewatch.Show;
 // context as the app does, and says the app's own hello (ShowBusHello.Main over its servers' doors and --bind) — to §2's targets
 // on that port, or only to --bus-to. As the app, it says nothing while --bind is local, and its context's bus:hello is amber while
 // its hello cannot go out or another machine says its id. "bus" in the ready line is the port, or 0.
+// --tls FOLDER serves HTTPS on --port beside plain HTTP, as the app serves its own certificate (Show Bus §10): a connection whose
+// first byte is a TLS handshake is encrypted, any other is plain. The certificate is the app's own kind (CertificateMaker), kept
+// in FOLDER by CertificateFiles as node.pfx beside node.key, made on the first start and kept by every later one, so a peer that
+// pinned it pins it again after a restart. Off Windows' DPAPI node.key holds the password unsealed, so FOLDER is the rig's own:
+// one not there yet is made readable by this user alone on Linux and macOS (on Windows the folder's own permissions hold it), and
+// one already there is taken only when it holds nothing but those two files and, off Windows, no other user may open it; any
+// other is refused, never narrowed. Its fingerprint (public) is "tls" in the ready line, and the hello names it with https. A
+// folder refused, or a certificate that cannot be kept or made, stops the rig before anything starts (exit 2, said on standard
+// error, never a key or a password).
 // The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo, windows,
 // screen commands (browsers only, never a show app's node link) and the contexts show apps post; any other command is
 // refused with words (in its receipt and its log), never pretended.
@@ -47,6 +57,9 @@ using Stagewatch.Show;
 //                {"rig":"auth","at":<unix ms>,"addresses":[{"address","failures","windowAgeMs"}],"viewPasses":[…the same]}:
 //                each device whose one-minute window is still open, the PIN's (wrong PINs) and the view passes' (wrong window
 //                addresses, viewing codes and crew links)
+//   heard        the hellos it hears on the Show Bus (--bus) as its hello table holds them, hellos alone (a node link or a posted
+//                context adds nothing), no secret in them → {"rig":"heard","at":<unix ms>,"bus":<port, 0 without --bus>,
+//                "listening":true|false,"peers":[{"t","id","address","addresses":[…],"ageS","conflict":"…"|null}]}
 //   exit         stops the rig as Ctrl+C does → {"rig":"exiting"}
 //   anything else is refused, never guessed → {"rig":"refused","line":"<first word>","error":"…"}
 // The end of standard input ends the reader; with --exit-on-eof it also stops the rig as Ctrl+C does (so does input that can no
@@ -56,7 +69,9 @@ using Stagewatch.Show;
 // node keys made in that start are taken out of --state again and the next start makes them afresh.
 var options = RigOptions.Parse(args);
 if (options is null) return 2;
-using var rig = new Rig(options);
+var certificate = options.Tls is { } tlsFolder ? RigCertificate.Load(tlsFolder, options.Room) : null;
+if (options.Tls is not null && certificate is null) return 2;
+using var rig = new Rig(options, certificate);
 return await rig.RunAsync();
 
 /// <summary>Where the rig's PIN came from: what decides whether the ready line may say it.</summary>
@@ -89,6 +104,9 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
     /// <summary>--exit-on-eof: standard input reaching its end stops the rig as Ctrl+C does.</summary>
     public bool ExitOnEof { get; init; }
 
+    /// <summary>--tls: the folder the rig's certificate is kept in, which makes --port serve HTTPS beside plain HTTP; null for plain only.</summary>
+    public string? Tls { get; init; }
+
     /// <summary>Whether the ready line may carry the PIN itself: only one given in argv (or the default), never with --secrets-out.</summary>
     public bool PinOnStdout => PinFrom != PinSource.File && SecretsOut is null;
 
@@ -101,6 +119,7 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
             int Port() => int.Parse(Next(), CultureInfo.InvariantCulture) is var p and >= 0 and <= 65535 ? p : throw new ArgumentException("ports are 0-65535");
             int Keys() => int.Parse(Next(), CultureInfo.InvariantCulture) is var n and >= 0 and <= ApiKeys.Max ? n : throw new ArgumentException($"--node-keys is 0-{ApiKeys.Max}");
             string File(string option) => Next() is { Length: > 0 } f ? f : throw new ArgumentException($"{option} needs a file");
+            string Folder(string option) => Next() is { Length: > 0 } f ? f : throw new ArgumentException($"{option} needs a folder");
             string Id(string id) => ShowBusHello.ValidId(id) ? id : throw new ArgumentException($"--node-id is {ShowBusHello.IdMin}-{SlidesBeacon.IdChars} letters, digits, - or _");
             try
             {
@@ -127,6 +146,7 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                     "--journal" => o.Journal is null ? o with { Journal = File("--journal") } : throw new ArgumentException("--journal once"),
                     "--secrets-out" => o.SecretsOut is null ? o with { SecretsOut = File("--secrets-out") } : throw new ArgumentException("--secrets-out once"),
                     "--exit-on-eof" => o with { ExitOnEof = true },
+                    "--tls" => o.Tls is null ? o with { Tls = Folder("--tls") } : throw new ArgumentException("--tls once"),
                     _ => throw new ArgumentException($"unknown option {args[i]}"),
                 };
             }
@@ -226,6 +246,8 @@ sealed class Rig : ICompanionBridge, IDisposable
     private readonly TaskCompletionSource _stop = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Timer? _ticker;
     private WebServer? _web;
+    /// <summary>--tls: the certificate --port serves (owned, disposed with the rig); null serves plain HTTP only.</summary>
+    private readonly X509Certificate2? _certificate;
     /// <summary>The rig on the Show Bus (--bus): its hello and what it hears; null when it is off.</summary>
     private SlidesBeacon? _beacon;
     private readonly string _inst = ShowBusHello.NewInst();
@@ -278,9 +300,10 @@ sealed class Rig : ICompanionBridge, IDisposable
     private static readonly byte[] SponsorsPng = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==");
 
-    public Rig(RigOptions o)
+    public Rig(RigOptions o, X509Certificate2? certificate = null)
     {
         _o = o;
+        _certificate = certificate;
         _nodeId = o.NodeId ?? "rig-" + ScreenWindows.NewId()[1..];
         if (o.Journal is { } journal)
         {
@@ -322,7 +345,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         AppDomain.CurrentDomain.ProcessExit += (_, _) => _stop.TrySetResult();
         try
         {
-            _web = new WebServer(this, () => _o.Pin.Length == 0 ? null : _o.Pin);
+            _web = new WebServer(this, () => _o.Pin.Length == 0 ? null : _o.Pin) { Certificate = _certificate };
             _web.Start(_o.Http, _o.BindAll);
             _windows.Web = _web;
             if (_o.Companion > 0) { _companion = new CompanionServer(this); _companion.Start(_o.Companion, _o.BindAll); }
@@ -375,6 +398,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             bind = _o.BindAll ? "all" : "local",
             journal = _journal is not null,
             secrets = file ? "file" : "stdout",
+            tls = _web?.Fingerprint,
         };
     }
 
@@ -445,6 +469,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         var ended = EndOwner();
         _nodes.Bound -= OnBound;
         Engine.Dispose();
+        _certificate?.Dispose();
         // A rig that never ran its stop (it could not listen) still writes what its journal holds, within a bounded wait.
         if (_journal is not null && !_journal.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3))) Log("journal: its last rows did not reach the file in time");
         // The queue and the stall's token belong to the owner thread until it has ended.
@@ -516,7 +541,7 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     // ---------------------------------------------------------------- the control reader (standard input)
     /// <summary>The words a control line that is none of the reader's is refused with: the lines there are.</summary>
-    public const string UnknownControl = "unknown (stall <ms>, auth, exit)";
+    public const string UnknownControl = "unknown (stall <ms>, auth, heard, exit)";
 
     /// <summary>
     /// One line at a time from standard input, each answered in JSON lines (a stall twice); a blank line is ignored, and an
@@ -536,12 +561,13 @@ sealed class Rig : ICompanionBridge, IDisposable
                 {
                     case "stall": Stall(words); break;
                     case "auth" when words.Length == 1: Say(Lockout()); break;
+                    case "heard" when words.Length == 1: Say(Heard()); break;
                     case "exit" when words.Length == 1:
                         Say(new { rig = "exiting" });
                         Log("exit: stopping (control line)");
                         _stop.TrySetResult();
                         return;
-                    case "auth" or "exit": Say(new { rig = "refused", line = words[0], error = words[0] + " takes no words" }); break;
+                    case "auth" or "heard" or "exit": Say(new { rig = "refused", line = words[0], error = words[0] + " takes no words" }); break;
                     default: Say(new { rig = "refused", line = Clip(words[0]), error = UnknownControl }); break;
                 }
             }
@@ -574,6 +600,30 @@ sealed class Rig : ICompanionBridge, IDisposable
             at = UnixMs(),
             addresses = Rows(web?.AuthFailures() ?? Array.Empty<AuthFailureCount>()),
             viewPasses = Rows(web?.ViewPassFailures() ?? Array.Empty<AuthFailureCount>()),
+        };
+    }
+
+    /// <summary>
+    /// <c>heard</c>: the rig's hello table as it stands (<see cref="SlidesBeacon.Peers"/>), read off the show thread: each id whose
+    /// hello it heard in the last minute, its kind, the address it dials it at, every address heard within
+    /// <see cref="SlidesBeacon.StaleAfter"/>, the seconds since its last hello and the conflict mark's words while two running nodes
+    /// say it. Hellos alone: a node link or a posted context adds no row here, so a row is a hello the rig heard. A hello holds no
+    /// secret. Without --bus, <c>bus</c> is 0 and no peer is listed.
+    /// </summary>
+    private object Heard()
+    {
+        var beacon = _beacon;
+        return new
+        {
+            rig = "heard",
+            at = UnixMs(),
+            bus = _o.Bus,
+            listening = beacon?.Listening ?? false,
+            peers = (beacon?.Peers() ?? Array.Empty<SlidesBeacon.Peer>()).Select(p => new
+            {
+                t = p.Hello.Kind, id = p.Hello.Id, address = p.Address, addresses = p.Addresses,
+                ageS = Math.Round(p.AgeSeconds, 1), conflict = p.Conflict?.Words,
+            }),
         };
     }
 

@@ -1,7 +1,4 @@
 using System.IO;
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Stagewatch.Remote;
@@ -32,36 +29,6 @@ public static class NodeCertificate
             sealedSecret => ProtectedData.Unprotect(sealedSecret, Entropy, DataProtectionScope.CurrentUser),
             now => Create(name, now)).Load();
 
-    /// <summary>A fresh self-signed certificate for this machine's names and addresses, its span <see cref="CertificateLife.Window"/>'s from <paramref name="now"/>.</summary>
-    public static X509Certificate2 Create(string name, DateTimeOffset now)
-    {
-        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var clean = new string((name.Length > 0 ? name : Environment.MachineName).Where(c => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_').ToArray()).Trim();
-        var req = new CertificateRequest($"CN=Stagewatch {(clean.Length > 0 ? clean : "node")}", key, HashAlgorithmName.SHA256);
-        var san = new SubjectAlternativeNameBuilder();
-        san.AddDnsName("localhost");
-        san.AddDnsName(Dns.GetHostName());
-        san.AddIpAddress(IPAddress.Loopback);
-        foreach (var ip in LanAddresses()) san.AddIpAddress(ip);
-        req.CertificateExtensions.Add(san.Build());
-        req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, critical: true));
-        req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(new OidCollection { new Oid("1.3.6.1.5.5.7.3.1") }, critical: false));   // server auth
-        req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, critical: true));
-        var (notBefore, notAfter) = CertificateLife.Window(now);
-        return req.CreateSelfSigned(notBefore, notAfter);
-    }
-
-    private static IEnumerable<IPAddress> LanAddresses()
-    {
-        try
-        {
-            return NetworkInterface.GetAllNetworkInterfaces()
-                .Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-                .SelectMany(n => n.GetIPProperties().UnicastAddresses)
-                .Select(a => a.Address)
-                .Where(a => a.AddressFamily == AddressFamily.InterNetwork)
-                .Distinct().Take(8).ToList();
-        }
-        catch (NetworkInformationException) { return Array.Empty<IPAddress>(); }
-    }
+    /// <summary>A fresh certificate for this machine as <see cref="CertificateMaker"/> makes every node's, named for <paramref name="name"/>.</summary>
+    public static X509Certificate2 Create(string name, DateTimeOffset now) => CertificateMaker.Create("Stagewatch", name, now);
 }

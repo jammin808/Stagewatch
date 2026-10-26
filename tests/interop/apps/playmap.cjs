@@ -2,7 +2,9 @@
 // namespace with no display, so it runs on NullBackends (it plays and answers, and draws nothing). Its settings are written
 // to playmap.node.json in its home before it starts (a file meant to hold its token and Patterns'): its own pairing token, no
 // address trusted, Patterns followed at Patterns' own address with Patterns' token, and Stagewatch at the rig's address with
-// no key until the rig makes keys for the lane. It is ready when its log says "is up" with both doors open and a renderer.
+// the node key the rig made for it when the rig makes keys, and none otherwise (PlayMap moves the key into its own credential
+// store at its start and writes the settings file again without it). It is ready when its log says "is up" with both doors
+// open and a renderer.
 // The lane reads it as a deck would: over its wire, paired by proof (lib/wire.cjs): STATE, NODES and CONTEXT.
 'use strict';
 const fs = require('node:fs');
@@ -30,13 +32,15 @@ class PlayMap {
     this.engineLog = path.join(this.folders.home, 'playmap.engine.log');
   }
 
-  /** Start it following `patterns` ({ addr, port, token }) and `stagewatch` (host:port); resolves once it is up (within ms). */
-  async start(patterns, stagewatch, ms = 60000) {
+  /** Start it following `patterns` ({ addr, port, token }) and `stagewatch` (host:port) with `key` ({ id, secret }, a node key
+   *  the rig made) or none; resolves once it is up (within ms). */
+  async start(patterns, stagewatch, ms = 60000, key = null) {
+    this.key = key;
     fs.writeFileSync(this.settings, JSON.stringify({
       nodeId: this.nodeId, name: 'Interop PlayMap', token: this.token, bind: '', httpPort: DOORS.http, wirePort: DOORS.wire,
       syncPort: 0, trustLoopback: false, trustedAddresses: [], requireHttps: false, announce: true,
       patternsHost: `${patterns.addr}:${patterns.port}`, patternsToken: patterns.token,
-      stagewatchHost: stagewatch, stagewatchKey: '', stagewatchEnabled: true, companion: { mdns: false },
+      stagewatchHost: stagewatch, stagewatchKey: key ? key.secret : '', stagewatchEnabled: true, companion: { mdns: false },
     }, null, 1), { mode: 0o600 });
     this.proc = new AppProcess(this.run, {
       name: 'playmap',
@@ -92,6 +96,14 @@ class PlayMap {
 
   /** NODES: the show apps it hears, as its wire gives them now. */
   async nodes() { return (await this.wireConn()).json('NODES'); }
+
+  /** Its own context (§6) as its wire gives it now (CONTEXT), with its size in bytes as the wire carried it. */
+  async context() {
+    const said = await this.say('CONTEXT');
+    if (!/^OK [{]/.test(said)) throw new Error(`PlayMap answered CONTEXT with ${JSON.stringify(said.slice(0, 120))}`);
+    const text = said.slice(3);
+    return { json: JSON.parse(text), bytes: Buffer.byteLength(text, 'utf8') };
+  }
 
   /** A verb on its wire, paired; its answer line. */
   async say(line) { return (await this.wireConn()).ask(line); }

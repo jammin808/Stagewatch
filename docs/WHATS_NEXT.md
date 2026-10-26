@@ -187,7 +187,11 @@ connected): look at them in the running app with a show app linked.
   `stall.e2e.cjs` pin the bytes against the rig (`tools/test.sh e2e`; `SW_RIG_ARGS="--node-keys 2" tools/test.sh rig`
   runs a rig with node keys by hand). The interop rows that replay them against the real apps come with the interop
   lane. *Since then:* Show Bus 1.3 §7 and §7.1 have the words, and the lane's row S6.2a replays the stall against
-  PlayMap's real link (below); the node-link rows wait for the rig's keys in the lane.
+  PlayMap's real link (below); the node-link rows wait for the rig's keys in the lane. *Since then (SW19.13):* the rig makes
+  keys in the lane, and Patterns and PlayMap dial it as nodes with their own, over TLS; S2.1, S2.3 and S2.7 hold one key per
+  node against the real apps (below), and S2.1 reads PlayMap's paired verdict at its pin. The verdict's own row (a key the
+  rig refuses, held red) and S1.6's leg for PlayMap's Show Bus 1.3 reader are SW19.13m's, which waits on Mapper's PM-4 being
+  pushed (rule R3).
 - **The agent brief's doctrine line** still says keys lock a device out; it is the maintainer's to change (keys no
   longer count, wrong PINs, viewing codes and window addresses do). *Since then:* the brief says unknown and revoked keys
   never count; 2.19 splits the count in two, which its line does not say yet (2.19, below).
@@ -284,7 +288,42 @@ running app on a network: two copies of one install for the conflict, an old cer
   topology's matrix (`artifacts/interop/<topology>`) says what each row read and how long it took. Where the kernel gives no
   such namespaces, a sibling is absent or a pin cannot be fetched, the lane says "not run", never passed. CI runs it at the
   pins, and nightly at the siblings' heads (below); the lane's papers (BUILD.md's account of it) come after.
+- **The rig on the show network, in the lane (SW19.13).** On the LAN the rig runs as the app runs on a show laptop: on the
+  Show Bus port (`--bus 9928`), serving its certificate beside plain HTTP on its one port (`--tls`, in a folder of its own in
+  its home, so a restart serves the one its peers pinned) and making three node keys, one handed to Patterns and one to
+  PlayMap in their own settings, one to nobody; AGMessage is given none. The rows read PlayMap's link with the rig's
+  certificate pinned and Patterns' link carried over TLS with its key; that neither app ever sends its key in clear off its
+  own machine is held by its own tests (Patterns' Round 89.5, PlayMap's PM-2), not by the lane. The rig's `heard` line reads
+  its hello table, hellos alone, so a row of the rig hearing an app is that app's hello, never its node link or its posted
+  context. The rows, each added once it passed: the rig's hello table lists Patterns, PlayMap and AGMessage, each from its own
+  address, live and unmarked, and its context's peers each live, AGMessage's row its hello's alone (S1.4), and every app hears
+  the rig, kind `main`, its node id, from the rig's address (S1.5), each first read within 5 s of the last app ready (a row
+  that only gets to read later fails rather than claim it, S1.1–S1.3 alike); read every 500 ms for 20 s, the rig's hello table
+  and context, Patterns and PlayMap each list every show app they hear once (S1.6, today's readers on the LAN); the rig's row
+  for PlayMap and for Patterns says that app's own context light and headline, proved by its own key on its node link, and a
+  change of it within 9.5 s, there and back (S2.1: PlayMap's link paired with the rig's certificate pinned, the change
+  Patterns' blackout, which PlayMap follows; S2.3: Patterns' link over TLS with its key, the change a deck pairing with
+  Patterns and leaving); Patterns' STATE says the rig's own headline, and its change (the running order's next item and back)
+  within 9.5 s (S2.4); PlayMap's, Patterns' and the rig's own contexts are each under 64 KiB as carried (S2.6, the sizes
+  recorded); and a node key cannot speak for another node: with Patterns' and PlayMap's keys bound to their own nodes and the
+  third to none, Patterns' key posting PlayMap's id and AGMessage's, PlayMap's posting Patterns' and the free key posting
+  PlayMap's are each refused 403 with Stagewatch's words; no forged word is in the rig's context read at once, in the first it
+  built after the posts (it builds one a second; AGMessage posts no context, so a forgery applied for its id would still be
+  there) or in any read after; its rows stay each app's own, every key stays bound as it was, and no address is counted
+  (S2.7). The certificate's password, kept unsealed off Windows, is in the sweep's register (S7.1). The pins are unchanged:
+  Patterns' newest pushed commit is still 5a8ad8f (Round 91.6; nothing of Round 92 is pushed), and PlayMap's eda7cd4 already
+  holds its node link (PM-5). Departures from the design, on purpose: S2.7 uses Patterns' and PlayMap's keys where the design
+  names AGMessage's (AGMessage is keyed by its own rows), and reads the forgery in the rig's context alone: the rig keeps no
+  peer's context in its journal or report, so neither could show one, and a `Peer` row in the report comes with 2.21's report
+  work.
 - **Interop rows that wait on another app.** Each is named here and not in the lane, which holds only rows that pass:
+  - S2.2 and S2.5 (AGMessage's context reaching the rig, and AGMessage reading the rig's) are AGMessage's rows (SW-INT-AG):
+    they come with the lane giving AGMessage a key of its own (0.5.0 posts no context without one).
+  - The row for the rig's verdict on PlayMap's node link (a key the rig refuses, held red; S2.1 already reads the paired
+    verdict at the pin), and S1.6's leg for PlayMap's Show Bus 1.3 reader (every address of one id, the conflict mark), are
+    SW19.13m's: they wait on Mapper's fix-showbus-1.3 (PM-4) being pushed and pinned (rule R3).
+  - The show laptop topology still runs the rig off the show network and gives no app a key: the rig on the laptop and nobody
+    locking the laptop out (S1c.3), and the offline laptop (S1b.1), are SW-R7's, after F1's fix.
   - S6.4 (Patterns killed) and S6.7 (Patterns' cable pulled) wait on PlayMap: at the pinned commit its air stays blacked out
     by a Patterns that is gone (`air.blackout` and `air.patternsBlackout` still true 22 s after the desk was killed or its
     cable pulled, the link down and still said `paired`), until that Patterns comes back and says otherwise. Whether a gone

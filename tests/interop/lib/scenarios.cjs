@@ -88,6 +88,99 @@ async function agmessageHears(agm, peers, ms) {
   }, ms, 'AGMessage hearing ' + peers.map((p) => p.t).join(' and '));
 }
 
+/** The headline the rig's context gives a node it has only heard (Stagewatch's ShowNetwork.HelloOnly). */
+const HELLO_ONLY = 'heard on the network — no context yet';
+
+/** Show Bus §2: an address unheard this long is stale (SlidesBeacon.StaleAfter), so a hello heard more recently is live. */
+const HELLO_STALE_S = 6;
+
+/**
+ * The rig hears each of peers ({ t, id, addr, helloOnly }, addr one address or a list of them) on the Show Bus (row S1.4), by
+ * its hello: the rig's hello table (its `heard` line, hellos alone: a node link or a posted context adds no row there) lists
+ * the id, of that kind, from an address its hellos came from, heard within §2's 6 s and with no conflict mark; and its context's
+ * peers list the id, of that kind, live. A peer `helloOnly` (one that posts no context and holds no node link a credential
+ * proves) is listed in the context with the words of a node only heard and no link. Resolves with what it read.
+ */
+async function rigHears(sw, peers, ms) {
+  return until(async () => {
+    const table = (await sw.heard()).peers;
+    const listed = (await sw.context()).peers || [];
+    const read = {};
+    for (const p of peers) {
+      const hello = table.find((x) => x.id === p.id);
+      if (!hello) throw new Error(`the rig's hello table has no ${p.t} ${p.id}: ${JSON.stringify(table.map((x) => `${x.t}:${x.id}`))}`);
+      if (hello.t !== p.t) throw new Error(`the rig heard ${p.id}'s hello as ${hello.t}, not ${p.t}`);
+      if (hello.conflict) throw new Error(`the rig marks ${p.t} ${p.id} in conflict: ${hello.conflict}`);
+      if (!addrsOf(p).includes(hello.address)) throw new Error(`the rig heard ${p.t} ${p.id}'s hello from ${hello.address}, not ${said(addrsOf(p))}`);
+      if (!(hello.ageS < HELLO_STALE_S)) throw new Error(`the rig last heard ${p.t} ${p.id}'s hello ${hello.ageS} s ago`);
+      const row = listed.find((x) => x.t === p.t && x.id === p.id);
+      if (!row) throw new Error(`the rig's context peers have no ${p.t} ${p.id}: ${JSON.stringify(listed.map((x) => `${x.t}:${x.id}`))}`);
+      if (row.heard !== 'live') throw new Error(`the rig hears ${p.t} ${p.id} as ${row.heard}`);
+      if (p.helloOnly && (row.headline !== HELLO_ONLY || row.link !== '')) {
+        throw new Error(`the rig's row for ${p.t} ${p.id} is not its hello's alone: "${row.headline}", link "${row.link}"`);
+      }
+      read[p.t] = {
+        id: row.id,
+        hello: { address: hello.address, addresses: hello.addresses, ageS: hello.ageS },
+        context: { heard: row.heard, light: row.light, headline: row.headline, link: row.link, verified: row.verified },
+      };
+    }
+    return read;
+  }, ms, 'the rig hearing ' + peers.map((p) => p.t).join(', '));
+}
+
+/** The ids a list names more than once, each with its count. */
+function twice(ids) {
+  const counts = new Map();
+  for (const id of ids) counts.set(id, (counts.get(id) || 0) + 1);
+  return [...counts].filter(([, n]) => n > 1).map(([id, n]) => `${id} ×${n}`);
+}
+
+/**
+ * One id is one peer (row S1.6): for `forMs`, each reader is read every `everyMs`, and each lists every id it names once and
+ * each id of its `expect` exactly once. `readers` maps a reader's name to { read: () => ids it lists now, expect: ids }. Any
+ * read naming an id twice, or missing an expected one, fails at once with the read. Resolves with the reads made and the most
+ * entries each listed.
+ */
+async function oneIdOnePeer(readers, forMs, everyMs = 500) {
+  const end = Date.now() + forMs;
+  const facts = Object.fromEntries(Object.keys(readers).map((n) => [n, { reads: 0, most: 0 }]));
+  for (;;) {
+    for (const [name, r] of Object.entries(readers)) {
+      const ids = await r.read();
+      const doubled = twice(ids);
+      if (doubled.length) throw new Error(`${name} lists one id more than once: ${doubled.join(', ')} (it lists ${JSON.stringify(ids)})`);
+      const missing = r.expect.filter((id) => !ids.includes(id));
+      if (missing.length) throw new Error(`${name} lists no ${missing.join(', ')} (it lists ${JSON.stringify(ids)})`);
+      facts[name].reads++;
+      facts[name].most = Math.max(facts[name].most, ids.length);
+    }
+    if (Date.now() >= end) return facts;
+    await new Promise((res) => setTimeout(res, everyMs));
+  }
+}
+
+/**
+ * A show app's own context reaches the rig (rows S2.1, S2.3, S2.7): `own()` reads the app's own context ({ light, headline })
+ * and the rig's context peers row for `id` must say the same light and headline, proved by the app's own key (verified "key")
+ * on its node link (link "ws"). `onRead`, when given, sees every context of the rig's read on the way and may end the wait at
+ * once (by throwing fatal()). Resolves with the pair once they agree, within ms.
+ */
+async function rigShowsContext(sw, id, own, ms, what, onRead = null) {
+  return until(async () => {
+    const mine = await own();
+    const ctx = await sw.context();
+    if (onRead) onRead(ctx);
+    const row = (ctx.peers || []).find((x) => x.id === id);
+    if (!row) throw new Error(`the rig's context has no peers row for ${id}`);
+    if (row.verified !== 'key' || row.link !== 'ws') throw new Error(`the rig's row for ${id} is verified "${row.verified}", link "${row.link}"`);
+    if (row.light !== mine.light || row.headline !== mine.headline) {
+      throw new Error(`the rig says ${row.light} "${row.headline}", ${what} says ${mine.light} "${mine.headline}"`);
+    }
+    return { own: { light: mine.light, headline: mine.headline }, rig: { light: row.light, headline: row.headline, verified: row.verified, link: row.link } };
+  }, ms, `${what}'s context in the rig's`);
+}
+
 /**
  * Every app's view of its Stagewatch link, as each publishes it: PlayMap's STATE link (its state, the address it dials and
  * its timer), AGMessage's health (`stage`), Patterns' STATE bus.stagewatch (its state, the address it follows, its time).
@@ -138,6 +231,17 @@ const since = (from) => Date.now() - from;
 
 /** The ms left of a deadline counted from `from` (unix ms, the moment the contract's clock starts), at least 1. */
 const left = (from, deadlineMs) => Math.max(1, from + deadlineMs - Date.now());
+
+/**
+ * A row's fact, just read true, counted from `from` (unix ms): the time since, which must be within deadlineMs. A row may start
+ * after its deadline has passed (the rows before it took the time), and left() still gives its read a moment: a fact first
+ * read true past the deadline was not seen within it, and the row fails saying so rather than claim it.
+ */
+function inTime(from, deadlineMs, what) {
+  const ms = since(from);
+  if (ms > deadlineMs) throw new Error(`${what} was first read ${ms} ms from its start, past ${deadlineMs}: not seen within the deadline`);
+  return ms;
+}
 
 /**
  * PlayMap follows Patterns, paired by proof (row S4.5, and S1c.2 on one laptop): its link to Patterns at `patternsHost` is
@@ -273,6 +377,6 @@ async function noSecretAnywhere({ run, matrix, apps }) {
 }
 
 module.exports = {
-  patternsHears, playmapHears, agmessageHears, playmapFollowsPatterns, unknownWordsRefused, noSecretAnywhere,
-  stagewatchLinks, allLive, stillHeld, readLockout, lockoutAfter, namesAddress, since, left,
+  patternsHears, playmapHears, agmessageHears, rigHears, oneIdOnePeer, rigShowsContext, playmapFollowsPatterns, unknownWordsRefused, noSecretAnywhere,
+  stagewatchLinks, allLive, stillHeld, readLockout, lockoutAfter, namesAddress, since, left, inTime, HELLO_ONLY,
 };

@@ -16,7 +16,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { Rig, until, DLL, freePort } = require('./rig.cjs');
 
-const UNKNOWN = 'unknown (stall <ms>, auth, exit)';
+const UNKNOWN = 'unknown (stall <ms>, auth, heard, exit)';
 const rigs = [];
 async function make(options) {
   const rig = await Rig.create(options);
@@ -182,10 +182,12 @@ test('auth reads the lockout tables: three wrong PINs are 127.0.0.1 with 3, the 
   assert.deepEqual(view.viewPasses.map((v) => [v.address, v.failures]), [['127.0.0.1', 1]], 'a wrong window address counts apart, and the right PIN leaves it');
 });
 
-test('the control reader refuses an unknown line, and words auth and exit do not take', async () => {
+test('the control reader refuses an unknown line, and words auth, heard and exit do not take; heard off the Show Bus lists no one', async () => {
   const unknown = await plain.control('wiggle 3', (j) => j.rig === 'refused');
   assert.deepEqual(unknown, { rig: 'refused', line: 'wiggle', error: UNKNOWN, receivedAt: unknown.receivedAt });
-  for (const word of ['auth', 'exit']) {
+  const heard = await plain.control('heard', (j) => j.rig === 'heard');
+  assert.deepEqual([heard.bus, heard.listening, heard.peers], [0, false, []], 'without --bus it hears nothing');
+  for (const word of ['auth', 'heard', 'exit']) {
     const r = await plain.control(word + ' now', (j) => j.rig === 'refused');
     assert.deepEqual([r.line, r.error], [word, word + ' takes no words']);
   }
@@ -337,7 +339,17 @@ test('options the rig cannot take are refused with words and exit code 2, never 
     [['--journal', path.join(pinFile, 'journal.jsonl')], /--journal: couldn't open it for appending: /],
     [['--secrets-out', ''], /--secrets-out needs a file/],
     [['--exit-on-eof=yes'], /unknown option --exit-on-eof=yes/],
+    [['--tls', ''], /--tls needs a folder/],
+    [['--tls', path.join(dir, 'a'), '--tls', path.join(dir, 'b')], /--tls once/],
+    [['--tls', path.join(pinFile, 'tls')], /--tls: couldn't make the folder: /],
+    // A folder that is there and holds anything else is never the rig's to write its key in (nor narrowed: it is not its own).
+    [['--tls', dir], /--tls: .* holds what is not its certificate \(long\.txt, open, pin\.txt\): name a folder of the rig's own/],
   ];
+  // Off Windows a folder others may open is refused as it stands, never narrowed (as `--tls /tmp` or `--tls .` would be).
+  const open = path.join(dir, 'open');
+  fs.mkdirSync(open, { mode: 0o755 });
+  fs.chmodSync(open, 0o755);
+  if (process.platform !== 'win32') cases.push([['--tls', open], /--tls: .* is open to other users \(mode 755\): name a folder of the rig's own/]);
   for (const [args, words] of cases) {
     const r = spawnSync('dotnet', [DLL, '--port', '0', '--companion', '0', '--osc', '0', ...args], { encoding: 'utf8', timeout: 30000 });
     assert.equal(r.status, 2, `${args.join(' ')}: exit ${r.status}\n${r.stderr}`);
@@ -345,4 +357,8 @@ test('options the rig cannot take are refused with words and exit code 2, never 
     assert.equal(r.stdout, '', 'nothing on standard output: ' + args.join(' '));
     assert.ok(!r.stderr.includes('Kp93Secret') && !r.stderr.includes('LqLq'), 'the words carry no file\'s content: ' + r.stderr);
   }
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['long.txt', 'open', 'pin.txt'], 'nothing written in a folder refused');
+  assert.deepEqual(fs.readdirSync(open), []);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(open).mode & 0o777, 0o755, 'a folder refused keeps its mode');
+  fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -1,28 +1,37 @@
 // The interop lane on its LAN topology: four real apps, each in a network namespace of its own on one bridge, at its own
 // address (Stagewatch's rig 10.99.0.2, Patterns' bench 10.99.0.3, PlayMap's node 10.99.0.4, AGMessage 10.99.0.5) with its
 // own loopback and every app on its default ports; the driver is the switch (10.99.0.1) and never listens on the Show Bus
-// port. The rows run in order, each a node:test test that writes its matrix row; S0.1 starts the apps (the rig first, which
-// the others link to) and every later row reads the apps it started; the rows that take an app down come last but one, and
-// S7.1 (no secret anywhere) last, as it stops the apps to sweep what they left. After every row both of the rig's lockout
+// port. The rig is on the show network as the app runs on a show laptop: on the Show Bus port, serving its certificate beside
+// plain HTTP, and making three node keys: one for Patterns and one for PlayMap, each handed over in that app's own settings,
+// and one handed to nobody, which row S2.7 tries against an id that has a key of its own. The rows read PlayMap's link with
+// the rig's certificate pinned and Patterns' link carried over TLS with its key; that neither app ever sends its key in clear
+// off its own machine is held by that app's own tests (Patterns' Round 89.5, PlayMap's PM-2), not read here. AGMessage is
+// given none (its keyed rows are another unit's). The rows run in order, each a node:test test that writes its matrix row;
+// S0.1 starts the apps (the rig first, which the others link to) and every later row reads the apps it started; the rows
+// that take an app down come last but one, and S7.1 (no secret anywhere) last, as it stops the apps to sweep what they left
+// (the rig's certificate's password among the secrets it looks for). After every row both of the rig's lockout
 // tables are read (wrong PINs; wrong view passes: window addresses, viewing codes, crew links), and no address of this LAN is
-// counted in either: no app holds a key the rig made yet, and a request with none is not a guess, Patterns' keyless reads of
-// the rig's context included. Each table's reader is shown to see this LAN's addresses by a control from the switch: the
-// PIN's in S0.1 (a wrong PIN counted, the right one clearing it), the view passes' in S7.1, after the last read (a wrong window
-// address counted; only the end of its minute clears it). When the rows end the apps are stopped, the files each keeps a
-// secret in by design are removed, and the matrix is written, whatever happened.
+// counted in either: Patterns and PlayMap speak with the node keys the rig made for them, AGMessage with none (a request with
+// none is not a guess), and a node key refused for another node's id is not a guess either. Each table's reader is shown to
+// see this LAN's addresses by a control from the switch: the PIN's in S0.1 (a wrong PIN counted, the right one clearing it),
+// the view passes' in S7.1, after the last read (a wrong window address counted; only the end of its minute clears it). When
+// the rows end the apps are stopped, the files each keeps a secret in by design are removed, and the matrix is written,
+// whatever happened.
 //
 // Each deadline is the contract's number × 1.5 + 2 s (Show Bus §2 and §4: a hello every 2 s → 5 s; stale after 6 s → 11 s;
 // gone after 12 s → 20 s; Stagewatch's show thread stuck after 3 s plus a beat every 2 s → 9.5 s; a frame again within a
 // beat after it turns over → 5 s), counted from the event as the app that caused it says it happened where it says so (the
-// rig's own times for a stall), else from the driver's act; a hello from the moment the last app said it was ready.
+// rig's own times for a stall), else from the driver's act; a hello from the moment the last app said it was ready, and a row
+// that only gets to read after its deadline has passed fails rather than claim it.
 'use strict';
 const { test, before, after } = require('node:test');
 const fs = require('node:fs');
-const { Run } = require('./lib/run.cjs');
+const { Run, hex } = require('./lib/run.cjs');
+const { Wire } = require('./lib/wire.cjs');
 const { Lan } = require('./lib/lan.cjs');
 const { Matrix } = require('./lib/matrix.cjs');
-const { until } = require('./lib/inbox.cjs');
-const { Stagewatch } = require('./apps/stagewatch.cjs');
+const { until, fatal } = require('./lib/inbox.cjs');
+const { Stagewatch, NODE_ID } = require('./apps/stagewatch.cjs');
 const { Patterns } = require('./apps/patterns.cjs');
 const { PlayMap } = require('./apps/playmap.cjs');
 const { AGMessage } = require('./apps/agmessage.cjs');
@@ -42,6 +51,16 @@ const GONE_MS = 20000;
 const STUCK_MS = 9500;
 /** Frames again within a beat (2 s) of the show thread turning over: within 5 s of the rig's own time. */
 const RESUME_MS = 5000;
+/** A context posted or read every 5 s: in the other app's reader within 9.5 s of the change. */
+const CONTEXT_MS = 9500;
+/** S1.6 watches each reader this long: a hello every 2 s, ten of them. */
+const ONE_PEER_MS = 20000;
+/** The rig builds its context once a second (every fourth 250 ms tick): one built after a moment is read within this. */
+const CONTEXT_BUILT_MS = 3000;
+/** §14: a context is 64 KiB at most, as the wire carries it. */
+const CONTEXT_BYTES = 64 * 1024;
+/** The rig's node keys: Patterns', PlayMap's, and one handed to nobody (S2.7). */
+const RIG_KEYS = 3;
 /** A stall long enough that the stuck beat is certain before it ends: StuckAfter + 2 × HeartbeatEvery + 5 s. */
 const STALL_MS = 12000;
 /** How far PlayMap's time may be from the rig's own frame read just after it: a frame's age and the reads between them. */
@@ -100,7 +119,7 @@ test('S0.1 each app is ready in its own namespace', row({
   deadlineMs: READY_MS,
 }, async (r) => {
   r.evidence.push(...HOSTS.flatMap((n) => [run.log(`${n}.out`), run.log(`${n}.err`)]), run.log('lan.out'));
-  const sw = new Stagewatch(run, lan.host('stagewatch'));
+  const sw = new Stagewatch(run, lan.host('stagewatch'), { keys: RIG_KEYS });
   apps.stagewatch = sw;
   await sw.start(READY_MS);
   sw.checkReady();
@@ -109,7 +128,7 @@ test('S0.1 each app is ready in its own namespace', row({
 
   const pat = new Patterns(run, lan.host('patterns'));
   apps.patterns = pat;
-  await pat.start(sw.address, READY_MS);
+  await pat.start(sw.address, READY_MS, sw.keyFor('patterns'));
   pat.checkReady();
   await pat.reachable();
   matrix.said('patterns', `bench ${pat.ready.build}, node ${pat.ready.node}`);
@@ -118,7 +137,7 @@ test('S0.1 each app is ready in its own namespace', row({
   const pm = new PlayMap(run, lan.host('playmap'));
   apps.playmap = pm;
   r.evidence.push(pm.engineLog);
-  await pm.start({ addr: pat.wire.addr, port: pat.wire.port, token: pat.token }, sw.address, READY_MS);
+  await pm.start({ addr: pat.wire.addr, port: pat.wire.port, token: pat.token }, sw.address, READY_MS, sw.keyFor('playmap'));
   pm.checkReady();
   await pm.reachable();
   matrix.said('playmap', `node ${pm.nodeId}, renderer ${pm.up.renderer}`);
@@ -173,7 +192,7 @@ test('S1.1 Patterns hears PlayMap and AGMessage', row({
     { kind: 'playmap', id: ids.playmap, addr: lan.host('playmap').addr },
     { kind: 'messenger', id: ids.agmessage, addr: lan.host('agmessage').addr },
   ], S.left(readyAt, HELLO_MS));
-  r.facts = { sinceReadyMs: S.since(readyAt), ...read };
+  r.facts = { sinceReadyMs: S.inTime(readyAt, HELLO_MS, 'Patterns hearing PlayMap and AGMessage'), ...read };
   await lockoutAfter(r);
 }));
 
@@ -188,7 +207,7 @@ test('S1.2 PlayMap hears Patterns and AGMessage', row({
     { t: 'patterns', id: ids.patterns, addr: lan.host('patterns').addr, followed: true },
     { t: 'messenger', id: ids.agmessage, addr: lan.host('agmessage').addr },
   ], S.left(readyAt, HELLO_MS));
-  r.facts = { sinceReadyMs: S.since(readyAt), ...read };
+  r.facts = { sinceReadyMs: S.inTime(readyAt, HELLO_MS, 'PlayMap hearing Patterns and AGMessage'), ...read };
   await lockoutAfter(r);
 }));
 
@@ -200,7 +219,68 @@ test('S1.3 AGMessage hears Patterns', row({
 }, async (r) => {
   r.evidence.push(run.log('agmessage-admin.out'));
   const read = await S.agmessageHears(apps.agmessage, [{ t: 'patterns', id: ids.patterns, addr: lan.host('patterns').addr }], S.left(readyAt, HELLO_MS));
-  r.facts = { sinceReadyMs: S.since(readyAt), ...read };
+  r.facts = { sinceReadyMs: S.inTime(readyAt, HELLO_MS, 'AGMessage hearing Patterns'), ...read };
+  await lockoutAfter(r);
+}));
+
+test('S1.4 the rig hears all three', row({
+  id: 'S1.4',
+  title: "the rig hears Patterns, PlayMap and AGMessage on the Show Bus: its hello table (hellos alone) lists each from its own address, live and unmarked, and its context's peers each live (AGMessage's row its hello's alone), within 5 s of the last app ready",
+  apps: ['stagewatch', 'patterns', 'playmap', 'agmessage'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('stagewatch.err'));
+  const read = await S.rigHears(apps.stagewatch, [
+    { t: 'patterns', id: ids.patterns, addr: lan.host('patterns').addr },
+    { t: 'playmap', id: ids.playmap, addr: lan.host('playmap').addr },
+    { t: 'messenger', id: ids.agmessage, addr: lan.host('agmessage').addr, helloOnly: true },
+  ], S.left(readyAt, HELLO_MS));
+  r.facts = { sinceReadyMs: S.inTime(readyAt, HELLO_MS, 'the rig hearing all three'), ...read };
+  await lockoutAfter(r);
+}));
+
+test('S1.5 every app hears the rig', row({
+  id: 'S1.5',
+  title: "every app hears the rig: kind main, its --node-id, from the rig's own address where the reader says one, within 5 s of the last app ready",
+  apps: HOSTS,
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'), run.log('playmap.wire'), run.log('agmessage-admin.out'));
+  const addr = lan.host('stagewatch').addr;
+  const patterns = await S.patternsHears(apps.patterns, [{ kind: 'main', id: NODE_ID, addr }], S.left(readyAt, HELLO_MS));
+  const playmap = await S.playmapHears(apps.playmap, [{ t: 'main', id: NODE_ID, addr }], S.left(readyAt, HELLO_MS));
+  const agmessage = await S.agmessageHears(apps.agmessage, [{ t: 'main', id: NODE_ID, addr }], S.left(readyAt, HELLO_MS));
+  r.facts = { sinceReadyMs: S.inTime(readyAt, HELLO_MS, 'every app hearing the rig'), patterns, playmap, agmessage };
+  await lockoutAfter(r);
+}));
+
+test('S1.6 one id is one peer', row({
+  id: 'S1.6',
+  title: "one id is one peer: read every 500 ms for 20 s, the rig (its hello table and its context's peers), Patterns and PlayMap each list every show app they hear once, by its id, and never twice",
+  apps: ['stagewatch', 'patterns', 'playmap', 'agmessage'],
+  // A window watched, not a deadline: its length is a fact of the row.
+  deadlineMs: null,
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'), run.log('playmap.wire'));
+  const readers = {
+    'the rig (its hello table)': {
+      read: async () => (await apps.stagewatch.heard()).peers.map((p) => p.id),
+      expect: [ids.patterns, ids.playmap, ids.agmessage],
+    },
+    'the rig (its context peers)': {
+      read: async () => ((await apps.stagewatch.context()).peers || []).map((p) => p.id),
+      expect: [ids.patterns, ids.playmap, ids.agmessage],
+    },
+    "Patterns (STATE's bus.apps)": {
+      read: async () => (((await apps.patterns.state()).bus || {}).apps || []).map((a) => a.id),
+      expect: [NODE_ID, ids.playmap, ids.agmessage],
+    },
+    'PlayMap (NODES)': {
+      read: async () => (await apps.playmap.nodes()).map((n) => n.id),
+      expect: [NODE_ID, ids.patterns, ids.agmessage],
+    },
+  };
+  r.facts = { watchMs: ONE_PEER_MS, ...(await S.oneIdOnePeer(readers, ONE_PEER_MS)) };
   await lockoutAfter(r);
 }));
 
@@ -222,6 +302,232 @@ test('S7.3 unknown words are refused everywhere', row({
   deadlineMs: HELLO_MS,
 }, async (r) => {
   r.facts = await S.unknownWordsRefused(apps.patterns, apps.playmap, apps.stagewatch);
+  await lockoutAfter(r);
+}));
+
+/**
+ * A change of an app's own context reaches the rig's context, there and back (rows S2.1, S2.3): before the change the rig's row
+ * for `id` says the app's own light and headline, proved by its own key on its node link; `on()` changes the app's own context,
+ * and from the moment the app's own context says something new, the rig's row says it within 9.5 s; `off()` puts it back, and
+ * the rig follows within the same. `off()` runs whatever happened once `on()` has, so the rows after find the room as it was.
+ * Resolves with what was read and how long each took.
+ */
+async function contextReachesRig(id, own, on, off, what) {
+  const sw = apps.stagewatch;
+  const before = await S.rigShowsContext(sw, id, own, CONTEXT_MS, what);
+  let undone = true;
+  const step = async (act, words) => {
+    const from = (await own()).headline;
+    await act();
+    const changed = await until(async () => { const c = await own(); return c.headline !== from ? c : null; }, HELLO_MS, `${what}'s own context ${words}`);
+    const at = Date.now();
+    const shown = await S.rigShowsContext(sw, id, own, S.left(at, CONTEXT_MS), what);
+    if (shown.rig.headline === from) throw new Error(`the rig still says "${from}"`);
+    const ms = S.since(at);
+    if (ms > CONTEXT_MS) throw new Error(`the rig said ${what}'s new context ${ms} ms after ${what} did, past ${CONTEXT_MS}`);
+    return { own: { light: changed.light, headline: changed.headline }, rig: shown.rig, ms };
+  };
+  try {
+    undone = false;
+    const changed = await step(on, 'changed');
+    undone = true;
+    const back = await step(off, 'back');
+    return { before, changed, back };
+  } finally {
+    // Said, never thrown over the row's own failure.
+    if (!undone) await off().catch((e) => console.error(`putting ${what}'s context back: ${e.message}`));
+  }
+}
+
+/** A certificate's fingerprint as the apps show it to a person: its first sixteen hex digits in fours. */
+const shortFingerprint = (fp) => fp.slice('sha256:'.length, 'sha256:'.length + 16).match(/.{4}/g).join(' ');
+
+/** Patterns' blackout, on or off, said on its wire: it answers OK. */
+const blackout = (state) => async () => {
+  const said = await apps.patterns.say(`BLACKOUT ${state}`);
+  if (said !== 'OK') throw new Error(`Patterns answered BLACKOUT ${state} with ${JSON.stringify(said)}`);
+};
+
+/**
+ * A deck that pairs with Patterns and leaves (S2.3's change of Patterns' own context): a wire connection of its own from the
+ * switch, paired by proof under a name of its own, is a deck Patterns lists among its own things; closing it takes it away.
+ */
+function deck() {
+  let conn = null;
+  return {
+    on: async () => {
+      conn = await Wire.connect(lan.host('patterns').addr, apps.patterns.wire.port, { capture: run.log('patterns.deck.wire') });
+      await conn.pair('InteropDeck', apps.patterns.token);
+    },
+    off: async () => { if (conn) conn.close(); conn = null; },
+  };
+}
+
+test("S2.1 PlayMap's context reaches the rig", row({
+  id: 'S2.1',
+  title: "PlayMap's context reaches the rig: PlayMap's link to it live and paired, the rig's certificate pinned; the rig's row for PlayMap, proved by PlayMap's own key on its node link, says PlayMap's own light and headline, and a change of them (Patterns' blackout, which PlayMap follows) within 9.5 s, there and back",
+  apps: ['playmap', 'stagewatch', 'patterns'],
+  deadlineMs: [CONTEXT_MS, CONTEXT_MS],
+}, async (r) => {
+  r.evidence.push(run.log('playmap.wire'), apps.playmap.engineLog);
+  const pm = apps.playmap;
+  // Its key goes to the rig only over TLS (PlayMap sends none in clear off its machine), the certificate it pinned is the one
+  // the rig serves, and the rig's answer for its key pairs the link.
+  const pinned = `certificate is the one pinned (${shortFingerprint(apps.stagewatch.tls)})`;
+  const link = await until(async () => {
+    const l = (await pm.state()).links.stagewatch;
+    if (l.state !== 'live' || l.paired !== true) throw new Error(`PlayMap's link to the rig is ${l.state}, paired ${l.paired}: ${l.detail}`);
+    if (!(l.detail || '').includes(pinned)) throw new Error(`PlayMap's link to the rig does not say the rig's certificate is pinned: ${l.detail}`);
+    return l;
+  }, HELLO_MS, "PlayMap's link to the rig live and paired, the rig's certificate pinned");
+  const own = async () => { const c = (await pm.context()).json; return { light: c.light, headline: c.headline }; };
+  r.facts = { link: { state: link.state, host: link.host, paired: link.paired, detail: link.detail },
+    ...(await contextReachesRig(ids.playmap, own, blackout('ON'), blackout('OFF'), 'PlayMap')) };
+  await lockoutAfter(r);
+}));
+
+test("S2.3 Patterns' context reaches the rig", row({
+  id: 'S2.3',
+  title: "Patterns' context reaches the rig: Patterns' link to it live over TLS with its key; the rig's row for Patterns, proved by Patterns' own key on its node link, says Patterns' own CONTEXT light and headline, and a change of them (a deck pairing with Patterns, then leaving) within 9.5 s, there and back",
+  apps: ['patterns', 'stagewatch'],
+  deadlineMs: [CONTEXT_MS, CONTEXT_MS],
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'));
+  const pat = apps.patterns;
+  const link = await until(async () => {
+    const l = (await pat.state()).bus.stagewatch;
+    if (l.state !== 'live') throw new Error(`Patterns' link to the rig is ${l.state}: ${l.words}`);
+    if (l.carrier !== 'tls' || l.key !== 'key') throw new Error(`Patterns' link to the rig is carried ${l.carrier}, its key "${l.key}": ${l.words}`);
+    return l;
+  }, HELLO_MS, "Patterns' link to the rig live over TLS with its key");
+  r.evidence.push(run.log('patterns.deck.wire'));
+  const own = async () => { const c = (await pat.context()).json; return { light: c.light, headline: c.headline }; };
+  const d = deck();
+  r.facts = { link: { state: link.state, carrier: link.carrier, key: link.key, words: link.words },
+    ...(await contextReachesRig(ids.patterns, own, d.on, d.off, 'Patterns')) };
+  await lockoutAfter(r);
+}));
+
+test("S2.4 Patterns reads the rig's context", row({
+  id: 'S2.4',
+  title: "Patterns reads the rig's context: its STATE's bus.stagewatch headline is the rig's own, and a change of it (the running order's next item) within 9.5 s, there and back",
+  apps: ['patterns', 'stagewatch'],
+  deadlineMs: [CONTEXT_MS, CONTEXT_MS],
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'), run.log('stagewatch.err'));
+  const sw = apps.stagewatch;
+  const pat = apps.patterns;
+  const agree = (ms) => until(async () => {
+    const rig = (await sw.context()).headline;
+    const read = (await pat.state()).bus.stagewatch.headline;
+    if (read !== rig) throw new Error(`Patterns says "${read}", the rig "${rig}"`);
+    return rig;
+  }, ms, "Patterns' bus.stagewatch headline the rig's own");
+  const before = await agree(CONTEXT_MS);
+  const step = async (command) => {
+    const from = (await sw.context()).headline;
+    await sw.command(command);
+    const changed = await until(async () => { const h = (await sw.context()).headline; return h !== from ? h : null; }, HELLO_MS, `the rig's headline after ${command}`);
+    const at = Date.now();
+    const read = await agree(S.left(at, CONTEXT_MS));
+    if (read === from) throw new Error(`Patterns still says "${from}"`);
+    const ms = S.since(at);
+    if (ms > CONTEXT_MS) throw new Error(`Patterns said the rig's new headline ${ms} ms after the rig did, past ${CONTEXT_MS}`);
+    return { rig: changed, patterns: read, ms };
+  };
+  r.facts = { before, next: await step('next'), previous: await step('previous') };
+  await lockoutAfter(r);
+}));
+
+test("S2.6 PlayMap's context fits", row({
+  id: 'S2.6',
+  title: "PlayMap's context fits: under 64 KiB as its wire carries it, and so do Patterns' and the rig's own, each size recorded",
+  apps: ['playmap', 'patterns', 'stagewatch'],
+  deadlineMs: null,
+}, async (r) => {
+  const sizes = {
+    playmap: (await apps.playmap.context()).bytes,
+    patterns: (await apps.patterns.context()).bytes,
+    stagewatch: (await apps.stagewatch.contextRead()).bytes,
+  };
+  const over = Object.entries(sizes).filter(([, b]) => b >= CONTEXT_BYTES);
+  if (over.length) throw new Error(`a context of 64 KiB or more: ${over.map(([a, b]) => `${a} ${b} bytes`).join(', ')}`);
+  r.facts = { bytes: sizes, limit: CONTEXT_BYTES };
+  matrix.measure('contextBytes', sizes);
+  await lockoutAfter(r);
+}));
+
+test('S2.7 a node key cannot speak for another node', row({
+  id: 'S2.7',
+  title: "a node key cannot speak for another node: with Patterns' and PlayMap's keys each bound to its own node and the third bound to none, Patterns' key posting PlayMap's id and AGMessage's, PlayMap's posting Patterns' and the free key posting PlayMap's are each refused 403 with Stagewatch's words; no forged word is in the rig's context read at once, in the first it built after the posts (AGMessage's row still its hello's alone) or in any read after, its rows for PlayMap and Patterns stay each app's own, proved by its key on its node link, every key stays bound as it was, and no address is counted",
+  apps: ['stagewatch', 'patterns', 'playmap', 'agmessage'],
+  deadlineMs: null,
+}, async (r) => {
+  r.evidence.push(run.log('stagewatch.err'));
+  const sw = apps.stagewatch;
+  // Words no app says, as the forged context's name and headline: found in a read of the rig, they are the forgery applied.
+  const forgedWords = `interop forged ${hex(4)}`;
+  const forged = (t, id) => ({ v: 1, node: { t, id, name: forgedWords }, light: 'green', headline: forgedWords, items: [], recent: [], commands: [] });
+  const keys = { patterns: sw.keyFor('patterns'), playmap: sw.keyFor('playmap'), free: sw.keyFor('nobody') };
+  // AGMessage's id is one no app posts a context for here (it is heard by its hello alone), so a forgery the rig applied for it
+  // would stay in every context the rig builds after it; one for PlayMap's or Patterns' id only until that app's next post.
+  const tries = [
+    { who: "Patterns' key", key: keys.patterns, t: 'playmap', id: ids.playmap,
+      words: `this key speaks for patterns ${ids.patterns} — make a key for playmap ${ids.playmap}` },
+    { who: "Patterns' key", key: keys.patterns, t: 'messenger', id: ids.agmessage,
+      words: `this key speaks for patterns ${ids.patterns} — make a key for messenger ${ids.agmessage}` },
+    { who: "PlayMap's key", key: keys.playmap, t: 'patterns', id: ids.patterns,
+      words: `this key speaks for playmap ${ids.playmap} — make a key for patterns ${ids.patterns}` },
+    { who: 'the free key', key: keys.free, t: 'playmap', id: ids.playmap,
+      words: `playmap ${ids.playmap} speaks with its own key` },
+  ];
+  // What --state holds of each key: Patterns' and PlayMap's each bound to its own node (the binding the rig saves, which is
+  // what a refused post could change, and what shows the reader sees bindings at all), the free key bound to none.
+  const bindings = () => Object.fromEntries(Object.entries(keys).map(([who, k]) => {
+    const saved = sw.savedKeys().find((x) => x.id === k.id);
+    return [who, saved ? { node: saved.node, nodeKind: saved.nodeKind } : null];
+  }));
+  const expected = { patterns: { node: ids.patterns, nodeKind: 'patterns' }, playmap: { node: ids.playmap, nodeKind: 'playmap' }, free: { node: null, nodeKind: null } };
+  const before = bindings();
+  if (JSON.stringify(before) !== JSON.stringify(expected)) throw new Error(`the keys' bindings before the posts are ${JSON.stringify(before)}, not ${JSON.stringify(expected)}`);
+
+  const refused = [];
+  for (const t of tries) {
+    const res = await sw.postContext(t.key, forged(t.t, t.id));
+    if (res.status !== 403 || !res.json || res.json.ok !== false || res.json.error !== t.words) {
+      throw new Error(`${t.who} posting ${t.t} ${t.id}'s context answered ${res.status} ${res.text.slice(0, 200)}`);
+    }
+    refused.push({ who: t.who, as: `${t.t} ${t.id}`, status: res.status, error: res.json.error });
+  }
+  const answeredAt = Date.now();
+
+  // No forged word anywhere in a context of the rig's, PlayMap's and Patterns' rows each its key's on its node link, and
+  // AGMessage's row still its hello's alone; what each row said.
+  const unforged = (ctx, when) => {
+    if (JSON.stringify(ctx).includes(forgedWords)) throw fatal(`the rig's context ${when} shows the forged context: ${JSON.stringify(ctx.peers)}`);
+    const rows = {};
+    for (const [name, id, own] of [['playmap', ids.playmap, true], ['patterns', ids.patterns, true], ['agmessage', ids.agmessage, false]]) {
+      const row = (ctx.peers || []).find((p) => p.id === id);
+      const fine = row && (own ? row.verified === 'key' && row.link === 'ws' : row.headline === S.HELLO_ONLY && row.link === '' && row.verified === '');
+      if (!fine) throw fatal(`the rig's row for ${name} ${when} is ${JSON.stringify(row)}, not ${own ? "its key's on its node link" : "its hello's alone"}`);
+      rows[name] = { light: row.light, headline: row.headline, verified: row.verified, link: row.link };
+    }
+    return rows;
+  };
+  // At once, with no wait; then the first context the rig built after every post had its answer (it builds one a second, so
+  // a read at once may still be one built before).
+  const atOnce = unforged(await sw.context(), 'right after the posts');
+  const built = await until(async () => { const c = await sw.context(); return c.at > answeredAt ? c : null; }, CONTEXT_BUILT_MS, 'a context the rig built after the posts');
+  const builtAfter = unforged(built, 'built after the posts');
+  // Then each row agrees with its app's own context, and every read of the rig's on the way is free of the forgery.
+  const kept = {};
+  for (const [name, app, id] of [['playmap', apps.playmap, ids.playmap], ['patterns', apps.patterns, ids.patterns]]) {
+    const own = async () => { const c = (await app.context()).json; return { light: c.light, headline: c.headline }; };
+    kept[name] = await S.rigShowsContext(sw, id, own, CONTEXT_MS, name, (ctx) => unforged(ctx, 'on a later read'));
+  }
+  const still = bindings();
+  if (JSON.stringify(still) !== JSON.stringify(expected)) throw new Error(`a refused post changed the keys' bindings: ${JSON.stringify(still)}`);
+  r.facts = { refused, atOnce, builtAfter: { ms: built.at - answeredAt, rows: builtAfter }, kept, bindings: still };
   await lockoutAfter(r);
 }));
 

@@ -69,6 +69,12 @@ tools/test.sh interop         # not a default lane: the real apps at their pins 
   `--bus PORT [--bus-to ADDRESS:PORT]` puts it on the Show Bus: it hears hellos on that port, joins the nodes it hears
   into its context as the app does, and says the app's own hello to Show Bus §2's targets on that port, or only to
   `--bus-to` (nothing while `--bind` is local, as the app; the ready line's `bus` is the port, or 0);
+  `--tls <folder>` serves its certificate on its port beside plain HTTP, as the app serves its own (a connection that
+  opens with a TLS handshake is encrypted): the app's kind, made in the folder on the first start and served again by every
+  later one, so a peer that pinned it pins it again after a restart; off Windows the key's password is not sealed, so the
+  folder is the rig's own: one not there yet is made the user's alone, and one already there is taken only when it holds
+  nothing but the certificate's files and no other user may open it, else refused, never narrowed; the ready line's `tls` is
+  its fingerprint (or null), and the hello names it with `https`;
   `--journal <file>|-` keeps the show journal as the app does (a file it can't open for appending is refused), and
   `/report` and `/api/report.csv` answer from it (404 "no report" while its show thread is stalled, as the app's);
   `--pin-file <file>` takes the PIN from a file's first line (never with `--pin`); `--secrets-out <file>` writes the
@@ -77,7 +83,8 @@ tools/test.sh interop         # not a default lane: the real apps at their pins 
   it: read it after each start); `--exit-on-eof` stops it when its input ends. Lines on its standard input: `stall <ms>`
   stops its show thread that long, as a stuck show (`stalled`, then `running`); `auth` reads the lockout tables, each
   address in its open minute (`addresses` for wrong PINs, `viewPasses` for wrong window addresses, viewing codes and
-  crew links, so a check that nothing is locked out reads both); `exit` stops it as Ctrl+C does; anything else is
+  crew links, so a check that nothing is locked out reads both); `heard` reads its hello table, the hellos it hears with
+  `--bus` and nothing else (each id's kind, address, age and conflict mark); `exit` stops it as Ctrl+C does; anything else is
   refused and a blank line is ignored. It exits 0 when stopped, 2 on an option it can't take, 3 when a server can't
   listen and 4 when the secrets file can't be written; on 3 and 4 the node keys made in that start aren't kept.
   `tools/test.sh rig` passes `$SW_RIG_ARGS` on to it (`SW_RIG_ARGS="--node-keys 2"`).

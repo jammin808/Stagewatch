@@ -1,9 +1,9 @@
 // Patterns in the lane: its bench host (tools/Patterns.Bench, the real desk booted headless through HeadlessDesk) in its own
 // namespace on its default doors (HTTP 9696, wire 9697) on every interface, its pairing token read from an owner-only file,
-// its Stagewatch link typed at the rig's own address (the address the rig's hello comes from) with no key until the rig makes
-// keys for the lane, clips synthetic and control lines on its standard input, whose end stops it. Its first output line is
-// its ready line, with no secret in it. The lane reads it as a deck would: over its wire, paired by proof (lib/wire.cjs), its
-// STATE asked for with STATUS.
+// its Stagewatch link typed at the rig's own address (the address the rig's hello comes from), with the node key the rig made
+// for it when the rig makes keys (read from an owner-only file, --stagewatch-key-file) and none otherwise, clips synthetic and
+// control lines on its standard input, whose end stops it. Its first output line is its ready line, with no secret in it. The
+// lane reads it as a deck would: over its wire, paired by proof (lib/wire.cjs), its STATE asked for with STATUS.
 'use strict';
 const path = require('node:path');
 const { AppProcess, baseEnv } = require('../lib/proc.cjs');
@@ -27,15 +27,18 @@ class Patterns {
 
   get wire() { return { addr: this.host.addr, port: DOORS.wire }; }
 
-  /** Start it linked to `stagewatch` (host:port); resolves once its ready line is read (within ms), with its JSON. */
-  async start(stagewatch, ms = 60000) {
+  /** Start it linked to `stagewatch` (host:port), with `key` ({ id, secret }, a node key the rig made) or none; resolves once its
+   *  ready line is read (within ms), with its JSON. */
+  async start(stagewatch, ms = 60000, key = null) {
     this.stagewatch = stagewatch;
+    this.key = key;
+    const keyArgs = key ? ['--stagewatch-key-file', this.run.secrets.file(`stagewatch.nodeKey.${key.id}.patterns`, key.secret)] : [];
     this.proc = new AppProcess(this.run, {
       name: 'patterns',
       ns: this.host.ns,
       command: 'dotnet',
       args: [this.run.builds.patterns.bench, '--home', this.folders.home, '--token-file', this.tokenFile,
-        '--name', 'Interop Patterns', '--stagewatch', stagewatch, '--clips', 'synthetic', '--control', 'stdin'],
+        '--name', 'Interop Patterns', '--stagewatch', stagewatch, ...keyArgs, '--clips', 'synthetic', '--control', 'stdin'],
       env: baseEnv(this.folders),
       cwd: this.folders.user,
       stdin: true,
@@ -56,7 +59,7 @@ class Patterns {
     const wrong = [];
     if (r.http !== DOORS.http || r.wire !== DOORS.wire) wrong.push(`doors ${r.http}/${r.wire}`);
     if (r.stagewatch !== this.stagewatch) wrong.push(`stagewatch ${r.stagewatch}`);
-    if (r.key !== false) wrong.push('a Stagewatch key, before the rig makes keys for the lane');
+    if (r.key !== !!this.key) wrong.push(this.key ? 'no Stagewatch key, though the rig made it one' : 'a Stagewatch key, though the rig made it none');
     if (r.trustLoopback !== false) wrong.push('trusts loopback');
     if (r.clips !== 'synthetic') wrong.push(`clips ${r.clips}`);
     if (!/^[0-9a-f]{8}$/.test(r.node || '')) wrong.push(`node id ${r.node}`);
@@ -89,6 +92,14 @@ class Patterns {
 
   /** A verb on its wire, paired; its answer line. */
   async say(line) { return (await this.wireConn()).ask(line); }
+
+  /** Its own context (§6) as its wire gives it now (CONTEXT), with its size in bytes as the wire carried it. */
+  async context() {
+    const said = await this.say('CONTEXT');
+    if (!/^OK [{]/.test(said)) throw new Error(`Patterns answered CONTEXT with ${JSON.stringify(said.slice(0, 120))}`);
+    const text = said.slice(3);
+    return { json: JSON.parse(text), bytes: Buffer.byteLength(text, 'utf8') };
+  }
 
   /** A control line on its standard input; resolves with the first JSON answer that passes `answered`. */
   async control(line, answered = () => true, ms = 10000) {
