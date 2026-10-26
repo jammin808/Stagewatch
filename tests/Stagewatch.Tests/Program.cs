@@ -2120,6 +2120,9 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
 
     Check((await Line()) == "READY stagewatch/2", "companion: READY v2");
     bridge.Snapshots.Publish(new ShowSnapshot { Text = "05:00", Seconds = 300, ConfigVersion = 1 });
+    // The hub hands frames to the server on a worker: 05:00 reaches it before SUBSCRIBE, so the only lines after
+    // SUBSCRIBE are its own CONFIG + SNAPSHOT and then exactly what each publish below pushes.
+    Check(bridge.Snapshots.WaitIdle(TimeSpan.FromSeconds(5)), "companion: frame delivered before SUBSCRIBE");
     await writer.WriteLineAsync("SUBSCRIBE JSON");
     var cfgLine = await LineStarting("CONFIG ");
     Check(cfgLine.Contains("\"Opening\""), "companion: CONFIG on subscribe");
