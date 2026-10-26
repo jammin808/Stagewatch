@@ -212,9 +212,6 @@ static class ShowBusSpecTests
         ("proposal.collect.ms", "SW21.2", "the desk sends and approves for a target whatever its last collect",
             _ => typeof(ProposalDesk).GetMethods().All(m => !m.Name.Contains("Collected", StringComparison.Ordinal))),
         ("receipt.final.ms", "SW22.1c", "its receipts carry no `final`, `repeat`, `lateMs` or `frame`", _ => ReceiptTailAsToday()),
-        ("view.wrong.per.minute", "SW19.6",
-            "wrong window addresses and viewing codes count with wrong PINs, and a right PIN or key clears them; wrong crew links count nowhere",
-            _ => ViewPassesCountedAsToday()),
         ("window.grants", "SW22.3", "it grants no window, so no grant's address travels", null),
     ];
 
@@ -1616,6 +1613,7 @@ static class ShowBusSpecTests
         Keeps(ScreenWindows.TokenLength == n.Of("window.token.chars") && ScreenWindows.Max == n.Of("window.max")
               && tokens.All(x => x.Length == n.Of("window.token.chars") && x.All(symbols.Contains)),
             "its window addresses are that many of those symbols, and it keeps that many windows at most", "window.token.chars", "window.token.alphabet", "window.max");
+        ViewPassCode(Keeps, n);
 
         foreach (var (row, unit, today, differs) in NotKeptYet)
             Check(differs is null || differs(n),
@@ -1682,9 +1680,14 @@ static class ShowBusSpecTests
             "showbus spec: Stagewatch keeps 12.3: a window asked to reload hears " + WebServer.ReloadJson);
 
         // 12.2: a device locked out of view passes is never told its address is gone: its window link closes, its page says wait.
+        // WindowFor reads the lock once and says locked apart from unknown, and both callers take its answer, so a device that
+        // reaches the limit as it asks is told to wait, never that a right address is gone.
         var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
         var windowPage = Method(server, "private async Task HandleWindowPageAsync(") ?? "";
-        Check(Regex.IsMatch(server, @"if \(!lockedWindow\) await ws\.SendAsync\(WindowGone\b") && Regex.IsMatch(windowPage, @"if \(LockedOut\(remote\)\)\s*\{\s*await WriteAsync\(stream, 429,")
+        var windowFor = Method(server, "private ScreenWindow? WindowFor(") ?? "";
+        Check(Regex.IsMatch(windowFor, @"locked = PassesLockedOut\(remote\);\s*if \(locked\) return null;")
+              && Regex.IsMatch(server, @"WindowFor\(winToken, remote, out lockedWindow\)") && Regex.IsMatch(server, @"if \(!lockedWindow\) await ws\.SendAsync\(WindowGone\b")
+              && Regex.IsMatch(windowPage, @"WindowFor\(token, remote, out var locked\);\s*if \(locked\)\s*\{\s*await WriteAsync\(stream, 429,")
               && Flat(WindowPart(s12, 2) ?? "").Contains("A locked device is never told its address is gone: a page it asks for says to wait, and a window's link is closed and tries again", StringComparison.Ordinal),
             "showbus spec: Stagewatch keeps 12.2: a locked device's window link is closed without the gone message, and its window page says wait (429)");
 
@@ -1999,21 +2002,41 @@ static class ShowBusSpecTests
     }
 
     /// <summary>
-    /// Whether WebServer still counts view passes as it did before SW19.6, on all three of their paths at once: a wrong window address
-    /// is counted in the PIN's table (LockedOut reads it), and so is a wrong viewing code (ViewPass adds to it); a wrong crew link is
-    /// counted nowhere (CheckCrewAck and CheckDeptKey count nothing); and a right key clears the PIN's table (AuthorizeSecret). A change
-    /// to any one path ends it, so NotKeptYet's words for view.wrong.per.minute never outlive the code they describe.
+    /// 12.2's count against Stagewatch's code. WrongGuesses, which holds it, is driven on an injected clock: view.wrong.per.minute
+    /// wrong view passes in a device's minute lock that device until the minute ends, one fewer locks nothing, another device is
+    /// apart. WebServer (read from source, the one door it has) counts them in a table of their own, which nothing but its minute
+    /// clears: window addresses (WindowFor), viewing codes (ViewPass) and crew links (CrewLinkFor) count there and never in the
+    /// PIN's table, the PIN's door (CheckPin, AuthorizeSecret) neither reads nor clears it, and every view pass's path refuses a
+    /// locked device. WebV2Tests.ViewPassCounts holds the same on a real server, by request.
     /// </summary>
-    static bool ViewPassesCountedAsToday()
+    static void ViewPassCode(KeepsRows Keeps, Numbers n)
     {
-        if (Source("src/Timer.Remote/WebServer.cs") is not { } server) return false;
+        var limit = (int)n.Of("view.wrong.per.minute");
+        var device = System.Net.IPAddress.Parse("10.0.0.5");
+        var other = System.Net.IPAddress.Parse("10.0.0.6");
+        var table = new WrongGuesses(WebServer.WrongViewPassesPerMinute);
+        for (var i = 0; i < limit - 1; i++) table.Count(device, 1_000 + i);
+        var below = table.Locked(device, 2_000);
+        table.Count(device, 59_000);
+        Keeps(WebServer.WrongViewPassesPerMinute == limit && limit > 0 && !below && table.Locked(device, 59_000) && table.Locked(device, 60_999)
+              && !table.Locked(device, 61_000) && !table.Locked(other, 59_000),
+            "that many wrong view passes in a device's minute lock it out of view passes until that minute ends, one fewer locks nothing", "view.wrong.per.minute");
+
+        var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
         string Of(string signature) => Method(server, signature) ?? "";
-        var windows = Regex.IsMatch(server, @"bool LockedOut\(IPAddress remote\)\s*=>\s*_authFailures\.");
-        var codes = Of("private string? ViewPass(").Contains("_authFailures.AddOrUpdate", StringComparison.Ordinal);
-        var crew = new[] { "private string? CheckCrewAck(", "private string? CheckDeptKey(" }.Select(Of)
-            .All(b => b.Length > 0 && !Regex.IsMatch(b, "AddOrUpdate|CountFailure|Failures"));
-        var cleared = Of("private Denied? AuthorizeSecret(").Contains("_authFailures.TryRemove", StringComparison.Ordinal);
-        return windows && codes && crew && cleared;
+        var passPaths = new[] { "private ScreenWindow? WindowFor(", "private string? ViewPass(", "private string? CrewLinkFor(" }.Select(Of).ToList();
+        var pinDoor = new[] { "private string? CheckPin(", "private Denied? AuthorizeSecret(" }.Select(Of).ToList();
+        var counted = Regex.IsMatch(Of("private void CountWrongPass("), @"=>\s*_passGuesses\.Count\(")
+                      && Regex.IsMatch(Of("private bool PassesLockedOut("), @"=>\s*_passGuesses\.Locked\(")
+                      // At the view door, a key that is no crew link counts in a local function of its own, which counts it.
+                      && Regex.IsMatch(Of("private string? ViewPass("), @"void CountCrewKey\(\)\s*\{[^{}]*CountWrongPass\(remote\);\s*\}");
+        Keeps(counted && passPaths.All(b => b.Contains("CountWrongPass(remote)", StringComparison.Ordinal) && b.Contains("PassesLockedOut(remote)", StringComparison.Ordinal)
+                                            && !b.Contains("_pinGuesses", StringComparison.Ordinal))
+              && pinDoor.All(b => b.Length > 0 && b.Contains("_pinGuesses.", StringComparison.Ordinal) && !Regex.IsMatch(b, "_passGuesses|CountWrongPass|PassesLockedOut"))
+              && !server.Contains("_passGuesses.Clear", StringComparison.Ordinal)
+              && Regex.Matches(server, @"_passGuesses\.").Count == 2,
+            "wrong window addresses, viewing codes and crew links count in a table of their own, apart from wrong PINs and keys, which no right "
+            + "PIN or key clears, and a locked device is refused every view pass (WebV2Tests.ViewPassCounts holds it by request)", "view.wrong.per.minute");
     }
 
     /// <summary>
@@ -2643,16 +2666,27 @@ static class ShowBusSpecTests
             ? m.Groups[1].Value : "";
 
     /// <summary>
+    /// The header's words once this tree keeps every rule of 1.3 that 2.19 brings, in place of the sentence <see cref="Brought"/> reads.
+    /// They speak of rules alone: 1.3 final and 2.19's other units are not rules of 1.3 a tree keeps.
+    /// </summary>
+    const string BringsNothingMore = "and this tree already keeps every rule of 1.3 that 2.19 brings";
+
+    /// <summary>
     /// The header names what 2.19 brings: every row of <see cref="NotKeptYet"/> a unit of 2.19 ends, in its words, and no other row; and
     /// each entry of <see cref="NotKept219"/> exactly while its code still does what it says. The rows each 2.19 unit ends are in
-    /// the header, never in the body, which 1.3 final freezes.
+    /// the header, never in the body, which 1.3 final freezes. Once none is left, the header says this tree keeps every rule of 1.3
+    /// that 2.19 brings instead, and only then.
     /// </summary>
     static void Brings(Action<bool, string> Check, string header)
     {
         var sentence = Brought(header);
-        Check(sentence.Length > 0, "showbus spec: the header says what this tree does not keep of 1.3 yet, which Stagewatch 2.19 brings");
-        // An entry names its rows in code, then what the code does today: "`a`, `b` and `c` (today …)".
         var now = NotKeptYet.Where(x => In219(x.Unit)).ToList();
+        var owed = now.Count > 0 || NotKept219.Any(x => x.Differs());
+        var nothingMore = Flat(header).Contains(BringsNothingMore, StringComparison.Ordinal);
+        Check((sentence.Length > 0) == owed && nothingMore != owed,
+            owed ? "showbus spec: the header says what this tree does not keep of 1.3 yet, which Stagewatch 2.19 brings, and not that it keeps every rule 2.19 brings"
+                 : "showbus spec: this tree keeps every rule of 1.3 that Stagewatch 2.19 brings, and the header says so in place of a list (\"" + BringsNothingMore + "\")");
+        // An entry names its rows in code, then what the code does today: "`a`, `b` and `c` (today …)".
         foreach (var (row, unit, today, _) in now)
             Check(Regex.IsMatch(sentence, "`" + Regex.Escape(row) + @"`[^()]*\(today " + Regex.Escape(today) + @"\)"),
                 $"showbus spec: the header says this tree does not keep {row} yet, in NotKeptYet's words ({unit}): today {today}");

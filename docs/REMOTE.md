@@ -266,7 +266,7 @@ file).
 
 | | |
 |---|---|
-| Window page | `GET /w/<token>`: no PIN. Its own policy: it frames only this Stagewatch's pages, no other site may frame it, no referrer leaves it, nothing caches or indexes it. An address not in use says so (404); five wrong addresses a minute from one device lock that device out for a minute, like wrong PINs (the page retries by itself) |
+| Window page | `GET /w/<token>`: no PIN. Its own policy: it frames only this Stagewatch's pages, no other site may frame it, no referrer leaves it, nothing caches or indexes it. An address not in use says so (404); five wrong addresses a minute from one device lock that device out for a minute (the page retries by itself); from 2.19 they count with wrong viewing codes and crew links, apart from wrong PINs (see 2.19: wrong passes) |
 | Window list | `GET /api/windows` (read): each window's name, what it should show (`content`, `hold`, `holdText`, `holdImage`, `onLoss`, `fadeMs`, `rev`), `connected`, what it says it shows (`shown`: `rev`, `content`, `hold`, `ms`, `at`, `error`), `inStep` (it shows the revision it was sent), `device`, `address`. `path` (`/w/<token>`) only with the PIN or a control key |
 | Context | Each window is a Show Bus item `window:<name>` (kind `screen`): green only when it says it shows what it was sent; amber while a change is sent but not shown, when it couldn't show a page, or when its link is lost; grey until someone opens it. A lost lobby screen never turns the show red |
 
@@ -446,7 +446,8 @@ PIN set, or nothing, proves nothing (`none`).
 Wrong PINs, wrong viewing codes and wrong window addresses: five a minute lock the address out, and a locked address is
 refused even a valid key (`too many wrong PINs — wait a minute`). An unknown or revoked key and a request with no PIN
 no longer count: neither is a guess (a key is 160 random bits), and an app still polling with an old key used to lock its
-whole PC out, browsers included.
+whole PC out, browsers included. From 2.19 wrong viewing codes, window addresses and crew links count apart from wrong PINs,
+and nothing but the minute clears their count (see 2.19: wrong passes).
 
 ### What other readers see
 
@@ -539,3 +540,36 @@ status line and the show log say what happened, and nothing is quiet:
 
 With HTTPS on and no certificate, the remote line says "HTTPS off: no certificate", and with **Require HTTPS** on the status
 line says it is not in force, rather than plain HTTP serving quietly.
+
+### Wrong passes: what each wrong attempt counts toward
+
+Stagewatch keeps two counts of wrong attempts per device (its address), each in a minute of its own that starts with that
+device's first wrong attempt (Show Bus 1.3 §12.2; `view.wrong.per.minute` is 5, §14):
+
+| A wrong attempt | Counts toward | Five in a minute | What clears it |
+|---|---|---|---|
+| a wrong PIN (`?pin=`, `X-Stagewatch-Pin`, `Authorization: Bearer`, a control page signing in, a node link that brings the PIN) | **the PIN's count** | the PIN and every key are refused that device for the rest of the minute: `too many wrong PINs — wait a minute` (401) | the minute's end; below the limit, the right PIN or a key in force (a locked device's PIN and keys are refused before they are checked) |
+| a wrong window address (`/w/<token>`, `win=`); a wrong viewing code (`view=`); a crew link key that is no crew link (`key=`), where a crew link is asked for: at a page's door while a viewing code is set and nothing else opened the view, and on a cue's confirmation or a department's notes while **Crew pages confirm cues only** is on (with neither, no key is checked and none counts) | **the view passes' count** | every view pass is refused that device for the rest of the minute: a window page says so and tries again by itself (429), a window's link closes and retries, never told its address is gone, and a fetch, a screen or a crew page hears `too many wrong viewing codes, window addresses or crew links from this device — wait a minute` | only the minute's end: never the right PIN, a key or a right pass |
+
+Counted nowhere: a request with no PIN; an unknown or revoked key; a crew page with no key; another page's crew link (Lighting's
+link on Sound's notes or cues is refused with its words, and is a real link, not a guess); a pass that decided nothing (a crew
+link replaced by **New crew links**, given beside the right viewing code); a node link refused before the upgrade (400); a key over
+its rate, which has its own count per key (600 requests a minute, 429 with `Retry-After`).
+
+- **Apart.** Five wrong view passes never lock out the PIN or a key, so the operator's pages still open on a device locked out of
+  view passes; five wrong PINs never lock out a viewing code, a window or a crew link. Until 2.19 the two were one count, which the
+  right PIN or a key cleared (a key holder could go on guessing view passes), and wrong crew links counted nowhere.
+- **Once per socket.** A page's WebSocket gives its crew link key once, when it opens: a key that is no crew link counts once
+  however many cues the page tries to confirm. Each HTTP request gives its key again, and counts again.
+- **A stale crew link counts with every attempt.** A link replaced by **New crew links** is no crew link any more, and nothing
+  tells it apart from a guessed one: a page opened from it counts once as it connects, and a mistyped viewing code on it counts
+  twice (the code and the key), so such a phone is locked out after two mistyped codes, not five. Reopen the page from its new
+  link. Each pass a request gives is counted because each is a guess: counting one would let one request try two.
+- **The show PC too.** Loopback is not exempt, and nothing at the desk ends the wait: five wrong passes from the show PC (a stale
+  crew tab, a mistyped code) turn away that PC's own windows (a vMix or OBS browser source on `/w/<token>`) as they reconnect, for
+  up to a minute. They wait and try again by themselves, never told their address is gone; the PIN and keys still open the desk's
+  own pages.
+- **Why five.** A window's address is 130 random bits, so for windows the count stops noise, not guessing; a crew link key is 40
+  bits and a viewing code is what the operator typed, and for those it is what stops a guesser.
+- PeerLink's wrong proofs will count in a table of their own, per address and key (Show Bus 13.5.6), once this Stagewatch's `/ws`
+  speaks LINK, in a later release; it does not yet.

@@ -33,6 +33,8 @@ static class WebV2Tests
             => new[] { (0, "Keynote", dept.Equals("Lighting", StringComparison.OrdinalIgnoreCase) ? "Blue wash" : "") };
         public volatile string? View;
         public string? ViewCode => View;
+        public volatile IReadOnlyList<ScreenWindow> WindowList = Array.Empty<ScreenWindow>();
+        public IReadOnlyList<ScreenWindow> Windows => WindowList;
         public volatile IReadOnlyList<ApiKey> Keys = Array.Empty<ApiKey>();
         public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Layouts = new(StringComparer.OrdinalIgnoreCase);
         public string? LayoutJson(string name) => Layouts.TryGetValue(name, out var j) ? j : null;
@@ -468,6 +470,237 @@ static class WebV2Tests
 
         await NodeRoutes(Check);
         await NodeLinksOnWire(Check);
+        GuessCounts(Check);
+        await ViewPassCounts(Check);
+    }
+
+    /// <summary>
+    /// One kind of wrong guess per device, on an injected clock: the limit within a device's minute locks it out until that minute
+    /// ends, one below does not; devices count apart; only the minute's end or Clear resets one; the count stops at the limit; and
+    /// devices whose minute ended are dropped once more than SweepAbove are held, at most once a minute, changing no outcome.
+    /// </summary>
+    static void GuessCounts(Action<bool, string> Check)
+    {
+        var a = IPAddress.Parse("10.0.0.5");
+        var b = IPAddress.Parse("10.0.0.6");
+        var t = new WrongGuesses(5);
+        for (var i = 0; i < 4; i++) t.Count(a, 1_000 + i);
+        var below = t.Locked(a, 1_010);
+        t.Count(a, 30_000);
+        Check(!below && t.Locked(a, 30_000) && t.Locked(a, 60_999) && !t.Locked(a, 61_000) && t.Of(a, 61_000) == 0 && !t.Locked(b, 30_000),
+              "guess counts: four wrong guesses in a device's minute lock nothing, the fifth locks it until the minute that began with its first one ends, and not another device");
+        for (var i = 0; i < 9; i++) t.Count(b, 2_000);
+        t.Count(a, 61_000);
+        Check(t.Of(b, 2_000) == 5 && t.Of(a, 61_000) == 1 && !t.Locked(a, 61_000),
+              $"guess counts: the count stops at the limit, and the first guess after a minute ended starts a new one ({t.Of(b, 2_000)}, {t.Of(a, 61_000)})");
+        t.Clear(b);
+        Check(!t.Locked(b, 2_001) && t.Of(b, 2_001) == 0, "guess counts: only its owner's Clear resets a device before its minute ends");
+
+        // The sweep: past SweepAbove devices it drops those whose minute ended, at most once a minute.
+        var many = new WrongGuesses(5);
+        static IPAddress Device(uint n) => new(System.Buffers.Binary.BinaryPrimitives.ReverseEndianness(0x0A000000u + n));
+        var first = WrongGuesses.SweepAbove + 1;
+        for (var i = 0u; i < first; i++) many.Count(Device(i), 0);               // a sweep at 0 drops nothing: no minute has ended
+        var atZero = many.Held;
+        for (var i = 0u; i < first; i++) many.Count(Device(100_000 + i), 1);     // no sweep: the next is due at 60 000
+        var late = Device(200_000);
+        for (var i = 0; i < 5; i++) many.Count(late, 1);
+        many.Count(Device(300_000), 60_000);                                       // the minutes that began at 0 have ended: dropped
+        var swept = many.Held;
+        many.Count(Device(300_001), 60_001);                                       // those that began at 1 have ended too: kept to the next
+        Check(atZero == first && swept == first + 2 && many.Held == first + 3 && many.Locked(late, 60_000) && !many.Locked(late, 60_001)
+              && many.Of(Device(100_000), 60_001) == 0,
+              $"guess counts: past SweepAbove devices, those whose minute ended are dropped, none sooner and at most once a minute, and every answer is as before ({atZero}, {swept}, {many.Held})");
+    }
+
+    /// <summary>
+    /// Show Bus 12.2 on a real server: wrong view passes — window addresses, viewing codes and crew links — count per device in a
+    /// count of their own, WebServer.WrongViewPassesPerMinute a minute locking the device out of every view pass for the minute.
+    /// What guesses nothing counts nothing: no key, another page's crew link, no code, a stale crew link beside the right code.
+    /// A right PIN or key never clears the count, and the PIN and a key still open everything they open; wrong PINs lock out the
+    /// PIN and keys alone. A socket's crew link counts once however many cues it tries, an HTTP request's each time. Every
+    /// request here comes from 127.0.0.1 within a minute, so each table is read by counts on a fresh server.
+    /// </summary>
+    static async Task ViewPassCounts(Action<bool, string> Check)
+    {
+        var lightKey = CrewKeys.For("test-secret", "Lighting");
+        var soundKey = CrewKeys.For("test-secret", "Sound");
+        const string notACrewLink = "0123456789";
+        Check(!CrewKeys.IsAnyCrewKey("test-secret", ["Lighting", "Sound"], notACrewLink), "view passes: the test's stranger key is no crew link");
+        var lobby = new ScreenWindow { Id = "wk3m9x2", Name = "lobby", Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 1 };
+        var (readKey, readSecret) = ApiKeys.Create("Dashboard", ApiKeyScope.Read, DateTime.UtcNow);
+
+        async Task<(WebServer Web, HttpClient Http, ReportControl Control, int Port)> Fresh()
+        {
+            var control = new ReportControl { View = "lobby42", WindowList = [lobby], Keys = [readKey] };
+            control.Snapshots.Publish(new ShowSnapshot
+            {
+                Text = "05:00", Seconds = 300, Title = "Keynote",
+                Signals = new[] { new SignalView(5, SignalKind.Go, "Lighting", "Q12", SignalState.Sent, false, 2, "") }.ToEquatableArray(),
+            });
+            var port = FreePort();
+            var web = new WebServer(control, () => "4321");
+            web.Start(port, bindAll: false);
+            await Task.Yield();
+            return (web, new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") }, control, port);
+        }
+        static async Task<(HttpStatusCode Code, string? Error)> Get(HttpClient http, string path, string? bearer = null)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, path);
+            if (bearer is not null) req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+            var res = await http.SendAsync(req);
+            var body = await res.Content.ReadAsStringAsync();
+            string? error = null;
+            if (body.StartsWith('{'))
+            {
+                using var d = JsonDocument.Parse(body);
+                if (d.RootElement.TryGetProperty("error", out var e)) error = e.GetString();
+            }
+            return (res.StatusCode, error);
+        }
+        static async Task<string> Admitted(int port, string query)
+        {
+            using var ws = new ClientWebSocket();
+            await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?" + query), CancellationToken.None);
+            return await Receive(ws);
+        }
+        // Whether the link's first frame is the server's close, with nothing before it: a link let in hears its window first.
+        static async Task<bool> ClosedFirst(int port, string query)
+        {
+            using var ws = new ClientWebSocket();
+            await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?" + query), CancellationToken.None);
+            using var cts = new CancellationTokenSource(3000);
+            var r = await ws.ReceiveAsync(new byte[65536], cts.Token);
+            return r.MessageType == WebSocketMessageType.Close && r.Count == 0;
+        }
+        static string? ViewError(string message)
+        {
+            if (!message.StartsWith('{')) return null;
+            using var d = JsonDocument.Parse(message);
+            return d.RootElement.TryGetProperty("view", out var v) && v.GetBoolean() && d.RootElement.TryGetProperty("error", out var e) ? e.GetString() : null;
+        }
+        var unknownKey = ApiKeys.Create("never saved", ApiKeyScope.Read, DateTime.UtcNow).Secret;
+
+        // 1. Wrong view passes of every kind lock the device out of view passes, and only of view passes.
+        {
+            var (web, http, control, port) = await Fresh();
+            await using var _ = web;
+            using var __ = http;
+            // What guesses nothing counts nothing: 12 of each.
+            for (var i = 0; i < 12; i++)
+            {
+                await Get(http, "/api/ack/5/seen");                                           // no key
+                await Get(http, "/api/ack/5/seen?key=" + soundKey);                           // another page's crew link
+                await Get(http, "/api/deptnotes?dept=Lighting&key=" + soundKey);
+                await Get(http, "/api/config");                                               // no code
+                await Get(http, "/api/config?view=lobby42&key=" + notACrewLink);              // a stale crew link beside the right code
+                await Get(http, "/api/screens", unknownKey);                                  // an unknown key
+                await Get(http, "/api/start");                                                // no PIN
+            }
+            var stillOpen = (await http.GetAsync("/w/" + lobby.Token)).StatusCode == HttpStatusCode.OK
+                            && (await Get(http, "/api/config?view=lobby42")).Code == HttpStatusCode.OK
+                            && (await Get(http, "/api/ack/5/seen?key=" + lightKey)).Code == HttpStatusCode.OK;
+            Check(stillOpen, "view passes: no key, another page's crew link, no code, a stale crew link beside the right code, an unknown key and no PIN count nothing (12 of each)");
+
+            // Five wrong view passes of three kinds: two window addresses, two codes, one key that is no crew link.
+            await http.GetAsync("/w/" + ScreenWindows.NewToken());
+            await http.GetAsync("/w/" + ScreenWindows.NewToken());
+            await Get(http, "/api/config?view=nope1");
+            await Get(http, "/api/config?view=nope2");
+            var commands = control.Commands.Count;
+            var stranger = await Get(http, "/api/ack/5/seen?key=" + notACrewLink);
+            var window = await http.GetAsync("/w/" + lobby.Token);
+            var code = await Get(http, "/api/config?view=lobby42");
+            var crewAck = await Get(http, "/api/ack/5/seen?key=" + lightKey);
+            var crewNotes = await Get(http, "/api/deptnotes?dept=Lighting&key=" + lightKey);
+            var crewDoor = await Get(http, "/api/config?key=" + lightKey);
+            var viewer = ViewError(await Admitted(port, "cid=viewer0001&view=lobby42"));
+            var crewViewer = ViewError(await Admitted(port, "cid=viewer0002&key=" + lightKey));
+            var windowLinkClosed = await ClosedFirst(port, "win=" + lobby.Token + "&detail=1");
+            Check(stranger.Code == HttpStatusCode.Forbidden && window.StatusCode == (HttpStatusCode)429
+                  && code == (HttpStatusCode.Unauthorized, WebServer.PassesLocked) && crewAck == (HttpStatusCode.Forbidden, WebServer.PassesLocked)
+                  && crewNotes == (HttpStatusCode.Forbidden, WebServer.PassesLocked) && control.Commands.Count == commands
+                  && crewDoor == (HttpStatusCode.Unauthorized, WebServer.PassesLocked) && viewer == WebServer.PassesLocked && crewViewer == WebServer.PassesLocked
+                  && windowLinkClosed,
+                  $"view passes: {WebServer.WrongViewPassesPerMinute} wrong window addresses, codes and crew links lock the device out of every view pass: a right window address (429), "
+                  + "code, crew link (at the view door, on a socket, on a cue and on notes) and a viewer's socket are refused with the lockout's words, and a window's link is "
+                  + $"closed before a word, never told it is gone ({window.StatusCode}, {code.Error}, {crewDoor.Error}, {crewAck.Error}, {viewer}, {crewViewer}, closed {windowLinkClosed})");
+
+            // Apart: the PIN and a key still open what they open, and neither clears the view passes' count.
+            var pinState = await Get(http, "/api/state?detail=1&pin=4321");
+            var pinConfig = await Get(http, "/api/config?pin=4321");
+            var keyRead = await Get(http, "/api/screens", readSecret);
+            var operatorSocket = await Admitted(port, "role=control&pin=4321");
+            var stillLocked = (await http.GetAsync("/w/" + lobby.Token)).StatusCode == (HttpStatusCode)429
+                              && await Get(http, "/api/config?view=lobby42") == (HttpStatusCode.Unauthorized, WebServer.PassesLocked);
+            Check(pinState.Code == HttpStatusCode.OK && pinConfig.Code == HttpStatusCode.OK && keyRead.Code == HttpStatusCode.OK
+                  && operatorSocket.Contains("\"ok\":true", StringComparison.Ordinal) && stillLocked,
+                  $"view passes: a device locked out of view passes keeps the PIN and its keys, and their right answers never clear the count ({pinConfig.Code}, {keyRead.Code})");
+        }
+
+        // 2. Wrong PINs lock out the PIN and keys alone; one below the limit of wrong view passes locks nothing, a right one clears nothing.
+        {
+            var (web, http, _, _) = await Fresh();
+            await using var _w = web;
+            using var _h = http;
+            for (var i = 0; i < WebServer.WrongPinsPerMinute; i++) await Get(http, "/api/start?pin=0000");
+            var pin = await Get(http, "/api/start?pin=4321");
+            var key = await Get(http, "/api/screens", readSecret);
+            var passesOpen = (await http.GetAsync("/w/" + lobby.Token)).StatusCode == HttpStatusCode.OK
+                             && (await Get(http, "/api/config?view=lobby42")).Code == HttpStatusCode.OK
+                             && (await Get(http, "/api/ack/5/seen?key=" + lightKey)).Code == HttpStatusCode.OK;
+            Check(pin == (HttpStatusCode.Unauthorized, WebServer.PinsLocked) && key == (HttpStatusCode.Unauthorized, WebServer.PinsLocked) && passesOpen,
+                  $"view passes: {WebServer.WrongPinsPerMinute} wrong PINs lock out the PIN and keys, and no view pass ({pin.Error}, {key.Error})");
+            for (var i = 0; i < WebServer.WrongViewPassesPerMinute - 1; i++) await Get(http, "/api/config?view=nope" + i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var below = (await Get(http, "/api/config?view=lobby42")).Code == HttpStatusCode.OK && (await http.GetAsync("/w/" + lobby.Token)).StatusCode == HttpStatusCode.OK;
+            await Get(http, "/api/config?view=nope");
+            var at = await Get(http, "/api/config?view=lobby42");
+            Check(below && at == (HttpStatusCode.Unauthorized, WebServer.PassesLocked),
+                  $"view passes: one below the limit locks nothing and the right code between clears nothing; the limit's last one locks ({at.Error})");
+        }
+
+        // 3. A socket gives its crew link once: a key that is no crew link counts once however many cues it tries; HTTP each time.
+        {
+            var (web, http, control, port) = await Fresh();
+            await using var _w = web;
+            using var _h = http;
+            control.View = null;
+            using var ws = new ClientWebSocket();
+            await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?cid=strangr001&key=" + notACrewLink), CancellationToken.None);
+            await Receive(ws);
+            // The refusal is JSON, its apostrophe escaped: match the words after it.
+            var refusals = 0;
+            for (var i = 0; i < 6; i++)
+            {
+                await ws.SendAsync(Encoding.UTF8.GetBytes("{\"cmd\":\"ack\",\"args\":[\"5\",\"seen\"]}"), WebSocketMessageType.Text, true, CancellationToken.None);
+                for (var tries = 0; tries < 6; tries++)
+                    if ((await Receive(ws)).Contains("confirm cues for Lighting", StringComparison.Ordinal)) { refusals++; break; }
+            }
+            for (var i = 0; i < WebServer.WrongViewPassesPerMinute - 2; i++) await Get(http, "/api/ack/5/seen?key=" + notACrewLink);
+            var open = (await http.GetAsync("/w/" + lobby.Token)).StatusCode;
+            var last = await Get(http, "/api/ack/5/seen?key=" + notACrewLink);
+            var locked = (await http.GetAsync("/w/" + lobby.Token)).StatusCode;
+            Check(refusals == 6 && open == HttpStatusCode.OK && last.Code == HttpStatusCode.Forbidden && locked == (HttpStatusCode)429,
+                  $"view passes: a socket's stranger key counts once for its 6 refused confirmations, an HTTP request's each time ({refusals} refused, {open}, then {locked})");
+            await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+        }
+
+        // 4. At the view door, with a viewing code set and none given, a key that is no crew link counts: once per HTTP request
+        //    and once for a socket's upgrade. One fewer than the limit leaves the right code open; the limit's last locks it.
+        {
+            var (web, http, _, port) = await Fresh();
+            await using var _w = web;
+            using var _h = http;
+            var refused = 0;
+            for (var i = 0; i < WebServer.WrongViewPassesPerMinute - 1; i++)
+                if (await Get(http, "/api/config?key=" + notACrewLink) == (HttpStatusCode.Unauthorized, "This screen needs the viewing code")) refused++;
+            var below = await Get(http, "/api/config?view=lobby42");
+            var upgrade = ViewError(await Admitted(port, "cid=strangr002&key=" + notACrewLink));
+            var at = await Get(http, "/api/config?view=lobby42");
+            Check(refused == WebServer.WrongViewPassesPerMinute - 1 && below.Code == HttpStatusCode.OK && upgrade == "This screen needs the viewing code"
+                  && at == (HttpStatusCode.Unauthorized, WebServer.PassesLocked),
+                  $"view passes: at the view door a key that is no crew link counts, by request and by a socket's upgrade: one fewer than the limit leaves the code open, the limit's last locks it ({refused} refused, {below.Code}, {upgrade}, {at.Error})");
+        }
     }
 
     /// <summary>

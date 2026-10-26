@@ -15,16 +15,14 @@ scripted peer §13.20 names is in this tree, honest and as an attacker; this tre
 PeerLink core — its connector on `line`, `playmap.lines.v1` and `ws`, and its acceptor's parsers, proofs, session check and receipt
 store behind the kit's stand-in. S16 and S20 run only the peer's attack, as do S15's slow reader and S12's emitting half, until its
 `/ws` acceptor speaks LINK and takes the acceptor's rows over; the connector's readers come with its playout links on the core, and
-the peer's hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is
-final every node keeps 1.2, and a node offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19,
-which carries 1.3, does not keep of it; this tree does not keep these of 1.3 yet either, which Stagewatch 2.19 brings
-before it ships: `view.wrong.per.minute` (today wrong window addresses and viewing codes count with wrong PINs, and a right PIN or key
-clears them; wrong crew links count nowhere). No node holds or draws a granted window yet. This page is the contract. `docs/ECOSYSTEM.md`
-is the why and the roadmap; each app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, PlayMap
-`docs/SHOWBUS-NODE.md`, AGMessage `docs/NODES.md`) shows how its endpoints implement this. Patterns and AGMessage keep copies of 1.2;
-this one is the master. Its body — from `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends and one final LF
-— is held by a SHA-256 pinned in Stagewatch's own test, so every edit to it is deliberate; that hash is printed here, for the copies to
-hold, once 1.3 is final.*
+the peer's hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is final every node keeps 1.2, and a
+node offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19, which carries 1.3, does not keep of
+it, and this tree already keeps every rule of 1.3 that 2.19 brings. No node holds or draws a granted window yet. This page is the
+contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns
+`docs/REMOTE.md`, PlayMap `docs/SHOWBUS-NODE.md`, AGMessage `docs/NODES.md`) shows how its endpoints implement this. Patterns and
+AGMessage keep copies of 1.2; this one is the master. Its body — from `## 1. Rules every node follows` to the end, UTF-8 without a
+BOM, LF line ends and one final LF — is held by a SHA-256 pinned in Stagewatch's own test, so every edit to it is deliberate; that
+hash is printed here, for the copies to hold, once 1.3 is final.*
 
 *Landed (§14): Stagewatch.*
 

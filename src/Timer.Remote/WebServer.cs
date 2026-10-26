@@ -33,7 +33,35 @@ public sealed class WebServer : IAsyncDisposable
     private readonly IShowControl _control;
     private readonly Func<string?> _pin;
     private readonly ConcurrentDictionary<WsClient, byte> _sockets = new();
-    private readonly ConcurrentDictionary<IPAddress, (int Failures, long WindowStartMs)> _authFailures = new();
+
+    /// <summary>Wrong PINs a device may give in a minute; then the PIN and every key are refused it for the rest of that minute.</summary>
+    public const int WrongPinsPerMinute = 5;
+
+    /// <summary>
+    /// Show Bus §14 <c>view.wrong.per.minute</c>: wrong view passes — window addresses, viewing codes and crew links — a device may
+    /// give in a minute; then every view pass is refused it for the rest of that minute (12.2).
+    /// </summary>
+    public const int WrongViewPassesPerMinute = 5;
+
+    /// <summary>
+    /// The words for a device locked out of view passes, wherever it gives one (a page, a fetch, a crew link's confirmation).
+    /// </summary>
+    public const string PassesLocked = "too many wrong viewing codes, window addresses or crew links from this device — wait a minute";
+
+    /// <summary>The words for a device locked out of the PIN and every key.</summary>
+    public const string PinsLocked = "too many wrong PINs — wait a minute";
+
+    /// <summary>
+    /// Wrong PINs per device. A right PIN or a key in force clears it. Known gap, not this table's invariant: so a key holder can
+    /// go on guessing the PIN below the limit from its address (counts per address and key close it).
+    /// </summary>
+    private readonly WrongGuesses _pinGuesses = new(WrongPinsPerMinute);
+
+    /// <summary>
+    /// Wrong view passes per device, a count of their own (Show Bus 12.2): nothing clears it but its minute's end, so a right PIN,
+    /// a key or a right view pass never lets a device go on guessing, and wrong view passes never lock out the PIN or a key.
+    /// </summary>
+    private readonly WrongGuesses _passGuesses = new(WrongViewPassesPerMinute);
     /// <summary>Per API key: requests this minute, when the minute started, and when it was last used.</summary>
     private readonly ConcurrentDictionary<string, (int Count, long WindowStartMs, DateTime LastUtc)> _keyUse = new();
     private readonly SemaphoreSlim _connectionSlots = new(MaxConnections, MaxConnections);
@@ -566,7 +594,7 @@ public sealed class WebServer : IAsyncDisposable
                 var dept = (req.Query.GetValueOrDefault("dept") ?? "").Trim();
                 if (dept.Length is 0 or > 40) { await WriteJsonError(stream, 400, "dept required", ct); return; }
                 var isOp = IsAuthorized(req, remote, ApiKeyScope.Read);
-                if (!isOp && CheckDeptKey(dept, req.Query.GetValueOrDefault("key")) is { } denied) { await WriteJsonError(stream, 403, denied, ct); return; }
+                if (!isOp && CheckDeptKey(dept, req.Query.GetValueOrDefault("key"), remote) is { } denied) { await WriteJsonError(stream, 403, denied, ct); return; }
                 var notes = _control.DeptNotesFor(dept) ?? Array.Empty<(int, string, string)>();
                 await WriteAsync(stream, 200, "application/json", JsonSerializer.SerializeToUtf8Bytes(new
                 {
@@ -740,22 +768,24 @@ public sealed class WebServer : IAsyncDisposable
     private const string WindowCsp = "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; frame-src 'self'; " +
                                      "frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
-    /// <summary>Wrong window addresses count like wrong PINs (five a minute per address), so they can't be counted through.</summary>
-    private bool LockedOut(IPAddress remote)
-        => _authFailures.TryGetValue(remote, out var f) && f.Failures >= 5 && Environment.TickCount64 - f.WindowStartMs < 60_000;
+    /// <summary>Whether the device is locked out of view passes: <see cref="WrongViewPassesPerMinute"/> wrong ones this minute.</summary>
+    private bool PassesLockedOut(IPAddress remote) => _passGuesses.Locked(remote, Environment.TickCount64);
 
-    private void CountFailure(IPAddress remote)
-    {
-        var now = Environment.TickCount64;
-        _authFailures.AddOrUpdate(remote, _ => (1, now), (_, old) => now - old.WindowStartMs > 60_000 ? (1, now) : (old.Failures + 1, old.WindowStartMs));
-    }
+    /// <summary>One wrong view pass (a window address, a viewing code or a crew link) from the device, in their own count.</summary>
+    private void CountWrongPass(IPAddress remote) => _passGuesses.Count(remote, Environment.TickCount64);
 
-    /// <summary>The window an address names, or null (a wrong one is counted). Never says how close a guess was.</summary>
-    private ScreenWindow? WindowFor(string? token, IPAddress remote)
+    /// <summary>
+    /// The window an address names, or null: <paramref name="locked"/> when the device is locked out of view passes, so the address
+    /// was not looked at and the caller says wait, never gone; else the address names no window and is counted as a wrong view pass.
+    /// One reading of the lock decides both, so a device that reaches the limit as it asks is told to wait, never that a right
+    /// address is gone. Never says how close a guess was.
+    /// </summary>
+    private ScreenWindow? WindowFor(string? token, IPAddress remote, out bool locked)
     {
-        if (LockedOut(remote)) return null;
+        locked = PassesLockedOut(remote);
+        if (locked) return null;
         var w = ScreenWindows.ByToken(_control.Windows, token);
-        if (w is null) CountFailure(remote);
+        if (w is null) CountWrongPass(remote);
         return w;
     }
 
@@ -764,13 +794,14 @@ public sealed class WebServer : IAsyncDisposable
     {
         const string headers = "Referrer-Policy: no-referrer\r\nX-Robots-Tag: noindex\r\n";
         var token = req.Path[3..].TrimEnd('/');
-        if (LockedOut(remote))
+        var window = WindowFor(token, remote, out var locked);
+        if (locked)
         {
-            await WriteAsync(stream, 429, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(WindowNotice("Too many wrong window addresses from this device — this page tries again in a minute.", retrySeconds: 60)), ct,
+            await WriteAsync(stream, 429, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(WindowNotice("Too many wrong viewing codes, window addresses or crew links from this device — this page tries again in a minute.", retrySeconds: 60)), ct,
                 extra: headers + "Retry-After: 60\r\n", csp: WindowCsp);
             return;
         }
-        if (WindowFor(token, remote) is null)
+        if (window is null)
         {
             await WriteAsync(stream, 404, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(WindowNotice("This window address isn't in use: it may have been replaced. Ask the Stagewatch operator for the new one.")), ct,
                 extra: headers, csp: WindowCsp);
@@ -942,7 +973,7 @@ public sealed class WebServer : IAsyncDisposable
         // Only a PIN or key that was given is tested: a crew page without one is a crew page, not a wrong guess.
         // Asked only for crew routes, so a key's request isn't counted twice.
         bool IsOperator() => authorized || IsAuthorized(req, remote, ApiKeyScope.Control);
-        if (cmd.Kind == ShowCommandKind.DeptNote && !IsOperator() && CheckDeptKey(DeptOf(cmd), req.Query.GetValueOrDefault("key")) is { } noteRefused)
+        if (cmd.Kind == ShowCommandKind.DeptNote && !IsOperator() && CheckDeptKey(DeptOf(cmd), req.Query.GetValueOrDefault("key"), remote) is { } noteRefused)
         {
             await WriteJsonError(stream, 403, noteRefused, ct);
             return;
@@ -989,20 +1020,18 @@ public sealed class WebServer : IAsyncDisposable
         if (string.IsNullOrEmpty(pin)) return null;
 
         var now = Environment.TickCount64;
-        if (_authFailures.TryGetValue(remote, out var f) && f.Failures >= 5 && now - f.WindowStartMs < 60_000)
-            return "too many wrong PINs — wait a minute";
+        if (_pinGuesses.Locked(remote, now)) return PinsLocked;
 
         // A request with no PIN guesses nothing, so it is refused without being counted: a keyless app polling this
         // Stagewatch never locks its machine's address (and the browsers on it) out.
         if (supplied is null) return "PIN required";
+        // A right PIN clears the PIN's count alone: wrong view passes stay counted (12.2).
         if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(pin)))
         {
-            _authFailures.TryRemove(remote, out _);
+            _pinGuesses.Clear(remote);
             return null;
         }
-        _authFailures.AddOrUpdate(remote,
-            _ => (1, now),
-            (_, old) => now - old.WindowStartMs > 60_000 ? (1, now) : (old.Failures + 1, old.WindowStartMs));
+        _pinGuesses.Count(remote, now);
         return "wrong PIN";
     }
 
@@ -1122,13 +1151,8 @@ public sealed class WebServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// A cue confirmed without the PIN must come from the crew page it was sent to: the cue has to exist and,
-    /// when crew keys are on, the page's key must belong to the cue's target. The device's address is added to
-    /// the "by" name, so the show log says where a confirmation came from. Returns why it was refused, or null.
-    /// </summary>
-    /// <summary>
     /// The viewing code, when the operator set one: a screen must give it (?view=), or be a crew link, or have the PIN.
-    /// Wrong codes count like wrong PINs (five a minute per address), so it can't be guessed. Returns why not, or null.
+    /// Wrong codes count as wrong view passes (<see cref="ViewPass"/>), apart from wrong PINs. Returns why not, or null.
     /// </summary>
     private string? CheckView(HttpRequest req, IPAddress remote)
     {
@@ -1137,24 +1161,35 @@ public sealed class WebServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// <see cref="CheckView"/> for a request whose PIN or key was already checked and did not open the view: only a crew
-    /// link, a window's address or the code itself may (so a wrong PIN is never counted twice).
+    /// <see cref="CheckView"/> for a request whose PIN or key was already checked and did not open the view: only a view pass —
+    /// a crew link, a window's address or the code itself — may (so a wrong PIN is never counted twice). A device locked out of
+    /// view passes is refused every one. A refused request counts each wrong pass it gave, in the view passes' own count: a
+    /// window's address, a code, a key that is no crew link. A pass that decided nothing (a stale crew link beside the right
+    /// code, say) is not counted: its answer was the same either way, so it guessed nothing, and a crew page whose link was
+    /// replaced still opens on the code a person typed.
     /// </summary>
     private string? ViewPass(HttpRequest req, IPAddress remote)
     {
         var code = _control.ViewCode;
         if (string.IsNullOrEmpty(code)) return null;
+        if (PassesLockedOut(remote)) return PassesLocked;
         var (secret, _) = _control.CrewKeyPolicy;
-        if (!string.IsNullOrEmpty(secret) && CrewKeys.IsAnyCrewKey(secret, _control.CrewDepartments, req.Query.GetValueOrDefault("key"))) return null;
+        var crewKey = req.Query.GetValueOrDefault("key");
+        if (!string.IsNullOrEmpty(secret) && CrewKeys.IsAnyCrewKey(secret, _control.CrewDepartments, crewKey)) return null;
+        // A key that is no crew link is counted only once nothing else opened the view.
+        void CountCrewKey() { if (!string.IsNullOrEmpty(secret) && !string.IsNullOrWhiteSpace(crewKey)) CountWrongPass(remote); }
         // The pages a window shows fetch with its address: the operator made the window, so it may view.
         if (req.Query.GetValueOrDefault("win") is { } win)
-            return WindowFor(win, remote) is not null ? null : "Wrong window address";
+        {
+            if (WindowFor(win, remote, out var locked) is not null) return null;
+            if (locked) return PassesLocked;
+            CountCrewKey();
+            return "Wrong window address";
+        }
         var supplied = req.Query.GetValueOrDefault("view");
-        var now = Environment.TickCount64;
-        if (_authFailures.TryGetValue(remote, out var f) && f.Failures >= 5 && now - f.WindowStartMs < 60_000) return "too many wrong codes — wait a minute";
         if (supplied is not null && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(code))) return null;
-        if (supplied is not null)
-            _authFailures.AddOrUpdate(remote, _ => (1, now), (_, old) => now - old.WindowStartMs > 60_000 ? (1, now) : (old.Failures + 1, old.WindowStartMs));
+        if (supplied is not null) CountWrongPass(remote);
+        CountCrewKey();
         return supplied is null ? NeedsViewCode : WrongViewCode;
     }
 
@@ -1165,26 +1200,47 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>A department's notes may be read or written without the PIN only from that department's crew link
     /// (when crew links are required). Returns why not, or null.</summary>
-    private string? CheckDeptKey(string dept, string? key)
+    private string? CheckDeptKey(string dept, string? key, IPAddress remote, WsClient? socket = null)
     {
         var (secret, required) = _control.CrewKeyPolicy;
         if (!required || string.IsNullOrEmpty(secret)) return null;
-        return CrewKeys.Matches(secret, dept, key) ? null
-            : $"This page can't edit {dept}'s notes. Open {dept}'s crew link (Showcaller page → Crew links).";
+        return CrewLinkFor(secret, dept, key, remote, $"This page can't edit {dept}'s notes. Open {dept}'s crew link (Showcaller page → Crew links).", socket);
     }
 
-    private string? CheckCrewAck(ref ShowCommand cmd, string? key, IPAddress remote)
+    /// <summary>
+    /// A cue confirmed without the PIN must come from the crew page it was sent to: the cue has to exist and,
+    /// when crew keys are on, the page's key must belong to the cue's target. The device's address is added to
+    /// the "by" name, so the show log says where a confirmation came from. Returns why it was refused, or null.
+    /// </summary>
+    private string? CheckCrewAck(ref ShowCommand cmd, string? key, IPAddress remote, WsClient? socket = null)
     {
         var id = (int)cmd.Number;
         var signal = _control.Snapshots.Latest.Signals.FirstOrDefault(g => g.Id == id);
         if (signal.Id != id || id == 0) return "That cue has already been answered or cleared.";
         var (secret, required) = _control.CrewKeyPolicy;
-        if (required && !string.IsNullOrEmpty(secret) && !CrewKeys.Matches(secret, signal.Target, key))
-            return $"This screen can't confirm cues for {signal.Target}. Open its crew link (Showcaller page → Crew links).";
+        if (required && !string.IsNullOrEmpty(secret)
+            && CrewLinkFor(secret, signal.Target, key, remote, $"This screen can't confirm cues for {signal.Target}. Open its crew link (Showcaller page → Crew links).", socket) is { } refused)
+            return refused;
         var ack = cmd.Get<AckArgs>();
         var by = (ack.By.Length > 0 ? $"{ack.By} ({remote})" : remote.ToString()).Replace("|", "/");
         cmd = cmd with { Text = by + "|" + ack.State, Args = new AckArgs(by, ack.State) };
         return null;
+    }
+
+    /// <summary>
+    /// A crew link asked for one page's target (a department's notes, a cue's confirmation): null when <paramref name="key"/> is
+    /// that target's, else <paramref name="refusal"/>. No key guesses nothing, and another page's crew link is a real link on the
+    /// wrong page, so neither is counted; a key that is no crew link at all is a wrong view pass — once for a socket
+    /// (<paramref name="socket"/>), which gave it once, and once for each HTTP request, which gives it again. A device locked
+    /// out of view passes is refused even its right crew link.
+    /// </summary>
+    private string? CrewLinkFor(string secret, string target, string? key, IPAddress remote, string refusal, WsClient? socket)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return refusal;
+        if (PassesLockedOut(remote)) return PassesLocked;
+        if (CrewKeys.Matches(secret, target, key)) return null;
+        if (!CrewKeys.IsAnyCrewKey(secret, _control.CrewDepartments, key) && (socket is null || socket.FirstCountOfCrewKey())) CountWrongPass(remote);
+        return refusal;
     }
 
     private static string? PinFrom(HttpRequest req)
@@ -1197,11 +1253,12 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>
     /// The one door for HTTP routes: the PIN opens everything; an API key (swk_…) opens what its scope allows and is
-    /// rate limited. Wrong PINs count toward the address's lockout (with wrong viewing codes and window addresses); an
-    /// unknown or revoked key and a missing PIN never do, since neither is a guess (a key is 160 random bits), and an app
-    /// still polling with a revoked key would lock its whole machine out. A locked address is refused even a valid key.
-    /// Known gap, not this door's invariant: a valid key's request clears the address's count, so a key holder on that
-    /// address can go on guessing the PIN below the lockout (counts per address and key close it). Null = allowed.
+    /// rate limited. Wrong PINs count toward the address's PIN lockout; an unknown or revoked key and a missing PIN never
+    /// do, since neither is a guess (a key is 160 random bits), and an app still polling with a revoked key would lock its
+    /// whole machine out. A locked address is refused even a valid key. Wrong view passes are counted apart, and nothing
+    /// here reads or clears their count (12.2). Known gap, not this door's invariant: a valid key's request clears the
+    /// address's PIN count, so a key holder on that address can go on guessing the PIN below the lockout (counts per
+    /// address and key close it). Null = allowed.
     /// </summary>
     private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need) => AuthorizeSecret(PinFrom(req), remote, need);
 
@@ -1211,12 +1268,11 @@ public sealed class WebServer : IAsyncDisposable
         if (!ApiKeys.LooksLikeKey(supplied))
             return CheckPin(supplied, remote) is { } pinError ? new Denied(401, pinError) : null;
 
-        var now = Environment.TickCount64;
-        if (_authFailures.TryGetValue(remote, out var f) && f.Failures >= 5 && now - f.WindowStartMs < 60_000)
-            return new Denied(401, "too many wrong PINs — wait a minute");
+        if (_pinGuesses.Locked(remote, Environment.TickCount64))
+            return new Denied(401, PinsLocked);
         if (ApiKeys.Find(_control.ApiKeys, supplied) is not { } key)
             return new Denied(401, "unknown or revoked API key");
-        _authFailures.TryRemove(remote, out _);
+        _pinGuesses.Clear(remote);
         if (!ApiKeys.Allows(key.Scope, need))
             return new Denied(403, $"this API key is {ApiKeys.Describe(key.Scope)}");
         return Spend(key.Id);
@@ -1363,10 +1419,10 @@ public sealed class WebServer : IAsyncDisposable
         var credentialsSeen = Volatile.Read(ref _credentialsVersion);
 
         // A window's link: its address names it and is its pass (it views, and sends only what any public page may). A
-        // device locked out for wrong guesses is turned away for now, never told its address is gone.
+        // device locked out of view passes is turned away for now, never told its address is gone.
         var winToken = req.Query.GetValueOrDefault("win");
-        var lockedWindow = winToken is not null && LockedOut(remote);
-        var window = winToken is null || lockedWindow ? null : WindowFor(winToken, remote);
+        var lockedWindow = false;
+        var window = winToken is null ? null : WindowFor(winToken, remote, out lockedWindow);
 
         var nodeAsked = req.Query.ContainsKey("node");
         var wantsControl = winToken is null && req.Query.GetValueOrDefault("role") == "control";
@@ -1608,9 +1664,9 @@ public sealed class WebServer : IAsyncDisposable
             Reject(error);
             return Error(error);
         }
-        if (cmd.Kind == ShowCommandKind.Ack && !client.CanControl && CheckCrewAck(ref cmd, client.CrewKey, client.Remote) is { } refused)
+        if (cmd.Kind == ShowCommandKind.Ack && !client.CanControl && CheckCrewAck(ref cmd, client.CrewKey, client.Remote, client) is { } refused)
             return Error(refused);
-        if (cmd.Kind == ShowCommandKind.DeptNote && !client.CanControl && CheckDeptKey(DeptOf(cmd), client.CrewKey) is { } noteRefused)
+        if (cmd.Kind == ShowCommandKind.DeptNote && !client.CanControl && CheckDeptKey(DeptOf(cmd), client.CrewKey, client.Remote, client) is { } noteRefused)
             return Error(noteRefused);
         if (requestId is not null)
         {
@@ -1687,6 +1743,14 @@ public sealed class WebServer : IAsyncDisposable
 
         /// <summary>The crew link key this page was opened with (?key=), if any.</summary>
         public string? CrewKey { get; init; }
+
+        private int _crewKeyCounted;
+
+        /// <summary>
+        /// True the first time only: a socket gives its crew link key once, at its upgrade, so a key that is no crew link counts
+        /// as one wrong view pass however many cues its page tries to confirm.
+        /// </summary>
+        public bool FirstCountOfCrewKey() => Interlocked.Exchange(ref _crewKeyCounted, 1) == 0;
 
         /// <summary>The viewing code this page was opened with (?view=), if any: whether it still views once its key is gone.</summary>
         public string? ViewGiven { get; init; }

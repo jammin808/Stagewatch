@@ -596,7 +596,7 @@ public static class HelpContent
                     ("/timeline", "The running order on a time axis with groups and a live now-line (`?span=3h` for a window around now)."),
                     ("/report", "The show report.")),
                 new P("**Custom look:** Settings → Remote → *Custom CSS* styles every browser screen; target one page with `.sw-page-viewer`, `.sw-page-clock`, `.sw-page-timeline` …"),
-                new P("The **PIN** is in Settings → Remote; a link with `?pin=1234` logs in directly. Five wrong PINs lock that device out for a minute."),
+                new P("The **PIN** is in Settings → Remote; a link with `?pin=1234` logs in directly. Five wrong PINs lock that device out for a minute. Five wrong viewing codes, window addresses or crew links lock it out of those for a minute, counted apart: the PIN still works on it, and nothing but the minute ends the wait."),
                 new Table(
                     ("Anyone on the network", "Speaker, agenda, rooms and holding screens — the display only. Never speaker notes, assistant suggestions or unmoderated questions."),
                     ("Crew links", "Crew pages confirm only their own cues (Settings → Remote → *Crew pages confirm cues only…*). **New crew links** revokes every old one."),
@@ -747,6 +747,7 @@ public static class HelpContent
                 new Table(
                     ("A screen says NOT CONNECTED", "It hasn't heard from Stagewatch for 6 seconds (Wi-Fi, sleep, the PC). It reconnects by itself; meanwhile trust the operator's screen."),
                     ("\"Can't confirm cues\" on a crew page", "Open that page from its crew link (Showcaller page → Crew links). Links stop working after **New crew links**."),
+                    ("\"Too many wrong viewing codes, window addresses or crew links\"", "That device gave five wrong ones within a minute (an old link or a mistyped code). It waits out the minute; the right code doesn't end the wait, and the PIN still works on it. A window page tries again by itself."),
                     ("Phones can't connect", "Same network? **Allow other devices** ticked (Settings → Remote)? Firewall allowed on **private** networks? Try the address shown in Settings → Remote."),
                     ("Companion shows disconnected", "Settings → Companion → Enabled; port 9923; for another PC, Bind on all interfaces and the firewall."),
                     ("Output on the wrong screen", "Settings → Output → Target monitor, then choose the output mode again."),

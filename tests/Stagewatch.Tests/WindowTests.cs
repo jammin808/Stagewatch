@@ -319,14 +319,16 @@ static class WindowTests
         using var stale = await Open(port, "win=" + oldToken);
         Check((await Next(stale, "\"revoked\":true")).Length > 0, "windows web: a window that comes back on an old address is told it's gone");
 
-        // Wrong addresses count like wrong PINs: the fifth locks the device out for a minute, even for a right address,
-        // and a window on that device is turned away for now (to retry), never told its address is gone.
+        // Wrong addresses count as wrong view passes: the fifth locks the device out of view passes for a minute, even for a
+        // right address, and a window on that device is turned away for now (to retry), never told its address is gone.
         for (var i = 0; i < 5; i++) await http.GetAsync("/w/" + ScreenWindows.NewToken());
         var locked = await http.GetAsync("/w/" + foyer.Token);
         Check((int)locked.StatusCode == 429 && (await locked.Content.ReadAsStringAsync()).Contains("refresh", StringComparison.Ordinal),
               "windows web: guessing addresses locks the device out, and the page retries by itself");
         using var lockedWs = await Open(port, "win=" + foyer.Token);
+        // Next answers "" on the server's close; a link let in would hear its window first, and a silent one ends Aborted, not closed.
         var lockedMsg = await Next(lockedWs, "\"type\"", 1500);
-        Check(!lockedMsg.Contains("revoked", StringComparison.Ordinal), "windows web: a locked-out window is never told its address is gone");
+        Check(lockedMsg.Length == 0 && lockedWs.State is WebSocketState.CloseReceived or WebSocketState.Closed,
+              $"windows web: a locked-out window's link is closed before a word, never told its address is gone ({lockedWs.State})");
     }
 }
