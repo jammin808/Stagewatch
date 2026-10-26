@@ -287,7 +287,10 @@ running app on a network: two copies of one install for the conflict, an old cer
   127.0.0.1 and the laptop's own address; a control from those addresses shows each table's reader sees them. Each
   topology's matrix (`artifacts/interop/<topology>`) says what each row read and how long it took. Where the kernel gives no
   such namespaces, a sibling is absent or a pin cannot be fetched, the lane says "not run", never passed. CI runs it at the
-  pins, and nightly at the siblings' heads (below); the lane's papers (BUILD.md's account of it) come after.
+  pins, and nightly at the siblings' heads (below). `docs/BUILD.md` ("The interop lane") says how it runs: the four apps,
+  its clones and pins, its topologies, its secrets, its rows and what a run leaves, and what it proves and what it does not;
+  the suite's `InteropDocTests` hold its rows table to the drivers, and `tools/test.sh help` prints every lane and every
+  variable a person sets for the lane.
 - **The rig on the show network, in the lane (SW19.13).** On the LAN the rig runs as the app runs on a show laptop: on the
   Show Bus port (`--bus 9928`), serving its certificate beside plain HTTP on its one port (`--tls`, in a folder of its own in
   its home, so a restart serves the one its peers pinned) and making three node keys, one handed to Patterns and one to
@@ -330,8 +333,21 @@ running app on a network: two copies of one install for the conflict, an old cer
     desk's blackout is held or let go is PlayMap's owner's call; the rows assert the design's "let go".
   - S6.2c (AGMessage shows no time while Stagewatch is stuck) waits on AGMessage: its link's pongs keep it fresh through the
     stuck beat, so it stays connected and green with the last time.
+  - Discovery on the offline laptop (S1b.2, every app hearing every other with no network) waits on Show Bus 1.4's carrier
+    on one machine (spec-1-3's decision 5), which lab line LB-1 measures first.
+  - PlayMap proposing to the rig's desk (S3.6) waits on Mapper's PM-P3, PlayMap's assistant on Stagewatch's approval desk,
+    after the owner's decision 7.
+  - Each headless app's own context items (S8.0, a measurement and not a row: PlayMap's, Patterns' and AGMessage's items
+    with their lights, as each one's own context says them) come with the doors rows they serve, with 2.21's preflight
+    (SW-G49c): S8.1 (ready with everything up) can pass only once S8.0 shows no app with a red item of its own.
+  - The design's later rows come with the work they read, each added once it passes: the VT rows (S4.1–S4.4) with 2.20's
+    playout links; Patterns' desk and stuck rows, the doors and nobody locking anybody out (S3.3, S3.4, S6.2b, S6.3,
+    S8.1–S8.4, S7.4) with 2.21's desk and preflight; windows on Patterns and the MCP desk rows (S5.1, S3.5, S3.7) with
+    2.22's windows for peers, Xvfb, Mesa and Playwright joining the job with them; PlayMap's windows rows (S5.2, S5.3) with
+    its PeerLink work; and AGMessage's desk, stuck and re-offer rows and one contract across the four copies (S1.3b, S3.1,
+    S3.2, S3.8, S6.5, S7.2) with AGMessage's next releases. A release waits only on the rows in the lane.
 - **The agent brief's doctrine line** speaks of one lockout; since 2.19 there are two counts (wrong PINs; wrong view passes). It
-  is the maintainer's to change.
+  is the maintainer's to change: proposed words are in "Owner action: the agent brief's lines", below.
 
 ### The interop lane in CI — what it does, and the maintainer's actions
 
@@ -377,6 +393,14 @@ running app on a network: two copies of one install for the conflict, an old cer
   else; an expiry the maintainer renews (an expired token fails the siblings' checkout steps). Then, in Stagewatch: Settings →
   Secrets and variables → Actions → New repository secret, named `SIBLINGS_READ_TOKEN`. The three repositories are public
   today; the job reads them only with this token all the same, so it keeps working if they turn private.
+- **Owner action: the runner change.** The owner's answer S-interop-ci lets the two workflows load `bridge` and `veth` and
+  set `kernel.apparmor_restrict_unprivileged_userns=0` on GitHub's hosted runner, which is thrown away after its job: there
+  is nothing to change by hand, and the first run (below) shows the step "User namespaces for the lane (this runner only)"
+  passing. The change is for a throwaway runner alone. It is a setting of the whole machine and outlives the job, so a
+  self-hosted or long-lived runner never takes it from a workflow: moving either workflow's `runs-on` to one removes that
+  step first, and that machine's owner decides whether its users get user namespaces (until they do, the lane says "not run"
+  there, which `SW_INTEROP_REQUIRED=1` turns into a failure). The bench needs no change: its kernel gives the lane's
+  namespaces to its user, and the lane changes no setting of any machine.
 - **Owner action: the first run.** CI runs on pushes to main, tags and pull requests, so pushing this branch alone runs
   nothing. Once the token exists, run it by hand on the branch (`gh workflow run ci.yml --ref <branch>`; main's `ci.yml`
   already takes runs by hand, and the run uses the branch's own workflow), or open a pull request from it, and read the run for
@@ -389,8 +413,25 @@ running app on a network: two copies of one install for the conflict, an old cer
 - **When the gate starts.** A tag runs the workflow of the commit it names, so a release waits for the interop job from the
   first tag on a commit that carries this job; a tag on an earlier commit (2.19's, if it is made on the commit its section
   names) is released without it.
-- **The agent brief's CI line** still says a release follows three green jobs, and its loop has no `tools/test.sh interop`;
-  both are the maintainer's to change (the owner's answer S-brief).
+- **Owner action: the agent brief's lines** (the owner's answer S-brief: the maintainer writes them, or accepts them as
+  drafted; no unit edits the brief). Three of its lines no longer say what the tree does, and a fourth is missing:
+  1. *The loop* has no interop lane. Proposed, after the `pageshot | rig` line:
+     ```
+     tools/test.sh interop              # the real apps at their pins, on one LAN and one laptop (not a default lane)
+     ```
+  2. *The doctrine's* **Fail closed on the wire** speaks of one lockout, which the right PIN or a key cleared. Proposed,
+     after "…no journal row and no frame": "Wrong attempts lock a device out in two counts kept apart: wrong PINs, which
+     shut the PIN and every key to that device, and wrong view passes (viewing codes, window addresses, crew links), which
+     shut every view pass to it and which nothing but the end of their minute clears, never a right PIN, key or pass. A
+     request with no credential and an unknown or revoked key count toward neither (…)". With S-D0's answer it may also
+     carry Show Bus §1 rule 5's exception: a view pass rides, beyond its own operator, as an address in exactly two
+     carriers, a browser's address bar and the one verified PeerLink (or key-verified node link) to the grant's own app (no
+     Stagewatch code sends a grant to a peer before 2.22's windows for peers).
+  3. *The CI line* says a release follows three green jobs. Proposed: "… `interop` (tools/test.sh interop at the siblings'
+     pins), and `release` on a `v*` tag once all four are green; `interop-heads.yml` runs the interop lane nightly at the
+     siblings' heads, a drift report that gates nothing."
+  4. *Where things live* has no row for the lane. Proposed: "| The interop lane: the siblings' pins and builds, the
+     one-kernel LAN, the drivers and their rows | `tools/interop`; `tests/interop` |".
 - **What the job does not do yet.** No NuGet cache: each run restores the three builds' packages afresh (a few minutes). No
   browser: Xvfb, Mesa and Playwright join with the rows that need one. Its actions are named by version, as the rest of
   `ci.yml`, not by commit.

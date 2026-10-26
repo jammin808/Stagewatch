@@ -2204,6 +2204,7 @@ await HelloTests.Run(Check);
 await BusCarrierProbeTests.Run(Check);
 ShowBusSpecTests.Run(Check);
 NodesDocTests.Run(Check);
+await InteropDocTests.Run(Check);
 await ShowBusCopiesTests.Run(Check);
 PeerLinkVectors.Run(Check);
 await PeerLinkScenarios.Run(Check);

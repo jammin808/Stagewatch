@@ -2,10 +2,12 @@
 // tools/interop/run.sh, with the topology's matrix beside it), what tools/interop/build.sh built ($SW_INTEROP_OUT/builds.json,
 // the only place the driver learns where an app is), and the register of every secret the run makes or learns. Secrets go
 // to the apps through 0600 files in run/secrets, a tmpfs of the run's own mount namespace that ends with the run (or, for
-// AGMessage's admin token, its environment, its one door), never through argv, standard output or a log; the register lets a
-// reader check that (the sweep, row S7.1) without printing one. A file an app keeps a secret in by design (its settings with
-// its token, its TLS key) is named by the app (secretFiles()) and removed once the app has stopped; until then it is 0600 in
-// a 0700 folder.
+// AGMessage's admin token, its environment, its one door; for the three PlayMap is given, its token, Patterns' token and its
+// node key, PlayMap's 0600 settings file in its home, where it reads them, on the disk), never through argv, standard output
+// or a log; the register lets a reader check that (the sweep, row S7.1) without printing one. A file an app keeps a secret in
+// by design (its settings with its token, its TLS key) is named by the app (secretFiles()) and removed once the app has
+// stopped; until then it is 0600 on the disk in a 0700 folder, and a run killed before its after() hook leaves it until
+// run.sh's next run of that topology removes the folder.
 'use strict';
 const crypto = require('node:crypto');
 const fs = require('node:fs');

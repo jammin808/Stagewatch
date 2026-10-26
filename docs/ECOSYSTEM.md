@@ -162,6 +162,8 @@ proposes into one approval queue.
 - **Three stacks across four apps** (.NET/WPF for Stagewatch, .NET/Avalonia for Patterns and PlayMap, Node for
   AGMessage). Keep the bus spec and its conformance tests independent of all of them, and give each node a tiny adapter:
   Show Bus 1.3 does this with vectors in its own text and one scripted peer that every tree runs against itself (§13.20).
+  Beside them, Stagewatch's interop lane runs the four real apps against each other at pinned commits, on one LAN and one
+  show laptop (`tools/test.sh interop`; `docs/BUILD.md`, "The interop lane", says what it proves and what it does not).
 - **Security drift.** Auth is only as strong as the weakest node. Use the same key model and lockouts everywhere,
   and send nothing secret on discovery.
 - **Code signing** is still deferred. SmartScreen warnings will cost trust at venues, so sign before a wider

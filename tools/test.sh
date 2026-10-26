@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Stagewatch's test lanes off Windows (the cloud bench, CI's Linux job). One build, then each lane in turn; the summary
 # names every lane that failed and the exit code is non-zero if any did.
-#   tools/test.sh                 every lane
-#   tools/test.sh unit e2e        some lanes
+#   tools/test.sh                 the default lanes: build unit module holo e2e
+#   tools/test.sh unit e2e        the lanes named, in that order
+#   tools/test.sh help            this text, and nothing run (also -h or --help)
 # Lanes:
 #   build    dotnet build: the solution (WPF compiles here too), PageShot, the rig and LB-1's carrier probe (run by hand:
 #            dotnet run --project tools/BusCarrierProbe -c Debug --no-build)
@@ -13,21 +14,36 @@
 #   pageshot PageShot's screenshots of the pages with the real server (artifacts/pages)
 #   rig      not a test: start the rig in the foreground and print its addresses (Ctrl+C stops it); $SW_RIG_ARGS adds
 #            options (SW_RIG_ARGS="--node-keys 2"); type "stall <ms>" to stop its show thread that long, as a stuck show
-#   interop  not a default lane: the rig, Patterns' bench host, PlayMap's node and AGMessage at the commits
-#            tools/interop/siblings.json pins, built in clones of the lane's own (tools/interop/build.sh), run on each
-#            topology in turn, each in a user, network and PID namespace of its own that ends with its run
-#            (tools/interop/run.sh): lan (each app a host of its own on one switch) and laptop (the four on one host with
-#            its Wi-Fi up); SW_INTEROP_TOPOLOGY=lan or laptop runs one. Each topology's matrix goes to
-#            artifacts/interop/<topology>. Where a sibling's repository is absent, a pin or the Node AGMessage needs cannot
-#            be fetched, or the kernel gives no such namespaces, the lane is "not run", never passed, and
-#            SW_INTEROP_REQUIRED=1 makes that a failure. SW_INTEROP_HEADS=1 runs each sibling at its repository's HEAD
-#            instead of its pin (CI's nightly drift report); tools/interop/summary.py prints what a run built and its rows,
-#            and tools/interop/publish.py copies what may leave the machine (CI's artifact). The lane's own scripts are
-#            checked first (tools/interop/selfcheck.py: pins.py, build.sh, summary.py and publish.py on fixtures of their
-#            own), and the lane does not run when they fail
-# First time on a machine: tools/setup-dev.sh. The Windows-only lanes (UI smoke, the installer) are tools/smoke.ps1 and
-# tools/release.ps1 on the Windows job.
+#   interop  not a default lane: the real apps against each other (docs/BUILD.md, "The interop lane"). The rig,
+#            Patterns' bench host, PlayMap's node and AGMessage's server, the three siblings at the pushed commits
+#            tools/interop/siblings.json pins, each built in a clone of the lane's own, never in a sibling's working tree
+#            (tools/interop/build.sh), then run on each topology in turn, each in user, network, PID and mount namespaces
+#            of its own that end with its run (tools/interop/run.sh): lan (each app a host of its own on one switch) and
+#            laptop (the four on one host with its Wi-Fi up). Each topology's matrix, a row per cross-app fact with its
+#            verdict, its time and its evidence, goes to artifacts/interop/<topology>. The lane's own scripts are checked
+#            first (tools/interop/selfcheck.py), and the lane does not run when they fail. Where a sibling's repository is
+#            absent, a pin cannot be fetched, no Node for AGMessage is found or fetched, or the kernel gives this user no
+#            such namespaces, bridge or veth, the lane is "not run", said with why and never counted as passed. It changes
+#            no setting of the machine's. tools/interop/summary.py prints what a run built and its rows;
+#            tools/interop/publish.py copies what may leave the machine (CI's artifact).
+#              SW_INTEROP_TOPOLOGY=lan|laptop   one topology (default: both)
+#              SW_INTEROP_REQUIRED=1            "not run" fails the lane (CI)
+#              SW_INTEROP_HEADS=1               each sibling at its repository's HEAD instead of its pin, still pushed only
+#                                               (CI's nightly drift report)
+#              SW_PATTERNS_DIR, SW_MAPPER_DIR, SW_AGMESSAGE_DIR
+#                                               the siblings' repositories (default ../Patterns, ../Mapper, ../AGMessage)
+#              SW_INTEROP_OUT                   the lane's folder (default artifacts/interop, which git ignores)
+#              SW_INTEROP_AGMESSAGE_NODE        the Node AGMessage runs on (default: the machine's, if its engines field
+#                                               takes it, else the one tools/interop/build.sh pins, fetched and checked)
+# First time on a machine: tools/setup-dev.sh (the interop lane's Python, unshare and nsenter, and its driver's packages
+# included). The Windows-only lanes (UI smoke, the installer) are tools/smoke.ps1 and tools/release.ps1 on the Windows job.
 set -uo pipefail
+# The header above is the help: each comment line from the second on, up to the first line that is not one.
+for arg in "$@"; do
+  case "$arg" in
+    help|-h|--help) sed -n '2,/^[^#]/{/^#/s/^# \{0,1\}//p}' "${BASH_SOURCE[0]}"; exit 0 ;;
+  esac
+done
 cd "$(dirname "$0")/.."
 root=$(pwd)
 lanes=("$@")
@@ -111,7 +127,8 @@ for l in "${lanes[@]}"; do
       read -ra rig_args <<< "${SW_RIG_ARGS:-}"
       dotnet tools/Stagewatch.Rig/bin/Debug/net10.0-windows/Stagewatch.Rig.dll --state "$root/artifacts/rig-windows.json" \
         ${rig_args[@]+"${rig_args[@]}"} ;;
-    *) echo "unknown lane: $l (build unit module holo e2e pageshot rig interop)" >&2; failed+=("$l") ;;
+    *) echo "unknown lane: $l (build unit module holo e2e pageshot rig interop; tools/test.sh help says what each does)" >&2
+       failed+=("$l") ;;
   esac
 done
 
