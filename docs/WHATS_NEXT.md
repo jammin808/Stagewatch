@@ -166,9 +166,17 @@ connected): look at them in the running app with a show app linked.
   urgency and flash, so a show app's key can flash the speaker's screen. What a show app may say there is left to the
   stage-message work in 2.20 (message signals and acknowledgements on the rig).
 - **The rig isn't the interop lane's yet.** Each run makes a new node id, it prints its PIN and the node keys it made
-  in its ready line, it has no line to read the lockout and doesn't stop when its input closes. A stable id, a journal
-  and its report, secrets off standard output and the lockout readable come with the interop lane's rig (a lane track
-  beside 2.19).
+  in its ready line, it has no line to read the lockout and doesn't stop when its input closes. *Since then (2.19's lane
+  track):* `--node-id`, `--journal` with `/report`, `--pin-file`, `--secrets-out`, `--exit-on-eof` and the `auth` and
+  `exit` control lines (`docs/BUILD.md`, `tests/e2e/rig-faults.e2e.cjs`). The lane that drives it against the real
+  apps is still to come.
+- **A resumed show's earlier journal rows can go missing on Windows.** The app starts the journal's writer before it
+  reads the file back (`OpenJournal`); the writer's handle shares reading only, so on Windows the read can fail and the
+  report and the context's recent lines lose the rows from before the restart. The rig reads first since 2.19's lane
+  track; the app's fix is the same three lines (read the file, then make the journal, then seed it).
+- **A stuck show answers `/report` with "no report".** The show thread builds the report, and when it doesn't answer
+  within a receipt's wait, `/report` and `/api/report.csv` say 404 "no report", in the app and the rig alike. Telling a
+  stuck show apart (503 with words) is the app's and the rig's change together, beside the stuck overlay on the context.
 - **Settings' key list doesn't refresh while it is open.** A binding made in the background shows after the next key
   action, or when Settings is opened again.
 - **What the Patterns link set aside isn't shown.** Lines a desk sent before pairing are counted, not published; the

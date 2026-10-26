@@ -10,12 +10,28 @@ using Stagewatch.Remote;
 using Stagewatch.Show;
 
 // The headless rig: the real web server, Companion server and OSC server around a simulated show, on any OS.
-//   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321]
+//   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321 | --pin-file FILE]
 //       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--node-keys N] [--exit-after SECONDS]
-//       [--bus PORT [--bus-to ADDRESS:PORT]]
+//       [--bus PORT [--bus-to ADDRESS:PORT]] [--node-id ID] [--journal FILE|-] [--secrets-out FILE] [--exit-on-eof]
 // The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"node":…,
-// "windows":[…],"nodeKeys":[{"id","secret"}],"bus":…}; nodeKeys lists only the node keys made in this run (--node-keys N makes
-// them on a first start; --state keeps their hashes and the node each speaks for, never a secret).
+// "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file"}; nodeKeys lists only the
+// node keys made in this run (--node-keys N makes them on a first start; --state keeps their hashes and the node each speaks for,
+// never a secret).
+// Secrets: "pin" is "none" for no PIN, "set" when it came from --pin-file or --secrets-out is given, and the PIN itself only
+// when it came from --pin (or is the default) with no --secrets-out. With --secrets-out FILE the rig writes every secret it would
+// print to FILE (owner-only on Linux and macOS, written whole before the ready line): {"pin":"…","windows":[{"name","path"}],
+// "nodeKeys":[{"id","secret"}]}, and the ready line names windows and keys only ({"name"}, {"id"}): nothing secret reaches
+// standard output or standard error. The file holds this start's secrets, as the ready line would: each start rewrites it, and
+// a key made on an earlier start is not in it (its secret went out once, on that start), so a reader reads it after each start.
+// --pin-file FILE reads the PIN from FILE's first line (an empty line is no PIN); never with --pin. Without --secrets-out,
+// windows carry their "path" (/w/<token>) and keys their "secret", as before.
+// --node-id ID (6-40 letters, digits, - or _) is the id it says in its hello, context and node links, the same on every start;
+// without it each start draws "rig-" and a random id.
+// --journal FILE keeps the show journal as the app does (JSON lines, appended; a restart reads the file back and goes on), "-"
+// keeps it in memory: item starts and ends, phase changes, blackout, messages, notes, window changes and key bindings. A FILE
+// the rig cannot open for appending is refused (exit 2) before any ready line says it keeps a journal. /report and
+// /api/report.csv answer from it and the rig's running order; the show thread builds the report, so while it is stalled (or
+// with no --journal) both answer 404 "no report", as the app's do. The context's recent lines are its rows; without it, none.
 // --bus PORT puts the rig on the Show Bus (off by default): it hears hellos on that port, joins the nodes it hears into its
 // context as the app does, and says the app's own hello (ShowBusHello.Main over its servers' doors and --bind) — to §2's targets
 // on that port, or only to --bus-to. As the app, it says nothing while --bind is local, and its context's bus:hello is amber while
@@ -27,16 +43,55 @@ using Stagewatch.Show;
 //   stall <ms>   1-30000: the show thread is blocked that long, so every link hears the real stuck beat; answered twice,
 //                → {"rig":"stalled","ms":…,"at":<unix ms>} as it stops, {"rig":"running","at":<unix ms>} as it turns over
 //                (stopping the rig ends a stall early: its running line comes as the rig stops)
+//   auth         the lockout tables as they stand (WebServer.AuthFailures, ViewPassFailures), no secret in them →
+//                {"rig":"auth","at":<unix ms>,"addresses":[{"address","failures","windowAgeMs"}],"viewPasses":[…the same]}:
+//                each device whose one-minute window is still open, the PIN's (wrong PINs) and the view passes' (wrong window
+//                addresses, viewing codes and crew links)
+//   exit         stops the rig as Ctrl+C does → {"rig":"exiting"}
 //   anything else is refused, never guessed → {"rig":"refused","line":"<first word>","error":"…"}
-// The end of standard input ends the reader, never the rig.
+// The end of standard input ends the reader; with --exit-on-eof it also stops the rig as Ctrl+C does (so does input that can no
+// longer be read), and never otherwise.
+// Exit codes: 0 stopped (Ctrl+C, the process ending, --exit-after, exit, --exit-on-eof); 2 an option it cannot take, said on
+// standard error; 3 a server could not listen; 4 --secrets-out could not be written. On 3 and 4 no secret went out, so the
+// node keys made in that start are taken out of --state again and the next start makes them afresh.
 var options = RigOptions.Parse(args);
 if (options is null) return 2;
 using var rig = new Rig(options);
 return await rig.RunAsync();
 
+/// <summary>Where the rig's PIN came from: what decides whether the ready line may say it.</summary>
+enum PinSource { Default, Flag, File }
+
 sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool BindAll, string? StateFile, string ViewCode, string Room, int ExitAfterSeconds, int NodeKeys,
     int Bus = 0, IPEndPoint? BusTo = null)
 {
+    /// <summary>The longest first line --pin-file reads as a PIN.</summary>
+    public const int PinFileMax = 256;
+
+    /// <summary>--node-id: the id it says in its hello, context and node links on every start; null draws "rig-" and a random id.</summary>
+    public string? NodeId { get; init; }
+
+    /// <summary>--journal: the journal's file, <see cref="InMemory"/> for one kept in memory only, or null for none.</summary>
+    public string? Journal { get; init; }
+
+    /// <summary>The --journal word for a journal kept in memory.</summary>
+    public const string InMemory = "-";
+
+    /// <summary>--pin, --pin-file or neither (the default PIN).</summary>
+    public PinSource PinFrom { get; init; }
+
+    /// <summary>--pin-file: the file whose first line is the PIN, or null.</summary>
+    public string? PinFile { get; init; }
+
+    /// <summary>--secrets-out: the file every secret goes to instead of standard output, or null.</summary>
+    public string? SecretsOut { get; init; }
+
+    /// <summary>--exit-on-eof: standard input reaching its end stops the rig as Ctrl+C does.</summary>
+    public bool ExitOnEof { get; init; }
+
+    /// <summary>Whether the ready line may carry the PIN itself: only one given in argv (or the default), never with --secrets-out.</summary>
+    public bool PinOnStdout => PinFrom != PinSource.File && SecretsOut is null;
+
     public static RigOptions? Parse(string[] args)
     {
         var o = new RigOptions(19940, 19941, 19942, "4321", false, null, "", "Rig Hall", 0, 0);
@@ -45,6 +100,8 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
             string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value");
             int Port() => int.Parse(Next(), CultureInfo.InvariantCulture) is var p and >= 0 and <= 65535 ? p : throw new ArgumentException("ports are 0-65535");
             int Keys() => int.Parse(Next(), CultureInfo.InvariantCulture) is var n and >= 0 and <= ApiKeys.Max ? n : throw new ArgumentException($"--node-keys is 0-{ApiKeys.Max}");
+            string File(string option) => Next() is { Length: > 0 } f ? f : throw new ArgumentException($"{option} needs a file");
+            string Id(string id) => ShowBusHello.ValidId(id) ? id : throw new ArgumentException($"--node-id is {ShowBusHello.IdMin}-{SlidesBeacon.IdChars} letters, digits, - or _");
             try
             {
                 o = args[i] switch
@@ -52,7 +109,8 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                     "--port" => o with { Http = Port() },
                     "--companion" => o with { Companion = Port() },
                     "--osc" => o with { Osc = Port() },
-                    "--pin" => o with { Pin = Next() },
+                    "--pin" => o.PinFrom == PinSource.Default ? o with { Pin = Next(), PinFrom = PinSource.Flag } : throw new ArgumentException("--pin once, and never with --pin-file"),
+                    "--pin-file" => o.PinFrom == PinSource.Default ? o with { PinFrom = PinSource.File, PinFile = File("--pin-file") } : throw new ArgumentException("--pin-file once, and never with --pin"),
                     "--bind" => o with { BindAll = Next() == "all" },
                     "--state" => o with { StateFile = Next() },
                     "--view" => o with { ViewCode = Next() },
@@ -65,6 +123,10 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                         BusTo = IPEndPoint.TryParse(Next(), out var to) && to.Port > 0 && to.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
                             ? to : throw new ArgumentException("--bus-to takes an IPv4 address and a port"),
                     },
+                    "--node-id" => o.NodeId is null ? o with { NodeId = Id(Next()) } : throw new ArgumentException("--node-id once"),
+                    "--journal" => o.Journal is null ? o with { Journal = File("--journal") } : throw new ArgumentException("--journal once"),
+                    "--secrets-out" => o.SecretsOut is null ? o with { SecretsOut = File("--secrets-out") } : throw new ArgumentException("--secrets-out once"),
+                    "--exit-on-eof" => o with { ExitOnEof = true },
                     _ => throw new ArgumentException($"unknown option {args[i]}"),
                 };
             }
@@ -79,7 +141,66 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
             Console.Error.WriteLine("Stagewatch.Rig: --bus-to needs --bus");
             return null;
         }
+        if (o.PinFile is { } pinFile)
+        {
+            if (ReadPin(pinFile, out var error) is not { } pin)
+            {
+                Console.Error.WriteLine("Stagewatch.Rig: " + error);
+                return null;
+            }
+            o = o with { Pin = pin };
+        }
+        if (o.Journal is { } journal && journal != InMemory && CheckJournal(journal) is { } cannot)
+        {
+            Console.Error.WriteLine("Stagewatch.Rig: " + cannot);
+            return null;
+        }
         return o;
+    }
+
+    /// <summary>
+    /// --journal FILE: opened for appending once, its folder made first, as the journal's own writer opens it, so a file the rig
+    /// could never write is refused before a ready line says it keeps a journal. Null when it opens; else words naming the file.
+    /// </summary>
+    private static string? CheckJournal(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            new FileStream(full, FileMode.Append, FileAccess.Write, FileShare.ReadWrite).Dispose();
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return "--journal: couldn't open it for appending: " + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// The PIN from a file's first line, its line end taken off (an empty line is no PIN), read no further than
+    /// <see cref="PinFileMax"/> characters; null with words when it cannot be read or the line is longer. The words never
+    /// carry what the file holds.
+    /// </summary>
+    private static string? ReadPin(string path, out string error)
+    {
+        error = "";
+        try
+        {
+            using var reader = new StreamReader(path, new System.Text.UTF8Encoding(false), detectEncodingFromByteOrderMarks: true);
+            var buffer = new char[PinFileMax + 2];
+            var read = reader.ReadBlock(buffer, 0, buffer.Length);
+            var text = new string(buffer, 0, read);
+            var line = text.IndexOf('\n') is var end and >= 0 ? text[..end] : text;
+            if (line.EndsWith('\r')) line = line[..^1];
+            if (line.Length <= PinFileMax) return line;
+            error = $"--pin-file: the first line is over {PinFileMax.ToString(CultureInfo.InvariantCulture)} characters";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            error = "--pin-file: " + ex.Message;
+        }
+        return null;
     }
 }
 
@@ -94,7 +215,15 @@ sealed class Rig : ICompanionBridge, IDisposable
     private readonly Thread _owner;
     private readonly WindowDirector _windows;
     private readonly DateTime _startedUtc = DateTime.UtcNow;
-    private readonly string _nodeId = "rig-" + ScreenWindows.NewId()[1..];
+    /// <summary>The id it says in its hello, context and node links: --node-id's on every start, or drawn for this start alone.</summary>
+    private readonly string _nodeId;
+    /// <summary>
+    /// The show journal (--journal), or null: the owner thread is its one writer and its one reader (the context, the report),
+    /// as the app's show thread is; its file is appended to off the owner thread by the journal's own writer.
+    /// </summary>
+    private readonly ShowJournal? _journal;
+    /// <summary>Set once to stop the rig, as Ctrl+C does: by Ctrl+C, the process ending, --exit-after, <c>exit</c> or --exit-on-eof.</summary>
+    private readonly TaskCompletionSource _stop = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Timer? _ticker;
     private WebServer? _web;
     /// <summary>The rig on the Show Bus (--bus): its hello and what it hears; null when it is off.</summary>
@@ -152,6 +281,17 @@ sealed class Rig : ICompanionBridge, IDisposable
     public Rig(RigOptions o)
     {
         _o = o;
+        _nodeId = o.NodeId ?? "rig-" + ScreenWindows.NewId()[1..];
+        if (o.Journal is { } journal)
+        {
+            // A file is appended to, and read back first: a restarted rig goes on with the show's journal, as the app does. It is
+            // read before the journal's writer opens it: on Windows that writer's handle (shared for reading only) refuses a
+            // reader that shares only reading, and the earlier rows would be lost to the report and the context.
+            var path = journal == RigOptions.InMemory ? null : Path.GetFullPath(journal);
+            var earlier = path is not null && File.Exists(path) ? ShowJournal.Load(path) : null;
+            _journal = new ShowJournal(path);
+            if (earlier is not null) _journal.Seed(earlier);
+        }
         var state = LoadState();
         _keys = state.Keys;
         MakeNodeKeys(o.NodeKeys);
@@ -178,9 +318,8 @@ sealed class Rig : ICompanionBridge, IDisposable
     public async Task<int> RunAsync()
     {
         _owner.Start();
-        var stop = new TaskCompletionSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.TrySetResult(); };
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => stop.TrySetResult();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; _stop.TrySetResult(); };
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => _stop.TrySetResult();
         try
         {
             _web = new WebServer(this, () => _o.Pin.Length == 0 ? null : _o.Pin);
@@ -192,24 +331,88 @@ sealed class Rig : ICompanionBridge, IDisposable
         catch (System.Net.Sockets.SocketException ex)
         {
             Console.Error.WriteLine("Stagewatch.Rig: couldn't listen: " + ex.Message);
+            ForgetMadeKeys(_madeKeys ?? new(), EndOwner());
             return 3;
         }
         if (_o.Bus > 0) _beacon = new SlidesBeacon(SayHello, _o.Bus, _o.BusTo is { } to ? [to] : null);
         _ticker = new Timer(_ => QueueTick(), null, 0, 250);
-        Say(new
-        {
-            rig = "ready", http = _o.Http, companion = _o.Companion, osc = _o.Osc, pin = _o.Pin, node = _nodeId,
-            windows = _windows.Windows.Select(w => new { name = w.Name, path = "/w/" + w.Token }),
-            nodeKeys = (_madeKeys ?? new()).Select(k => new { id = k.Id, secret = k.Secret }),
-            bus = _o.Bus,
-        });
+        // The windows as they stand at the ready line: the constructor's, before any command can change them.
+        var windows = _windows.Windows;
+        var keys = _madeKeys ?? new();
         _madeKeys = null;
+        // The secrets go to their file whole before the ready line, so a reader of the ready line finds them there.
+        if (_o.SecretsOut is { } secretsOut && !WriteSecrets(secretsOut, windows, keys, _o.Pin))
+        {
+            await StopAsync();
+            ForgetMadeKeys(keys, EndOwner());
+            return 4;
+        }
+        Say(Ready(windows, keys));
         // After the ready line, so it stays the first line on standard output.
         new Thread(ReadControl) { IsBackground = true, Name = "rig control" }.Start();
-        if (_o.ExitAfterSeconds > 0) _ = Task.Delay(TimeSpan.FromSeconds(_o.ExitAfterSeconds)).ContinueWith(_ => stop.TrySetResult(), TaskScheduler.Default);
-        await stop.Task;
+        if (_o.ExitAfterSeconds > 0) _ = Task.Delay(TimeSpan.FromSeconds(_o.ExitAfterSeconds)).ContinueWith(_ => _stop.TrySetResult(), TaskScheduler.Default);
+        await _stop.Task;
         await StopAsync();
         return 0;
+    }
+
+    /// <summary>
+    /// The ready line: ports, the node id, the windows and the keys made in this run, and its fields appended after
+    /// <c>bus</c>. A secret is in it only without --secrets-out: the PIN only when it came from argv (or is the default),
+    /// a window's path and a key's secret only when no file takes them.
+    /// </summary>
+    private object Ready(IReadOnlyList<ScreenWindow> windows, List<(string Id, string Secret)> keys)
+    {
+        var file = _o.SecretsOut is not null;
+        return new
+        {
+            rig = "ready", http = _o.Http, companion = _o.Companion, osc = _o.Osc,
+            pin = _o.Pin.Length == 0 ? "none" : _o.PinOnStdout ? _o.Pin : "set",
+            node = _nodeId,
+            windows = windows.Select(w => file ? (object)new { name = w.Name } : new { name = w.Name, path = "/w/" + w.Token }),
+            nodeKeys = keys.Select(k => file ? (object)new { id = k.Id } : new { id = k.Id, secret = k.Secret }),
+            bus = _o.Bus,
+            bind = _o.BindAll ? "all" : "local",
+            journal = _journal is not null,
+            secrets = file ? "file" : "stdout",
+        };
+    }
+
+    /// <summary>
+    /// --secrets-out: every secret the ready line would carry — the PIN, each window's path, each key made in this run with its
+    /// secret — written whole (a file of its own, then moved over the old one), readable by this user alone on Linux and macOS
+    /// (on Windows the folder's own permissions hold it). False with words on standard error, naming the file, never a secret.
+    /// </summary>
+    private static bool WriteSecrets(string path, IReadOnlyList<ScreenWindow> windows, List<(string Id, string Secret)> keys, string pin)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            pin,
+            windows = windows.Select(w => new { name = w.Name, path = "/w/" + w.Token }),
+            nodeKeys = keys.Select(k => new { id = k.Id, secret = k.Secret }),
+        });
+        var full = Path.GetFullPath(path);
+        var tmp = full + "." + Environment.ProcessId.ToString(CultureInfo.InvariantCulture) + ".tmp";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            var create = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+            if (!OperatingSystem.IsWindows()) create.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            File.Delete(tmp);
+            using (var fs = new FileStream(tmp, create))
+            {
+                fs.Write(json);
+                fs.Flush(flushToDisk: true);
+            }
+            File.Move(tmp, full, overwrite: true);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine($"Stagewatch.Rig: couldn't write --secrets-out {full}: {ex.Message}");
+            try { File.Delete(tmp); } catch (Exception gone) when (gone is IOException or UnauthorizedAccessException) { Log("secrets: " + gone.Message); }
+            return false;
+        }
     }
 
     private async Task StopAsync()
@@ -224,15 +427,14 @@ sealed class Rig : ICompanionBridge, IDisposable
         // the owner thread runs what it was handed (each binding's save among it) before the rig ends, and a binding whose
         // save never reached it is saved here, once this thread is the one writer.
         if (!EndOwner())
-        {
             Log("stop: the show thread did not end in time; a binding made since its last save is not kept");
-            return;
-        }
-        if (_nodes.Unsaved(_keys))
+        else if (_nodes.Unsaved(_keys))
         {
             _nodes.SaveTo(_keys);
             SaveState(_windows.Windows);
         }
+        // The journal's last rows reach its file before the rig ends, within the journal's own bounded wait.
+        if (_journal is not null) await _journal.DisposeAsync();
     }
 
     public void Dispose()
@@ -243,6 +445,8 @@ sealed class Rig : ICompanionBridge, IDisposable
         var ended = EndOwner();
         _nodes.Bound -= OnBound;
         Engine.Dispose();
+        // A rig that never ran its stop (it could not listen) still writes what its journal holds, within a bounded wait.
+        if (_journal is not null && !_journal.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(3))) Log("journal: its last rows did not reach the file in time");
         // The queue and the stall's token belong to the owner thread until it has ended.
         if (!ended) return;
         _queue.Dispose();
@@ -311,9 +515,14 @@ sealed class Rig : ICompanionBridge, IDisposable
     }
 
     // ---------------------------------------------------------------- the control reader (standard input)
+    /// <summary>The words a control line that is none of the reader's is refused with: the lines there are.</summary>
+    public const string UnknownControl = "unknown (stall <ms>, auth, exit)";
+
     /// <summary>
     /// One line at a time from standard input, each answered in JSON lines (a stall twice); a blank line is ignored, and an
-    /// unknown line is refused with the lines there are, never guessed. The end of input ends the reader, never the rig.
+    /// unknown line, or a known one with words it does not take, is refused with the lines there are, never guessed. <c>exit</c>
+    /// stops the rig and ends the reader. The end of input (or input that can no longer be read) ends the reader, and with
+    /// --exit-on-eof stops the rig as Ctrl+C does.
     /// </summary>
     private void ReadControl()
     {
@@ -326,13 +535,46 @@ sealed class Rig : ICompanionBridge, IDisposable
                 switch (words[0])
                 {
                     case "stall": Stall(words); break;
-                    default: Say(new { rig = "refused", line = Clip(words[0]), error = "unknown (stall <ms>)" }); break;
+                    case "auth" when words.Length == 1: Say(Lockout()); break;
+                    case "exit" when words.Length == 1:
+                        Say(new { rig = "exiting" });
+                        Log("exit: stopping (control line)");
+                        _stop.TrySetResult();
+                        return;
+                    case "auth" or "exit": Say(new { rig = "refused", line = words[0], error = words[0] + " takes no words" }); break;
+                    default: Say(new { rig = "refused", line = Clip(words[0]), error = UnknownControl }); break;
                 }
             }
+            Log("control: standard input ended");
         }
-        catch (IOException ex) { Log("control: " + ex.Message); }
+        catch (IOException ex) { Log("control: standard input could not be read: " + ex.Message); }
+        // Input that ended and input that can no longer be read are both its end: --exit-on-eof stops the rig on either.
+        if (_o.ExitOnEof)
+        {
+            Log("control: stopping (--exit-on-eof)");
+            _stop.TrySetResult();
+        }
 
         static string Clip(string word) => word.Length > 32 ? word[..32] : word;
+    }
+
+    /// <summary>
+    /// <c>auth</c>: the web server's lockout tables as they stand, read off the show thread (a stalled show still answers): each
+    /// device whose one-minute window is open, with its count and the window's age — wrong PINs (<c>addresses</c>) and wrong view
+    /// passes (<c>viewPasses</c>). Addresses and counts only, never what was guessed.
+    /// </summary>
+    private object Lockout()
+    {
+        static IEnumerable<object> Rows(IReadOnlyList<AuthFailureCount> table)
+            => table.Select(f => new { address = f.Address, failures = f.Failures, windowAgeMs = f.WindowAgeMs });
+        var web = _web;
+        return new
+        {
+            rig = "auth",
+            at = UnixMs(),
+            addresses = Rows(web?.AuthFailures() ?? Array.Empty<AuthFailureCount>()),
+            viewPasses = Rows(web?.ViewPassFailures() ?? Array.Empty<AuthFailureCount>()),
+        };
     }
 
     /// <summary>
@@ -401,7 +643,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.Previous => Item(_item - 1),
             ShowCommandKind.GoTo => Item((int)c.Number - 1),
             ShowCommandKind.Holding => HoldingImage(c.Text ?? "toggle"),
-            ShowCommandKind.Note => (true, "noted"),
+            ShowCommandKind.Note => Did(() => Journal(JournalKind.Note, _item, c.Text ?? ""), "noted"),
             ShowCommandKind.Window => WindowCommand(c.Get<WindowArgs>()),
             ShowCommandKind.Screen => ScreenDirector.Run(c.Get<ScreenArgs>(), _web, PeerName, RenameScreen, SaveScreenPreset, ResolveScreenTarget),
             _ => (false, $"the rig doesn't simulate {c.Kind.ToString().ToLowerInvariant()} (the app does)"),
@@ -415,6 +657,8 @@ sealed class Rig : ICompanionBridge, IDisposable
     private (bool, string) Item(int index)
     {
         if (index < 0 || index >= Agenda.Length) return (false, "no such item in the rig's running order");
+        // Leaving an item that started ends it in the journal, with how long it ran; the next starts when its timer counts.
+        if (index != _item) EndItem(DateTime.UtcNow);
         _item = index;
         var running = Engine.State == TimerState.Running;
         Engine.SetDuration(TimeSpan.FromSeconds(Agenda[index].Seconds));
@@ -432,6 +676,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     private (bool, string) WindowCommand(WindowArgs a)
     {
         var change = _windows.Run(a, ScreenPresetPath, Settings.Holding.Images);
+        if (change.Effect == WindowEffect.Changed) Journal(JournalKind.Note, -1, "Window: " + change.Words);
         return (change.Ok, change.Words);
     }
 
@@ -442,8 +687,81 @@ sealed class Rig : ICompanionBridge, IDisposable
     private void Tick()
     {
         Snapshots.MarkAlive();
-        Snapshots.Publish(Frame());
+        var frame = Frame();
+        JournalEdges(frame);
+        Snapshots.Publish(frame);
         if (++_tick % 4 == 0 || _context is null) _context = Context();
+    }
+
+    // ---------------------------------------------------------------- the journal (--journal), owner thread
+    // What the app's show thread writes, for what the rig simulates: an item's start (its timer first counting) and end (the
+    // running order moving on, with the seconds it ran), the phase as it changes while a countdown runs, blackout on and off, a
+    // message put up, a note, a window changed, and a key coming to speak for a node. Positions identify items: the rig has one
+    // running order, and its report matches rows to items by position.
+    private ShowSnapshot? _journalled;   // the last frame the journal's edges were read from
+    private DateTime? _itemStartUtc;     // when the item in hand started, or null when it has not
+
+    private void Journal(JournalKind kind, int item, string text = "", double value = 0) => _journal?.Add(DateTime.UtcNow, kind, item, text, value);
+
+    /// <summary>The edges between the last frame and this one, as the app journals a published frame's.</summary>
+    private void JournalEdges(ShowSnapshot frame)
+    {
+        if (_journal is null) return;
+        var prev = _journalled;
+        _journalled = frame;
+        var now = DateTime.UtcNow;
+        if (_itemStartUtc is null && Engine.IsCounting)
+        {
+            _itemStartUtc = now;
+            _journal.Add(now, JournalKind.ItemStart, _item, Agenda[_item].Title);
+        }
+        if (prev is null) return;
+        if (frame.Phase != prev.Phase && frame.Mode == TimerMode.Countdown && frame.State != TimerState.Idle)
+            _journal.Add(now, JournalKind.Phase, _item, frame.Phase.ToString());
+        if (frame.Blackout != prev.Blackout) _journal.Add(now, JournalKind.Blackout, _item, frame.Blackout ? "on" : "off");
+    }
+
+    /// <summary>The item in hand, if it started, ends now: its ItemEnd with the seconds it ran.</summary>
+    private void EndItem(DateTime now)
+    {
+        if (_itemStartUtc is not { } start) return;
+        _itemStartUtc = null;
+        _journal?.Add(now, JournalKind.ItemEnd, _item, Agenda[_item].Title, (now - start).TotalSeconds);
+    }
+
+    /// <summary>The running order the report reads the journal against: the rig's agenda, its plan anchored where the rig started.</summary>
+    private static readonly Rundown RigRundown = new()
+    {
+        Id = "rig",
+        Items = Agenda.Select((a, i) => new RundownItem
+        {
+            Id = "rig-item-" + (i + 1).ToString(CultureInfo.InvariantCulture), Title = a.Title, Speaker = a.Speaker.Length > 0 ? a.Speaker : null,
+            DurationSeconds = a.Seconds, Kind = a.Kind,
+        }).ToList(),
+    };
+
+    /// <summary>
+    /// IShowReports: the planned-vs-actual report ("csv", else HTML) from the journal and the rig's running order, built on the
+    /// owner thread (the journal's one reader and writer), waited for as long as a receipt waits; null without --journal, or
+    /// while the show thread does not turn over in that time (a stall) — the route then answers 404 "no report", as the app's
+    /// does; telling a stalled show from no report is the app's and the rig's together (docs/WHATS_NEXT.md).
+    /// </summary>
+    public string? Report(string format)
+    {
+        if (_journal is null) return null;
+        var done = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Post(() =>
+        {
+            // A report that cannot be built is no report, at once: the owner loop logs why.
+            try
+            {
+                var clock = ShowClock.For("UTC");
+                var report = ShowReport.Build(_o.Room, RigRundown, _journal.Entries, _startedUtc, clock, DateTime.UtcNow);
+                done.TrySetResult(ShowReports.Render(report, format, clock));
+            }
+            finally { done.TrySetResult(null); }
+        });
+        return done.Task.Wait(WebServer.ReceiptWait) ? done.Task.Result : null;
     }
 
     private ShowSnapshot Frame()
@@ -510,7 +828,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         _conflictsLogged = view.Conflicts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         _network = view;
         return ShowContext.Build(new ContextInput(_nodeId, _o.Room, now, Snapshots.Latest, Snapshots.ProducerStuck, links,
-            view.Rows.Select(r => r.Peer).ToList(), Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0));
+            view.Rows.Select(r => r.Peer).ToList(), (IReadOnlyList<JournalEntry>?)_journal?.Entries ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0));
     }
 
     private HashSet<string> _conflictsLogged = new(StringComparer.Ordinal);   // owner thread: the ids in conflict it logged
@@ -561,6 +879,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     {
         if (Thread.CurrentThread != _owner) { Post(() => SetMessage(text, urgency, flash)); return; }
         _message = text; _urgency = urgency; _flash = flash;
+        if (text.Length > 0) Journal(JournalKind.Message, _item, text);
         MessageChanged?.Invoke(new MessageState { Text = text, Urgency = urgency, Flash = flash });
         Tick();
     }
@@ -600,6 +919,26 @@ sealed class Rig : ICompanionBridge, IDisposable
         }
     }
 
+    /// <summary>
+    /// The rig ends before the secrets of the keys made in this start went out (it could not listen, or --secrets-out could not
+    /// be written): those keys come out of --state again, so no saved key is one whose secret nobody holds, and the next start
+    /// makes them afresh. Only once the owner thread has ended (this thread is then the one writer); otherwise said, and kept.
+    /// </summary>
+    private void ForgetMadeKeys(List<(string Id, string Secret)> made, bool ownerEnded)
+    {
+        if (made.Count == 0) return;
+        if (!ownerEnded)
+        {
+            Log("keys: the show thread did not end in time; the keys made in this start stay in --state, their secrets never given");
+            return;
+        }
+        var ids = made.Select(k => k.Id).ToHashSet(StringComparer.Ordinal);
+        _keys.RemoveAll(k => ids.Contains(k.Id));
+        _apiKeys = CopyKeys(_keys);
+        SaveState(_windows.Windows);
+        Log($"keys: the {made.Count.ToString(CultureInfo.InvariantCulture)} made in this start are taken out of --state again; their secrets never went out");
+    }
+
     /// <summary>The keys copied whole for other threads: the servers never read an object the owner thread writes.</summary>
     private static IReadOnlyList<ApiKey> CopyKeys(IEnumerable<ApiKey> keys)
         => keys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind }).ToArray();
@@ -610,7 +949,9 @@ sealed class Rig : ICompanionBridge, IDisposable
     /// </summary>
     private void OnBound(NodeBound bound) => Post(() =>
     {
-        Log(KeyBindingWords.JournalLine(bound, id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name));
+        var words = KeyBindingWords.JournalLine(bound, id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name);
+        Log(words);
+        Journal(JournalKind.Note, _item, words);
         if (!_nodes.Unsaved(_keys)) return;
         _nodes.SaveTo(_keys);
         _apiKeys = CopyKeys(_keys);

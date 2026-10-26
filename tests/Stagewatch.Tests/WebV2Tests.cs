@@ -472,6 +472,45 @@ static class WebV2Tests
         await NodeLinksOnWire(Check);
         GuessCounts(Check);
         await ViewPassCounts(Check);
+        await LockoutTablesRead(Check);
+    }
+
+    /// <summary>
+    /// The lockout tables read on a real server (WebServer.AuthFailures, ViewPassFailures): what the rig's <c>auth</c> line and the
+    /// interop lane read after each row. Three wrong PINs from 127.0.0.1 are one row with 3 in the PIN's table and none in the view
+    /// passes'; the right PIN empties the PIN's table. A wrong view pass is a row of the view passes' own, which the right PIN
+    /// leaves standing. What guesses nothing (no PIN, an unknown key) is in neither.
+    /// </summary>
+    static async Task LockoutTablesRead(Action<bool, string> Check)
+    {
+        var control = new ReportControl();
+        var port = FreePort();
+        await using var web = new WebServer(control, () => "4321");
+        web.Start(port, bindAll: false);
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        var unknownKey = ApiKeys.Create("never saved", ApiKeyScope.Read, DateTime.UtcNow).Secret;
+        using (var keyed = new HttpRequestMessage(HttpMethod.Get, "/api/screens"))
+        {
+            keyed.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", unknownKey);
+            await http.SendAsync(keyed);
+        }
+        await http.GetAsync("/api/start");
+        var nothing = web.AuthFailures().Count == 0 && web.ViewPassFailures().Count == 0;
+
+        for (var i = 0; i < 3; i++) await http.GetAsync("/api/start?pin=0000");
+        var three = web.AuthFailures();
+        var passes = web.ViewPassFailures();
+        Check(nothing && three.Count == 1 && three[0].Address == "127.0.0.1" && three[0].Failures == 3 && three[0].WindowAgeMs is >= 0 and < 60_000 && passes.Count == 0,
+              $"lockout tables: no PIN and an unknown key count nothing; 3 wrong PINs are one row, 127.0.0.1 with 3, in the PIN's table alone ({string.Join(", ", three)})");
+
+        var right = await http.GetAsync("/api/start?pin=4321");
+        Check(right.IsSuccessStatusCode && web.AuthFailures().Count == 0, $"lockout tables: the right PIN empties the PIN's table ({right.StatusCode})");
+
+        await http.GetAsync("/w/" + ScreenWindows.NewToken());
+        await http.GetAsync("/api/start?pin=4321");
+        var view = web.ViewPassFailures();
+        Check(view.Count == 1 && view[0] is { Address: "127.0.0.1", Failures: 1 } && web.AuthFailures().Count == 0,
+              $"lockout tables: a wrong window address is a row of the view passes' own, which the right PIN leaves standing ({string.Join(", ", view)})");
     }
 
     /// <summary>
@@ -495,6 +534,22 @@ static class WebV2Tests
               $"guess counts: the count stops at the limit, and the first guess after a minute ended starts a new one ({t.Of(b, 2_000)}, {t.Of(a, 61_000)})");
         t.Clear(b);
         Check(!t.Locked(b, 2_001) && t.Of(b, 2_001) == 0, "guess counts: only its owner's Clear resets a device before its minute ends");
+
+        // The table as it stands: only open minutes, each with its count and its minute's age, the oldest first; a read changes nothing.
+        var r = new WrongGuesses(5);
+        var c = IPAddress.Parse("10.0.0.7");
+        r.Count(c, 5_000);
+        r.Count(a, 10_000);
+        r.Count(a, 11_000);
+        r.Count(b, 10_000);
+        var open = r.Open(20_000);
+        var again = r.Open(20_000);
+        Check(open.SequenceEqual(new[] { (c, 1, 15_000L), (a, 2, 10_000L), (b, 1, 10_000L) }) && again.SequenceEqual(open) && r.Of(a, 20_000) == 2,
+              $"guess counts: the open table lists each device with its count and its minute's age, oldest first, then by address; reading it twice reads the same ({string.Join(", ", open)})");
+        Check(r.Open(65_000).SequenceEqual(new[] { (a, 2, 55_000L), (b, 1, 55_000L) }) && r.Open(70_000).Count == 0 && r.Held == 3,
+              "guess counts: a device whose minute has ended is absent from the open table, as from Of, though still held until a sweep");
+        r.Clear(a);
+        Check(r.Open(20_000).Select(d => d.Device).SequenceEqual(new[] { c, b }), "guess counts: a cleared device leaves the open table");
 
         // The sweep: past SweepAbove devices it drops those whose minute ended, at most once a minute.
         var many = new WrongGuesses(5);

@@ -1,8 +1,9 @@
 // The rig for browser workflows: starts tools/Stagewatch.Rig on free ports, talks to it over HTTP like any remote, and
 // stops it. Restarting with the same state file and port is how a test makes "Stagewatch restarted" happen. Its first line
-// on standard output is its ready line, or it has not started. Its standard input takes control lines (stall <ms>),
-// answered in JSON lines on its standard output (a stall twice: stalled, then running); a show app's link on /ws is
-// dialled as a peer dials it (Link).
+// on standard output is its ready line, or it has not started. Its standard input takes control lines (stall <ms>, auth,
+// exit), answered in JSON lines on its standard output (a stall twice: stalled, then running); a show app's link on /ws is
+// dialled as a peer dials it (Link). The interop lane's options ride on create: a stable node id, a journal, the PIN from a
+// file and every secret to a file instead of standard output; each keeps its meaning across a restart.
 'use strict';
 const { spawn } = require('node:child_process');
 const net = require('node:net');
@@ -100,24 +101,40 @@ class Link {
 }
 
 class Rig {
-  constructor(port, state, options) {
-    this.port = port; this.state = state; this.proc = null; this.log = ''; this.companion = 0; this.osc = 0;
+  constructor(port, dir, options) {
+    this.port = port; this.dir = dir; this.state = path.join(dir, 'windows.json'); this.proc = null; this.log = ''; this.companion = 0; this.osc = 0;
     this.nodeKeyCount = options.nodeKeys || 0;
     this.extraArgs = options.args || [];   // more options, as given (e.g. --bind all --bus <port> --bus-to 127.0.0.1:<port>)
+    this.nodeId = options.nodeId || null;
+    // --journal: a file in the rig's folder (true), '-' for one in memory, or a path as given.
+    this.journal = options.journal === true ? path.join(dir, 'journal.jsonl') : options.journal || null;
+    // --pin-file: true writes `pin` (default PIN) into a file of the rig's own; a path is used as given, its first line the PIN.
+    this.pin = options.pin === undefined ? PIN : options.pin;
+    this.pinFile = null;
+    if (options.pinFile === true) {
+      this.pinFile = path.join(dir, 'pin.txt');
+      fs.writeFileSync(this.pinFile, this.pin + '\n', { mode: 0o600 });
+    } else if (options.pinFile) {
+      this.pinFile = options.pinFile;
+      this.pin = fs.readFileSync(this.pinFile, 'utf8').split('\n')[0].replace(/\r$/, '');
+    }
+    this.secretsOut = options.secretsOut === true ? path.join(dir, 'secrets.json') : options.secretsOut || null;
+    this.secrets = null;   // with --secrets-out: what the file said at the last start ({ pin, windows, nodeKeys })
     this.ready = null;
     this.exit = null;   // how the last run ended: { code, signal }
-    this.keys = [];     // every node key made for this state file, with its secret (the ready line names each once)
+    this.keys = [];     // every node key made for this state file, with its secret (the ready line or the secrets file names each once)
     this.out = new Inbox();
   }
 
   /**
    * A rig on free ports; with { wire: true } also its Companion (TCP) and OSC (UDP) servers; { nodeKeys: N } makes N node keys;
-   * { args: [...] } adds options as given.
+   * { nodeId } a stable --node-id; { journal: true | '-' | path }; { pinFile: true | path } (with true, { pin } is the PIN written,
+   * '' for none); { secretsOut: true | path }; { args: [...] } adds options as given.
    */
   static async create(options = {}) {
     if (!fs.existsSync(DLL)) throw new Error(`the rig isn't built (${DLL}): dotnet build tools/Stagewatch.Rig`);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-rig-'));
-    const rig = new Rig(await freePort(), path.join(dir, 'windows.json'), options);
+    const rig = new Rig(await freePort(), dir, options);
     if (options.wire) { rig.companion = await freePort(); rig.osc = await freePort(); }
     await rig.start();
     return rig;
@@ -128,9 +145,12 @@ class Rig {
 
   start() {
     return new Promise((resolve, reject) => {
-      const args = [DLL, '--port', String(this.port), '--companion', String(this.companion), '--osc', String(this.osc), '--pin', PIN,
-        '--state', this.state, '--exit-after', '600'];
+      const args = [DLL, '--port', String(this.port), '--companion', String(this.companion), '--osc', String(this.osc),
+        ...(this.pinFile ? ['--pin-file', this.pinFile] : ['--pin', this.pin]), '--state', this.state, '--exit-after', '600'];
       if (this.nodeKeyCount > 0) args.push('--node-keys', String(this.nodeKeyCount));
+      if (this.nodeId) args.push('--node-id', this.nodeId);
+      if (this.journal) args.push('--journal', this.journal);
+      if (this.secretsOut) args.push('--secrets-out', this.secretsOut);
       args.push(...this.extraArgs.map(String));
       const proc = spawn('dotnet', args, { stdio: ['pipe', 'pipe', 'pipe'] });
       this.proc = proc;
@@ -163,7 +183,13 @@ class Rig {
             ready = true;
             clearTimeout(timer);
             this.ready = json;
-            for (const k of json.nodeKeys || []) if (!this.keys.some((x) => x.id === k.id)) this.keys.push(k);
+            // With --secrets-out the file is written whole before the ready line: the secrets come from there.
+            if (this.secretsOut) {
+              this.secrets = JSON.parse(fs.readFileSync(this.secretsOut, 'utf8'));
+              this.pin = this.secrets.pin;
+            }
+            const made = this.secretsOut ? this.secrets.nodeKeys : json.nodeKeys || [];
+            for (const k of made) if (!this.keys.some((x) => x.id === k.id)) this.keys.push(k);
             resolve(json);
             continue;
           }
@@ -227,7 +253,7 @@ class Rig {
   /** One command line through the HTTP API, with a receipt (attempts are not facts: the receipt says what happened). */
   async run(line) {
     const parts = line.trim().split(/\s+/).map(encodeURIComponent);
-    const res = await fetch(`${this.base}/api/${parts.join('/')}`, { headers: { 'X-Stagewatch-Pin': PIN, 'X-Request-Id': 'e2e' + Date.now() } });
+    const res = await fetch(`${this.base}/api/${parts.join('/')}`, { headers: { 'X-Stagewatch-Pin': this.pin, 'X-Request-Id': 'e2e' + Date.now() } });
     return res.json();
   }
 
@@ -242,19 +268,19 @@ class Rig {
   }
 
   async windows() {
-    const res = await fetch(`${this.base}/api/windows`, { headers: { 'X-Stagewatch-Pin': PIN } });
+    const res = await fetch(`${this.base}/api/windows`, { headers: { 'X-Stagewatch-Pin': this.pin } });
     return (await res.json()).windows;
   }
 
   async window(name) { return (await this.windows()).find((w) => w.name === name); }
 
   async screens() {
-    const res = await fetch(`${this.base}/api/screens`, { headers: { 'X-Stagewatch-Pin': PIN } });
+    const res = await fetch(`${this.base}/api/screens`, { headers: { 'X-Stagewatch-Pin': this.pin } });
     return (await res.json()).screens;
   }
 
   async context() {
-    const res = await fetch(`${this.base}/api/context`, { headers: { 'X-Stagewatch-Pin': PIN } });
+    const res = await fetch(`${this.base}/api/context`, { headers: { 'X-Stagewatch-Pin': this.pin } });
     return res.json();
   }
 
@@ -277,4 +303,4 @@ async function until(fn, ms = 5000, what = 'condition') {
   throw new Error(`timed out waiting for ${what} (last: ${JSON.stringify(last)})`);
 }
 
-module.exports = { Rig, Link, until, PIN, ROOT };
+module.exports = { Rig, Link, until, freePort, PIN, ROOT, DLL };

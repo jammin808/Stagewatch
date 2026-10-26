@@ -44,6 +44,17 @@ public sealed class WrongGuesses
     /// <summary>Whether the device is locked out at <paramref name="nowMs"/>: <see cref="Limit"/> wrong guesses in its minute.</summary>
     public bool Locked(IPAddress device, long nowMs) => Of(device, nowMs) >= Limit;
 
+    /// <summary>
+    /// The table as it stands at <paramref name="nowMs"/>: every device whose minute is still open, with its count and how long
+    /// ago that minute began, the oldest minute first (then by address, so one moment always reads the same). A device whose
+    /// minute has ended is absent, as it is to <see cref="Of"/>. A copy: reading it changes nothing, and it holds no secret.
+    /// </summary>
+    public IReadOnlyList<(IPAddress Device, int Count, long AgeMs)> Open(long nowMs)
+        => _devices.Where(d => nowMs - d.Value.StartMs < MinuteMs)
+            .Select(d => (Device: d.Key, d.Value.Count, AgeMs: Math.Max(0, nowMs - d.Value.StartMs)))
+            .OrderByDescending(d => d.AgeMs).ThenBy(d => d.Device.ToString(), StringComparer.Ordinal)
+            .ToList();
+
     /// <summary>One wrong guess from the device: the first after its minute ended starts a new minute. The count stops at the limit.</summary>
     public void Count(IPAddress device, long nowMs)
     {
@@ -61,3 +72,9 @@ public sealed class WrongGuesses
     /// <summary>Forget the device's count: only for a right answer of this table's own kind.</summary>
     public void Clear(IPAddress device) => _devices.TryRemove(device, out _);
 }
+
+/// <summary>
+/// One device in a lockout table as it stands: its address, its wrong guesses in its open one-minute window, and how long ago
+/// that window began (ms). No secret: never the guess itself.
+/// </summary>
+public readonly record struct AuthFailureCount(string Address, int Failures, long WindowAgeMs);

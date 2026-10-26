@@ -768,6 +768,23 @@ public sealed class WebServer : IAsyncDisposable
     private const string WindowCsp = "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:; frame-src 'self'; " +
                                      "frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
+    /// <summary>
+    /// The PIN's lockout table as it stands: every device (its address) whose one-minute window is open, with its wrong PINs in
+    /// that window and how long ago the window began, the oldest first. A device at <see cref="WrongPinsPerMinute"/> is locked
+    /// out of the PIN and every key until its window ends. Read-only, any thread; it holds no secret. What a test or a rig reads
+    /// to see that a peer's honest dialling locked nothing out.
+    /// </summary>
+    public IReadOnlyList<AuthFailureCount> AuthFailures() => FailuresIn(_pinGuesses);
+
+    /// <summary>
+    /// The view passes' table the same way (Show Bus 12.2): wrong window addresses, viewing codes and crew links per device in
+    /// its open window, <see cref="WrongViewPassesPerMinute"/> locking it out of every view pass until the window ends.
+    /// </summary>
+    public IReadOnlyList<AuthFailureCount> ViewPassFailures() => FailuresIn(_passGuesses);
+
+    private static IReadOnlyList<AuthFailureCount> FailuresIn(WrongGuesses table)
+        => table.Open(Environment.TickCount64).Select(d => new AuthFailureCount(Screens.AddressOf(d.Device), d.Count, d.AgeMs)).ToList();
+
     /// <summary>Whether the device is locked out of view passes: <see cref="WrongViewPassesPerMinute"/> wrong ones this minute.</summary>
     private bool PassesLockedOut(IPAddress remote) => _passGuesses.Locked(remote, Environment.TickCount64);
 
