@@ -4,7 +4,8 @@
 #   tools/test.sh                 every lane
 #   tools/test.sh unit e2e        some lanes
 # Lanes:
-#   build    dotnet build: the solution (WPF compiles here too), PageShot and the rig
+#   build    dotnet build: the solution (WPF compiles here too), PageShot, the rig and LB-1's carrier probe (run by hand:
+#            dotnet run --project tools/BusCarrierProbe -c Debug --no-build)
 #   unit     tests/Stagewatch.Tests (the suite names the checks it leaves to the Windows job)
 #   module   the Companion module's tests (companion-module, npm test)
 #   holo     the 3D display's tests (src/Timer.Remote/holo, npm test)
@@ -31,7 +32,8 @@ build() {
   # One build at a time: the lanes after it run what it built (--no-build).
   dotnet build Timer.slnf -c Debug -v q -nologo &&
     dotnet build tests/Stagewatch.PageShot -c Debug -v q -nologo &&
-    dotnet build tools/Stagewatch.Rig -c Debug -v q -nologo && built=1
+    dotnet build tools/Stagewatch.Rig -c Debug -v q -nologo &&
+    dotnet build tools/BusCarrierProbe -c Debug -v q -nologo && built=1
 }
 
 for l in "${lanes[@]}"; do

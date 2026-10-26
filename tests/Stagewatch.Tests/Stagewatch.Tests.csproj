@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\src\Timer.Companion\Timer.Companion.csproj" />
     <ProjectReference Include="..\..\src\Timer.Licensing\Timer.Licensing.csproj" />
     <ProjectReference Include="..\..\src\Timer.Integrations\Timer.Integrations.csproj" />
+    <!-- Lab line LB-1's carrier probe: its own logic is tested here, and the Windows job compiles it with the suite. -->
+    <ProjectReference Include="..\..\tools\BusCarrierProbe\BusCarrierProbe.csproj" />
     <!-- The help text is plain data: test it without loading WPF. -->
     <Compile Include="..\..\src\Timer.App\Help\HelpContent.cs" Link="Linked\HelpContent.cs" />
   </ItemGroup>

@@ -66,6 +66,13 @@ tools/test.sh rig             # the headless rig in the foreground: open its pag
   A line `stall <ms>` on its standard input stops its show thread that long, as a stuck show; each control line is
   answered (`stall`: `stalled`, then `running`) and a blank line is ignored. `tools/test.sh rig` passes
   `$SW_RIG_ARGS` on to it (`SW_RIG_ARGS="--node-keys 2"`).
+- `tools/BusCarrierProbe` is lab line LB-1, not a test: the build lane builds it and a person runs it
+  (`dotnet run --project tools/BusCarrierProbe -c Debug --no-build`). It binds six listeners on UDP 9928 as the apps
+  bind theirs (every interface, 127.0.0.1 twice, an adapter's own address), sends to 127.0.0.1, 127.255.255.255 and
+  255.255.255.255 from an unbound socket, as Stagewatch's hello leaves, and to 239.255.99.28 out of 127.0.0.1, and prints
+  who heard what as Markdown, for `docs/WHATS_NEXT.md`'s LB-1 records (`--port`, `--count`, `--wait-ms`, `--layout`). A
+  socket on the port that is not its own, from the machine's table, leaves a record unclaimed. The suite references it:
+  `BusCarrierProbeTests` hold its rules and run it on a free port, so the Windows job compiles it too.
 - `tests/e2e` drives it with Playwright: the window workflows (swap only when drawn, hold/cue/release, a page that won't
   load, link loss and a restarted rig, revoke), every public page drawing a real frame alone and inside a window, the
   same commands over HTTP, Companion TCP, OSC and MCP, show apps' node links on /ws (`nodes.e2e.cjs`) and a stuck

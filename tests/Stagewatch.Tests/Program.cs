@@ -2201,6 +2201,7 @@ await WebV2Tests.Run(Check);
 NodeTests.Run(Check);
 await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);
+await BusCarrierProbeTests.Run(Check);
 ShowBusSpecTests.Run(Check);
 PeerLinkVectors.Run(Check);
 await PeerLinkScenarios.Run(Check);

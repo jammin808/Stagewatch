@@ -33,6 +33,7 @@ companion-module/     Bitfocus Companion module (TypeScript, @companion-module/b
 tools/
   KeyGen/             owner-only license generator (kept on the maintainer's PC, never in the repo)
   Stagewatch.Rig/     the headless rig: the real servers around a simulated show, on any OS
+  BusCarrierProbe/    lab line LB-1: which carrier finds apps on one machine with no network (docs/WHATS_NEXT.md)
   setup-dev.sh, test.sh   the Linux bench: install, then every test lane (docs/BUILD.md)
 tests/
   Stagewatch.Tests/   the suite (dotnet run); e2e/ browser workflows (Playwright); UiSmoke/, PageShot/ smoke

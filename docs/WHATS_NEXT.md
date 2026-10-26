@@ -180,3 +180,95 @@ connected): look at them in the running app with a show app linked.
   lane.
 - **The agent brief's doctrine line** still says keys lock a device out; it is the maintainer's to change (keys no
   longer count, wrong PINs, viewing codes and window addresses do).
+
+## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
+
+Show Bus 1.3 names no carrier that finds apps on one machine with no network (`docs/SHOWBUS.md` §2): there a typed
+address (127.0.0.1 and the port) links them, in each app's link settings. `tools/BusCarrierProbe` measures which carrier
+would. It binds six listeners on UDP 9928, in this order, each with SO_REUSEADDR, as the apps bind theirs: 1 and 2 on
+every interface (as Stagewatch and AGMessage listen, PlayMap on any bind but loopback, and Patterns with its wire on
+every interface), joined to 239.255.99.28 on 127.0.0.1; 3 on every interface, joined to nothing, as every reader is
+today; 4 on 127.0.0.1, as PlayMap listens when its bind is loopback, and 5 on 127.0.0.1, as Patterns listens when its
+wire is bound to loopback (Patterns binds its hello listener to the wire's bind address), both joined; 6 on one
+adapter's own address, as Patterns listens when its wire is bound to its control network, joined, and left out with
+every adapter off, as no node can bind one then. It sends five datagrams to each of 127.0.0.1, 127.255.255.255 and
+255.255.255.255 from an unbound socket that follows the route, as Stagewatch's hello does, and to 239.255.99.28 out of
+127.0.0.1, and prints who heard what as Markdown, with the listeners in one process and then each in a process of its
+own. A carrier for 1.4 reaches every listener a node using it would be: all six (five with every adapter off), or for
+multicast every one that joins.
+
+Before each layout binds and while it listens, the probe reads the machine's table of UDP sockets on the port (every
+process's, the operating system's own list). A socket there that is not the probe's — an app that listens without a
+word, as a node bound to loopback does, since §2 has it say no hello — or a datagram from this machine that is not the
+probe's prints a △ line, leaves that layout's every-node column `unclaimed`, and the run exits 1. A listener that stops
+before the probe is done with it (its socket failing receive after receive, or its own process reaching the limit it
+reckons from the run's numbers) is shown stopped, with why, and the carriers it counts for read `not measured`. The
+suite's `BusCarrierProbeTests` hold these rules, and run the probe on a free port clean, beside a silent socket on
+127.0.0.1 and beside an app sending there. 1.4 names the carrier from the Windows records; until they are in, nothing
+changes.
+
+### The run (the maintainer's, on the PC)
+
+```pwsh
+dotnet run --project tools\BusCarrierProbe -c Release     # close Stagewatch, Patterns, PlayMap and AGMessage first
+```
+
+Twice: with the network up, and with every adapter off — Wi-Fi, Ethernet and the virtual ones (Hyper-V, WSL, VPN).
+Close Stagewatch, Patterns, PlayMap and AGMessage first; on an installed PlayMap node `PlayMap.Supervisor.exe stop` stops
+its engine and holds it until `resume` (the service starts it again otherwise; stopping the service alone leaves the
+engine running). The first run may bring Windows' firewall prompt for the probe while it runs: allow it, check that the
+network's profile is Private (Settings → Network & internet → the adapter → Network profile type) or that the rule it
+made covers the profile in use, and take that first run again, as its rows were measured while the prompt was open. Its
+`network` line says which condition it measured and names any adapter still up. A run with a △ line, or with a cell
+reading `stopped`, is taken again; only a run that exits 0 goes in. Each run's Markdown goes below as it printed.
+
+### The records
+
+| condition | where, when | what it says |
+|---|---|---|
+| Linux, network up | the cloud bench: Ubuntu 24.04.5, .NET 10.0.13, 2026-10-26 | no carrier reached every node |
+| Linux, every adapter off | the same, in a network namespace holding only `lo` (`unshare -n`, `lo` brought up) | no carrier reached every node |
+| Windows 11, network up | the maintainer's PC | **not run** |
+| Windows 11, every adapter off | the maintainer's PC | **not run** |
+
+**Linux, network up** (three runs, each with the listeners in one process and apart, every one exiting 0 with no △
+line; the six layouts alike but for which 127.0.0.1-bound listener took the unicast: 5 in five of them, 4 in one, as
+here, never both; listener 6 was on eth0's address):
+
+| carrier | sent | 1: 0.0.0.0, joined | 2: 0.0.0.0, joined | 3: 0.0.0.0, not joined | 4: 127.0.0.1, joined | 5: 127.0.0.1, joined | 6: an adapter's address, joined | every node |
+|---|---|---|---|---|---|---|---|---|
+| 127.0.0.1 | 5 | 0 | 0 | 0 | 5 from 127.0.0.1 | 0 | 0 | no |
+| 127.255.255.255 | 5 | 5 from 127.0.0.1 | 5 from 127.0.0.1 | 5 from 127.0.0.1 | 0 | 0 | 0 | no |
+| 255.255.255.255 | 5 | 5 from eth0 | 5 from eth0 | 5 from eth0 | 0 | 0 | 0 | no |
+| 239.255.99.28 via 127.0.0.1 | 5 | 5 from 127.0.0.1 | 5 from 127.0.0.1 | 5 from 127.0.0.1 | 0 | 0 | 0 | no |
+
+Listeners: 1 joined · 2 joined · 3 joins nothing · 4 joined · 5 joined · 6 joined.
+
+**Linux, every adapter off** (two runs, each in both layouts, every one exiting 0 with no △ line; listener 4 took the
+unicast in all four):
+
+| carrier | sent | 1: 0.0.0.0, joined | 2: 0.0.0.0, joined | 3: 0.0.0.0, not joined | 4: 127.0.0.1, joined | 5: 127.0.0.1, joined | 6: an adapter's address, joined | every node |
+|---|---|---|---|---|---|---|---|---|
+| 127.0.0.1 | 5 | 0 | 0 | 0 | 5 from 127.0.0.1 | 0 | none | no |
+| 127.255.255.255 | 5 | 5 from 127.0.0.1 | 5 from 127.0.0.1 | 5 from 127.0.0.1 | 0 | 0 | none | no |
+| 255.255.255.255 | 0 · NetworkUnreachable | 0 | 0 | 0 | 0 | 0 | none | no |
+| 239.255.99.28 via 127.0.0.1 | 5 | 5 from 127.0.0.1 | 5 from 127.0.0.1 | 5 from 127.0.0.1 | 0 | 0 | none | no |
+
+Listeners: 1 joined · 2 joined · 3 joins nothing · 4 joined · 5 joined · 6 none: no adapter is up, so no node can bind
+one's address.
+
+**What Linux says.** No one carrier reaches the 127.0.0.1-bound listeners and the ones on every interface together, and
+the four together do not either: the 127.0.0.1-bound listener the unicast passed over, and the one on eth0's address,
+heard none of them. A unicast to 127.0.0.1 goes to one 127.0.0.1-bound listener alone: two nodes bound there share
+that one address, so a copy sent to 127.0.0.1 reaches one of them, never both. 127.255.255.255 and the group on loopback
+reach every listener on every interface and neither 127.0.0.1-bound one, joined or not; the group also reached listener
+3, which joined nothing (Linux hands a socket bound to every interface the groups any socket on the machine joined).
+255.255.255.255 needs an adapter up, arrives from that adapter's address, and with none fails to send. The listener on
+eth0's own address heard nothing at all: Linux gives a broadcast or a group's datagram only to a socket bound to every
+interface or to that very address, and a unicast only to its own. So on Linux a 1.4 carrier would need every node's
+hello listener on every interface (PlayMap's and Patterns' narrower binds moved, for the hello alone), whichever of
+127.255.255.255 and the group it named. These runs had SO_REUSEADDR and SO_REUSEPORT both: on Linux .NET sets the second
+with the first, as in Stagewatch, Patterns and PlayMap, and a unicast to an address several sockets share then goes to
+one of them by a hash of where it came from (the probe's listeners line says so); Node's `reuseAddr`, AGMessage's, sets
+SO_REUSEADDR alone, which gives such a unicast to the socket bound last, again to one of them. The verdicts are the same
+either way. Windows is unmeasured on every row; its documentation calls unicast delivery to a shared port indeterminate.
