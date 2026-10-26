@@ -66,17 +66,18 @@ public sealed class SlidesAgent : IDisposable
         _targets = targets;
         if (deckSource is null) _ppt.Start();
         _deck = deckSource ?? (() => _ppt.Value);
-        _beacon = new SlidesBeacon(() =>
-        {
-            var d = _deck();
-            return new SlidesBeacon.Hello("agent", 1, _id, _name(), Environment.MachineName, 0, d is { Slide: > 0 }, new[] { "slides" });
-        }, beaconPort);
+        var inst = ShowBusHello.NewInst();   // one per agent start: two agents saying one id are a conflict (Show Bus §2)
+        _beacon = new SlidesBeacon(() => ShowBusHello.Agent(_id, inst, _name(), Environment.MachineName, _deck() is { Slide: > 0 },
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), beaconPort);
         _ = Task.Run(() => LoopAsync(_cts.Token));
     }
 
     public DeckState? Deck => _deck();
     public string PowerPointStatus => _ppt.Status;
     public IReadOnlyList<SlidesBeacon.Peer> Peers() => _beacon.Peers();
+
+    /// <summary>Another presenter PC saying this one's feed id (Show Bus §2), while its mark stands; null otherwise.</summary>
+    public HelloConflict? OwnConflict => _beacon.OwnConflict;
 
     public AgentTargetStatus StatusOf(AgentTarget t)
         => _state.TryGetValue(t.Key, out var s) ? s.Status : new AgentTargetStatus(t.Key, false, "connecting…");
@@ -183,14 +184,33 @@ public sealed class SlidesAgent : IDisposable
         finally { Volatile.Write(ref st.InFlight, 0); }
     }
 
-    /// <summary>https when the target's hello names a certificate (Show Bus §10), else http.</summary>
+    /// <summary>
+    /// https when the target's hello names a certificate (Show Bus §10), else http. The certificate is the one the hello heard at the
+    /// typed address named (by a host name, the last hello's, when it says it is that host), never another address's. While two
+    /// machines say the target's id (§2) no hello says whose certificate the typed address presents: a certificate already expected or
+    /// pinned for that id stays, and none is taken from a hello.
+    /// </summary>
     private string Scheme(AgentTarget t)
     {
         var host = t.Host.Trim();
-        var peer = _beacon.Peers().FirstOrDefault(p => p.Hello.Kind == "main" && p.Hello.HttpPort == t.Port
-            && (p.Address == host || string.Equals(p.Hello.Machine, host, StringComparison.OrdinalIgnoreCase) || string.Equals(p.Hello.Host, host, StringComparison.OrdinalIgnoreCase)
-                || (host is "localhost" or "127.0.0.1" && p.Hello.Machine.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase))));
-        if (peer?.Hello.Tls is { } fp && TlsPins.IsFingerprint(fp))
+        var here = host is "127.0.0.1" || host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+        bool OnThisPc(SlidesBeacon.Peer p) => here && p.Hello.Machine.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase);
+        // A typed address matches a heard Stagewatch by any address its id was heard from, or its host (Show Bus §2).
+        var peer = _beacon.Peers().FirstOrDefault(p => p.Hello.Kind == "main" && p.Hello.HttpPort == t.Port && (p.HeardAt(host) || OnThisPc(p)));
+        if (peer?.Conflict is not null)
+        {
+            if (_expected.ContainsKey(t.Key)) return "https";
+            if (_pins.Snapshot().TryGetValue(peer.Hello.Id, out var pinned))
+            {
+                _expected[t.Key] = (peer.Hello.Id, pinned);
+                return "https";
+            }
+            return "http";
+        }
+        var named = peer is not null && (string.Equals(peer.Hello.Host, host, StringComparison.OrdinalIgnoreCase)
+                                         || string.Equals(peer.Hello.Machine, host, StringComparison.OrdinalIgnoreCase) || OnThisPc(peer));
+        var fp = peer?.TlsAt(here ? "127.0.0.1" : host) ?? (named ? peer!.Hello.Tls : null);
+        if (peer is not null && fp is not null && TlsPins.IsFingerprint(fp))
         {
             _expected[t.Key] = (peer.Hello.Id, fp);
             return "https";

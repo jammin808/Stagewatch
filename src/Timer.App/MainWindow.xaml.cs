@@ -808,6 +808,14 @@ public partial class MainWindow : Window, IContextActions
                 yield return I("Revoke its key…", () => RevokePeerKey(peer), peer.KeyId.Length > 0);
                 break;
 
+            case "show-hello":
+                // The hello's line and the network's counts on the Producer tab: Copy takes the line right-clicked; Remote's bind is the
+                // hello's cause.
+                var shown = element is TextBlock { Text.Length: > 0 } line ? line.Text : _vm.HelloLine;
+                yield return I("Copy", () => CopyText(shown), shown.Length > 0);
+                yield return I("Remote settings…", () => OnOpenSettings(this, new RoutedEventArgs()));
+                break;
+
             case "remote-line":
                 yield return I("Copy", () => CopyText(_vm.RemoteLine), _vm.RemoteLine.Length > 0);
                 yield return I("Remote settings…", () => OnOpenSettings(this, new RoutedEventArgs()));

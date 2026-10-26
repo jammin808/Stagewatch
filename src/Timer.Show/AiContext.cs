@@ -104,6 +104,30 @@ public static class AiContext
         return Encoding.UTF8.GetString(ms.ToArray());
     }
 
+    /// <summary>
+    /// What the AI sees of the other apps, from one join of the show network (<see cref="ShowNetwork.Summaries"/>): the rows the
+    /// context lists, each with its light, headline, problem parts and recent lines, whether it follows the timer over /ws and what
+    /// proves those facts; and each id two running machines say (§2), as the desk shows it — a row of that id amber with the
+    /// conflict's words before its headline, and an id only its hello names as a fact of its own, which the context does not list.
+    /// </summary>
+    public static IReadOnlyList<PeerFact> PeerFacts(NetworkView view)
+    {
+        var conflicts = view.Conflicts.ToDictionary(c => c.Id, StringComparer.Ordinal);
+        var facts = new List<PeerFact>(view.Rows.Count + view.Conflicts.Count);
+        foreach (var r in view.Rows)
+        {
+            var fact = new PeerFact(r.Peer.Kind, r.Peer.Name, r.Peer.Light, r.Peer.Headline,
+                r.Context?.Items.Select(i => $"{i.Label} [{i.Light}]: {i.State}").Take(24).ToList() ?? new List<string>(),
+                r.Context?.Recent.TakeLast(8).ToList() ?? new List<string>(), r.Peer.Link, r.Peer.Verified);
+            facts.Add(conflicts.TryGetValue(r.Peer.Id, out var c) ? fact with { Light = Light.Amber, Headline = c.Conflict + " — " + r.Peer.Headline } : fact);
+        }
+        var listed = view.Rows.Select(r => r.Peer.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var c in view.Conflicts.Where(c => !listed.Contains(c.Id)))
+            facts.Add(new PeerFact(c.Kind, c.Name.Length > 0 ? c.Name : $"{ShowNetwork.AppName(c.Kind)} {c.Id}", Light.Amber, c.Conflict,
+                Array.Empty<string>(), Array.Empty<string>()));
+        return facts;
+    }
+
     private static object PeerJson(PeerFact p) => new { app = p.Kind, name = p.Name, light = p.Light, headline = p.Headline, parts = p.Parts, recent = p.Recent, link = p.Link, verified = p.Verified };
 
     /// <summary>The cloud assistant's compact view: titles, plan, expected/actual, curfews, live remaining, the other apps.</summary>

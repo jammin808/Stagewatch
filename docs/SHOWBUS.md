@@ -18,18 +18,14 @@ store behind the kit's stand-in. S16 and S20 run only the peer's attack, as do S
 the peer's hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is
 final every node keeps 1.2, and a node offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19,
 which carries 1.3, does not keep of it; this tree does not keep these of 1.3 yet either, which Stagewatch 2.19 brings
-before it ships: `proto` (today a hello says proto 1); `hello.caps` (today the hello reader keeps 16 caps); `hello.name.chars` (today
-the hello reader cuts a name at 60 characters); `hello.inst.chars` (today no hello carries inst); `peers.max` (today the hello reader
-takes a new id while 128 peers are held, so it holds 129); `peer.conflict.clear.ms` (today no id is marked in conflict); §2's silence
-on loopback (today it says hello whatever its doors are bound to); `peer.addresses` and §2's every address per id (today its hello
-reader keeps the last address it heard for an id); `context.bytes`, `context.items` and `context.links` (today nothing bounds
-Stagewatch's own context's bytes, items or links); `context.headline.chars`, `context.item.label.chars`, `context.item.state.chars` and
-`context.recent.chars` (today its own context writes a title, a message's text and a journal line whole: a running order item's title
-as its timer's label and in its headline, a message's text in a cue's state, and each journal line in `recent`, a message up to 500
-characters and a note up to 1000); §6's order of commands (today its context lists `blackout`, `next` and `start / pause` after its
-notes, messages and cues); `cert.days` (today NodeCertificate spans 826 days: a day back and 825 on); `view.wrong.per.minute` (today
-wrong window addresses and viewing codes count with wrong PINs, and a right PIN or key clears them; wrong crew links count nowhere);
-and cap `windows` in its hello. No node holds or draws a granted window yet. This page is the contract. `docs/ECOSYSTEM.md` is the why
+before it ships: `context.bytes`, `context.items` and `context.links` (today nothing bounds Stagewatch's own context's bytes, items or
+links); `context.headline.chars`, `context.item.label.chars`, `context.item.state.chars` and `context.recent.chars` (today its own
+context writes a title, a message's text and a journal line whole: a running order item's title as its timer's label and in its
+headline, a message's text in a cue's state, and each journal line in `recent`, a message up to 500 characters and a note up to 1000);
+§6's order of commands (today its context lists `blackout`, `next` and `start / pause` after its notes, messages and cues); `cert.days`
+(today NodeCertificate spans 826 days: a day back and 825 on); and `view.wrong.per.minute` (today wrong window addresses and viewing
+codes count with wrong PINs, and a right PIN or key clears them; wrong crew links count nowhere). No node holds or draws a granted
+window yet. This page is the contract. `docs/ECOSYSTEM.md` is the why
 and the roadmap; each app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, PlayMap
 `docs/SHOWBUS-NODE.md`, AGMessage `docs/NODES.md`) shows how its endpoints implement this. Patterns and AGMessage keep copies of 1.2;
 this one is the master. Its body — from `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends and one final LF

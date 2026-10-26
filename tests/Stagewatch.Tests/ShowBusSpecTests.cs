@@ -193,15 +193,6 @@ static class ShowBusSpecTests
     /// </summary>
     static readonly (string Row, string Unit, string Today, Func<Numbers, bool>? Differs)[] NotKeptYet =
     [
-        ("proto", "SW19.3", "a hello says proto 1", n => new SlidesBeacon.Hello("main", 1, "a1b2c3d4", "", "", 0, false).Proto != n.Proto),
-        ("hello.caps", "SW19.3", $"the hello reader keeps {SlidesBeacon.KeptCaps} caps", n => SlidesBeacon.KeptCaps < n.Of("hello.caps")),
-        ("hello.name.chars", "SW19.3", $"the hello reader cuts a name at {SlidesBeacon.NameChars} characters", n => SlidesBeacon.NameChars < n.Of("hello.name.chars")),
-        ("hello.inst.chars", "SW19.3", "no hello carries inst",
-            _ => !typeof(SlidesBeacon.Hello).GetProperties().Any(p => p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name == "inst")),
-        ("peers.max", "SW19.3", $"the hello reader takes a new id while {SlidesBeacon.MaxPeers} peers are held, so it holds {SlidesBeacon.MaxPeers + 1}",
-            n => SlidesBeacon.HasRoom((int)n.Of("peers.max"))),
-        ("peer.conflict.clear.ms", "SW19.3", "no id is marked in conflict", null),
-        ("peer.addresses", "SW19.3", "its hello reader keeps the last address it heard for an id", _ => OneAddressAsToday()),
         ("link.stale.ms", "SW20.4a", "PatternsLink marks no link stale: a clip shows no time 3 s after its last frame, and the link drops after 12 s", null),
         ("link.redial.first.ms", "SW20.4a", $"PatternsLink waits {PatternsLink.RedialFirstMs} ms before its first redial, and never jitters",
             n => PatternsLink.RedialFirstMs != n.Of("link.redial.first.ms")),
@@ -297,10 +288,6 @@ static class ShowBusSpecTests
     /// </summary>
     static readonly (string What, string Unit, string Today, Func<bool> Differs)[] NotKept219 =
     [
-        ("§2's silence on loopback", "SW19.3", "it says hello whatever its doors are bound to",
-            () => Method(Source("src/Timer.App/ViewModels/MainViewModel.Slides.cs") ?? "", "private void InitSlides()") is { } init
-                  && init.Contains("_web is not { } web ? null", StringComparison.Ordinal) && !Regex.IsMatch(init, "Bind|Loopback")),
-        ("§2's every address per id", "SW19.3", "its hello reader keeps the last address it heard for an id", OneAddressAsToday),
         ("§6's order of commands", "SW19.4", "its context lists `blackout`, `next` and `start / pause` after its notes, messages and cues",
             () => ShowContext.Commands.Select(c => c.Verb).ToList() is var verbs && verbs.IndexOf("note <text>") is var note and >= 0
                   && new[] { "blackout", "next", "start / pause" }.All(v => verbs.IndexOf(v) > note)),
@@ -308,12 +295,10 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// Rows of those sections that Stagewatch's code bears on but this suite does not reach yet, with where that code is and the unit
-    /// that brings it in: neither kept nor not kept is claimed here.
+    /// that brings it in: neither kept nor not kept is claimed here. None, now that the hello is built by ShowBusHello, which the suite
+    /// builds, and the desk only calls it.
     /// </summary>
-    static readonly (string Row, string Where)[] Unreached =
-    [
-        ("hello.bytes", "the desk builds its hello in Timer.App, which this suite does not build; SW19.3's builder brings it here"),
-    ];
+    static readonly (string Row, string Where)[] Unreached = [];
 
     /// <summary>Rows of those sections that bind no code of Stagewatch's: a role it does not play.</summary>
     static readonly (string Row, string Why)[] NotStagewatchs =
@@ -1583,7 +1568,10 @@ static class ShowBusSpecTests
         Keeps((long)SlidesBeacon.Every.TotalMilliseconds == n.Of("hello.every.ms"), "it says a hello that often", "hello.every.ms");
         Keeps(SlidesBeacon.ReadBytes == n.Of("hello.read.bytes") && SlidesBeacon.KeptPorts == n.Of("hello.ports") && SlidesBeacon.KindChars == n.Of("hello.kind.chars"),
             "its hello reader takes a datagram that long, keeps that many doors and a kind that long", "hello.read.bytes", "hello.ports", "hello.kind.chars");
-        Keeps(SlidesBeacon.NameChars >= n.Of("hello.cap.chars"), "its hello reader cuts a cap no shorter", "hello.cap.chars");
+        var capWord = new string('a', (int)n.Of("hello.cap.chars"));
+        Keeps(ShowBusHello.CapChars == n.Of("hello.cap.chars") && ShowBusHello.CapShape(capWord) && !ShowBusHello.CapShape(capWord + "a")
+              && ShowBusHello.Read(HelloDatagram("FOH", "FOH-PC", caps: [capWord, capWord + "a", "Video"]))?.Caps?.SequenceEqual([capWord]) == true,
+            "its hello reader keeps a cap word that long of §2's shape and ignores any other", "hello.cap.chars");
         Keeps(SlidesBeacon.IdChars == n.Of("hello.id.max") && SlidesBeacon.ValidToken(new string('a', (int)n.Of("hello.id.min")), SlidesBeacon.IdChars),
             "its hello reader takes an id that short and that long", "hello.id.min", "hello.id.max");
         static string Liveness(double ageSeconds) => new PeerSummary("patterns", "9f8e7d6c", "FOH", Light.Green, "", "", ageSeconds, false).Liveness;
@@ -1592,6 +1580,7 @@ static class ShowBusSpecTests
               && Liveness(Seconds("peer.gone.ms")) == "stale" && Liveness(Seconds("peer.gone.ms") + 0.001) == "gone",
             "a peer it hears is live, stale, then gone past those ages", "peer.stale.ms", "peer.gone.ms");
         Keeps((long)SlidesBeacon.ForgetAfter.TotalMilliseconds == n.Of("peer.forget.ms"), "its hello reader forgets a peer unheard that long", "peer.forget.ms");
+        HelloCode(Check, Keeps, n);
 
         // §3–§5: request ids and receipts, /ws's beat and messages, the Patterns link's pings, drop and redial, the clock.
         var rid = (int)n.Of("request.id.chars");
@@ -1772,29 +1761,12 @@ static class ShowBusSpecTests
         var sentence = Brought(header);
         Check(!sentence.Contains("12.2's", StringComparison.Ordinal),
             "showbus spec: the header names nothing of 12.2 among what 2.19 brings: no unit of 2.19 ends its page rule or its revocation for viewing codes and crew links");
-        var (readable, sends) = HelloCapsName(Source("src/Timer.App/ViewModels/MainViewModel.Slides.cs") ?? "", "windows");
-        Check(readable, "showbus spec: every cap the desk's hello builder (MainViewModel.Slides.cs, HelloCaps) adds is a word written out, so this test reads "
-            + "whether it sends cap windows — write each cap as a literal, or teach ShowBusSpecTests.HelloCapsName the new form");
-        Check(readable && sentence.Contains("cap `windows` in its hello", StringComparison.Ordinal) != sends,
-            "showbus spec: the header says Stagewatch's hello lacks cap windows exactly while the desk's hello builder (MainViewModel.Slides.cs) lacks it"
+        // The desk and the rig say the hello ShowBusHello.Main builds (HelloCode holds them to it), so its caps are the builder's.
+        var sends = ShowBusHello.Main("a1b2c3d4e5f6", ShowBusHello.NewInst(), "Hall A", "FOH-PC", new HelloDoors(9924, true, null, 0, false, 0, false), false, 0)
+            .Hello?.Caps?.Contains("windows") == true;
+        Check(sentence.Contains("cap `windows` in its hello", StringComparison.Ordinal) != sends,
+            "showbus spec: the header says Stagewatch's hello lacks cap windows exactly while its hello builder (ShowBusHello.Main) lacks it"
             + (sends ? " — it sends it now: take it out of the header's list" : ""));
-    }
-
-    /// <summary>
-    /// Whether the desk's hello builder can be read as data — a list of literal cap words, each added cap a literal, and the list
-    /// returned whole — and whether it names <paramref name="cap"/> among them. A cap added any other way makes it unreadable.
-    /// </summary>
-    static (bool Readable, bool Names) HelloCapsName(string builder, string cap)
-    {
-        var hello = Method(builder, "private string[] HelloCaps()") ?? "";
-        static bool Literal(string x) => Regex.IsMatch(x, "^\"[a-z0-9.-]+\"$");
-        var listed = Regex.Match(hello, @"new List<string>\s*\{([^}]*)\}") is { Success: true } l
-            ? l.Groups[1].Value.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToList() : [];
-        var calls = Regex.Matches(hello, @"\bcaps\.(\w+)\(([^)]*)\)").Select(m => (Verb: m.Groups[1].Value, Arg: m.Groups[2].Value.Trim())).ToList();
-        var readable = listed.Count > 0 && listed.All(Literal)
-            && calls.All(x => (x.Verb == "Add" && Literal(x.Arg)) || (x.Verb == "ToArray" && x.Arg.Length == 0))
-            && Regex.IsMatch(hello, @"return caps\.ToArray\(\);\s*$");
-        return (readable, listed.Concat(calls.Where(x => x.Verb == "Add").Select(x => x.Arg)).Contains("\"" + cap + "\""));
     }
 
     /// <summary>
@@ -1850,10 +1822,135 @@ static class ShowBusSpecTests
                    NodeCredential.None) is not null;
     }
 
-    /// <summary>Whether Stagewatch's hello reader still keeps one address per id, the last it heard (§2's every address, and peer.addresses).</summary>
-    static bool OneAddressAsToday()
-        => typeof(SlidesBeacon.Peer).GetProperty("Address")?.PropertyType == typeof(string)
-           && typeof(SlidesBeacon.Peer).GetProperties().All(p => p.Name != "Addresses");
+    /// <summary>A check that names the rows it holds Stagewatch's code to (<see cref="TodaysCode"/>'s own).</summary>
+    delegate void KeepsRows(bool ok, string words, params string[] names);
+
+    /// <summary>
+    /// §2 against the hello Stagewatch says and hears (ShowBusHello, SlidesBeacon, HelloHearing; the desk and the rig only call the
+    /// builder): within hello.bytes whatever its name, proto 1.3's, an inst of §2's shape, caps of §14's rows for its kind and doors of
+    /// its port rows, only those other machines can open, and no hello while its doors are on this machine only; its reader keeps
+    /// hello.caps caps and names of hello.name.chars, at most peers.max ids, every address of an id heard within peer.stale.ms (at most
+    /// peer.addresses) with the dialled one kept while it is heard, and marks one id said by two running nodes in conflict until
+    /// peer.conflict.clear.ms passes without the alternation — never a restart.
+    /// </summary>
+    static void HelloCode(Action<bool, string> Check, KeepsRows Keeps, Numbers n)
+    {
+        // The builder, with every door, every cap and the worst names: one that takes three bytes a character, emoji cut at a pair's
+        // edge, quotes, an unassigned code point and a line separator (escaped by any encoder).
+        var id = new string('a', (int)n.Of("hello.id.max"));
+        var inst = ShowBusHello.NewInst();
+        var every = new HelloDoors(65535, true, "sha256:" + new string('f', 64), 65534, true, 65533, true);
+        string[] names = [new string('€', 80), string.Concat(Enumerable.Repeat("😀", 40)), new string('"', 80), new string('\u0378', 80), new string('\u2028', 80)];
+        var built = names.Select(w => ShowBusHello.Main(id, inst, w, w, every, true, long.MaxValue).Hello).ToList();
+        var agents = names.Select(w => ShowBusHello.Agent("lectern-" + new string('a', 24), inst, w, w, true, long.MaxValue)).ToList();
+        var sizes = built.Concat(agents).Select(h => h is null ? int.MaxValue : ShowBusHello.Bytes(h).Length).ToList();
+        Keeps(ShowBusHello.HelloBytes == n.Of("hello.bytes") && sizes.All(b => b <= n.Of("hello.bytes")),
+            "its hello and its Slides agents' are that many bytes at most, whatever their names (" + string.Join(", ", sizes) + ")", "hello.bytes");
+        Keeps(ShowBusHello.Proto == n.Proto && built.Concat(agents).All(h => h?.Proto == n.Proto),
+            "its hello and its Slides agents' say the revision whose shapes they speak", "proto");
+        var plain = ShowBusHello.Main("a1b2c3d4e5f6", inst, "Hall A", "FOH-PC", new HelloDoors(9924, true, null, 0, false, 0, false), false, 0).Hello;
+        var wire = plain is null ? "" : Encoding.UTF8.GetString(ShowBusHello.Bytes(plain));
+        Keeps(ShowBusHello.InstChars == n.Of("hello.inst.chars") && Regex.IsMatch(ShowBusHello.NewInst(), "^[0-9a-f]{" + n.Of("hello.inst.chars").ToString(CultureInfo.InvariantCulture) + "}$")
+              && wire.Contains("\"inst\":\"" + inst + "\"", StringComparison.Ordinal) && built.Concat(agents).All(h => h?.Inst == inst)
+              && ShowBusHello.Read(HelloDatagram("FOH", "FOH-PC", inst: "a1b2c3d4"))?.Inst == "a1b2c3d4"
+              && new[] { "A1B2C3D4", "a1b2c3d", "a1b2c3d4e", "g1b2c3d4" }.All(x => ShowBusHello.Read(HelloDatagram("FOH", "FOH-PC", inst: x)) is { Inst: null }),
+            "its hello says an inst of that many lowercase hex, new each start, and its reader keeps only one of that shape", "hello.inst.chars");
+        var mainCaps = built.SelectMany(h => h?.Caps ?? []).Distinct().ToList();
+        var agentCaps = agents.SelectMany(h => h.Caps ?? []).Distinct().ToList();
+        Check(mainCaps.Count > 0 && mainCaps.All(c => n.Caps.Any(x => x.Word == c && x.Kinds.Contains("main")))
+              && agentCaps.SequenceEqual(["slides"]) && agentCaps.All(c => n.Caps.Any(x => x.Word == c && x.Kinds.Contains("agent")))
+              && built.All(h => h is { Caps: { } caps, Ports: { } ports } && caps.Length <= n.Of("hello.caps") && caps.Contains("windows")
+                                && ports.Keys.All(n.Ports.Contains) && ports.Count <= n.Of("hello.ports")),
+            "showbus spec: Stagewatch's hello says only §14's cap rows for main (windows among them) and its port rows, and its Slides agents' only cap slides ("
+            + string.Join(", ", mainCaps.Concat(agentCaps).Where(c => !n.Caps.Any(x => x.Word == c))) + ")");
+
+        // §2's silence on loopback, and ports only every receiver can open.
+        var here = new HelloDoors(9924, false, null, 9923, false, 9925, false);
+        var lanWeb = new HelloDoors(9924, true, null, 9923, false, 9925, false);
+        var said = ShowBusHello.Main("a1b2c3d4e5f6", inst, "Hall A", "FOH-PC", here, false, 0);
+        var lan = ShowBusHello.Main("a1b2c3d4e5f6", inst, "Hall A", "FOH-PC", lanWeb, false, 0);
+        var desk = Source("src/Timer.App/ViewModels/MainViewModel.Slides.cs") ?? "";
+        var rig = Source("tools/Stagewatch.Rig/Program.cs") ?? "";
+        Check(said.Scope == HelloScope.None && ShowBusHello.Targets(said.Scope, (int)n.Of("hello.port")).Count == 0
+              && ShowBusHello.Main("a1b2c3d4e5f6", inst, "Hall A", "FOH-PC", new HelloDoors(0, true, null, 0, false, 0, false), false, 0).Hello is null
+              && lan.Scope == HelloScope.Network && lan.Hello?.Ports?.Keys.Order(StringComparer.Ordinal).SequenceEqual(["http", "ws"]) == true
+              && built[0]?.Ports?.Keys.Order(StringComparer.Ordinal).SequenceEqual(["companion", "http", "https", "osc", "ws"]) == true
+              && ShowBusHello.Targets(HelloScope.Network, 9928).Select(t => t.ToString()).SequenceEqual(["255.255.255.255:9928", "127.0.0.1:9928"])
+              && ShowBusHello.Doors(new BoundDoor(9924, false), null, new BoundDoor(9923, true), null) is { WebBindAll: false } bound
+              && ShowBusHello.Main("a1b2c3d4e5f6", inst, "Hall A", "FOH-PC", bound, false, 0).Scope == HelloScope.None
+              && new[] { desk, rig }.All(src => src.Contains("ShowBusHello.Main(", StringComparison.Ordinal) && src.Contains("ShowBusHello.Doors(", StringComparison.Ordinal)
+                                               && src.Contains(".Door", StringComparison.Ordinal) && !src.Contains("new HelloDoors(", StringComparison.Ordinal))
+              && desk.Contains("_store.Snapshot", StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps §2's silence on loopback: with its web server bound to this machine, or none, it says no hello; else it "
+            + "broadcasts and copies to this machine, naming only the doors other machines can open — as the desk and the rig both build it, "
+            + "each from its servers' doors as they bound them (ShowBusHello.Doors), never a door of their own making");
+
+        // The reader: caps and names.
+        var many = Enumerable.Range(0, (int)n.Of("hello.caps") + 8).Select(i => "c" + i.ToString(CultureInfo.InvariantCulture)).ToArray();
+        Keeps(SlidesBeacon.KeptCaps == n.Of("hello.caps") && ShowBusHello.Read(HelloDatagram("FOH", "FOH-PC", caps: many))?.Caps?.SequenceEqual(many.Take((int)n.Of("hello.caps"))) == true,
+            "its hello reader keeps that many caps", "hello.caps");
+        var name = new string('n', (int)n.Of("hello.name.chars"));
+        var heardName = ShowBusHello.Read(HelloDatagram(name, name + "h"));
+        Keeps(SlidesBeacon.NameChars == n.Of("hello.name.chars") && heardName is { } hn && hn.Name == name && hn.Host == name
+              && ShowBusHello.Main("a1b2c3d4e5f6", inst, name + "x", name + "y", lanWeb, false, 0).Hello is { } mine && mine.Name == name && mine.Host == name,
+            "its hello says a name and a host that long at most, and its reader keeps them whole to that length", "hello.name.chars");
+
+        // The hearing, on injected time.
+        long now = 0;
+        SlidesBeacon.Hello From(string node, string? inst = null, string host = "FOH-PC") => new("patterns", 1, node, "FOH", host, 0, false, Host: host, Inst: inst);
+        var full = new HelloHearing(() => now);
+        var max = (int)n.Of("peers.max");
+        var taken = Enumerable.Range(0, max + 1).Count(i => full.Hear(From("pat" + i.ToString("D4", CultureInfo.InvariantCulture)), "10.0.0.5"));
+        Keeps(SlidesBeacon.MaxPeers == max && taken == max && full.Peers().Count == max && !SlidesBeacon.HasRoom(max) && SlidesBeacon.HasRoom(max - 1),
+            "its hello reader holds that many ids at most and drops a new one past them", "peers.max");
+
+        var stale = n.Of("peer.stale.ms");
+        var kept = (int)n.Of("peer.addresses");
+        var addresses = new HelloHearing(() => now);
+        now = 0;
+        for (var i = 1; i <= kept + 2; i++) addresses.Hear(From("9f8e7d6c"), "10.0.0." + i.ToString(CultureInfo.InvariantCulture));
+        var one = addresses.Peers().Single();
+        now = stale;
+        addresses.Hear(From("9f8e7d6c"), "10.0.0.9");
+        var held = addresses.Peers().Single().Address;
+        now = stale + 1;
+        addresses.Hear(From("9f8e7d6c"), "10.0.0.9");
+        var moved = addresses.Peers().Single();
+        Keeps(SlidesBeacon.KeptAddresses == kept && one.Addresses.Count == kept && one.Address == "10.0.0.1" && one.Addresses.Contains("10.0.0.1")
+              && (long)SlidesBeacon.StaleAfter.TotalMilliseconds == stale && held == "10.0.0.1" && moved.Address == "10.0.0.9" && moved.Addresses.SequenceEqual(["10.0.0.9"]),
+            "its hello reader keeps an id's addresses heard within that long, that many at most, and dials the first while it is heard",
+            "peer.addresses", "peer.stale.ms");
+        Check(one.Addresses.Count == kept && held == "10.0.0.1",
+            "showbus spec: Stagewatch keeps §2's every address per id: one id heard from many addresses is one peer, dialled where it was first heard while that is heard");
+
+        var clear = n.Of("peer.conflict.clear.ms");
+        var two = new HelloHearing(() => now);
+        now = 0;
+        two.Hear(From("3f9c2a1b7d0e", "aaaaaaaa", "FOH-PC"), "10.0.0.5");
+        now = 1000;
+        two.Hear(From("3f9c2a1b7d0e", "bbbbbbbb", "FOH-PC2"), "10.0.0.7");
+        var oneSwitch = two.Peers().Single().Conflict is null;   // A then B: a restart, until A comes back
+        now = 2000;
+        two.Hear(From("3f9c2a1b7d0e", "aaaaaaaa", "FOH-PC"), "10.0.0.5");
+        var marked = two.Peers().Single().Conflict;
+        // Only A from here (the clone stopped), still heard, so the id is never forgotten while its mark runs out.
+        for (now = 3000; now <= 2000 + clear; now += 1000) two.Hear(From("3f9c2a1b7d0e", "aaaaaaaa", "FOH-PC"), "10.0.0.5");
+        now = 2000 + clear;
+        var stands = two.Peers().Single().Conflict is not null;
+        now = 2000 + clear + 1;
+        var cleared = two.Peers().Single().Conflict is null;
+        Keeps((long)SlidesBeacon.ConflictClearsAfter.TotalMilliseconds == clear && oneSwitch && stands && cleared
+              && marked?.Words == "two machines say they are 3f9c2a1b7d0e: FOH-PC2 at 10.0.0.7 and FOH-PC at 10.0.0.5",
+            "its hello reader marks an id two running nodes say in conflict, naming both, and clears the mark that long after the alternation stops",
+            "peer.conflict.clear.ms");
+    }
+
+    /// <summary>A hello datagram of kind patterns, as another node sends it: its name and host, and its caps and inst when given.</summary>
+    static byte[] HelloDatagram(string name, string host, string[]? caps = null, string? inst = null)
+        => JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
+        {
+            ["t"] = "patterns", ["v"] = 1, ["proto"] = 3, ["id"] = "9f8e7d6c", ["name"] = name, ["host"] = host, ["caps"] = caps, ["inst"] = inst,
+        });
 
     /// <summary>
     /// How long Stagewatch's own context writes a title, a message and a journal line today: a running order item's 300-character title,

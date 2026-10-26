@@ -1,18 +1,25 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Stagewatch.Companion;
 using Stagewatch.Core;
+using Stagewatch.Integrations;
 using Stagewatch.Remote;
 using Stagewatch.Show;
 
 // The headless rig: the real web server, Companion server and OSC server around a simulated show, on any OS.
 //   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321]
 //       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--node-keys N] [--exit-after SECONDS]
+//       [--bus PORT [--bus-to ADDRESS:PORT]]
 // The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"node":…,
-// "windows":[…],"nodeKeys":[{"id","secret"}]}; nodeKeys lists only the node keys made in this run (--node-keys N makes
+// "windows":[…],"nodeKeys":[{"id","secret"}],"bus":…}; nodeKeys lists only the node keys made in this run (--node-keys N makes
 // them on a first start; --state keeps their hashes and the node each speaks for, never a secret).
+// --bus PORT puts the rig on the Show Bus (off by default): it hears hellos on that port, joins the nodes it hears into its
+// context as the app does, and says the app's own hello (ShowBusHello.Main over its servers' doors and --bind) — to §2's targets
+// on that port, or only to --bus-to. As the app, it says nothing while --bind is local, and its context's bus:hello is amber while
+// its hello cannot go out or another machine says its id. "bus" in the ready line is the port, or 0.
 // The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo, windows,
 // screen commands (browsers only, never a show app's node link) and the contexts show apps post; any other command is
 // refused with words (in its receipt and its log), never pretended.
@@ -27,7 +34,8 @@ if (options is null) return 2;
 using var rig = new Rig(options);
 return await rig.RunAsync();
 
-sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool BindAll, string? StateFile, string ViewCode, string Room, int ExitAfterSeconds, int NodeKeys)
+sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool BindAll, string? StateFile, string ViewCode, string Room, int ExitAfterSeconds, int NodeKeys,
+    int Bus = 0, IPEndPoint? BusTo = null)
 {
     public static RigOptions? Parse(string[] args)
     {
@@ -51,6 +59,12 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                     "--room" => o with { Room = Next() },
                     "--exit-after" => o with { ExitAfterSeconds = int.Parse(Next(), CultureInfo.InvariantCulture) },
                     "--node-keys" => o with { NodeKeys = Keys() },
+                    "--bus" => o with { Bus = Port() is var b and > 0 ? b : throw new ArgumentException("--bus is 1-65535") },
+                    "--bus-to" => o with
+                    {
+                        BusTo = IPEndPoint.TryParse(Next(), out var to) && to.Port > 0 && to.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
+                            ? to : throw new ArgumentException("--bus-to takes an IPv4 address and a port"),
+                    },
                     _ => throw new ArgumentException($"unknown option {args[i]}"),
                 };
             }
@@ -59,6 +73,11 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                 Console.Error.WriteLine("Stagewatch.Rig: " + ex.Message);
                 return null;
             }
+        }
+        if (o.BusTo is not null && o.Bus == 0)
+        {
+            Console.Error.WriteLine("Stagewatch.Rig: --bus-to needs --bus");
+            return null;
         }
         return o;
     }
@@ -78,6 +97,11 @@ sealed class Rig : ICompanionBridge, IDisposable
     private readonly string _nodeId = "rig-" + ScreenWindows.NewId()[1..];
     private Timer? _ticker;
     private WebServer? _web;
+    /// <summary>The rig on the Show Bus (--bus): its hello and what it hears; null when it is off.</summary>
+    private SlidesBeacon? _beacon;
+    private readonly string _inst = ShowBusHello.NewInst();
+    private HelloSaid _helloSaid;   // owner thread: the last beat's outcome it logged
+    private bool _helloTwin;        // owner thread: whether it last logged another machine saying its id
     private CompanionServer? _companion;
     private OscServer? _osc;
     private int _item;
@@ -170,12 +194,14 @@ sealed class Rig : ICompanionBridge, IDisposable
             Console.Error.WriteLine("Stagewatch.Rig: couldn't listen: " + ex.Message);
             return 3;
         }
+        if (_o.Bus > 0) _beacon = new SlidesBeacon(SayHello, _o.Bus, _o.BusTo is { } to ? [to] : null);
         _ticker = new Timer(_ => QueueTick(), null, 0, 250);
         Say(new
         {
             rig = "ready", http = _o.Http, companion = _o.Companion, osc = _o.Osc, pin = _o.Pin, node = _nodeId,
             windows = _windows.Windows.Select(w => new { name = w.Name, path = "/w/" + w.Token }),
             nodeKeys = (_madeKeys ?? new()).Select(k => new { id = k.Id, secret = k.Secret }),
+            bus = _o.Bus,
         });
         _madeKeys = null;
         // After the ready line, so it stays the first line on standard output.
@@ -189,6 +215,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     private async Task StopAsync()
     {
         _ticker?.Dispose();
+        _beacon?.Dispose();
         _stopping.Cancel();   // a stall in progress ends now
         if (_web is not null) await _web.StopAsync();
         if (_companion is not null) await _companion.StopAsync();
@@ -211,6 +238,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     public void Dispose()
     {
         _ticker?.Dispose();
+        _beacon?.Dispose();
         _stopping.Cancel();
         var ended = EndOwner();
         _nodes.Bound -= OnBound;
@@ -458,16 +486,44 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     /// <summary>
     /// Owner thread: the context, with the show network joined as the app joins it (<see cref="ShowNetwork.Summaries"/>): the
-    /// contexts show apps posted and their node links on /ws, by node id. The rig hears no hellos.
+    /// nodes it hears on the Show Bus (with --bus), the contexts show apps posted and their node links on /ws, by node id; and,
+    /// as the app, its own amber <c>bus:hello</c> while its hello cannot go out.
     /// </summary>
     private string Context()
     {
         var now = DateTime.UtcNow;
         var links = ScreenWindows.ContextItems(_windows.Windows, _web?.WindowStatus() ?? Array.Empty<WindowObserved>()).ToList();
-        var view = ShowNetwork.Summaries(Array.Empty<HeardNode>(), _peerContexts.Held(now), _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
+        var hello = _beacon?.Status ?? HelloStatus.NotYet;
+        var twin = _beacon?.OwnConflict;
+        if (ShowBusHello.Item(hello, twin) is { } cannot) links.Add(cannot);
+        var line = ShowBusHello.Line(hello, _o.Room, _nodeId, twin);
+        if (hello.Said != _helloSaid || (twin is not null) != _helloTwin)
+        {
+            _helloSaid = hello.Said;
+            _helloTwin = twin is not null;
+            Log("hello: " + line);
+        }
+        var heard = (_beacon?.Peers() ?? Array.Empty<SlidesBeacon.Peer>())
+            .Select(p => new HeardNode(p.Hello.Kind, p.Hello.Id, p.Hello.Name, p.Address, p.AgeSeconds) { Conflict = p.Conflict?.Words ?? "" });
+        var view = ShowNetwork.Summaries(heard, _peerContexts.Held(now), _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
+        foreach (var c in view.Conflicts.Where(c => !_conflictsLogged.Contains(c.Id))) Log($"hello: {c.Conflict} — its hello adds no peers row while the mark stands");
+        _conflictsLogged = view.Conflicts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         _network = view;
         return ShowContext.Build(new ContextInput(_nodeId, _o.Room, now, Snapshots.Latest, Snapshots.ProducerStuck, links,
             view.Rows.Select(r => r.Peer).ToList(), Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0));
+    }
+
+    private HashSet<string> _conflictsLogged = new(StringComparer.Ordinal);   // owner thread: the ids in conflict it logged
+
+    /// <summary>
+    /// The beacon's timer thread, every beat: the app's hello over the rig's own servers and --bind (<see cref="ShowBusHello.Main"/>):
+    /// none at all while --bind is local, and only the doors other machines can open.
+    /// </summary>
+    private (SlidesBeacon.Hello? Hello, HelloScope Scope) SayHello()
+    {
+        var web = _web;
+        var doors = ShowBusHello.Doors(web?.Door, web?.Fingerprint, _companion?.Door, _osc?.Door);
+        return ShowBusHello.Main(_nodeId, _inst, _o.Room, Environment.MachineName, doors, McpAllowed, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
     /// <summary>A show app's name as it told this rig (its context), or null: what a screen command naming it is refused with.</summary>

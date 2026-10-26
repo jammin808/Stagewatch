@@ -16,36 +16,30 @@ public sealed partial class MainViewModel
     /// <summary>This install's stable Show Bus id (a renamed Stagewatch is still the same node).</summary>
     private string _nodeId => Settings.NodeId;
 
-    private void InitSlides()
+    /// <summary>This process's <c>inst</c> (Show Bus §2): new at every start, so one id said by two running Stagewatches is seen as a conflict.</summary>
+    private readonly string _inst = ShowBusHello.NewInst();
+
+    private void InitSlides() => _slidesBeacon = new SlidesBeacon(SayHello);
+
+    /// <summary>
+    /// The beacon's timer thread, every beat: this Stagewatch's hello as the settings snapshot and the servers as they bound say it,
+    /// never the live settings — scope None (no hello at all) while Remote is off or set to this PC, and only the doors other
+    /// machines can open (<see cref="ShowBusHello.Main"/>).
+    /// </summary>
+    private (SlidesBeacon.Hello? Hello, HelloScope Scope) SayHello()
     {
-        _slidesBeacon = new SlidesBeacon(() => _web is not { } web ? null : new SlidesBeacon.Hello(
-            "main", 1, _nodeId,
-            Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
-            Environment.MachineName, web.Port, false,
-            HelloCaps(),
-            Proto: 1,
-            Ports: HelloPorts(web.Port),
-            Clock: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            Host: Environment.MachineName,
-            Tls: _web?.Fingerprint));
+        var s = _store.Snapshot;
+        var web = Volatile.Read(ref _web);
+        var doors = ShowBusHello.Doors(web?.Door, web?.Fingerprint, _companion.Door, Volatile.Read(ref _osc)?.Door);
+        return ShowBusHello.Main(s.NodeId, _inst, s.Integrations.RoomName.Length > 0 ? s.Integrations.RoomName : Environment.MachineName,
+            Environment.MachineName, doors, s.Integrations.Mcp && FeatureGate.AllowsMcp(_license.Tier), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
-    /// <summary>What this Stagewatch offers on the Show Bus (only what is switched on).</summary>
-    private string[] HelloCaps()
-    {
-        var caps = new List<string> { "timer", "cues", "messages", "context", "receipts", "clock", "screens", "aux", "slides-in", "copilot", "approvals" };
-        if (McpAllowed) caps.Add("mcp");
-        return caps.ToArray();
-    }
+    /// <summary>What this Stagewatch's hello did at its last beat (<see cref="SlidesBeacon.Status"/>); any thread reads it.</summary>
+    private HelloStatus OwnHello => _slidesBeacon?.Status ?? HelloStatus.NotYet;
 
-    private Dictionary<string, int> HelloPorts(int web)
-    {
-        var ports = new Dictionary<string, int> { ["http"] = web, ["ws"] = web };
-        if (_web?.Certificate is not null) ports["https"] = web;   // the same port: TLS is recognised by its first byte
-        if (_companion.IsRunning) ports["companion"] = _companion.Port;
-        if (_osc is not null) ports["osc"] = _osc.Port;
-        return ports;
-    }
+    /// <summary>Another machine saying this Stagewatch's id (§2), while its mark stands (<see cref="SlidesBeacon.OwnConflict"/>).</summary>
+    private HelloConflict? OwnTwin => _slidesBeacon?.OwnConflict;
 
     /// <summary>The deck the show follows right now (this PC's PowerPoint or a presenter PC), or null.</summary>
     private DeckState? CurrentDeck() => _remoteDecks.Pick(Settings.Integrations.SlidesSource, _ppt?.Value, DateTime.UtcNow);

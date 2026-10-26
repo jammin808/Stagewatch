@@ -97,8 +97,10 @@ public sealed class RemoteDecks
 }
 
 /// <summary>
-/// "Who's here?" for Stagewatch and its presenter PCs: each announces itself on UDP 9928 every two seconds and
-/// listens for the others. No configuration; nothing but names and ports goes on the wire (no PINs, no slides).
+/// "Who's here?" for Stagewatch and its presenter PCs (Show Bus §2): each says hello on UDP 9928 every two seconds where its doors
+/// are bound to the network, and listens for the others. No configuration; nothing but names and ports goes on the wire (no PINs,
+/// no slides). Each send is on its own, so a broadcast that fails never stops the copy to this machine, and what each beat did is
+/// published whole (<see cref="Status"/>). What it hears is kept by <see cref="HelloHearing"/>.
 /// </summary>
 public sealed class SlidesBeacon : IDisposable
 {
@@ -114,31 +116,41 @@ public sealed class SlidesBeacon : IDisposable
     public const int KindChars = 16, IdChars = 40;
 
     /// <summary>
-    /// A heard hello keeps its first <see cref="KeptCaps"/> caps and <see cref="KeptPorts"/> doors; its name, machine, host and
-    /// each cap are cut to <see cref="NameChars"/> characters.
+    /// A heard hello keeps its first <see cref="KeptCaps"/> caps of §2's shape and <see cref="KeptPorts"/> doors; its name, machine
+    /// and host are kept whole up to <see cref="NameChars"/> characters and cut there.
     /// </summary>
-    public const int KeptCaps = 16, KeptPorts = 8, NameChars = 60;
+    public const int KeptCaps = 32, KeptPorts = 8, NameChars = 64;
 
-    /// <summary>A new id is dropped once more than this many peers are held (<see cref="HasRoom"/>).</summary>
+    /// <summary>The most ids held: a hello from a new id is dropped while this many are (<see cref="HasRoom"/>).</summary>
     public const int MaxPeers = 128;
+
+    /// <summary>The most addresses kept for one id.</summary>
+    public const int KeptAddresses = 4;
+
+    /// <summary>An address, or a sender's inst, unheard this long is stale: the dialled address moves, and a switch is no longer close.</summary>
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(6);
 
     /// <summary>A peer not heard for this long is forgotten.</summary>
     public static readonly TimeSpan ForgetAfter = TimeSpan.FromSeconds(60);
 
-    /// <summary>Whether a hello from a new id is taken while <paramref name="held"/> peers are held: the table holds at most <see cref="MaxPeers"/> + 1.</summary>
-    public static bool HasRoom(int held) => held <= MaxPeers;
+    /// <summary>An id's conflict mark clears this long after the last alternation that set it.</summary>
+    public static readonly TimeSpan ConflictClearsAfter = TimeSpan.FromSeconds(60);
+
+    /// <summary>Whether a hello from a new id is taken while <paramref name="held"/> ids are held: the table holds at most <see cref="MaxPeers"/>.</summary>
+    public static bool HasRoom(int held) => held < MaxPeers;
 
     public sealed record Hello(
-        [property: JsonPropertyName("t")] string Kind,      // "main" (a Stagewatch), "agent" (a presenter PC), "patterns", "messenger"…
+        [property: JsonPropertyName("t")] string Kind,      // "main" (a Stagewatch), "agent" (a presenter PC), "patterns", "playmap", "messenger"…
         [property: JsonPropertyName("v")] int Version,
         [property: JsonPropertyName("id")] string Id,
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("machine")] string Machine,
         [property: JsonPropertyName("web")] int WebPort,
-        [property: JsonPropertyName("presenting")] bool Presenting,
+        // A Slides agent's one show fact (§2): said only while true, so no other node's hello carries it.
+        [property: JsonPropertyName("presenting"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool Presenting,
         /// <summary>What this node offers, for anything listening (Patterns, other tools): e.g. "slides", "timer", "screens".</summary>
         [property: JsonPropertyName("caps")] string[]? Caps = null,
-        /// <summary>Protocol version of the slide feed this node speaks.</summary>
+        /// <summary>The Show Bus revision whose shapes this node speaks (§2): 3 for 1.3; 1.1 and 1.2 nodes sent 1.</summary>
         [property: JsonPropertyName("proto")] int Proto = 1,
         /// <summary>Show Bus 1.1: where to connect ("http", "ws", "wire", "osc", "companion").</summary>
         [property: JsonPropertyName("ports")] Dictionary<string, int>? Ports = null,
@@ -146,7 +158,9 @@ public sealed class SlidesBeacon : IDisposable
         [property: JsonPropertyName("clock")] long Clock = 0,
         [property: JsonPropertyName("host")] string? Host = null,
         /// <summary>Show Bus 1.2: "sha256:&lt;hex&gt;" of the node's TLS certificate (pinned by peers on first authenticated use).</summary>
-        [property: JsonPropertyName("tls")] string? Tls = null)
+        [property: JsonPropertyName("tls")] string? Tls = null,
+        /// <summary>Show Bus 1.3: 8 lowercase hex, new at every start of the sender's process (one id from two of them is a conflict).</summary>
+        [property: JsonPropertyName("inst")] string? Inst = null)
     {
         /// <summary>The node's web port: "ports.http", or the older "web".</summary>
         public int HttpPort => Ports is not null && Ports.TryGetValue("http", out var p) && p is > 0 and < 65536 ? p : WebPort;
@@ -155,45 +169,133 @@ public sealed class SlidesBeacon : IDisposable
     /// <summary>A node kind or id as the Show Bus allows it: short, letters, digits, '-' and '_'.</summary>
     public static bool ValidToken(string? s, int max) => s is { Length: > 0 } && s.Length <= max && s.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 
-    public sealed record Peer(Hello Hello, string Address, double AgeSeconds);
+    /// <summary>
+    /// A node heard: its last hello; <see cref="Address"/>, the one to dial — kept while it is still heard, so it never flips between
+    /// a node's addresses; how long since any hello; every address heard within <see cref="StaleAfter"/>, newest first; the
+    /// certificate the last hello heard at each of them named; and the conflict mark while two running nodes say its id (null
+    /// otherwise), under which no hello of it is taken to say whose certificate an address presents.
+    /// </summary>
+    public sealed record Peer(Hello Hello, string Address, double AgeSeconds)
+    {
+        public IReadOnlyList<string> Addresses { get; init; } = Array.Empty<string>();
+        public HelloConflict? Conflict { get; init; }
 
-    private readonly Func<Hello?> _hello;
+        /// <summary>By address heard within <see cref="StaleAfter"/>: the <c>tls</c> its own last hello named (addresses whose hello named none are absent).</summary>
+        public IReadOnlyDictionary<string, string> HeardTls { get; init; } = new Dictionary<string, string>();
+
+        /// <summary>The certificate the hello heard at <paramref name="address"/> named, or null: never another address's.</summary>
+        public string? TlsAt(string address) => HeardTls.TryGetValue(address, out var tls) ? tls : null;
+
+        /// <summary>Whether <paramref name="address"/> is one this peer was heard from, or its host (a typed address matching a heard peer).</summary>
+        public bool HeardAt(string address)
+            => Addresses.Contains(address, StringComparer.OrdinalIgnoreCase) || string.Equals(Address, address, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(Hello.Host, address, StringComparison.OrdinalIgnoreCase) || string.Equals(Hello.Machine, address, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private readonly Func<(Hello? Hello, HelloScope Scope)> _hello;
+    private readonly int _port;
+    private readonly IReadOnlyList<IPEndPoint>? _targets;
     private readonly UdpClient? _rx;
     private readonly UdpClient _tx = new() { EnableBroadcast = true };
     private readonly Timer _timer;
     private readonly CancellationTokenSource _cts = new();
-    private readonly ConcurrentDictionary<string, (Hello Hello, string Address, long SeenMs)> _peers = new();
+    private readonly HelloHearing _hearing;
+    private readonly Dictionary<string, HelloTarget> _counts = new(StringComparer.Ordinal);   // the send's own, under _sending
+    private volatile string? _ownId, _ownInst;
+    private volatile HelloStatus _status = HelloStatus.NotYet;
+    private int _sending;
 
-    public SlidesBeacon(Func<Hello?> hello, int port = Port)
+    /// <summary>A hello that always goes to the network (a Slides agent's, which has no doors of its own to bind).</summary>
+    public SlidesBeacon(Func<Hello?> hello, int port = Port) : this(() => (hello(), HelloScope.Network), port) { }
+
+    /// <param name="hello">The hello and where it goes, asked for at every beat (on the beacon's timer thread).</param>
+    /// <param name="port">The port it listens on, and sends to when <paramref name="targets"/> is not given.</param>
+    /// <param name="targets">Where a hello of scope <see cref="HelloScope.Network"/> goes in place of §2's targets (a test, the rig's
+    /// <c>--bus-to</c>), each an IPv4 address, as the socket that sends is; a hello of scope <see cref="HelloScope.None"/> goes nowhere
+    /// whatever this says.</param>
+    /// <param name="nowMs">The hearing's monotonic clock in milliseconds (tests inject one).</param>
+    public SlidesBeacon(Func<(Hello? Hello, HelloScope Scope)> hello, int port = Port, IReadOnlyList<IPEndPoint>? targets = null, Func<long>? nowMs = null)
     {
+        if (targets?.Any(t => t.AddressFamily != AddressFamily.InterNetwork) == true)
+            throw new ArgumentException("a hello goes to IPv4 addresses only, as §2's targets are", nameof(targets));
         _hello = hello;
+        _port = port;
+        _targets = targets;
+        _hearing = new HelloHearing(nowMs);
         try
         {
             var rx = new UdpClient(AddressFamily.InterNetwork);
             rx.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             rx.Client.Bind(new IPEndPoint(IPAddress.Any, port));
             _rx = rx;
-            _ = Task.Run(() => ListenAsync(rx, port, _cts.Token));
+            _ = Task.Run(() => ListenAsync(rx, _cts.Token));
             Listening = true;
         }
         catch (SocketException) { Listening = false; }
-        _timer = new Timer(_ => Send(port), null, TimeSpan.FromMilliseconds(200), Every);
+        _timer = new Timer(_ => Send(), null, TimeSpan.FromMilliseconds(200), Every);
     }
 
     public bool Listening { get; }
 
-    private void Send(int port)
+    /// <summary>What the last beat did with the hello, published whole; any thread reads it.</summary>
+    public HelloStatus Status => _status;
+
+    /// <summary>Another machine saying this node's own id (§2), while its mark stands; null otherwise (<see cref="HelloHearing.OwnConflict"/>).</summary>
+    public HelloConflict? OwnConflict => _hearing.OwnConflict();
+
+    /// <summary>
+    /// One beat: the hello to each target, each send on its own, so a target that fails never stops the next; then what the beat
+    /// did. A beat still running when the next is due is not overlapped.
+    /// </summary>
+    private void Send()
     {
+        if (Interlocked.Exchange(ref _sending, 1) == 1) return;
         try
         {
-            if (_hello() is not { } h) return;
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(h);
-            _tx.Send(bytes, bytes.Length, new IPEndPoint(IPAddress.Broadcast, port));
+            var (hello, scope) = _hello();
+            if (hello is not null)
+            {
+                _ownInst = hello.Inst;
+                _ownId = hello.Id;
+            }
+            if (hello is null || scope != HelloScope.Network)
+            {
+                Beat(HelloSaid.Silent, "", scope, hello?.HttpPort ?? 0);
+                return;
+            }
+            var bytes = ShowBusHello.Bytes(hello);
+            var sends = new List<(IPEndPoint, bool)>();
+            string? failure = null;
+            foreach (var target in _targets ?? ShowBusHello.Targets(scope, _port))
+            {
+                var key = target.ToString();
+                var count = _counts.TryGetValue(key, out var c) ? c : new HelloTarget(key, IPAddress.IsLoopback(target.Address), 0, 0, "");
+                try
+                {
+                    _tx.Send(bytes, bytes.Length, target);
+                    _counts[key] = count with { Sent = count.Sent + 1 };
+                    sends.Add((target, true));
+                }
+                catch (SocketException ex)
+                {
+                    _counts[key] = count with { Failed = count.Failed + 1, LastFailure = ex.Message };
+                    failure ??= ex.Message;
+                    sends.Add((target, false));
+                }
+            }
+            Beat(ShowBusHello.Said(sends), failure ?? "", scope, hello.HttpPort);
         }
-        catch (Exception ex) when (ex is SocketException or ObjectDisposedException) { }
+        catch (ObjectDisposedException) { /* stopping: the beacon is being disposed */ }
+        finally { Volatile.Write(ref _sending, 0); }
     }
 
-    private async Task ListenAsync(UdpClient rx, int port, CancellationToken ct)
+    private void Beat(HelloSaid said, string words, HelloScope scope, int webPort)
+    {
+        var last = _status;
+        _status = new HelloStatus(said, last.Said == said ? last.Beats + 1 : 1, words, _counts.Values.ToList()) { Scope = scope, WebPort = webPort };
+    }
+
+    private async Task ListenAsync(UdpClient rx, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
@@ -202,23 +304,15 @@ public sealed class SlidesBeacon : IDisposable
             catch (OperationCanceledException) { return; }
             catch (ObjectDisposedException) { return; }
             catch (SocketException) { continue; }
-            if (r.Buffer.Length > ReadBytes) continue;
             try
             {
-                var h = JsonSerializer.Deserialize<Hello>(r.Buffer);
-                // Every kind of show node is heard (Show Bus 1.1 discovery); presenter PCs still need a valid feed id.
-                if (h is null || h.Version != 1 || !ValidToken(h.Kind, KindChars) || !ValidToken(h.Id, IdChars)) continue;
-                if (h.Kind == "agent" && !SlideFeed.Valid(h.Id)) continue;
-                h = h with
-                {
-                    Name = h.Name ?? "", Machine = h.Machine ?? h.Host ?? "", Caps = h.Caps?.Where(c => c is not null).Take(KeptCaps).Select(Cap).ToArray(),
-                    Ports = h.Ports?.Where(kv => ValidToken(kv.Key, 16) && kv.Value is > 0 and < 65536).Take(KeptPorts).ToDictionary(kv => kv.Key, kv => kv.Value),
-                    Host = h.Host is null ? null : Cap(h.Host),
-                };
-                if (_hello() is { } me && me.Id == h.Id) continue;
-                if (!HasRoom(_peers.Count) && !_peers.ContainsKey(h.Id)) continue;
-                var clean = h with { Name = Cap(h.Name), Machine = Cap(h.Machine), WebPort = Math.Clamp(h.WebPort, 0, 65535) };
-                _peers[h.Id] = (clean, r.RemoteEndPoint.Address.ToString(), Environment.TickCount64);
+                // Every kind of show node is heard (Show Bus §2); presenter PCs still need a valid feed id. A hello of our own id is
+                // never a peer: with our inst it is our own echo; once we say an inst, one with another (or none) is another process
+                // saying our id — a conflict.
+                if (ShowBusHello.Read(r.Buffer) is not { } h) continue;
+                var from = r.RemoteEndPoint.Address.ToString();
+                if (h.Id != _ownId) _hearing.Hear(h, from);
+                else if (_ownInst is { } mine && h.Inst != mine) _hearing.HearOwn(h, from);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -227,21 +321,8 @@ public sealed class SlidesBeacon : IDisposable
         }
     }
 
-    /// <summary>Everyone heard in the last minute.</summary>
-    public IReadOnlyList<Peer> Peers()
-    {
-        var now = Environment.TickCount64;
-        var list = new List<Peer>();
-        foreach (var (id, p) in _peers)
-        {
-            var age = (now - p.SeenMs) / 1000.0;
-            if (age > ForgetAfter.TotalSeconds) { _peers.TryRemove(id, out _); continue; }
-            list.Add(new Peer(p.Hello, p.Address, age));
-        }
-        return list.OrderBy(p => p.Hello.Kind).ThenBy(p => p.Hello.Name, StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    private static string Cap(string s) => s.Length > NameChars ? s[..NameChars] : s;
+    /// <summary>Everyone heard in the last minute (<see cref="HelloHearing.Peers"/>).</summary>
+    public IReadOnlyList<Peer> Peers() => _hearing.Peers();
 
     public void Dispose()
     {

@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Timer.Show\Timer.Show.csproj" />
     <ProjectReference Include="..\..\src\Timer.Remote\Timer.Remote.csproj" />
     <ProjectReference Include="..\..\src\Timer.Companion\Timer.Companion.csproj" />
+    <ProjectReference Include="..\..\src\Timer.Integrations\Timer.Integrations.csproj" />
   </ItemGroup>
 
 </Project>

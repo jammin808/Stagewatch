@@ -37,6 +37,10 @@ public sealed class CompanionServer : IAsyncDisposable
     public bool IsRunning => _listener is not null;
     public int Port { get; private set; }
 
+    /// <summary>The door as <see cref="Start"/> bound it, published whole once the listener runs; null while it does not.</summary>
+    public BoundDoor? Door => _door;
+    private volatile BoundDoor? _door;
+
     public void Start(int port, bool bindAllInterfaces)
     {
         if (_listener is not null) return;
@@ -46,6 +50,7 @@ public sealed class CompanionServer : IAsyncDisposable
         listener.Start();
         _listener = listener;
         Port = port;
+        _door = new BoundDoor(port, bindAllInterfaces);
         _cts = new CancellationTokenSource();
         // Thread pool, not the caller's (UI) context: network I/O must never run on the show thread.
         _ = Task.Run(() => AcceptLoopAsync(listener, _cts.Token));
@@ -59,6 +64,7 @@ public sealed class CompanionServer : IAsyncDisposable
 
     public async Task StopAsync()
     {
+        _door = null;
         _cts?.Cancel();
         try { _listener?.Stop(); } catch { }
         _listener = null;

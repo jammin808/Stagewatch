@@ -106,11 +106,14 @@ public partial class SlidesAgentWindow : Window
         var mains = peers.Where(p => p.Hello.Kind == "main" && p.AgeSeconds < 10).ToList();
         _found.Clear();
         foreach (var p in mains)
-            if (!_targets.Any(t => t.Host.Equals(p.Address, StringComparison.OrdinalIgnoreCase) && t.Port == p.Hello.WebPort))
-                _found.Add(new FoundRow(p.Hello.Name, p.Address, p.Hello.WebPort));
+            if (!_targets.Any(t => p.HeardAt(t.Host) && t.Port == p.Hello.HttpPort))
+                _found.Add(new FoundRow(p.Conflict is { } c ? $"{p.Hello.Name} — {c.Words}" : p.Hello.Name, p.Address, p.Hello.HttpPort));
         NoneFound.Visibility = mains.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var agents = peers.Where(p => p.Hello.Kind == "agent" && p.AgeSeconds < 10).ToList();
-        OtherAgents.Text = agents.Count == 0 ? "None." : string.Join("\n", agents.Select(a => $"{a.Hello.Name} ({a.Address}){(a.Hello.Presenting ? " — presenting" : "")}"));
+        var others = agents.Count == 0 ? "None." : string.Join("\n", agents.Select(a => a.Conflict is { } c
+            ? $"{a.Hello.Name} — {c.Words}" : $"{a.Hello.Name} ({a.Address}){(a.Hello.Presenting ? " — presenting" : "")}"));
+        // A copied presenter PC says this one's feed id: Stagewatch cannot tell their slides apart, so say so first.
+        OtherAgents.Text = _agent.OwnConflict is { } own ? $"Another presenter PC says it is this one: {own.Other} — give one of them a new id\n{others}" : others;
     }
 
     private void RebuildActive()

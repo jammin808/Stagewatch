@@ -2,8 +2,16 @@ using System.Globalization;
 
 namespace Stagewatch.Core;
 
-/// <summary>A node heard by its hello (Show Bus §4), as the show network reads it.</summary>
-public sealed record HeardNode(string Kind, string Id, string Name, string Address, double AgeSeconds);
+/// <summary>A node heard by its hello (Show Bus §2), as the show network reads it: the address to dial, and how long since its last hello.</summary>
+public sealed record HeardNode(string Kind, string Id, string Name, string Address, double AgeSeconds)
+{
+    /// <summary>
+    /// The words of §2's conflict while two running nodes say this id ("two machines say they are …: FOH-PC at 10.0.0.5 and …"); ""
+    /// otherwise. A hello in conflict adds no row (§6): the context lists that id only when a context it posts or a link its key
+    /// proves gives it a row, and the desk and the AI's facts show the id amber either way.
+    /// </summary>
+    public string Conflict { get; init; } = "";
+}
 
 /// <summary>
 /// A context held for a node, with what it proves now: <see cref="PeerContexts.ProofOf"/> for one posted here,
@@ -39,6 +47,13 @@ public sealed record NetworkRow(PeerSummary Peer, PeerContexts.Entry? Context, N
 public sealed record NetworkView(IReadOnlyList<NetworkRow> Rows, int More, IReadOnlyList<NodeLinkFact> Apart)
 {
     public static readonly NetworkView Empty = new(Array.Empty<NetworkRow>(), 0, Array.Empty<NodeLinkFact>());
+
+    /// <summary>
+    /// The ids two running nodes say (§2's conflict), each as last heard with the conflict's words: their hello is never a row (§6),
+    /// so the context lists such an id only by a context it posts or a link its key proves; the desk and the AI's facts show each
+    /// amber, and a row a context or a proven link gives such an id amber too.
+    /// </summary>
+    public IReadOnlyList<HeardNode> Conflicts { get; init; } = Array.Empty<HeardNode>();
 }
 
 /// <summary>
@@ -85,8 +100,9 @@ public static class ShowNetwork
         bool Own(string id) => !string.IsNullOrEmpty(ownId) && string.Equals(id, ownId, StringComparison.Ordinal);
 
         var heard = new Dictionary<string, HeardNode>(StringComparer.Ordinal);
+        var conflicts = new Dictionary<string, HeardNode>(StringComparer.Ordinal);
         foreach (var h in hellos)
-            if (h.Kind != "agent" && NodeBindings.ValidId(h.Id) && !Own(h.Id)) heard[h.Id] = h;
+            if (h.Kind != "agent" && NodeBindings.ValidId(h.Id) && !Own(h.Id)) (h.Conflict.Length > 0 ? conflicts : heard)[h.Id] = h;
 
         var held = new Dictionary<string, HeldContext>(StringComparer.Ordinal);
         foreach (var c in contexts)
@@ -145,7 +161,10 @@ public static class ShowNetwork
         var listed = told.Concat(linkOnly).Select(r => r.Peer.Id).ToHashSet(StringComparer.Ordinal);
         var apart = links.Where(l => l.Verified == NodeProof.None && (l.Id is null || (!Own(l.Id) && !listed.Contains(l.Id))))
             .OrderBy(l => l.Kind, StringComparer.Ordinal).ThenBy(l => l.Id ?? "", StringComparer.Ordinal).ThenBy(l => l.ConnectedUtc).ToList();
-        return new NetworkView(kept, more, apart);
+        return new NetworkView(kept, more, apart)
+        {
+            Conflicts = conflicts.Values.OrderBy(c => c.Kind, StringComparer.Ordinal).ThenBy(c => c.Id, StringComparer.Ordinal).ToList(),
+        };
     }
 
     /// <summary>
@@ -241,7 +260,7 @@ public static class ShowNetwork
 
     /// <summary>
     /// The Show network's headline on the desk: the apps listed, the red ones, the keys refused (<paramref name="refused"/>),
-    /// the rows apart (unverified on /ws) and how many more than the cap; "" when there is nothing at all.
+    /// the rows apart (unverified on /ws), the ids in conflict and how many more than the cap; "" when there is nothing at all.
     /// <paramref name="refusalOnly"/> counts the desk's rows for refused apps no longer heard.
     /// </summary>
     public static string NetworkLine(NetworkView view, int refused, int refusalOnly)
@@ -249,22 +268,30 @@ public static class ShowNetwork
         var apps = view.Rows.Count;
         var reds = view.Rows.Count(r => r.Peer.Light == Light.Red);
         var apart = view.Apart.Select(ApartKey).Distinct(StringComparer.Ordinal).Count();
-        if (apps + apart + refusalOnly + view.More == 0) return "";
+        var conflicts = view.Conflicts.Count;
+        if (apps + apart + refusalOnly + conflicts + view.More == 0) return "";
         return $"Show network: {apps.ToString(CultureInfo.InvariantCulture)} app{(apps == 1 ? "" : "s")}"
                + (reds > 0 ? $" · {reds.ToString(CultureInfo.InvariantCulture)} red" : "")
                + (refused > 0 ? $" · {refused.ToString(CultureInfo.InvariantCulture)} key refused" : "")
                + (apart > 0 ? $" · {apart.ToString(CultureInfo.InvariantCulture)} unverified on /ws" : "")
+               + (conflicts > 0 ? $" · {conflicts.ToString(CultureInfo.InvariantCulture)} id{(conflicts == 1 ? "" : "s")} said by two machines" : "")
                + (view.More > 0 ? $" · +{view.More.ToString(CultureInfo.InvariantCulture)} more" : "");
     }
+
+    /// <summary>What the desk's row for an id only a hello in conflict names says under the conflict's words.</summary>
+    public const string ConflictLine = "heard from two machines — its hello adds nothing to this Stagewatch's context until one of them stops";
 
     /// <summary>
     /// The rows' red and amber parts as advice for the producer (they need it even with no AI), two per app, from the
     /// same rows every other reader takes. A context that proves nothing is labelled "unverified:" and one level lower, so
-    /// a claim never raises an urgent alarm.
+    /// a claim never raises an urgent alarm. Each id two running nodes say (<see cref="NetworkView.Conflicts"/>) is a warning first.
     /// </summary>
     public static IReadOnlyList<Advice> PeerAdvice(NetworkView view)
     {
         var list = new List<Advice>();
+        // One id from two running nodes: a copied install, which only its operator can tell apart (§2). Never urgent: nothing is merged.
+        foreach (var c in view.Conflicts)
+            list.Add(new Advice($"peer:{c.Id}:conflict", AdviceLevel.Warn, $"{AppName(c.Kind)}: {c.Conflict} — likely a copied install, which keeps the id it was copied with: give one of them a new id", null, null));
         foreach (var r in view.Rows)
         {
             if (r.Context is not { } e) continue;

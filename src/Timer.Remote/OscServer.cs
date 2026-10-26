@@ -26,6 +26,10 @@ public sealed class OscServer : IDisposable
 
     public bool IsRunning => _listener is not null;
     public int Port { get; private set; }
+
+    /// <summary>The door as <see cref="Start"/> bound it, published whole once the listener runs; null while it does not.</summary>
+    public BoundDoor? Door => _door;
+    private volatile BoundDoor? _door;
     public long MessagesReceived => Interlocked.Read(ref _received);
     public long MessagesRejected => Interlocked.Read(ref _rejected);
     private long _received, _rejected;
@@ -39,6 +43,7 @@ public sealed class OscServer : IDisposable
         _listener = new UdpClient(new IPEndPoint(bindAll ? IPAddress.Any : IPAddress.Loopback, port));
         IgnoreConnReset(_listener);
         Port = port;
+        _door = new BoundDoor(port, bindAll);
         _cts = new CancellationTokenSource();
         var listener = _listener;
         var token = _cts.Token;
@@ -56,6 +61,7 @@ public sealed class OscServer : IDisposable
 
     public void Stop()
     {
+        _door = null;
         _control.Snapshots.Unsubscribe(OnPublished);
         _cts?.Cancel();
         try { _listener?.Dispose(); } catch { }

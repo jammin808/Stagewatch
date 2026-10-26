@@ -70,6 +70,10 @@ public sealed class WebServer : IAsyncDisposable
     /// <summary>The certificate's fingerprint ("sha256:…"), or null without one.</summary>
     public string? Fingerprint => Certificate is { } c ? TlsPins.Fingerprint(c.RawData) : null;
     public int Port { get; private set; }
+
+    /// <summary>The door as <see cref="Start"/> bound it, published whole once the listener runs; null while it does not.</summary>
+    public BoundDoor? Door => _door;
+    private volatile BoundDoor? _door;
     public int ConnectedClients => _sockets.Count;
 
     // ------------------------------------------------------------------ screens
@@ -266,6 +270,7 @@ public sealed class WebServer : IAsyncDisposable
         listener.Start(backlog: 32);
         _listener = listener;
         Port = port;
+        _door = new BoundDoor(port, bindAll);
         _cts = new CancellationTokenSource();
         _control.Snapshots.Subscribe(OnPublished);
         _control.Nodes.Bound += OnBound;
@@ -276,6 +281,7 @@ public sealed class WebServer : IAsyncDisposable
 
     public async Task StopAsync()
     {
+        _door = null;
         _control.Snapshots.Unsubscribe(OnPublished);
         _control.Nodes.Bound -= OnBound;
         _cts?.Cancel();

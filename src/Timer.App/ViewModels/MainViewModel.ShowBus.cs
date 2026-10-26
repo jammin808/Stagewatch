@@ -37,6 +37,8 @@ public sealed partial class PeerRow : ObservableObject
     public bool RefusalOnly { get; set; }
     /// <summary>A link on /ws that proves no node id (a key two installs share, a key that names no id): the desk's own row, never in the context.</summary>
     public bool Apart { get; set; }
+    /// <summary>Two running nodes say this id (Show Bus §2): amber, its words naming both; only the desk's own row unless a context or a proven link lists it.</summary>
+    public bool Conflict { get; set; }
     /// <summary>
     /// The kind a credential named for this node (<see cref="KeyBindingWords.CredentialKind"/>, an apart link's, a keyed
     /// refusal's); "" when only a hello or an unverified context names it. What "Let a key speak for this node…" may save
@@ -65,6 +67,13 @@ public sealed partial class MainViewModel
 
     public ObservableCollection<PeerRow> PeerRows { get; } = new();
     [ObservableProperty] private string _showNetworkLine = "";
+    /// <summary>The Show network's first line: whether this Stagewatch's hello is out, and if not why (<see cref="ShowBusHello.Line"/>).</summary>
+    [ObservableProperty] private string _helloLine = "";
+    /// <summary>
+    /// The hello line needs the operator, in step with the context's amber <c>bus:hello</c>: every target has failed for
+    /// <see cref="ShowBusHello.FailedBeats"/> beats, or another machine says this Stagewatch's id.
+    /// </summary>
+    [ObservableProperty] private bool _helloLineWarns;
     /// <summary>
     /// The show network as last joined, once a second on the show thread; published whole (an immutable view), so the
     /// context, the desk's rows, its advice, screen refusals and the AI's facts all read the same join on any thread.
@@ -92,6 +101,10 @@ public sealed partial class MainViewModel
             now, _hub.Latest, _hub.ProducerStuck, LinkItems(), view.Rows.Select(r => r.Peer).ToList(), _journal.Entries, ShowClock, _goLatency.Percentile(0.95));
         _contextJson = ShowContext.Build(input);
         SyncPeerRows(now, view);
+        var hello = OwnHello;
+        var twin = OwnTwin;
+        HelloLine = ShowBusHello.Line(hello, input.Name, _nodeId, twin);
+        HelloLineWarns = ShowBusHello.Item(hello, twin) is not null;   // in step with the context's amber bus:hello
     }
 
     /// <summary>Every link this Stagewatch runs, as context items (off ones left out), plus the Patterns clock check.</summary>
@@ -105,6 +118,7 @@ public sealed partial class MainViewModel
             list.Add(new ContextItem("link:" + name.ToLowerInvariant().Replace(' ', '-'), name is "vMix" or "Patterns" ? "playout" : "link", name, light, status));
         }
         list.AddRange(WindowItems());
+        if (ShowBusHello.Item(OwnHello, OwnTwin) is { } hello) list.Add(hello);   // its own health: other apps can't find it, or can't tell it from a copy
         if (_patterns?.ClockOffset is { } off && off.Duration() > ClockOffsetEstimator.ApartAfter)
             list.Add(new ContextItem("clock:patterns", "health", "Clock vs Patterns", Light.Amber,
                 $"CLOCKS APART: Patterns' clock is {Math.Abs(off.TotalSeconds):0.0} s {(off > TimeSpan.Zero ? "ahead" : "behind")}"));
@@ -117,7 +131,7 @@ public sealed partial class MainViewModel
     /// </summary>
     private NetworkView Network(DateTime now)
     {
-        var hellos = NetworkPeers().Select(p => new HeardNode(p.Hello.Kind, p.Hello.Id, p.Hello.Name, p.Address, p.AgeSeconds));
+        var hellos = NetworkPeers().Select(p => new HeardNode(p.Hello.Kind, p.Hello.Id, p.Hello.Name, p.Address, p.AgeSeconds) { Conflict = p.Conflict?.Words ?? "" });
         var contexts = _peerContexts.Held(now).ToList();
         if (_patterns?.Context is { } pc && PeerContexts.Parse(pc, Settings.Integrations.PatternsHost, now) is { } pe)
             contexts.Add(new HeldContext(pe, _peerContexts.LinkedProof(pe.Id), Pulled: true));
@@ -138,10 +152,12 @@ public sealed partial class MainViewModel
         var heard = view.Rows.Select(r => r.Peer.Id).ToHashSet(StringComparer.Ordinal);
         // Links on /ws that prove no id get rows of their own: a conflict under the id it named, a key that names none under the key.
         var apart = ShowNetwork.ApartRows(view.Apart).ToDictionary(a => a.Key, StringComparer.Ordinal);
+        // An id two running nodes say (§2): amber, naming both, never merged; a row of its own unless a context or a proven link gives one.
+        var conflicts = view.Conflicts.ToDictionary(c => c.Id, StringComparer.Ordinal);
         for (var i = PeerRows.Count - 1; i >= 0; i--)
         {
             var id = PeerRows[i].Id;
-            if (!heard.Contains(id) && !apart.ContainsKey(id) && !refused.ContainsKey(id)) PeerRows.RemoveAt(i);
+            if (!heard.Contains(id) && !apart.ContainsKey(id) && !refused.ContainsKey(id) && !conflicts.ContainsKey(id)) PeerRows.RemoveAt(i);
         }
         foreach (var r in view.Rows)
         {
@@ -164,6 +180,32 @@ public sealed partial class MainViewModel
             row.MarkTip = ShowNetwork.MarkTip(r);
             // Only a key the bindings hold for this id can be revoked from here; a pulled context proves by the link, not a key.
             row.KeyId = p.Verified == "key" ? _nodes.KeyOf(p.Id) ?? "" : "";
+            row.Conflict = conflicts.TryGetValue(p.Id, out var both);
+            if (both is not null)
+            {
+                row.Light = Light.Amber;
+                row.Headline = both.Conflict + " — " + row.Headline;
+            }
+        }
+        foreach (var c in conflicts.Values)
+        {
+            if (heard.Contains(c.Id)) continue;   // its row above, amber
+            var row = PeerRows.FirstOrDefault(x => x.Id == c.Id);
+            if (row is null) PeerRows.Add(row = new PeerRow(c.Id));
+            row.RefusalOnly = false;
+            row.Apart = false;
+            row.Conflict = true;
+            row.NodeKind = c.Kind;
+            row.CredentialKind = "";   // a hello names it, never a credential
+            row.Kind = AppName(c.Kind);
+            row.Name = c.Name.Length > 0 ? c.Name : $"{AppName(c.Kind)} {c.Id}";
+            row.Light = Light.Amber;
+            row.Headline = c.Conflict;
+            row.Problems = "";
+            row.LinkLine = ShowNetwork.ConflictLine;
+            row.Mark = ShowNetwork.Mark("");
+            row.MarkTip = ShowNetwork.MarkWords("");
+            row.KeyId = "";
         }
         foreach (var a in apart.Values)
         {
@@ -171,6 +213,7 @@ public sealed partial class MainViewModel
             if (row is null) PeerRows.Add(row = new PeerRow(a.Key));
             row.RefusalOnly = false;
             row.Apart = true;
+            row.Conflict = false;
             row.NodeKind = a.Kind;
             row.CredentialKind = a.Kind;   // a node link on /ws came with a node key in force or the operator's credential
             row.Kind = AppName(a.Kind);
@@ -185,7 +228,7 @@ public sealed partial class MainViewModel
         }
         foreach (var r in refused.Values)
         {
-            if (heard.Contains(r.Id) || apart.ContainsKey(r.Id)) continue;
+            if (heard.Contains(r.Id) || apart.ContainsKey(r.Id) || conflicts.ContainsKey(r.Id)) continue;
             // Refused here and not heard, or no longer heard: grey with no light or headline left over from when it was.
             var row = PeerRows.FirstOrDefault(x => x.Id == r.Id);
             if (row is null) PeerRows.Add(row = new PeerRow(r.Id));
@@ -199,6 +242,7 @@ public sealed partial class MainViewModel
             row.CredentialKind = r.Kind;   // what the refused keyed request named
             row.RefusalOnly = true;
             row.Apart = false;
+            row.Conflict = false;
             row.Light = Light.Grey;
             row.Headline = "not heard — its key was refused, so its context and proposals are not taken";
             row.Problems = "";
@@ -312,16 +356,19 @@ public sealed partial class MainViewModel
         return (secret, $"API key '{key.Name}' made: it speaks for {who}. Paste it into {app} in place of the shared key.");
     }
 
-    /// <summary>The peers' red and amber parts as advice (they need the producer even with no AI): the rows the desk shows (<see cref="ShowNetwork.PeerAdvice"/>).</summary>
-    private IReadOnlyList<Advice> PeerAdvice() => ShowNetwork.PeerAdvice(_network);
+    /// <summary>
+    /// The peers' red and amber parts as advice (they need the producer even with no AI): the rows the desk shows
+    /// (<see cref="ShowNetwork.PeerAdvice"/>), after another machine saying this Stagewatch's own id, while it does.
+    /// </summary>
+    private IReadOnlyList<Advice> PeerAdvice()
+    {
+        var peers = ShowNetwork.PeerAdvice(_network);
+        return ShowBusHello.OwnAdvice(OwnTwin) is { } own ? [own, .. peers] : peers;
+    }
 
     /// <summary>
-    /// What the AI sees of the other apps: the rows the context lists, from the last join (<see cref="_network"/>), each
-    /// with its light, headline, problem parts and recent lines, whether it follows the timer over /ws and what proves
-    /// those facts. Never joins again: any thread reads the published view.
+    /// What the AI sees of the other apps, from the last join (<see cref="_network"/>): the rows the context lists and each id two
+    /// machines say, as the desk shows it (<see cref="AiContext.PeerFacts"/>). Never joins again: any thread reads the published view.
     /// </summary>
-    private IReadOnlyList<PeerFact> PeerFacts()
-        => _network.Rows.Select(r => new PeerFact(r.Peer.Kind, r.Peer.Name, r.Peer.Light, r.Peer.Headline,
-            r.Context?.Items.Select(i => $"{i.Label} [{i.Light}]: {i.State}").Take(24).ToList() ?? new List<string>(),
-            r.Context?.Recent.TakeLast(8).ToList() ?? new List<string>(), r.Peer.Link, r.Peer.Verified)).ToList();
+    private IReadOnlyList<PeerFact> PeerFacts() => AiContext.PeerFacts(_network);
 }

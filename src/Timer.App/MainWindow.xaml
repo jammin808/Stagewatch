@@ -688,9 +688,23 @@
                 <TabItem Header="Producer" x:Name="TabProducer">
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0">
                         <StackPanel Margin="4,0,4,4">
-                            <!-- SHOW NETWORK: the other show apps this Stagewatch hears (Show Bus), their light and headline. No AI needed. -->
-                            <StackPanel Visibility="{Binding ShowNetworkLine, Converter={StaticResource NonEmptyToVis}}" Margin="0,0,0,12">
+                            <!-- SHOW NETWORK: whether this Stagewatch's hello is out, then the other show apps it hears (Show Bus), their light and headline. No AI needed. -->
+                            <StackPanel Visibility="{Binding HelloLine, Converter={StaticResource NonEmptyToVis}}" Margin="0,0,0,12">
                                 <TextBlock Text="SHOW NETWORK" FontWeight="Bold" Opacity="0.7" />
+                                <!-- The hello's first line: said on the network, on this PC only, not said and why. Amber, in words, once every target failed for three beats or another machine says this Stagewatch's id. -->
+                                <TextBlock help:ContextHelp.Tip="show-hello" Text="{Binding HelloLine}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" Background="Transparent">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HelloLineWarns}" Value="True"><Setter Property="Foreground" Value="{StaticResource NeonAmberBrush}" /></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <!-- The network's counts: apps heard, red ones, keys refused, rows apart, ids two machines say. -->
+                                <TextBlock help:ContextHelp.Tip="show-hello" Text="{Binding ShowNetworkLine}" Visibility="{Binding ShowNetworkLine, Converter={StaticResource NonEmptyToVis}}"
+                                           FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{StaticResource TextMutedBrush}" Background="Transparent" />
                                 <ItemsControl ItemsSource="{Binding PeerRows}" Margin="0,6,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>

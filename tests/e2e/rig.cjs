@@ -103,13 +103,17 @@ class Rig {
   constructor(port, state, options) {
     this.port = port; this.state = state; this.proc = null; this.log = ''; this.companion = 0; this.osc = 0;
     this.nodeKeyCount = options.nodeKeys || 0;
+    this.extraArgs = options.args || [];   // more options, as given (e.g. --bind all --bus <port> --bus-to 127.0.0.1:<port>)
     this.ready = null;
     this.exit = null;   // how the last run ended: { code, signal }
     this.keys = [];     // every node key made for this state file, with its secret (the ready line names each once)
     this.out = new Inbox();
   }
 
-  /** A rig on free ports; with { wire: true } also its Companion (TCP) and OSC (UDP) servers; { nodeKeys: N } makes N node keys. */
+  /**
+   * A rig on free ports; with { wire: true } also its Companion (TCP) and OSC (UDP) servers; { nodeKeys: N } makes N node keys;
+   * { args: [...] } adds options as given.
+   */
   static async create(options = {}) {
     if (!fs.existsSync(DLL)) throw new Error(`the rig isn't built (${DLL}): dotnet build tools/Stagewatch.Rig`);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-rig-'));
@@ -127,6 +131,7 @@ class Rig {
       const args = [DLL, '--port', String(this.port), '--companion', String(this.companion), '--osc', String(this.osc), '--pin', PIN,
         '--state', this.state, '--exit-after', '600'];
       if (this.nodeKeyCount > 0) args.push('--node-keys', String(this.nodeKeyCount));
+      args.push(...this.extraArgs.map(String));
       const proc = spawn('dotnet', args, { stdio: ['pipe', 'pipe', 'pipe'] });
       this.proc = proc;
       const out = new Inbox();   // this run's lines: a restart's run has its own
