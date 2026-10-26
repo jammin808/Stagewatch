@@ -27,6 +27,11 @@ using Stagewatch.Show;
 /// browser reads off it, is what Stagewatch's server, context and window shell do, and the header names what of §12 Stagewatch's
 /// code does not keep yet, each exactly while the code lacks it. Every part the body cites is there, or the header names it as
 /// cited ahead of its words.
+/// §6 keeps the Eye's rules, P1–P8, by their names; its link kinds and its kind table, and §14's kinds, are ShowBusKinds' tables; every
+/// link row and link end the master writes is one §6 allows; §6's example keeps §6's own rules; posting a context answers in 13.5's
+/// words; and 13.16 and 13.18 publish what P1 and P2 say. Stagewatch's own context keeps P1, P5 for its timer, P6 for its own parts but
+/// its vMix link, and P8's no-secret rule; the desk keeps a posted context as §6 says; and the header names what of §6's rules
+/// Stagewatch does not keep yet (<see cref="RulesNotKeptYet"/>), each exactly while its code still does that.
 /// Parse, pure and machine rows are otherwise checked for shape only: running them is the kit's. Of Stagewatch's own code:
 /// a made key has 13.5.1's shape and its stored hash is K, and its level-0 proof makes every legacy row's proof and refuses
 /// every nonce a row refuses (the tokens a row does not prove are not held here); of the rows of §2, §6, §10, §11 and §12 and those
@@ -40,9 +45,57 @@ static class ShowBusSpecTests
     /// LF, one final LF. Any edit to the body changes it, so an edit is pinned here on purpose; the copies in Patterns,
     /// PlayMap and AGMessage hold the same hash, printed in the header, once 1.3 is final.
     /// </summary>
-    const string BodySha256 = "df742d9c942a655f9db297804704e3a90b66e4b92f89badb5db683e0deb9f1aa";
+    const string BodySha256 = "55e43748b9114f258063aa7c2d371ca6a5e4499d79c41d9352d29f9def87addc";
 
     const string BodyStart = "## 1. Rules every node follows";
+    const string ContextHeading = "## 6. Context — what an AI (or the Eye) needs to understand a node";
+
+    /// <summary>§6's rules for the Eye, P1–P8 in order, by their names. Readers in four trees cite them by number (§6's P2), so none moves.</summary>
+    static readonly string[] EyeRules =
+    [
+        "Items are the node's own", "Every PeerLink is one `link` item and one row", "What a node shows from another node is its claim", "Grants",
+        "Show liveness", "Kinds", "Order", "Content",
+    ];
+
+    /// <summary>The planes §6's kind table may name: the Eye's bands, each one of its lenses.</summary>
+    static readonly string[] Planes = ["control", "video", "audio", "room"];
+
+    /// <summary>Dotted names in §6 that are a context's fields, not numbers.</summary>
+    static readonly string[] ContextFields = ["node.t", "node.id"];
+
+    /// <summary>
+    /// The context rows §6 does not name yet: its sizes, which 1.3's words for §6 bring (SW19.1e) — none once 1.3 is final. Every other
+    /// context row is named in §6's words.
+    /// </summary>
+    static readonly string[] SizesLater =
+    [
+        "context.bytes", "context.items", "context.links", "context.recent", "context.commands", "context.peers", "context.headline.chars",
+        "context.item.kind.chars", "context.item.label.chars", "context.item.state.chars", "context.recent.chars", "context.verb.chars",
+        "context.words.chars", "context.words.read.chars",
+    ];
+
+    /// <summary>
+    /// What of §6's rules for the Eye Stagewatch's own context does not keep yet: the rule, what of it, the unit that ends it, what
+    /// the code does today in the header's words, and a check that holds exactly while the code still does that. Once the code
+    /// changes the check fails, and the entry leaves this table and the header for a check of the rule kept.
+    /// </summary>
+    static readonly (string Rule, string Of, string Unit, string Today, Func<bool> Differs)[] RulesNotKeptYet =
+    [
+        ("P2", "for its links", "SW24.1", "its only rows run from its timer, its Patterns link is an item of kind `playout`, and no row names a peer",
+            OwnRowsAsToday),
+        ("P2", "for the node links it accepts on `/ws`", "SW24.1", "it lists them only as `peers` rows, with `link` and `verified`", AcceptedLinksAsToday),
+        ("P3", "for the clip time it shows from Patterns", "SW24.1", "its screens show Patterns' clip time, and no row names Patterns' item",
+            ClipTimeAsToday),
+        ("P5", "for its schedule", "SW24.1", "a stuck show thread turns its timer red and leaves its schedule's light as the frame gives it",
+            StuckScheduleAsToday),
+        ("P6", "for its vMix link", "SW24.1", "an item of kind `playout`", VmixAsToday),
+        ("P7", "for its order", "SW24.1", "its timer is its first item whatever its light", TimerFirstAsToday),
+        ("P8", "for its messages", "SW24.1",
+            "a cue item carries the text of a message it sent, a speaker message sent with an ack among them, and `recent` carries the text "
+            + "of every message and audience question its journal holds",
+            MessagesAsToday),
+    ];
+
     const string WindowsHeading = "## 12. Windows (1.3)";
 
     /// <summary>§12's parts in order. Patterns and PlayMap cite them by number (12.5's path rule, 12.9's black), so none moves.</summary>
@@ -92,13 +145,9 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// The rows the header says bind nothing until their section's words land: no 1.2 words, §14 words or name hold their idea yet.
-    /// §12's words hold all of its rows; SW19.1d and SW19.1e (§2, §6, §10, §11) empty the rest, and 1.3 final has none.
+    /// §6's and §12's words hold all of theirs; SW19.1e (§2, §10, §11) empties the rest, and 1.3 final has none.
     /// </summary>
-    static readonly string[] Unworded =
-    [
-        "hello.inst.chars", "peer.conflict.clear.ms", "context.link.end.chars", "context.post.min.ms", "context.post.max.ms", "cert.backdate.hours",
-        "proposal.result.ms",
-    ];
+    static readonly string[] Unworded = ["hello.inst.chars", "peer.conflict.clear.ms", "cert.backdate.hours", "proposal.result.ms"];
 
     /// <summary>The rows of §13's own numbers that 1.2's §3–§5 already state in words (§4's liveness and redial, §5's clock, §3's ids).</summary>
     static readonly string[] Before13 =
@@ -129,6 +178,7 @@ static class ShowBusSpecTests
         ("context.bytes", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
         ("context.items", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
         ("context.links", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
+        ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
         ("context.items", "SW21.1", "PeerContexts keeps a context's first 64 items",
             n => Peer(Many("items", "{\"id\":\"a\",\"kind\":\"b\",\"label\":\"c\",\"light\":\"green\",\"state\":\"d\"}", n.Of("context.items")))?.Items.Count < n.Of("context.items")),
         ("context.commands", "SW21.1", "PeerContexts keeps a context's first 64 commands",
@@ -173,11 +223,13 @@ static class ShowBusSpecTests
         var (text, body) = read;
 
         Sections(Check, body);
+        var s6 = Between(body, "\n" + ContextHeading + "\n", "\n## ");
         var s12 = Between(body, "\n" + WindowsHeading + "\n", "\n## ");
         var s13 = Between(body, "\n" + PeerLinkHeading + "\n", "\n## ");
         var s14 = Between(body, "\n" + NumbersHeading + "\n", "\n## ");
-        Check(s12 is not null && s13 is not null && s14 is not null, "showbus spec: §12 Windows, §13 PeerLink and §14 The numbers are in the hashed body");
-        if (s12 is null || s13 is null || s14 is null) return;
+        Check(s6 is not null && s12 is not null && s13 is not null && s14 is not null,
+            "showbus spec: §6 Context, §12 Windows, §13 PeerLink and §14 The numbers are in the hashed body");
+        if (s6 is null || s12 is null || s13 is null || s14 is null) return;
         var draft = text.Split('\n')[0].Contains("(draft)", StringComparison.Ordinal);
         Landed(Check, text, body, s14, draft);
         Parts(Check, s13);
@@ -193,6 +245,8 @@ static class ShowBusSpecTests
         Vocabulary(Check, text, s13, s14, n);
         Named(Check, s13, s14, n);
         WindowsNamed(Check, s12, n);
+        ContextNamed(Check, s6, n, draft);
+        ContextText(Check, body, s6, n);
         if (rows is not null)
         {
             Crypto(Check, s13, rows, n);
@@ -200,6 +254,7 @@ static class ShowBusSpecTests
         }
         TodaysCode(Check, s13, rows ?? [], n);
         WindowsCode(Check, text[..^body.Length], s12, n);
+        ContextCode(Check, text[..^body.Length], n);
     }
 
     // ------------------------------------------------------------------ the body and its hash
@@ -452,7 +507,7 @@ static class ShowBusSpecTests
             ("link.stale.ms", "link.drop.ms", true), ("ping.min.ms", "ping.max.ms", false), ("ping.max.ms", "link.stale.ms", true),
             ("link.check.max.ms", "link.stale.ms", true), ("link.check.max.ms", "link.selfgap.ms", true), ("link.redial.first.ms", "link.redial.max.ms", false),
             ("show.stuck.min.ms", "show.stuck.max.ms", false), ("receipt.deadline.ms", "receipt.final.ms", true),
-            ("context.post.min.ms", "context.post.max.ms", false), ("context.post.max.ms", "context.kept.ms", true),
+            ("context.post.min.ms", "context.post.max.ms", false), ("context.post.max.ms", "context.kept.ms", true), ("context.items.first", "context.items", false),
             ("context.words.read.chars", "context.words.chars", false), ("report.retry.first.ms", "report.retry.max.ms", false),
             ("report.retry.max.ms", "report.retry.for.ms", false), ("cert.renew.days", "cert.days", true),
         ];
@@ -490,6 +545,239 @@ static class ShowBusSpecTests
     /// <summary>The dotted names a text writes in code: the §14 rows it names, and anything else written like one.</summary>
     static HashSet<string> CodeNames(string text)
         => Regex.Matches(text, @"`([a-z][a-z0-9]*(?:\.[a-z0-9-]+)+)`").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+
+    // ------------------------------------------------------------------ §6's text
+
+    /// <summary>
+    /// Every dotted name §6 writes in code is a §14 row, but a context's own fields; the context rows §6 does not name yet are exactly
+    /// <see cref="SizesLater"/>, and none once 1.3 is final.
+    /// </summary>
+    static void ContextNamed(Action<bool, string> Check, string s6, Numbers n, bool draft)
+    {
+        var named = CodeNames(s6);
+        named.ExceptWith(ContextFields);
+        var unknown = named.Where(x => !n.Values.ContainsKey(x)).Order(StringComparer.Ordinal).ToList();
+        Check(unknown.Count == 0, "showbus spec: every number §6 names in code is a §14 row (" + string.Join(", ", unknown) + ")");
+        var unnamed = n.Values.Keys.Where(k => k.StartsWith("context.", StringComparison.Ordinal) && !named.Contains(k)).ToHashSet(StringComparer.Ordinal);
+        Check(unnamed.SetEquals(SizesLater),
+            "showbus spec: the context rows §6 does not name yet are ShowBusSpecTests.SizesLater (unnamed: " + string.Join(", ", unnamed.Except(SizesLater))
+            + "; named now: " + string.Join(", ", SizesLater.Except(unnamed)) + ")");
+        Check(draft || SizesLater.Length == 0, "showbus spec: 1.3 final names every context row in §6 (" + string.Join(", ", SizesLater) + ")");
+    }
+
+    /// <summary>
+    /// §6's rules for the Eye are P1–P8, in order, by their names. Its link kinds are <see cref="ShowBusKinds.Links"/> and every link
+    /// row the master writes uses one; P2's one row runs from the connector's end to the acceptor's, its K the connector's use, one of
+    /// three link kinds, and a reader that holds both ends draws the worse light; an acceptor's items stand on a proof or a bound key,
+    /// and its unproved links fold into one item with no row; P3 feeds (a clip's time among what a node shows) and P4 serves; P5's words
+    /// put the show stuck in place of a time; P8 keeps a message's text private whatever screen shows it. A link end is @ and a §2 id,
+    /// with an item id after a slash, within its §14 rows, and every end the master writes is one. §6's example keeps P1–P7: its light
+    /// is its items' worst, its kinds the table's, its links its own items' or a peer's it lists one hop, its link item with its one P2
+    /// row, its items in P7's order (its peers row's `link` and `verified`, 13.16.4's, wait for the words SW19.1e gives the peers
+    /// fields). The kind table is <see cref="ShowBusKinds.Items"/> row for row, its last row ShowBusKinds' default, its planes the Eye's
+    /// bands, its words binding and its placement advice; P5's counting kinds are its words. Posting keeps the latest, is no node's
+    /// command, and on a line is LINK's, a bound key's of scope post or above, and that key's own node's — never a code's — answered in
+    /// 13.5.2's and 13.5.3's words. 13.16.4 and 13.16.5 publish P2's items and rows; 13.16.5 lights an accepted link as its connector
+    /// would, amber over green, grey for peer.forget.ms once ended, never red; P1's one exception is 13.18's twin item, which 13.18 names.
+    /// </summary>
+    static void ContextText(Action<bool, string> Check, string body, string s6, Numbers n)
+    {
+        var rules = Regex.Matches(s6, @"^(\d)\. \*\*P(\d) — (.+?)\.\*\*", RegexOptions.Multiline)
+            .Select(m => (N: m.Groups[1].Value, P: m.Groups[2].Value, Name: m.Groups[3].Value)).ToList();
+        Check(rules.Select(r => r.N).SequenceEqual(Enumerable.Range(1, EyeRules.Length).Select(i => i.ToString(CultureInfo.InvariantCulture)))
+              && rules.All(r => r.N == r.P) && rules.Select(r => r.Name).SequenceEqual(EyeRules),
+            "showbus spec: §6's rules for the Eye are P1–P8, in order, by their names (" + string.Join(" · ", rules.Select(r => "P" + r.P + " " + r.Name)) + ")");
+
+        // The link kinds, and every row the master writes.
+        var flat = Flat(s6);
+        var linkKinds = Ticked(Inside(flat, "A link joins two ends with a `kind` — ", " — and a `light`") ?? "").ToList();
+        Check(linkKinds.SequenceEqual(ShowBusKinds.Links), "showbus spec: §6's link kinds are ShowBusKinds.Links, in order (" + string.Join(", ", linkKinds) + ")");
+        var rows = Regex.Matches(body, @"\{""from"":""[^""]*"",""to"":""[^""]*"",""kind"":(?:""([a-z]+)""|K)(?:,""[a-z]+"":""[^""]*"")*\}").ToList();
+        var strays = rows.Where(m => m.Groups[1].Success && !ShowBusKinds.Links.Contains(m.Groups[1].Value)).Select(m => m.Groups[1].Value).ToList();
+        Check(rows.Count >= 6 && strays.Count == 0, $"showbus spec: every link row the master writes uses one of §6's link kinds ({rows.Count} rows; " + string.Join(", ", strays) + ")");
+        var p2 = EyeRule(s6, 2);
+        Check(p2.Contains("a connector publishes `{\"from\":\"<its link item>\",\"to\":\"@<peer id>\",\"kind\":K}`, an acceptor `{\"from\":\"@<peer id>\",\"to\":\"<its link item>\",\"kind\":K}`", StringComparison.Ordinal)
+              && p2.Contains("A link has this one row, whatever else it carries", StringComparison.Ordinal),
+            "showbus spec: P2's one row runs from the connector's end to the acceptor's, whichever end publishes it");
+        var uses = Ticked(Inside(p2, "**K** is", ". An acceptor") ?? "").ToList();
+        Check(uses.SequenceEqual(["controls", "follows", "sends"]) && uses.All(ShowBusKinds.Links.Contains)
+              && p2.Contains("An acceptor names K by the same order from what the connector has done on the link within its key's scope", StringComparison.Ordinal)
+              && p2.Contains("**Both ends.** A reader that holds both ends' items for one link draws one edge, in the worse of their lights, with the connector's K", StringComparison.Ordinal),
+            "showbus spec: P2's K is the connector's primary use — controls, else follows, else sends — each a link kind, an acceptor names it by the same "
+            + "order from what it sees, and a reader draws one edge in the worse light with the connector's K (" + string.Join(", ", uses) + ")");
+        Check(p2.Contains("of kind `link`, its id `link:` followed by a name of its choosing, the key's scope among its words", StringComparison.Ordinal)
+              && p2.Contains("as connector, for each PeerLink it holds, with its 13.16.3 record's light and state words", StringComparison.Ordinal)
+              && p2.Contains("as acceptor, for each link it accepted that LINK verified (13.6), or, until that link's connector speaks LINK, that a key bound to the connector's node proves (13.5.2;", StringComparison.Ordinal)
+              && p2.Contains("with its 13.16.5 row's light and words", StringComparison.Ordinal)
+              && p2.Contains("names the id its hello or its answer gave, and its words say \"not proved\"", StringComparison.Ordinal),
+            "showbus spec: P2's item takes its record's or its acceptor row's light and words, the key's scope among them; an acceptor's stands on a proof "
+            + "or a bound key; and a connector's link not yet proved says so");
+        Check(p2.Contains("The links it took that neither proves — a level-0 link a pairing code proved, a `keyless` one — it folds into one item of kind `link`, id `link:unproved`, whose words count and name them", StringComparison.Ordinal)
+              && p2.Contains("with no row: an id nothing proved draws no edge from the node that took it", StringComparison.Ordinal),
+            "showbus spec: P2 bounds an acceptor's unproved links: one link:unproved item counts them, with no row to an id nothing proved");
+        Check(EyeRule(s6, 3).Contains("a timer or a clip's time left it shows", StringComparison.Ordinal)
+              && EyeRule(s6, 3).Contains("`{\"from\":\"@<node id>/<item id>\",\"to\":\"<its own item>\",\"kind\":\"feeds\"}`", StringComparison.Ordinal)
+              && EyeRule(s6, 4).Contains("`{\"from\":\"<its item>\",\"to\":\"@<holder id>\",\"kind\":\"serves\"}`", StringComparison.Ordinal),
+            "showbus spec: P3's claim feeds the shower's own item from the other node's, a clip's time it shows among them, and P4's grant serves its holder");
+
+        // Link ends.
+        Check(flat.Contains("`@<node id>/<item id>` names that node's item", StringComparison.Ordinal) && flat.Contains("`@<node id>` names the node itself", StringComparison.Ordinal)
+              && flat.Contains("The node id is a §2 id, `hello.id.min` to `hello.id.max` letters, digits, `-` and `_`; the item id is at most `context.item.id.chars`, and the whole end at most `context.link.end.chars`", StringComparison.Ordinal)
+              && flat.Contains("A reader refuses a link whose end breaks these", StringComparison.Ordinal),
+            "showbus spec: §6's link ends name a node, or one of its items, by a §2 id within context.link.end.chars, and a reader refuses one that breaks them");
+        Check(2 + n.Of("hello.id.max") + n.Of("context.item.id.chars") <= n.Of("context.link.end.chars"),
+            "showbus spec: the longest end §6 allows — @, a longest id, /, a longest item id — is within context.link.end.chars");
+        var ends = Regex.Matches(body, "\"(@[^\"<>]*)\"").Select(m => m.Groups[1].Value).ToList();
+        var bad = ends.Where(e => !EndOk(e, n)).ToList();
+        Check(ends.Count >= 2 && bad.Count == 0, $"showbus spec: every link end the master writes is one §6 allows ({ends.Count} ends; " + string.Join(", ", bad) + ")");
+
+        // The example keeps §6's own rules.
+        JsonElement? example = null;
+        var json = Inside(s6, "\n```json\n", "\n```");
+        Check(json is not null, "showbus spec: §6 shows a context");
+        if (json is not null)
+        {
+            try { example = JsonDocument.Parse(json).RootElement.Clone(); }
+            catch (JsonException e) { Check(false, "showbus spec: §6's example is JSON (" + e.Message + ")"); }
+        }
+        if (example is { } c)
+        {
+            var items = Items(c, "items");
+            var ids = items.Select(i => Str(i, "id") ?? "").ToList();
+            var lights = items.Select(i => Str(i, "light") ?? "").ToList();
+            var links = Items(c, "links");
+            var peers = Items(c, "peers").Select(p => Str(p, "id") ?? "").ToHashSet(StringComparer.Ordinal);
+            bool Own(string? end) => end is not null && ids.Contains(end);
+            bool Hop(string? end) => end is not null && EndOk(end, n) && peers.Contains(end[1..].Split('/')[0]);
+            Check(Str(c, "light") == Light.Worst(lights), "showbus spec: §6's example's light is its items' worst");
+            Check(items.All(i => ShowBusKinds.Known(Str(i, "kind"))), "showbus spec: §6's example's items use the kind table's words (P6)");
+            Check(links.Count > 0 && links.All(l => ShowBusKinds.Links.Contains(Str(l, "kind") ?? "")
+                                                     && (Own(Str(l, "from")) || Hop(Str(l, "from"))) && (Own(Str(l, "to")) || Hop(Str(l, "to")))),
+                "showbus spec: §6's example's links join its own items, or one to a peer it lists one hop, by a link kind");
+            var linkItems = items.Where(i => Str(i, "kind") == "link").Select(i => Str(i, "id")).ToList();
+            Check(linkItems.Count > 0 && linkItems.All(id => links.Count(l => Str(l, "from") == id || Str(l, "to") == id) == 1
+                                                             && links.Any(l => Str(l, "from") == id && Hop(Str(l, "to")))),
+                "showbus spec: §6's example's link item has its one P2 row, from it to its peer");
+            var crossing = ids.Select((id, k) => (id, k)).Where(x => links.Any(l => (Str(l, "from") == x.id && Hop(Str(l, "to"))) || (Str(l, "to") == x.id && Hop(Str(l, "from")))));
+            Check(lights.Select(Light.Rank).SkipWhile(r => r >= Light.Rank(Light.Amber)).All(r => r < Light.Rank(Light.Amber))
+                  && crossing.All(x => x.k < n.Of("context.items.first")),
+                "showbus spec: §6's example lists its reds and ambers first, and its items with a row to another node among its first context.items.first (P7)");
+        }
+
+        // The kind table.
+        var table = KindTable(s6);
+        Check(table.Count > 1 && table[^1].First == "anything else" && table[^1].Kinds.Length == 0 && table[^1].Plane == ShowBusKinds.ElsePlane
+              && table[^1].Column == ShowBusKinds.ElseColumn,
+            "showbus spec: the kind table's last row places anything else as ShowBusKinds does (control, column 1)");
+        var rowsOf = table.Take(Math.Max(0, table.Count - 1)).ToList();
+        Check(rowsOf.Count == ShowBusKinds.Items.Count
+              && rowsOf.Zip(ShowBusKinds.Items).All(p => p.First.Kinds.SequenceEqual(p.Second.Kinds) && p.First.Plane == p.Second.Plane && p.First.Column == p.Second.Column),
+            "showbus spec: the kind table is ShowBusKinds.Items, row for row (" + string.Join(" · ", rowsOf.Select(r => r.Plane + " " + r.Column + ": " + string.Join(" ", r.Kinds))) + ")");
+        var words = rowsOf.SelectMany(r => r.Kinds).ToList();
+        Check(words.Count > 0 && words.Distinct(StringComparer.Ordinal).Count() == words.Count && words.All(w => w.Length <= n.Of("context.item.kind.chars"))
+              && table.All(r => Planes.Contains(r.Plane)),
+            "showbus spec: the kind table names each kind once, each within context.item.kind.chars, on one of the Eye's planes");
+        var counting = Ticked(Inside(EyeRule(s6, 5), "counting items — kinds", "— red") ?? "").ToList();
+        Check(counting.Count > 0 && counting.All(ShowBusKinds.Known), "showbus spec: P5's counting kinds are the kind table's words (" + string.Join(", ", counting) + ")");
+        Check(EyeRule(s6, 5).Contains("red, its state words saying the show is stuck in place of a time", StringComparison.Ordinal),
+            "showbus spec: P5 turns a stuck node's counting items red, their words the show stuck in place of a time");
+        Check(EyeRule(s6, 6).Contains("a reader places any other word as the table's last row says", StringComparison.Ordinal)
+              && flat.Contains("**The kind table.** The words P6 asks for", StringComparison.Ordinal)
+              && flat.Contains("The words bind; the placement is advice to an Eye", StringComparison.Ordinal),
+            "showbus spec: P6 places a word the kind table does not name by its last row; the table's words bind and its placement advises");
+        var p8 = EyeRule(s6, 8);
+        Check(p8.Contains("what one person writes for another — a message's text, a speaker's message and an audience question among them, whatever screen shows it", StringComparison.Ordinal)
+              && p8.Contains("The show's own words are not private: a running order's titles and the people they name, a cue's words (\"LX 12\"), and who ran a verb, in `recent`", StringComparison.Ordinal)
+              && p8.Contains("A node may keep more out than this", StringComparison.Ordinal),
+            "showbus spec: P8 keeps a message's text private whatever screen shows it, a speaker's and an audience question's among them, and says titles, "
+            + "cue words and who ran a verb are the show's");
+
+        // Posting.
+        Check(flat.Contains("**Posting.** A node that gives its context to another (a desk) posts it on change and at least every `context.post.max.ms` while linked, never more often than once a `context.post.min.ms`", StringComparison.Ordinal)
+              && flat.Contains("keeps the latest it took for each node id for `context.kept.ms` after it came, then drops it", StringComparison.Ordinal)
+              && flat.Contains("no node lists it among its `commands`, and no assistant proposes it", StringComparison.Ordinal),
+            "showbus spec: §6 posts a context on change, within context.post.min.ms and context.post.max.ms, keeps the latest context.kept.ms, and lists it as no command");
+        Check(flat.Contains("the line `CONTEXT POST <json>`. It is taken only on a connection LINK verified (13.6) with a key bound to one node — made for it or enrolled (13.5.2, 13.5.7) — of scope `post` or above (13.5.3), and only for the node that key speaks for: the context's `node.t` and `node.id` are the key's bound ones", StringComparison.Ordinal)
+              && flat.Contains("A pairing code speaks for no one node (13.5.2), so a connection a code proved posts no context until it enrols a key", StringComparison.Ordinal)
+              && flat.Contains("The whole line is within `link.command.bytes` (13.14)", StringComparison.Ordinal),
+            "showbus spec: CONTEXT POST is taken only on a LINK-verified connection, with a key bound to one node of scope post or above, for that node, "
+            + "never on a code's proof, within link.command.bytes");
+        var exchange = Inside(s6, "\n```\n→ ", "\n```") is { } said ? ("→ " + said).Split('\n') : Array.Empty<string>();
+        var answers = exchange.Where(l => l.StartsWith("← ", StringComparison.Ordinal)).Select(l => l[2..]).ToList();
+        var keys = Flat(Part(body, "13.5"));
+        var binding = Regex.Match(keys, "\"(this key speaks for) <kind> <id>\"");
+        var scope = Regex.Match(keys, "A refusal names it: \"([^\"]+)\"");
+        var bound = answers.Select(a => Regex.Match(a, "^ERR @c7 " + Regex.Escape(binding.Groups[1].Value) + @" ([a-z]+) [A-Za-z0-9_-]+ — not for \1 [A-Za-z0-9_-]+$"))
+            .FirstOrDefault(m => m.Success);
+        Check(exchange.FirstOrDefault()?.StartsWith("→ @c7 CONTEXT POST {\"v\":1,\"node\":{\"t\":\"messenger\",", StringComparison.Ordinal) == true
+              && answers.Count == 6 && answers[0] == "OK @c7 kept" && answers.Skip(1).All(a => a.StartsWith("ERR @c7 ", StringComparison.Ordinal))
+              && binding.Success && bound is not null && n.Kinds.Any(k => k.T == bound.Groups[1].Value)
+              && answers.Contains("ERR @c7 a pairing code speaks for no one node — posting a context needs a key made or enrolled for this node")
+              && keys.Contains("A code belongs to its node and may be proved by several connectors, each named by its own id", StringComparison.Ordinal)
+              && scope.Success && answers.Contains("ERR @c7 " + scope.Groups[1].Value),
+            "showbus spec: CONTEXT POST answers OK kept, or ERR in 13.5.2's binding words, a code's own words (13.5.2: a code names no one node) and "
+            + "13.5.3's scope words (" + string.Join(" · ", answers) + ")");
+
+        // 13.16 and 13.18 publish what P1 and P2 say.
+        var states = Flat(Part(body, "13.16"));
+        Check(states.Contains("with its one `links` row to the peer node (§6's P2)", StringComparison.Ordinal)
+              && states.Contains("in its context (one `link` item and its row per peer LINK or a bound key proves, and one item that counts the rest, §6's P2)", StringComparison.Ordinal),
+            "showbus spec: 13.16.4's connector and 13.16.5's acceptor publish P2's items and rows");
+        Check(states.Contains("✓ green when it is verified (13.1), or when it is `keyless`, with i \"public view\" beside it", StringComparison.Ordinal)
+              && states.Contains("It is i \"public view\" when no key is set", StringComparison.Ordinal)
+              && states.Contains("△ amber, over green, when it is `legacy` (level 0: the proof shows it knows the token, never who dialled) or `plain` (from another machine with no TLS; i on a local link), or its key was seen in clear (13.6.9)", StringComparison.Ordinal)
+              && states.Contains("○ grey once its link has ended, for `peer.forget.ms`, and then it leaves the list; never red, since an acceptor does not redial", StringComparison.Ordinal),
+            "showbus spec: 13.16.5 lights an accepted link — green verified, or keyless with the connector's i public view; amber over green for legacy, "
+            + "plain or seen in clear; grey for peer.forget.ms once ended — and never red");
+        Check(EyeRule(s6, 1).Contains("The one exception is Patterns' twin (13.18): a twin node names its desk in one item of kind `twin`", StringComparison.Ordinal)
+              && ShowBusKinds.Known("twin")
+              && Flat(Part(body, "13.18")).Contains("one item of kind `twin`, with the twin link's own light and words: the one item §6's P1 lets name another node", StringComparison.Ordinal),
+            "showbus spec: P1's one exception is the twin's desk item, of kind twin, and 13.18 names it");
+    }
+
+    /// <summary>The text of §6's rule P<paramref name="p"/>, flattened, up to the next rule, or for the last up to the kind table.</summary>
+    static string EyeRule(string s6, int p)
+    {
+        string Head(int k) => "\n" + k.ToString(CultureInfo.InvariantCulture) + ". **P" + k.ToString(CultureInfo.InvariantCulture) + " — ";
+        var start = s6.IndexOf(Head(p), StringComparison.Ordinal);
+        if (start < 0) return "";
+        var next = s6.IndexOf(Head(p + 1), start + 1, StringComparison.Ordinal);
+        var end = next > 0 ? next : s6.IndexOf("\n**The kind table**", start, StringComparison.Ordinal);
+        return Flat(s6[(start + 1)..(end > 0 ? end : s6.Length)]);
+    }
+
+    /// <summary>Whether <paramref name="end"/> is a link end §6 allows: @ and a §2 id, then an item id after a slash, each within its rows.</summary>
+    static bool EndOk(string end, Numbers n)
+    {
+        var m = Regex.Match(end, "^@([A-Za-z0-9_-]+)(?:/(.+))?$");
+        return m.Success && end.Length <= n.Of("context.link.end.chars") && m.Groups[1].Length >= n.Of("hello.id.min") && m.Groups[1].Length <= n.Of("hello.id.max")
+               && (!m.Groups[2].Success || m.Groups[2].Length <= n.Of("context.item.id.chars"));
+    }
+
+    /// <summary>
+    /// §6's kind table: each row's first cell as written, its ticked kind words, its plane, and the number its column cell starts with
+    /// (-1 when it starts with none).
+    /// </summary>
+    static List<(string First, string[] Kinds, string Plane, int Column)> KindTable(string s6)
+    {
+        var rows = new List<(string, string[], string, int)>();
+        var inTable = false;
+        foreach (var line in s6.Split('\n'))
+        {
+            if (line.StartsWith("| kind | plane | column |", StringComparison.Ordinal)) { inTable = true; continue; }
+            if (!inTable) continue;
+            if (!line.StartsWith('|')) break;
+            if (line.StartsWith("|---", StringComparison.Ordinal)) continue;
+            var cells = line.Split('|');
+            if (cells.Length < 5) { rows.Add((line, Array.Empty<string>(), "", -1)); continue; }
+            var column = Regex.Match(cells[3].Trim(), @"^(\d+)(?: — .+)?$") is { Success: true } m ? int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) : -1;
+            rows.Add((cells[1].Trim(), Regex.Matches(cells[1], "`([a-z]+)`").Select(x => x.Groups[1].Value).ToArray(), cells[2].Trim(), column));
+        }
+        return rows;
+    }
+
+    /// <summary>The text between <paramref name="from"/> and the next <paramref name="to"/> after it, both left out; null when there is no <paramref name="from"/>.</summary>
+    static string? Inside(string text, string from, string to) => Between(text, from, to)?[from.Length..];
 
     // ------------------------------------------------------------------ §12's text
 
@@ -1418,6 +1706,207 @@ static class ShowBusSpecTests
             .All(b => b.Length > 0 && !Regex.IsMatch(b, "AddOrUpdate|CountFailure|Failures"));
         var cleared = Of("private Denied? AuthorizeSecret(").Contains("_authFailures.TryRemove", StringComparison.Ordinal);
         return windows && codes && crew && cleared;
+    }
+
+    /// <summary>
+    /// A message's text no context may carry (P8), as the desk sends it: found in Stagewatch's context, the text leaked. ASCII, so a
+    /// serializer's escaping cannot hide it from a check that reads the JSON as written.
+    /// </summary>
+    const string Canary = "meet me backstage at nine, a canary";
+
+    /// <summary>An audience question's text no context may carry (P8), as the Q&amp;A page submits it.</summary>
+    const string QuestionCanary = "will the slides be shared afterwards, a canary";
+
+    /// <summary>
+    /// What §6 says against Stagewatch's code. ShowBusKinds' node kinds are §14's kind rows, and the desk names each kind by its row.
+    /// Its own context keeps P1 (a peer's red stays in its peers row), P5 for its timer (red, with no time in its words), P6 for its
+    /// own parts but its vMix link (its Patterns link is P2's) and P8's no-secret rule (no window's address, with a message's text in
+    /// the fixture as the desk sends it), and its rows use §6's link kinds. As the desk it keeps the latest context it took for a node,
+    /// context.kept.ms after it came; no command of its own posts one. The header names exactly <see cref="RulesNotKeptYet"/>, each in
+    /// its words, and each entry holds while the code still does what it says.
+    /// </summary>
+    static void ContextCode(Action<bool, string> Check, string header, Numbers n)
+    {
+        Check(ShowBusKinds.Nodes.SequenceEqual(n.Kinds) && n.Kinds.All(k => ShowBusKinds.Label(k.T) == k.Name && ShowNetwork.AppName(k.T) == k.Name)
+              && ShowBusKinds.Label("eye") is null && ShowNetwork.AppName("eye") == "eye",
+            "showbus spec: Stagewatch keeps §14's kinds: ShowBusKinds.Nodes are its kind rows, in order, and the desk names each kind by its row ("
+            + string.Join(", ", ShowBusKinds.Nodes.Select(k => k.Kind + " " + k.Name)) + ")");
+
+        var lobby = new ScreenWindow { Id = "wk3m9x2", Name = "Lobby", Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 3 };
+        var windows = ScreenWindows.ContextItems([lobby], [new WindowObserved(lobby.Id, 1, 3, "/clock", true, 40, Tonight, "", "", "")]);
+        var patterns = new PeerSummary("patterns", "9f8e7d6c", "Patterns FOH", Light.Red, "Projector 1 mismatch", "10.0.0.5", 1, true);
+        var input = Own(Running(), false,
+            [new ContextItem("link:patterns", "playout", "Patterns", Light.Green, "VT1: 0:42 left"), new ContextItem("link:osc", "link", "OSC", Light.Green, "listening"),
+             new ContextItem("clock:patterns", "health", "Clock vs Patterns", Light.Amber, "CLOCKS APART"), .. windows],
+            [patterns], 120);
+        var (light, headline, items) = ShowContext.Assess(input);
+        var json = ShowContext.Build(input);
+
+        // P6, for its own parts but its vMix link (P6's entry): the kinds the context builder and the desk's link items write. Its
+        // Patterns link's kind is P2's entry.
+        var linkItems = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems()") ?? "";
+        var own = items.Where(i => i.Id != "link:patterns").Select(i => i.Kind).Distinct().ToList();
+        Check(own.Count >= 7 && own.All(ShowBusKinds.Known)
+              && linkItems.Contains("? \"playout\" : \"link\"", StringComparison.Ordinal) && linkItems.Contains("new ContextItem(\"clock:patterns\", \"health\",", StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps P6 for its own parts but its vMix link: its timer, schedule, cues, message, links, health and windows are the kind "
+            + "table's words, and every integration but vMix and Patterns is a link (" + string.Join(", ", own) + ")");
+
+        // P1, P5 for its timer, P8's no-secret rule, and its rows' kinds.
+        Check(light != Light.Red && !headline.Contains(patterns.Headline, StringComparison.Ordinal)
+              && items.All(i => i.Light != Light.Red && !i.Id.StartsWith('@') && !i.Id.Contains(patterns.Id, StringComparison.Ordinal)),
+            "showbus spec: Stagewatch keeps P1: a peer's red stays in its peers row, never in an item or the headline (" + light + ": " + headline + ")");
+        var stuck = ShowContext.Assess(Own(Running(), true, [], [])).Items.FirstOrDefault(i => i.Id == "timer");
+        Check(stuck?.Light == Light.Red && !stuck.State.Contains(Running().Text, StringComparison.Ordinal) && !Regex.IsMatch(stuck.State, @"\d:\d\d"),
+            "showbus spec: Stagewatch keeps P5 for its timer: a stuck show thread turns it red, its words the show stuck in place of a time (" + stuck?.State + ")");
+        Check(windows.Count > 0 && !json.Contains(lobby.Token, StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps P8's no-secret rule: its context carries no window's address (its messages are P8's entry in RulesNotKeptYet)");
+        using (var doc = JsonDocument.Parse(json))
+        {
+            var kinds = Items(doc.RootElement, "links").Select(l => Str(l, "kind") ?? "").Distinct().ToList();
+            Check(kinds.Count > 0 && kinds.All(ShowBusKinds.Links.Contains), "showbus spec: Stagewatch's own rows use §6's link kinds (" + string.Join(", ", kinds) + ")");
+        }
+
+        // Posting, as the desk: the latest context taken for an id, kept context.kept.ms after it came and no longer; no command posts one.
+        var store = new PeerContexts(new NodeBindings());
+        static string Posted(string words) => "{\"v\":1,\"node\":{\"t\":\"messenger\",\"id\":\"77aa77aa\",\"name\":\"AGMessage\"},\"headline\":\"" + words + "\"}";
+        var came = Tonight.AddSeconds(1);
+        var first = store.Accept(Posted("first"), "10.0.0.7", Tonight, "abc123abc123", NodeCredential.Operator).Status;
+        var second = store.Accept(Posted("second"), "10.0.0.7", came, "abc123abc123", NodeCredential.Operator).Status;
+        var kept = TimeSpan.FromMilliseconds(n.Of("context.kept.ms"));
+        Check(first == 200 && second == 200 && store.Find("77aa77aa", came)?.Headline == "second" && store.Find("77aa77aa", came + kept) is not null
+              && store.Find("77aa77aa", came + kept + TimeSpan.FromMilliseconds(1)) is null,
+            "showbus spec: Stagewatch keeps §6's posting as the desk: the latest context it took for an id, context.kept.ms after it came and no longer");
+        Check(ShowContext.Commands.All(c => !c.Verb.StartsWith("context", StringComparison.OrdinalIgnoreCase)),
+            "showbus spec: Stagewatch lists no context post among the commands its context offers");
+
+        // The header: what of §6's rules Stagewatch does not keep yet, each named exactly while its code still does what it says.
+        var sentence = Regex.Match(Flat(header), @"keep these of §6's rules for the Eye yet: (.+?)\.\s") is { Success: true } h ? h.Groups[1].Value : "";
+        var entries = Regex.Split(sentence, "; (?:and )?").Select(e => Regex.Match(e, @"^(P\d) (.+?) \(today (.+)\)$")).ToList();
+        Check(sentence.Length > 0 && entries.All(e => e.Success)
+              && entries.Select(e => (e.Groups[1].Value, e.Groups[2].Value, e.Groups[3].Value)).SequenceEqual(RulesNotKeptYet.Select(r => (r.Rule, r.Of, r.Today))),
+            "showbus spec: the header names what of §6's rules Stagewatch does not keep yet, in ShowBusSpecTests.RulesNotKeptYet's words (" + sentence + ")");
+        foreach (var (rule, of, unit, today, differs) in RulesNotKeptYet)
+            Check(differs(), $"showbus spec: Stagewatch does not keep {rule} {of} yet ({unit}): today {today} — once its code changes, the entry leaves "
+                + "ShowBusSpecTests.RulesNotKeptYet and the header for a check of the rule kept");
+    }
+
+    /// <summary>
+    /// A show under way: a countdown running on time in a running order, a department standing by, and a speaker message sent with an
+    /// ack and not yet seen — a message signal to "speaker" carrying the message's text, as the desk's ApplyMessage sends it.
+    /// </summary>
+    static ShowSnapshot Running() => new()
+    {
+        Mode = TimerMode.Countdown, State = TimerState.Running, Seconds = 300, Text = "05:00", Phase = TimerPhase.Normal, Title = "Keynote",
+        ItemIndex = 0, ItemCount = 3, OffsetSeconds = 0, ScheduleText = "on time", Message = Canary, MessageAck = "sent",
+        Signals = new[]
+        {
+            new SignalView(1, SignalKind.Standby, "Lighting", "LX 12", SignalState.Seen, false, 5, ""),
+            new SignalView(2, SignalKind.Message, "speaker", Canary, SignalState.Sent, false, 5, ""),
+        }.ToEquatableArray(),
+    };
+
+    /// <summary>
+    /// The journal lines the desk writes for tonight's messages and question, in its own words: a message sent with an ack (a Signal
+    /// line), one sent without (a Message line) and an audience question as the Q&amp;A page submits it.
+    /// </summary>
+    static JournalEntry[] Journal() =>
+    [
+        new(Tonight.AddSeconds(-30), JournalKind.Signal, 0, "Message speaker: " + Canary),
+        new(Tonight.AddSeconds(-20), JournalKind.Message, 0, Canary),
+        new(Tonight.AddSeconds(-10), JournalKind.Question, 0, QuestionCanary),
+    ];
+
+    /// <summary>Stagewatch's context input for <paramref name="frame"/>, with these links, peers and journal, at <see cref="Tonight"/>.</summary>
+    static ContextInput Own(ShowSnapshot frame, bool stuck, IReadOnlyList<ContextItem> links, IReadOnlyList<PeerSummary> peers, double goLatencyMs = 0,
+        IReadOnlyList<JournalEntry>? journal = null)
+        => new("abc123abc123", "Hall A", Tonight, frame, stuck, links, peers, journal ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), goLatencyMs);
+
+    /// <summary>
+    /// Whether Stagewatch's own rows are still as the header says (P2, for its links): its only rows run from its timer, none names a
+    /// peer, and the desk's link items still give its Patterns link the kind playout.
+    /// </summary>
+    static bool OwnRowsAsToday()
+    {
+        var json = ShowContext.Build(Own(Running(), false, [new ContextItem("link:patterns", "playout", "Patterns", Light.Green, "VT1: 0:42 left")],
+            [new PeerSummary("patterns", "9f8e7d6c", "Patterns FOH", Light.Green, "", "10.0.0.5", 1, true)]));
+        using var doc = JsonDocument.Parse(json);
+        var links = Items(doc.RootElement, "links");
+        var desk = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems()") ?? "";
+        return links.Count > 0 && links.All(l => Str(l, "from") == "timer" && Str(l, "to") is { } to && !to.StartsWith('@'))
+               && Regex.IsMatch(desk, @"""Patterns""[^?;]*\? ""playout""");
+    }
+
+    /// <summary>Whether Stagewatch still lists a node link it accepted only as a peers row, with link and verified (P2, as acceptor).</summary>
+    static bool AcceptedLinksAsToday()
+    {
+        var node = new PeerSummary("playmap", "pm5e6f7a", "PlayMap Stage left", Light.Green, "Out 3 · 60 fps", "10.0.0.12", 1, true) { Link = "ws", Verified = "key" };
+        var json = ShowContext.Build(Own(Running(), false, [], [node]));
+        using var doc = JsonDocument.Parse(json);
+        var row = Items(doc.RootElement, "peers").FirstOrDefault(p => Str(p, "id") == node.Id);
+        return row.ValueKind == JsonValueKind.Object && Str(row, "link") == "ws" && Str(row, "verified") == "key"
+               && Items(doc.RootElement, "items").All(i => Str(i, "kind") != "link" && !(Str(i, "id") ?? "").Contains(node.Id, StringComparison.Ordinal))
+               && !json.Contains("\"@" + node.Id, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Whether Stagewatch still shows Patterns' clip time with no row naming Patterns' item (P3): its frames carry the clip's time
+    /// left, from Patterns, to every screen, its speaker screen's elements include it, and its context writes no row with an end on
+    /// another node.
+    /// </summary>
+    static bool ClipTimeAsToday()
+    {
+        var frame = Running() with { Elements = DisplayElements.All, Playout = new PlayoutView("VT1", 42, 90, true, "Patterns") };
+        using var shown = JsonDocument.Parse(SnapshotJson.Serialize(frame));
+        var root = shown.RootElement;
+        var clip = root.TryGetProperty("playout", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
+        var drawn = root.TryGetProperty("show", out var show) && show.TryGetProperty("playout", out var on) && on.ValueKind == JsonValueKind.True;
+        var json = ShowContext.Build(Own(frame, false, [new ContextItem("link:patterns", "playout", "Patterns", Light.Green, "VT1: 0:42 left")],
+            [new PeerSummary("patterns", "9f8e7d6c", "Patterns FOH", Light.Green, "", "10.0.0.5", 1, true)]));
+        using var doc = JsonDocument.Parse(json);
+        return clip.ValueKind == JsonValueKind.Object && Str(clip, "source") == "Patterns" && clip.GetProperty("remaining").GetInt64() == 42 && drawn
+               && Items(doc.RootElement, "links").All(l => !(Str(l, "from") ?? "").StartsWith('@') && !(Str(l, "to") ?? "").StartsWith('@'));
+    }
+
+    /// <summary>Whether the desk's link items still give its vMix link the kind playout, a word the kind table does not hold (P6).</summary>
+    static bool VmixAsToday()
+    {
+        var desk = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems()") ?? "";
+        return Regex.IsMatch(desk, @"name is ""vMix""[^?;]*\? ""playout""") && !ShowBusKinds.Known("playout");
+    }
+
+    /// <summary>
+    /// Whether a message's text still reaches Stagewatch's context (P8). The desk still sends a speaker message with an ack as a
+    /// message signal carrying its text and journals every message's and question's text in the words <see cref="Journal"/> copies;
+    /// and the context still writes a message signal's text into its cue item and every journal line into recent.
+    /// </summary>
+    static bool MessagesAsToday()
+    {
+        var desk = Source("src/Timer.App/ViewModels/MainViewModel.cs") ?? "";
+        var systems = Source("src/Timer.App/ViewModels/MainViewModel.Systems.cs") ?? "";
+        var writes = desk.Contains("_signals.Send(SignalKind.Message, \"speaker\", MessageInput, DateTime.UtcNow)", StringComparison.Ordinal)
+                     && desk.Contains("JournalKind.Signal, _show.RundownActive ? _show.CurrentItem : -1, $\"Message speaker: {MessageInput}\")", StringComparison.Ordinal)
+                     && desk.Contains("_journal.Add(DateTime.UtcNow, JournalKind.Message, _show.RundownActive ? _show.CurrentItem : -1, text)", StringComparison.Ordinal)
+                     && systems.Contains("_journal.Add(now, JournalKind.Question, item, q.Text)", StringComparison.Ordinal);
+        var input = Own(Running(), false, [], [], journal: Journal());
+        var cue = ShowContext.Assess(input).Items.FirstOrDefault(i => i.Id == "cue:speaker");
+        using var doc = JsonDocument.Parse(ShowContext.Build(input));
+        var recent = Items(doc.RootElement, "recent").Select(r => Str(r, "text") ?? "").ToList();
+        return writes && cue is not null && cue.State.Contains(Canary, StringComparison.Ordinal)
+               && recent.Count(t => t.Contains(Canary, StringComparison.Ordinal)) == 2 && recent.Any(t => t.Contains(QuestionCanary, StringComparison.Ordinal));
+    }
+
+    /// <summary>Whether a stuck show thread still turns Stagewatch's timer red and leaves its schedule's light as the frame gives it (P5).</summary>
+    static bool StuckScheduleAsToday()
+    {
+        var items = ShowContext.Assess(Own(Running(), true, [], [])).Items;
+        return items.FirstOrDefault(i => i.Id == "timer")?.Light == Light.Red && items.FirstOrDefault(i => i.Id == "schedule")?.Light == Light.Green;
+    }
+
+    /// <summary>Whether Stagewatch's timer is still its first item whatever its light, ahead of a red one (P7).</summary>
+    static bool TimerFirstAsToday()
+    {
+        var items = ShowContext.Assess(Own(new ShowSnapshot { Title = "Keynote" }, false, [new ContextItem("link:osc", "link", "OSC", Light.Red, "not listening")], [])).Items;
+        return items.Count > 1 && items[0].Id == "timer" && items[0].Light == Light.Grey && items.Skip(1).Any(i => i.Light == Light.Red);
     }
 
     /// <summary>

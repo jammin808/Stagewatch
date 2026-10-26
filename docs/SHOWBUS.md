@@ -1,28 +1,35 @@
 # Show Bus 1.3 (draft) — the contract between Stagewatch, Patterns, PlayMap, AGMessage and their micro-apps
 
-*Version 1.3, a draft (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello `tls`
-and caps `approvals`). 1.3 so far adds §12 Windows: what a window is, its view passes and its link, how a node grants a window
-to another node's app and how that app holds it, with §1 rule 5's words for view passes and the two carriers they ride; §13
-PeerLink: one authenticated link between two nodes, with the vectors every tree checks itself against; and §14 The numbers:
-every number the contract names, with its node kinds, doors and caps, in one block each tree's test reads. Before 1.3 is final
-it gains the Eye's rules in §6, and 1.3's words for §1–§11, each citing its §14 rows — §2's hello limits, `proto` as the
-revision and the `playmap` kind, §6's sizes and the link end that names another node's item (12.10 uses it), §10's whole span,
-the `playmap` §8 row, and each node's §8 row with what it does not keep yet and its named exemptions, among them. Until those
-words land, a §14 row's name, §14's own words and its section's 1.2 words say what it bounds; a row whose idea none of those
-words holds yet binds nothing until its section's words land: `hello.inst.chars` and `peer.conflict.clear.ms` (§2),
-`context.link.end.chars`, `context.post.min.ms` and `context.post.max.ms` (§6), `cert.backdate.hours` (§10) and
-`proposal.result.ms` (§11). §12 and §13 cite §7.1 and §7.2 ahead of their words: the node link on Stagewatch's `/ws`, and what
-a `line` acceptor answers before LINK. Until Stagewatch's §8 row says so, it does not keep these of §12 yet: wrong view passes in
-a count of their own (`view.wrong.per.minute`: today wrong window addresses and viewing codes count with wrong PINs, and a right
-PIN or key clears them; wrong crew links count nowhere); 12.2's page rule for a page opened with a viewing code or a crew link
-(it serves those pages without the window page's no-referrer, noindex and no-framing headers); 12.2's revocation at once for a
-viewing code or a crew link (a screen already open on a changed one keeps its link until it reconnects); grants
-(`window.grants`: today it grants no window, so no grant's address travels); and cap `windows` in its hello. No node holds or
-draws a granted window yet. The scripted peer §13.20 names comes with the conformance kit, and its hash with 1.3 final
-(`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is final every node keeps 1.2, and a node offers LINK only once
-its tree passes §13.20. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote
-documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, AGMessage `docs/NODES.md`) shows how its endpoints
-implement this. Patterns and AGMessage keep copies of 1.2; this one is the master. Its body — from
+*Version 1.3, a draft (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello `tls` and
+caps `approvals`). 1.3 so far adds §6's rules for the Eye: what every node publishes so any Eye can draw it (P1–P8), the link ends
+that name another node, posting a context — on a `line` link too, `CONTEXT POST` — and the kind table; §12 Windows: what a window
+is, its view passes and its link, how a node grants a window to another node's app and how that app holds it, with §1 rule 5's
+words for view passes and the two carriers they ride; §13 PeerLink: one authenticated link between two nodes, with the vectors
+every tree checks itself against; and §14 The numbers: every number the contract names, with its node kinds, doors and caps, in
+one block each tree's test reads. Before 1.3 is final it gains 1.3's words for §1–§11, each citing its §14 rows — §2's hello
+limits, `proto` as the revision and the `playmap` kind, §6's sizes and the order in which a sender leaves things out of an
+over-long context, §10's whole span, the `playmap` §8 row, and each node's §8 row with what it does not keep yet and its named
+exemptions, among them. Until those words land, a §14 row's name, §14's own words and its section's 1.2 words say what it bounds;
+a row whose idea none of those words holds yet binds nothing until its section's words land: `hello.inst.chars` and
+`peer.conflict.clear.ms` (§2), `cert.backdate.hours` (§10) and `proposal.result.ms` (§11). §12 and §13 cite §7.1 and §7.2 ahead of
+their words: the node link on Stagewatch's `/ws`, and what a `line` acceptor answers before LINK. Until Stagewatch's §8 row says
+so, it does not keep these of §12 yet: wrong view passes in a count of their own (`view.wrong.per.minute`: today wrong window
+addresses and viewing codes count with wrong PINs, and a right PIN or key clears them; wrong crew links count nowhere); 12.2's
+page rule for a page opened with a viewing code or a crew link (it serves those pages without the window page's no-referrer,
+noindex and no-framing headers); 12.2's revocation at once for a viewing code or a crew link (a screen already open on a changed
+one keeps its link until it reconnects); grants (`window.grants`: today it grants no window, so no grant's address travels); and
+cap `windows` in its hello. No node holds or draws a granted window yet. Nor does Stagewatch keep these of §6's rules for the Eye
+yet: P2 for its links (today its only rows run from its timer, its Patterns link is an item of kind `playout`, and no row names a
+peer); P2 for the node links it accepts on `/ws` (today it lists them only as `peers` rows, with `link` and `verified`); P3 for
+the clip time it shows from Patterns (today its screens show Patterns' clip time, and no row names Patterns' item); P5 for its
+schedule (today a stuck show thread turns its timer red and leaves its schedule's light as the frame gives it); P6 for its vMix
+link (today an item of kind `playout`); P7 for its order (today its timer is its first item whatever its light); and P8 for its
+messages (today a cue item carries the text of a message it sent, a speaker message sent with an ack among them, and `recent`
+carries the text of every message and audience question its journal holds). The scripted peer §13.20 names comes with the
+conformance kit, and its hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is final every node
+keeps 1.2, and a node offers LINK only once its tree passes §13.20. This page is the contract. `docs/ECOSYSTEM.md` is the why
+and the roadmap; each app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, AGMessage
+`docs/NODES.md`) shows how its endpoints implement this. Patterns and AGMessage keep copies of 1.2; this one is the master. Its body — from
 `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends and one final LF — is held by a SHA-256 pinned in
 Stagewatch's own test, so every edit to it is deliberate; that hash is printed here, for the copies to hold, once 1.3 is final.*
 
@@ -134,10 +141,10 @@ one shape:
 {"v":1,"node":{"t":"main","id":"a1b2c3d4","name":"Hall A"},"at":1760101234567,
  "light":"amber","headline":"Keynote — Ana · 12:30 left · 2:10 behind · Lighting, Sound standing by",
  "items":[
-   {"id":"timer","kind":"timer","label":"Keynote — Ana","light":"green","state":"running, 12:30 left"},
    {"id":"cue:lighting","kind":"department","label":"Lighting","light":"amber","state":"standing by: LX 12"},
-   {"id":"link:patterns","kind":"link","label":"Patterns (VT)","light":"green","state":"clip 0:42 left"}],
- "links":[{"from":"timer","to":"link:patterns","kind":"follows","light":"green"}],
+   {"id":"timer","kind":"timer","label":"Keynote — Ana","light":"green","state":"running, 12:30 left"},
+   {"id":"link:patterns","kind":"link","label":"Patterns FOH","light":"green","state":"Patterns FOH · pinned 5a7e 91c0 · key 7c1d… · scope drive · PeerLink 1 · +4 ms ±2"}],
+ "links":[{"from":"link:patterns","to":"@9f8e7d6c","kind":"controls","light":"green"}],
  "recent":[{"at":1760101230000,"text":"GO Lighting: LX 11 (done by Sam)"}],
  "commands":[{"verb":"signal go all","risk":"high","words":"GO every department standing by"}],
  "peers":[{"t":"patterns","id":"9f8e7d6c","name":"Patterns FOH","light":"green","headline":"Programme: VT1 · 3 screens green"}]}
@@ -148,14 +155,121 @@ one shape:
   (unknown / not verified). Unknown stays unknown: never guessed.
 - `headline` is one line computed from the facts — no model. It is what a Stream Deck key, the Eye's node card or a
   dashboard shows, and what an AI reads first.
-- `items` and `links` use the Eye's vocabulary (kind, light, state; link kinds `feeds`, `shows`, `drives`, `controls`,
-  `follows`, `hears`, `sends`), so Patterns' Eye can draw any node's insides as nodes on its CONTROL plane.
+- `items` and `links` use the Eye's vocabulary.
+  - An item is one of the node's own things (P1): its `id`, its `kind` — a word of the kind table below where one fits (P6) — its
+    `label`, its `light` and its `state` in words.
+  - A link joins two ends with a `kind` — `feeds`, `shows`, `drives`, `carries`, `controls`, `mirrors`, `follows`, `hears`, `routes`,
+    `serves` or `sends` — and a `light`. Each end is one of the node's own item ids, or a link end that names another node.
+
+  An Eye draws a node's items as that node's things, each on the plane the kind table gives its kind, and its links as edges.
+- **Link ends.** A link's end names another node, one hop:
+  - `@<node id>/<item id>` names that node's item (12.10's placement claim is one);
+  - `@<node id>` names the node itself.
+
+  The node id is a §2 id, `hello.id.min` to `hello.id.max` letters, digits, `-` and `_`; the item id is at most
+  `context.item.id.chars`, and the whole end at most `context.link.end.chars`. A reader refuses a link whose end breaks these, reads
+  `@<its own id>` as itself, and places an end on the item it names where it draws that item, else on that node's card with the
+  item in its words; a link whose end names a node the reader does not show is left out and counted. A link with an end on another
+  node is the publishing node's claim, never a fact about that node, and a reader words it as one ("PlayMap Stage left says: drawing
+  it").
 - `recent` is the last ≤ 20 journal lines in plain words; `commands` the verbs a peer (or an AI) may propose, each with
   its risk (`low`, `review`, `high` — high is never pre-ticked by any assistant).
 - `peers` is one hop only: the peers this node hears, with their light and headline (never their peers), so a node
   that can reach only one other still sees the room.
-- No secrets, no private content (AGMessage never puts message text or documents in its context — only counts, the
-  room's state and action prompts' titles).
+- No secrets, no private content (P8): AGMessage never puts message text or documents in its context — only counts, the
+  room's state and action prompts' titles.
+- **Posting.** A node that gives its context to another (a desk) posts it on change and at least every `context.post.max.ms`
+  while linked, never more often than once a `context.post.min.ms`. The node it posts to keeps the latest it took for each node id
+  for `context.kept.ms` after it came, then drops it. A post is a node's own act: no node lists it among its `commands`, and no
+  assistant proposes it.
+  - Over HTTP, and on a `ws` link as a side call (13.7): `POST /api/peers/context`.
+  - On a `line` link: the line `CONTEXT POST <json>`. It is taken only on a connection LINK verified (13.6) with a key bound to one
+    node — made for it or enrolled (13.5.2, 13.5.7) — of scope `post` or above (13.5.3), and only for the node that key speaks for:
+    the context's `node.t` and `node.id` are the key's bound ones. A pairing code speaks for no one node (13.5.2), so a connection a
+    code proved posts no context until it enrols a key. The whole line is within `link.command.bytes` (13.14), so a sender leaves out
+    what it would leave out of an over-long context until the line fits. A `line` acceptor that takes posted contexts says so in its §8
+    row; one that does not refuses the verb as it refuses any word it does not know.
+
+```
+→ @c7 CONTEXT POST {"v":1,"node":{"t":"messenger","id":"77aa77aa","name":"AGMessage"},…}
+← OK @c7 kept
+← ERR @c7 this key speaks for messenger 77aa77aa — not for messenger 5e6f7a8b
+← ERR @c7 a pairing code speaks for no one node — posting a context needs a key made or enrolled for this node
+← ERR @c7 this link's key is scope follow — Patterns FOH's operator can raise it on its Nodes page
+← ERR @c7 posting a context needs PeerLink — this connection did not prove its id
+← ERR @c7 not a context — {"v","node":{"t","id"}} is the least it carries
+```
+
+The first refusal answers a context that names a node other than the key's, and the second a connection a code proved: neither is
+counted (13.5.6). The third answers a key below `post` (13.5.3); the fourth a connection that did not run LINK, level 0 included.
+
+**What every node publishes, so any Eye can draw it.** P1–P8 hold for every context. Each node adopts them on its own and none waits
+for another: a reader draws a node that has not as before — its own things, with no edge to another node — and a reader that predates
+them leaves out a link whose end it cannot place.
+
+1. **P1 — Items are the node's own.** A context's items are the node's own things: its parts, its links and its health. A thing of
+   another node is never an item: a link end names it, or a `peers` row does. No item takes a peer's light, so a peer's fault never
+   shows as the node's own. The one exception is Patterns' twin (13.18): a twin node names its desk in one item of kind `twin`,
+   whose light and words are the twin link's own.
+2. **P2 — Every PeerLink is one `link` item and one row.**
+   - **The item** is of kind `link`, its id `link:` followed by a name of its choosing, the key's scope among its words ("scope
+     post"). A node publishes one:
+     - as connector, for each PeerLink it holds, with its 13.16.3 record's light and state words;
+     - as acceptor, for each link it accepted that LINK verified (13.6), or, until that link's connector speaks LINK, that a key
+       bound to the connector's node proves (13.5.2; on Stagewatch's `/ws`, `verified:"key"`), with its 13.16.5 row's light and
+       words.
+
+     Each of an acceptor's items stands on a credential its operator gave out. The links it took that neither proves — a level-0
+     link a pairing code proved, a `keyless` one — it folds into one item of kind `link`, id `link:unproved`, whose words count and
+     name them ("3 connections not proved: PlayMap Stage left, …"), with no row: an id nothing proved draws no edge from the node
+     that took it.
+   - **The row** runs from the connector's end to the acceptor's: a connector publishes
+     `{"from":"<its link item>","to":"@<peer id>","kind":K}`, an acceptor `{"from":"@<peer id>","to":"<its link item>","kind":K}`.
+     A link has this one row, whatever else it carries.
+   - **K** is the connector's primary use of the link: `controls` when it runs the acceptor's show verbs (a playout link's clip
+     end, a GO), else `follows` when it reads the acceptor's state or context, else `sends` when it only gives the acceptor its own
+     context or proposals. An acceptor names K by the same order from what the connector has done on the link within its key's scope.
+   - **Both ends.** A reader that holds both ends' items for one link draws one edge, in the worse of their lights, with the
+     connector's K.
+   - **A link not yet proved** that a connector holds — `legacy` (level 0) or `keyless` — names the id its hello or its answer gave,
+     and its words say "not proved".
+
+   This is the row to the peer node that 13.16.4 and 13.16.5 publish, with its shape fixed.
+3. **P3 — What a node shows from another node is its claim.** When a thing a node shows comes from another node — a window it
+   draws, a timer or a clip's time left it shows, a page it mounts — it publishes
+   `{"from":"@<node id>/<item id>","to":"<its own item>","kind":"feeds"}`.
+4. **P4 — Grants.** A node that grants a thing of its own to another node's app (a window, §12) publishes one row per holder,
+   `{"from":"<its item>","to":"@<holder id>","kind":"serves"}`: green while the holder reports it shown, amber while it opens, grey
+   once withdrawn.
+5. **P5 — Show liveness.** A node that knows its show writer is stuck (13.1, 13.10.5) makes each of its counting items — kinds
+   `timer`, `schedule`, `playlist`, `chase`, `timecode` and `clock` — red, its state words saying the show is stuck in place of a
+   time. A reader takes no counting value from it as current (13.10.6).
+6. **P6 — Kinds.** A node uses the kind table's words where one fits; a reader places any other word as the table's last row says.
+7. **P7 — Order.** A node lists its red and amber items first, then the rest in an order of its own, with every item that has a row
+   to another node (P2–P4) among its first `context.items.first` as far as its reds and ambers leave room: what an Eye draws of a
+   node before it is opened then holds its problems and its chain ends.
+8. **P8 — Content.** No secret (§1 rule 5, 13.19): no key, code, token, PIN, view pass or other capability URL. No private content,
+   nothing a node keeps for its people alone:
+   - what one person writes for another — a message's text, a speaker's message and an audience question among them, whatever
+     screen shows it;
+   - documents and their file names, who is in a conversation, room and hall codes.
+
+   The show's own words are not private: a running order's titles and the people they name, a cue's words ("LX 12"), and who ran a
+   verb, in `recent` ("done by Sam"). A node may keep more out than this.
+
+**The kind table.** The words P6 asks for, and where an Eye places an item of each kind — the plane its lenses show it on, and its
+column in its node's cluster. The words bind; the placement is advice to an Eye.
+
+| kind | plane | column |
+|---|---|---|
+| `link`, `deck`, `client`, `desk`, `node`, `twin`, `assistant`, `ai`, `approvals`, `health`, `machine`, `preflight`, `fault`, `clock`, `sync`, `mirror`, `fleet`, `decode`, `optimise`, `scan`, `calibration`, `align`, `site`, `survey` | control | 0 — links and health |
+| `timer`, `schedule`, `department`, `cue`, `message`, `stack`, `playlist`, `playlists`, `chase`, `timecode`, `show` | control | 1 — the show |
+| `air`, `media`, `content`, `input`, `videoio` | video | 1 |
+| `screen` (Stagewatch's windows, AGMessage's displays), `output`, `outputs`, `send`, `stage` | video | 2 — screens |
+| `projector`, `surface`, `led` | video | 3 — far ends |
+| `room`, `meetings`, `prompt`, `help`, `phone`, `audience` | room | 1 |
+| `audio` | audio | 1 |
+| anything else | control | 1 |
 
 ## 7. Keys and pairing
 
@@ -980,8 +1094,8 @@ The show writer never writes to, reads from or waits on a socket.
    `other-id` or `conflict`.
 4. **Every reader.** The connector publishes the record in:
    - its STATE;
-   - its context item `link:<name>` (kind `link`, the light and the state's words), with a `links` row to the peer node, and the
-     `peers` row's `link` and `verified` (§6);
+   - its context item `link:<name>` (kind `link`, the light and the state's words) with its one `links` row to the peer node (§6's
+     P2), and the `peers` row's `link` and `verified` (§6);
    - the Eye's edge, its desk's node card and Run strip, and its right-click menus;
    - its Companion variables and feedbacks;
    - its AI facts, its preflight and its report.
@@ -989,8 +1103,16 @@ The show writer never writes to, reads from or waits on a socket.
    No reader derives a link fact of its own. The Eye draws the links a node does not hold one hop out, from other nodes' contexts: an
    app's `link:` items and `links` rows become edges between that app and its peer, and a node known only from a context's `peers` is
    grey "heard, not linked".
-5. **The acceptor's side.** An acceptor lists, on its operator surface and in its context:
-   - each verified peer: its id, kind and name, carrier, level, TLS, kid or key name, scope, and since when;
+5. **The acceptor's side.** An acceptor lists, on its operator surface and in its context (one `link` item and its row per peer
+   LINK or a bound key proves, and one item that counts the rest, §6's P2):
+   - each peer it accepted: its id, kind and name, carrier, level, TLS, kid or key name, scope, since when, and its light with its
+     mark beside it:
+     - ✓ green when it is verified (13.1), or when it is `keyless`, with i "public view" beside it (no key: it reads what this
+       acceptor shows anyone, as its connector's light says, 13.16.2);
+     - △ amber, over green, when it is `legacy` (level 0: the proof shows it knows the token, never who dialled) or `plain` (from
+       another machine with no TLS; i on a local link), or its key was seen in clear (13.6.9);
+     - ○ grey once its link has ended, for `peer.forget.ms`, and then it leaves the list; never red, since an acceptor does not
+       redial;
    - each refusal with its words and its count this minute ("PlayMap Stage left (10.0.0.12): key e63c… refused (revoked) ×3 this
      minute");
    - each key with its bound connector, scope, last use, how it was made (issued or enrolled) and whether it was *seen in clear*.
@@ -1027,6 +1149,8 @@ These doors keep their own rules:
 - PlayMap's desk↔engine link on one machine;
 - Patterns' twin and its node relays. These keep failover's own carrier, beat (1 s), silence (5 s) and dialling, and:
   - MUST honour the bind address;
+  - name a twin node's desk in its context by one item of kind `twin`, with the twin link's own light and words: the one item §6's P1
+    lets name another node, and never a PeerLink's `link` item (P2);
   - send device secrets — a view pass the node keeps among them (12.8) — only under their own switch, which is off by default and
     refused on a plain link to another machine, and never a grant's address (12.4);
   - adopt 13.12's outcomes and 13.19 in a later round of their node.
@@ -1348,6 +1472,7 @@ receipt.deadline.ms 3000
 request.id.chars 32
 context.bytes 65536
 context.items 200
+context.items.first 12
 context.links 400
 context.link.end.chars 120
 context.recent 20

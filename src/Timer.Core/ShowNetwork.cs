@@ -148,16 +148,11 @@ public static class ShowNetwork
         return new NetworkView(kept, more, apart);
     }
 
-    /// <summary>The app a Show Bus kind names, for people: "Patterns", "AGMessage", "PlayMap", "Stagewatch", or the kind itself.</summary>
-    public static string AppName(string? kind) => kind switch
-    {
-        "patterns" => "Patterns",
-        "messenger" => "AGMessage",
-        "playmap" => "PlayMap",
-        "main" => "Stagewatch",
-        null or "" => "show app",
-        _ => kind,
-    };
+    /// <summary>
+    /// The app a Show Bus kind names, for people: the name §14's kind row gives it (<see cref="ShowBusKinds.Label"/>), "show app"
+    /// for no kind, or a kind the contract does not name as itself.
+    /// </summary>
+    public static string AppName(string? kind) => kind is null or "" ? "show app" : ShowBusKinds.Label(kind) ?? kind;
 
     /// <summary>
     /// The shape that says what proves a row's facts, drawn beside its light so it is never colour alone: ✓ a key (its own,
