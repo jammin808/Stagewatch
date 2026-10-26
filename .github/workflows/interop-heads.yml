@@ -1,0 +1,166 @@
+# The interop lane at the siblings' heads, nightly: a drift report. The same lane as CI's interop job (ci.yml), with each
+# sibling (Patterns, PlayMap's Mapper repository, AGMessage) at the head of its default branch, or at the branch or commit a
+# manual run names, instead of at its pin: SW_INTEROP_HEADS=1, where tools/interop/build.sh holds each head to the pins' rule
+# (pushed: on one of its repository's remote branches; a head on none is refused) and says how far it is from its pin. It
+# gates nothing: no release or pull request waits for it, and it moves no pin (the maintainer moves a pin by hand, in
+# tools/interop/siblings.json). Its run fails when the lane fails at the heads or could not run there, so a red night is the
+# drift report's notice (GitHub mails it to the maintainer): it never ends green over a failed row, and its summary says how
+# far each head is from its pin and which rows failed. It reads the siblings with the same SIBLINGS_READ_TOKEN as the interop
+# job, and fails with words without it. Schedules and runs by hand start only once this file is on the default branch.
+name: Interop at the heads
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      patterns:
+        description: "Patterns: a branch, or a full commit on one (empty: its default branch)"
+        required: false
+        default: ''
+        type: string
+      mapper:
+        description: "Mapper (PlayMap): a branch, or a full commit on one (empty: its default branch)"
+        required: false
+        default: ''
+        type: string
+      agmessage:
+        description: "AGMessage: a branch, or a full commit on one (empty: its default branch)"
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: interop-heads
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  heads:
+    name: Interop lane at the siblings' heads (a drift report; gates nothing)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      SW_INTEROP_REQUIRED: '1'
+      SW_INTEROP_HEADS: '1'
+    steps:
+      # The value never reaches this script: only whether the secret is set.
+      - name: The siblings' read token (SIBLINGS_READ_TOKEN)
+        id: token
+        env:
+          HAS_TOKEN: ${{ secrets.SIBLINGS_READ_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != true ]; then
+            words="interop at the heads: not run. The repository secret SIBLINGS_READ_TOKEN is not set, so Patterns, Mapper and AGMessage cannot be read. The maintainer makes it: a fine-grained token with read-only Contents on those three repositories, saved as this repository's Actions secret SIBLINGS_READ_TOKEN (docs/WHATS_NEXT.md)."
+            echo "::error title=Interop lane not run::$words"
+            printf "## Interop lane at the siblings' heads: not run\n\n%s\n" "$words" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "SIBLINGS_READ_TOKEN is set."
+
+      - uses: actions/checkout@v7
+        with:
+          path: Stagewatch
+          persist-credentials: false
+
+      # The repositories siblings.json names (its pins are what each head is measured against), each of this repository's own
+      # owner, as in ci.yml's interop job.
+      - name: The siblings (tools/interop/siblings.json)
+        id: pins
+        run: |
+          pins=$(python3 -I Stagewatch/tools/interop/pins.py Stagewatch/tools/interop/siblings.json)
+          while read -r app repo ref build; do
+            case "$repo" in
+              "$GITHUB_REPOSITORY_OWNER"/*) ;;
+              *) echo "::error title=Interop pins::siblings.json: $app's repository $repo is not $GITHUB_REPOSITORY_OWNER's, and the token reads that owner's only"
+                 exit 1 ;;
+            esac
+            echo "${app}_repo=$repo" >> "$GITHUB_OUTPUT"
+            echo "$app: $repo, pinned at $ref, building $build"
+          done <<< "$pins"
+
+      # A manual run's refs go to the checkouts only, never to a script. Every branch comes with each sibling (fetch-depth 0), so
+      # build.sh sees its head on one of its remote branches and can measure it from its pin. No credential stays in a checkout.
+      - name: Patterns at its head
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.pins.outputs.patterns_repo }}
+          ref: ${{ inputs.patterns }}
+          path: Patterns
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.SIBLINGS_READ_TOKEN }}
+
+      - name: Mapper (PlayMap) at its head
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.pins.outputs.mapper_repo }}
+          ref: ${{ inputs.mapper }}
+          path: Mapper
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.SIBLINGS_READ_TOKEN }}
+
+      - name: AGMessage at its head
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.pins.outputs.agmessage_repo }}
+          ref: ${{ inputs.agmessage }}
+          path: AGMessage
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.SIBLINGS_READ_TOKEN }}
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # As in ci.yml's interop job: the owner's answer (S-interop-ci) lifts Ubuntu's AppArmor confinement of unprivileged user
+      # namespaces on this throwaway runner only.
+      - name: User namespaces for the lane (this runner only)
+        run: |
+          sudo modprobe -a bridge veth
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: The interop lane at the heads (tools/test.sh interop)
+        working-directory: Stagewatch
+        timeout-minutes: 50
+        env:
+          SW_PATTERNS_DIR: ${{ github.workspace }}/Patterns
+          SW_MAPPER_DIR: ${{ github.workspace }}/Mapper
+          SW_AGMESSAGE_DIR: ${{ github.workspace }}/AGMessage
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix tests/interop
+          tools/test.sh interop
+
+      - name: The drift report
+        if: always() && steps.token.outcome == 'success'
+        run: python3 -I Stagewatch/tools/interop/summary.py Stagewatch/artifacts/interop >> "$GITHUB_STEP_SUMMARY"
+
+      # As in ci.yml's interop job: only what may leave the runner (tools/interop/publish.py says what it kept back and why).
+      - name: The lane's artifact (what may leave the runner)
+        if: always() && steps.token.outcome == 'success'
+        run: python3 -I Stagewatch/tools/interop/publish.py Stagewatch/artifacts/interop Stagewatch/artifacts/interop-artifact >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the lane's artifact
+        if: always() && steps.token.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: interop-heads-${{ github.run_id }}
+          path: Stagewatch/artifacts/interop-artifact
+          if-no-files-found: warn
+          retention-days: 14

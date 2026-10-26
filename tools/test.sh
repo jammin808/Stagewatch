@@ -20,7 +20,11 @@
 #            its Wi-Fi up); SW_INTEROP_TOPOLOGY=lan or laptop runs one. Each topology's matrix goes to
 #            artifacts/interop/<topology>. Where a sibling's repository is absent, a pin or the Node AGMessage needs cannot
 #            be fetched, or the kernel gives no such namespaces, the lane is "not run", never passed, and
-#            SW_INTEROP_REQUIRED=1 makes that a failure
+#            SW_INTEROP_REQUIRED=1 makes that a failure. SW_INTEROP_HEADS=1 runs each sibling at its repository's HEAD
+#            instead of its pin (CI's nightly drift report); tools/interop/summary.py prints what a run built and its rows,
+#            and tools/interop/publish.py copies what may leave the machine (CI's artifact). The lane's own scripts are
+#            checked first (tools/interop/selfcheck.py: pins.py, build.sh, summary.py and publish.py on fixtures of their
+#            own), and the lane does not run when they fail
 # First time on a machine: tools/setup-dev.sh. The Windows-only lanes (UI smoke, the installer) are tools/smoke.ps1 and
 # tools/release.ps1 on the Windows job.
 set -uo pipefail
@@ -38,11 +42,12 @@ built=0
 build() {
   [ $built -eq 1 ] && return 0
   lane build
-  # One build at a time: the lanes after it run what it built (--no-build).
-  dotnet build Timer.slnf -c Debug -v q -nologo &&
-    dotnet build tests/Stagewatch.PageShot -c Debug -v q -nologo &&
-    dotnet build tools/Stagewatch.Rig -c Debug -v q -nologo &&
-    dotnet build tools/BusCarrierProbe -c Debug -v q -nologo && built=1
+  # One build at a time: the lanes after it run what it built (--no-build). No MSBuild node outlives a build
+  # (-nodeReuse:false), so none is left idle after the lanes or taken up by a build in another tree.
+  dotnet build Timer.slnf -c Debug -v q -nologo -nodeReuse:false &&
+    dotnet build tests/Stagewatch.PageShot -c Debug -v q -nologo -nodeReuse:false &&
+    dotnet build tools/Stagewatch.Rig -c Debug -v q -nologo -nodeReuse:false &&
+    dotnet build tools/BusCarrierProbe -c Debug -v q -nologo -nodeReuse:false && built=1
 }
 
 for l in "${lanes[@]}"; do
@@ -69,6 +74,7 @@ for l in "${lanes[@]}"; do
     interop)
       build || { failed+=(build); continue; }
       lane interop
+      python3 -I tools/interop/selfcheck.py || { failed+=("interop (self-check)"); continue; }
       case "${SW_INTEROP_TOPOLOGY:-all}" in
         all) topologies=(lan laptop) ;;
         lan|laptop) topologies=("$SW_INTEROP_TOPOLOGY") ;;

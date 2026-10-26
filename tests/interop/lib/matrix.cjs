@@ -16,6 +16,8 @@ class Matrix {
       machine: run.constructor.machine(),
       topology,
       builds: Matrix.builds(run.builds),
+      // At the pins (tools/interop/siblings.json), or at each sibling repository's head (SW_INTEROP_HEADS=1, a drift report).
+      siblings: run.builds.siblings === 'heads' ? 'heads' : 'pins',
       rows: [],
       measured: {},
       secretFilesRemoved: [],
@@ -73,6 +75,10 @@ class Matrix {
       `# Interop matrix — ${d.topology}, ${d.at}`,
       '',
       `Machine: ${d.machine}`,
+      '',
+      d.siblings === 'heads'
+        ? "Siblings: each at its repository's head, not at its pin (a drift report; nothing waits for it)"
+        : 'Siblings: each at the commit tools/interop/siblings.json pins',
       '',
       ...Object.entries(d.builds).map(([app, b]) => `- ${app}: ${b}`),
       '',

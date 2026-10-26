@@ -1,6 +1,8 @@
-# Stagewatch CI: every push and pull request builds everything, runs every test suite and the UI/page smoke tests,
-# builds the installer and the Companion module, and runs the Linux bench (tools/test.sh). A tag like v2.11.1 also
-# publishes a GitHub Release with them.
+# Stagewatch CI: every push to main, every pull request, every tag and every run by hand (workflow_dispatch, on any branch)
+# builds everything, runs every test suite and the UI/page smoke tests, builds the installer and the Companion module, runs
+# the Linux bench (tools/test.sh) and the interop lane at the siblings' pins (tools/test.sh interop). A tag like v2.11.1 also
+# publishes a GitHub Release with them, once all four jobs are green. The nightly run of the interop lane at the siblings'
+# heads is interop-heads.yml, a drift report that gates nothing.
 name: CI
 
 on:
@@ -97,6 +99,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      # A fork's pull request gets no secret, so the interop job (below) does not run for it; the run says so here.
+      - name: The interop lane on a fork's pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        run: |
+          words="interop: not run (a fork's pull request gets no sibling token; the lane runs on this repository's own pushes, pull requests, tags and runs by hand)"
+          echo "::notice title=Interop lane not run::$words"
+          echo "$words" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v6
@@ -134,10 +144,151 @@ jobs:
             artifacts/pages
           if-no-files-found: warn
 
+  # The interop lane (tools/test.sh interop) at the siblings' pins: Stagewatch's rig with Patterns' bench host, PlayMap's node
+  # (the Mapper repository) and AGMessage at the commits tools/interop/siblings.json pins, built in clones of the lane's own and
+  # run on a one-kernel LAN and on one show laptop, each topology in user, network and PID namespaces of its own that end with
+  # it, once the lane's own scripts have passed their self-check (tools/interop/selfcheck.py). A release waits for it. It runs
+  # for this repository's own events (pushes to main, its pull requests, tags and runs by hand). The siblings are read with the
+  # repository secret SIBLINGS_READ_TOKEN (read-only contents on the three repositories, the maintainer's to make): without it
+  # the job fails and says why, and never passes; a lane that could not run fails it too (SW_INTEROP_REQUIRED). The token rides
+  # only in the siblings' checkout steps, which keep no credential (persist-credentials: false), so no step after them, no build
+  # of a sibling and no app of the lane can read it. A fork's pull request gets no secret: the job does not run for one, and the
+  # Linux job's summary says so.
+  interop:
+    name: Interop lane at the siblings' pins (the rig, Patterns, PlayMap, AGMessage)
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      SW_INTEROP_REQUIRED: '1'
+    steps:
+      # The value never reaches this script: only whether the secret is set.
+      - name: The siblings' read token (SIBLINGS_READ_TOKEN)
+        id: token
+        env:
+          HAS_TOKEN: ${{ secrets.SIBLINGS_READ_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != true ]; then
+            words="interop: not run. The repository secret SIBLINGS_READ_TOKEN is not set, so Patterns, Mapper and AGMessage cannot be read at their pins. The maintainer makes it: a fine-grained token with read-only Contents on those three repositories, saved as this repository's Actions secret SIBLINGS_READ_TOKEN (docs/WHATS_NEXT.md). Until it exists this job fails and no release is published."
+            echo "::error title=Interop lane not run::$words"
+            printf '## Interop lane at the pins: not run\n\n%s\n' "$words" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "SIBLINGS_READ_TOKEN is set."
+
+      - uses: actions/checkout@v7
+        with:
+          path: Stagewatch
+          persist-credentials: false
+
+      # tools/interop/pins.py is the one reader of siblings.json (build.sh's too): a full commit per sibling, never a branch.
+      # The token reads only repositories of this repository's own owner.
+      - name: The pins (tools/interop/siblings.json)
+        id: pins
+        run: |
+          pins=$(python3 -I Stagewatch/tools/interop/pins.py Stagewatch/tools/interop/siblings.json)
+          while read -r app repo ref build; do
+            case "$repo" in
+              "$GITHUB_REPOSITORY_OWNER"/*) ;;
+              *) echo "::error title=Interop pins::siblings.json: $app's repository $repo is not $GITHUB_REPOSITORY_OWNER's, and the token reads that owner's only"
+                 exit 1 ;;
+            esac
+            echo "${app}_repo=$repo" >> "$GITHUB_OUTPUT"
+            echo "${app}_ref=$ref" >> "$GITHUB_OUTPUT"
+            echo "$app: $repo at $ref, building $build"
+          done <<< "$pins"
+
+      # Each sibling with every branch (fetch-depth 0), so tools/interop/build.sh sees its pin on one of the sibling's remote
+      # branches, as on the bench: the lane runs a pushed commit only. No credential stays in a checkout.
+      - name: Patterns at its pin
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.pins.outputs.patterns_repo }}
+          ref: ${{ steps.pins.outputs.patterns_ref }}
+          path: Patterns
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.SIBLINGS_READ_TOKEN }}
+
+      - name: Mapper (PlayMap) at its pin
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.pins.outputs.mapper_repo }}
+          ref: ${{ steps.pins.outputs.mapper_ref }}
+          path: Mapper
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.SIBLINGS_READ_TOKEN }}
+
+      - name: AGMessage at its pin
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.pins.outputs.agmessage_repo }}
+          ref: ${{ steps.pins.outputs.agmessage_ref }}
+          path: AGMessage
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.SIBLINGS_READ_TOKEN }}
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The driver's Node. AGMessage runs on a Node its engines field accepts: build.sh fetches the one it pins, SHA-256 checked.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      # Ubuntu 24.04 confines unprivileged user namespaces with AppArmor, so a namespace's root could make no bridge, veth or
+      # mount: the owner's answer (S-interop-ci) lifts that on this throwaway runner only. bridge and veth are loaded here, as a
+      # user namespace cannot load a module.
+      - name: User namespaces for the lane (this runner only)
+        run: |
+          sudo modprobe -a bridge veth
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: The interop lane (tools/test.sh interop)
+        working-directory: Stagewatch
+        timeout-minutes: 50
+        env:
+          SW_PATTERNS_DIR: ${{ github.workspace }}/Patterns
+          SW_MAPPER_DIR: ${{ github.workspace }}/Mapper
+          SW_AGMESSAGE_DIR: ${{ github.workspace }}/AGMessage
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix tests/interop
+          tools/test.sh interop
+
+      - name: The lane's summary
+        if: always() && steps.token.outcome == 'success'
+        run: python3 -I Stagewatch/tools/interop/summary.py Stagewatch/artifacts/interop >> "$GITHUB_STEP_SUMMARY"
+
+      # What may leave the runner, and nothing else (tools/interop/publish.py, which says in the summary and the artifact's
+      # README what it kept back and why): builds.json and each topology's matrix; and, only for a topology whose sweep (row
+      # S7.1) passed in this run, its logs, its captures and the apps' journals and logs, each read by that sweep and found to
+      # hold no secret of the run. A topology stopped before its end (the apps' secret files never removed) or whose sweep found
+      # a secret keeps its run on the runner. Never the clones, their builds, the run's secrets or any other file of an app's
+      # home (its settings, keys, recovery record, media).
+      - name: The lane's artifact (what may leave the runner)
+        if: always() && steps.token.outcome == 'success'
+        run: python3 -I Stagewatch/tools/interop/publish.py Stagewatch/artifacts/interop Stagewatch/artifacts/interop-artifact >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the lane's artifact
+        if: always() && steps.token.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: interop-${{ github.sha }}
+          path: Stagewatch/artifacts/interop-artifact
+          if-no-files-found: warn
+          retention-days: 30
+
   release:
     name: GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-test-package, smoke, linux]
+    needs: [build-test-package, smoke, linux, interop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -151,5 +302,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mapfile -t files < <(find dist -type f \( -name '*.exe' -o -name '*.tgz' \))
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Stagewatch ${GITHUB_REF_NAME#v}" \
-            --generate-notes $(find dist -type f \( -name '*.exe' -o -name '*.tgz' \))
+            --generate-notes "${files[@]}"

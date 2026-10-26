@@ -60,7 +60,9 @@ class Run {
   /** topology: the run's own folder under $SW_INTEROP_OUT (lan, laptop), as run.sh named it. */
   constructor(topology) {
     const doc = JSON.parse(fs.readFileSync(path.join(OUT, 'builds.json'), 'utf8'));
-    if (doc.notRun) throw new Error(`the builds were not made: ${doc.notRun}`);
+    // build.sh writes its end in place of the builds when it makes none: failed, refused or not run.
+    const end = doc.failed || doc.refused || doc.notRun;
+    if (end) throw new Error(`the builds were not made: ${end}`);
     if (process.env.SW_INTEROP_RUN_TOPOLOGY !== topology) {
       throw new Error(`this driver is the ${topology} topology's, and run.sh started ${process.env.SW_INTEROP_RUN_TOPOLOGY || 'none'}`);
     }

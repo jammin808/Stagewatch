@@ -282,8 +282,8 @@ running app on a network: two copies of one install for the conflict, an old cer
   view passes) hold nothing against any address of the LAN, the switch's and every app's, nor, on the laptop, against
   127.0.0.1 and the laptop's own address; a control from those addresses shows each table's reader sees them. Each
   topology's matrix (`artifacts/interop/<topology>`) says what each row read and how long it took. Where the kernel gives no
-  such namespaces, a sibling is absent or a pin cannot be fetched, the lane says "not run", never passed. CI's job for the
-  lane and its papers come after.
+  such namespaces, a sibling is absent or a pin cannot be fetched, the lane says "not run", never passed. CI runs it at the
+  pins, and nightly at the siblings' heads (below); the lane's papers (BUILD.md's account of it) come after.
 - **Interop rows that wait on another app.** Each is named here and not in the lane, which holds only rows that pass:
   - S6.4 (Patterns killed) and S6.7 (Patterns' cable pulled) wait on PlayMap: at the pinned commit its air stays blacked out
     by a Patterns that is gone (`air.blackout` and `air.patternsBlackout` still true 22 s after the desk was killed or its
@@ -293,6 +293,68 @@ running app on a network: two copies of one install for the conflict, an old cer
     stuck beat, so it stays connected and green with the last time.
 - **The agent brief's doctrine line** speaks of one lockout; since 2.19 there are two counts (wrong PINs; wrong view passes). It
   is the maintainer's to change.
+
+### The interop lane in CI — what it does, and the maintainer's actions
+
+- **CI's interop job** (`.github/workflows/ci.yml`, job `interop`) runs on this repository's pushes to main, its tags, its own
+  pull requests and its runs by hand. It checks out Patterns, Mapper and AGMessage at the commits `tools/interop/siblings.json`
+  pins (with every branch, so the lane sees each pin on one of its repository's branches, as on the bench), runs
+  `tools/test.sh interop` with `SW_INTEROP_REQUIRED=1` (a lane that could not run fails the job; the lane first checks its own
+  scripts, `tools/interop/selfcheck.py`: pins.py, build.sh at pins and at heads with a stub dotnet, summary.py and publish.py
+  on fixtures of their own) and writes the lane's summary to the run (each build, and each topology's rows, the failed ones
+  with their words). **A GitHub Release now waits for it** beside the three other jobs.
+- **What the run's artifact holds** (`interop-<commit>`, kept 30 days; the heads run's `interop-heads-<run>`, 14 days):
+  `tools/interop/publish.py` copies `builds.json` and each topology's `matrix.json` and `matrix.md`, and, only for a topology
+  whose sweep (row S7.1) passed in that run, its logs (`run/logs`: each app's output and error, the wires' lines), its captures
+  (`run/captures`: what the driver read from the rig's doors) and each app's journals and logs from its home (`*.log`,
+  `*.jsonl`, `*.csv`): every one of them was read by that sweep, after the apps stopped and the files each keeps a secret in by
+  design were removed, and held none of the run's secrets. A topology stopped before its end (a timeout, a crash: the apps'
+  secret files were never removed) or whose sweep found a secret keeps its run on the runner, and the artifact's README and the
+  run's summary say so. Never in it: the clones and their builds, the run's secrets folder, an app's settings, keys, recovery
+  record or media.
+- **The job's reach.** A fork's pull request gets no secret, so the job does not run for one, and the Linux job's summary says
+  "interop: not run". The siblings are read only with `SIBLINGS_READ_TOKEN`, only in their checkout steps, which keep no
+  credential, so no build of a sibling and no app of the lane can read it. On the runner, and only there, the job loads
+  `bridge` and `veth` and lifts Ubuntu's AppArmor confinement of unprivileged user namespaces
+  (`kernel.apparmor_restrict_unprivileged_userns=0`), as the owner's answer S-interop-ci allows.
+- **The nightly heads run** (`.github/workflows/interop-heads.yml`) runs the same lane every night at 03:23 UTC with each
+  sibling at the head of its default branch, or, run by hand from the Actions tab, at the branch or full commit named for it
+  (`SW_INTEROP_HEADS=1`: `tools/interop/build.sh` holds each head to the pins' rule, pushed, and says how far it is from its
+  pin). Its summary is the drift report: each head, how far it is from its pin, and which rows fail there. It gates nothing and
+  moves no pin; a red night says the heads no longer run what the pins prove, or the lane could not run there. Today Patterns'
+  main has no bench host (it is on the branch its pin is on), so a night at the default branches is red, and GitHub mails the
+  maintainer a failure notice each night, until that branch is merged: that red is the drift report, never a green run over
+  failed rows (the maintainer can disable the workflow from the Actions tab meanwhile); a run by hand can name the working
+  branches. Schedules and runs by hand start only once this file is on the default branch. Measured on the bench (2026-10-26,
+  checkouts made as CI makes them): at the default branches the builds stop at Patterns (its main is 1 commit of its own and
+  276 of the pin's history away from its pin; PlayMap's main is 8 commits behind its pin; AGMessage's 14 after it), and the
+  report says so; at the working branches (Patterns and PlayMap at their pins, AGMessage's 0.5.1 head 11 commits after its pin)
+  S6.1, S6.1b and S1c.1 fail, because 0.5.1's link to the rig says `viewing`, not `live`, without a key from the rig.
+  AGMessage's pin moves past 0.5.0 only with the lane giving it a key (the rows SW19.13 carries).
+- **Owner action: make `SIBLINGS_READ_TOKEN`.** It does not exist yet. Until it does, the interop job and the heads run fail on
+  their first step and say why, and no tag publishes a release. On GitHub: Settings → Developer settings → Personal access
+  tokens → Fine-grained tokens → Generate new token; resource owner jammin808; repository access "Only select repositories":
+  Patterns, Mapper and AGMessage; repository permissions: Contents, read-only (Metadata, read-only, comes with it), nothing
+  else; an expiry the maintainer renews (an expired token fails the siblings' checkout steps). Then, in Stagewatch: Settings →
+  Secrets and variables → Actions → New repository secret, named `SIBLINGS_READ_TOKEN`. The three repositories are public
+  today; the job reads them only with this token all the same, so it keeps working if they turn private.
+- **Owner action: the first run.** CI runs on pushes to main, tags and pull requests, so pushing this branch alone runs
+  nothing. Once the token exists, run it by hand on the branch (`gh workflow run ci.yml --ref <branch>`; main's `ci.yml`
+  already takes runs by hand, and the run uses the branch's own workflow), or open a pull request from it, and read the run for
+  its head commit:
+  `gh run watch --exit-status $(gh run list --workflow ci.yml --commit <head commit> --limit 1 --json databaseId -q '.[0].databaseId')`.
+  Pushed is not checked. That run is the first time the lane meets a GitHub runner (the sysctl, the bridge and veth, the Node
+  AGMessage needs fetched and checked). On the bench the lane passed every row with the siblings checked out as the job checks
+  them out (from GitHub, every branch, detached at each pin), so what that run proves is the runner; until it is green the
+  workflow is checked with a YAML parser and actionlint only.
+- **When the gate starts.** A tag runs the workflow of the commit it names, so a release waits for the interop job from the
+  first tag on a commit that carries this job; a tag on an earlier commit (2.19's, if it is made on the commit its section
+  names) is released without it.
+- **The agent brief's CI line** still says a release follows three green jobs, and its loop has no `tools/test.sh interop`;
+  both are the maintainer's to change (the owner's answer S-brief).
+- **What the job does not do yet.** No NuGet cache: each run restores the three builds' packages afresh (a few minutes). No
+  browser: Xvfb, Mesa and Playwright join with the rows that need one. Its actions are named by version, as the rest of
+  `ci.yml`, not by commit.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 
