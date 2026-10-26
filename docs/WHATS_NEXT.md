@@ -346,8 +346,8 @@ running app on a network: two copies of one install for the conflict, an old cer
     2.22's windows for peers, Xvfb, Mesa and Playwright joining the job with them; PlayMap's windows rows (S5.2, S5.3) with
     its PeerLink work; and AGMessage's desk, stuck and re-offer rows and one contract across the four copies (S1.3b, S3.1,
     S3.2, S3.8, S6.5, S7.2) with AGMessage's next releases. A release waits only on the rows in the lane.
-- **The agent brief's doctrine line** speaks of one lockout; since 2.19 there are two counts (wrong PINs; wrong view passes). It
-  is the maintainer's to change: proposed words are in "Owner action: the agent brief's lines", below.
+- **The agent brief's doctrine line** spoke of one lockout; since 2.19 there are two counts (wrong PINs; wrong view passes).
+  *Since then:* the maintainer accepted the drafted words (below), and the brief says so.
 
 ### The interop lane in CI — what it does, and the maintainer's actions
 
@@ -413,25 +413,11 @@ running app on a network: two copies of one install for the conflict, an old cer
 - **When the gate starts.** A tag runs the workflow of the commit it names, so a release waits for the interop job from the
   first tag on a commit that carries this job; a tag on an earlier commit (2.19's, if it is made on the commit its section
   names) is released without it.
-- **Owner action: the agent brief's lines** (the owner's answer S-brief: the maintainer writes them, or accepts them as
-  drafted; no unit edits the brief). Three of its lines no longer say what the tree does, and a fourth is missing:
-  1. *The loop* has no interop lane. Proposed, after the `pageshot | rig` line:
-     ```
-     tools/test.sh interop              # the real apps at their pins, on one LAN and one laptop (not a default lane)
-     ```
-  2. *The doctrine's* **Fail closed on the wire** speaks of one lockout, which the right PIN or a key cleared. Proposed,
-     after "…no journal row and no frame": "Wrong attempts lock a device out in two counts kept apart: wrong PINs, which
-     shut the PIN and every key to that device, and wrong view passes (viewing codes, window addresses, crew links), which
-     shut every view pass to it and which nothing but the end of their minute clears, never a right PIN, key or pass. A
-     request with no credential and an unknown or revoked key count toward neither (…)". With S-D0's answer it may also
-     carry Show Bus §1 rule 5's exception: a view pass rides, beyond its own operator, as an address in exactly two
-     carriers, a browser's address bar and the one verified PeerLink (or key-verified node link) to the grant's own app (no
-     Stagewatch code sends a grant to a peer before 2.22's windows for peers).
-  3. *The CI line* says a release follows three green jobs. Proposed: "… `interop` (tools/test.sh interop at the siblings'
-     pins), and `release` on a `v*` tag once all four are green; `interop-heads.yml` runs the interop lane nightly at the
-     siblings' heads, a drift report that gates nothing."
-  4. *Where things live* has no row for the lane. Proposed: "| The interop lane: the siblings' pins and builds, the
-     one-kernel LAN, the drivers and their rows | `tools/interop`; `tests/interop` |".
+- **The agent brief's lines** (the owner's answer S-brief: the maintainer writes them, or accepts them as drafted; no unit
+  edits the brief). *Done:* the maintainer accepted all four as drafted, the doctrine line in its S-D0 form, and `CLAUDE.md`
+  now carries them: the loop's `tools/test.sh interop` line; **Fail closed on the wire** with its two counts kept apart and
+  Show Bus §1 rule 5's two carriers for a view pass; the CI paragraph's `interop` job and `interop-heads.yml`; and the
+  interop lane's row in *Where things live*.
 - **What the job does not do yet.** No NuGet cache: each run restores the three builds' packages afresh (a few minutes). No
   browser: Xvfb, Mesa and Playwright join with the rows that need one. Its actions are named by version, as the rest of
   `ci.yml`, not by commit.

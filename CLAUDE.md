@@ -36,9 +36,13 @@ the copilot's risk, the papers.
 - **One writer.** The show thread (`MainViewModel`, the rig's owner thread) runs every command; other threads read
   immutable snapshots (`SnapshotHub`, `SettingsStore.Snapshot`, the window list).
 - **Fail closed on the wire.** An unknown word is refused, never defaulted; the PIN, keys and window addresses ride in no
-  log line, no journal row and no frame; wrong PINs, viewing codes and window addresses lock a device out, and unknown or
-  revoked keys never count toward that lockout (a key cannot be guessed; counting it only lets a peer's old key lock out
-  its own machine's PIN).
+  log line, no journal row and no frame. The one exception is a view pass (a window's address, a viewing code, a crew
+  link): beyond its own operator it rides as an address in exactly two carriers, a browser's address bar and the one
+  verified PeerLink (or key-verified node link) to the grant's own app (Show Bus §1 rule 5). Wrong attempts lock a device
+  out in two counts kept apart: wrong PINs, which shut the PIN and every key to that device, and wrong view passes, which
+  shut every view pass to it and which nothing but the end of their minute clears, never a right PIN, key or pass. A
+  request with no credential and an unknown or revoked key count toward neither (a key cannot be guessed; counting it only
+  lets a peer's old key lock out its own machine's PIN).
 - **Measured, then governed.** No limit or governor without a measured cause and a deterministic test.
 
 ## Constraints that bite
@@ -64,12 +68,14 @@ the copilot's risk, the papers.
 tools/setup-dev.sh                 # Linux: .NET 10 SDK, Node packages, Chromium's headless shell
 tools/test.sh                      # build, unit, module, holo, e2e (or name lanes: tools/test.sh unit e2e)
 tools/test.sh pageshot | rig       # PageShot's screenshots; the headless rig in the foreground
+tools/test.sh interop              # the real apps at their pins, on one LAN and one laptop (not a default lane)
 dotnet run --project tests/Stagewatch.Tests -c Debug --no-build      # the suite alone
 pwsh tools\smoke.ps1 · pwsh tools\release.ps1 -NoBump                # Windows: UI smoke; build, test, package
 ```
 
 CI (`.github/workflows/ci.yml`): `build-test-package` and `smoke` on Windows, `linux` (tools/test.sh with the browser
-workflows and PageShot), and `release` on a `v*` tag once all three are green.
+workflows and PageShot), `interop` (tools/test.sh interop at the siblings' pins), and `release` on a `v*` tag once all
+four are green; `interop-heads.yml` runs the interop lane nightly at the siblings' heads, a drift report that gates nothing.
 
 ## Where things live
 
@@ -83,6 +89,7 @@ workflows and PageShot), and `release` on a `v*` tag once all three are green.
 | Integrations, copilot (`Copilot.Classify` is the risk), sensors | `src/Timer.Integrations` |
 | The suite; browser workflows; UI and page smoke | `tests/Stagewatch.Tests`; `tests/e2e`; `tests/Stagewatch.UiSmoke`, `tests/Stagewatch.PageShot` |
 | The headless rig (real servers, simulated show) | `tools/Stagewatch.Rig` |
+| The interop lane: the siblings' pins and builds, the one-kernel LAN, the drivers and their rows | `tools/interop`; `tests/interop` |
 | The wire and pages; Companion; build; features; what's next | `docs/REMOTE.md`; `docs/COMPANION.md`; `docs/BUILD.md`; `docs/FEATURES.md`; `docs/WHATS_NEXT.md` |
 
 ## House words
