@@ -24,14 +24,23 @@ using Stagewatch.Show;
 /// names the trees whose copies the hashes hold, and its list of rows that bind nothing yet is <see cref="Unworded"/>.
 /// §12 Windows keeps its numbered parts, names every window and view row of §14 and no number that is not a row, and §1 rule 5
 /// gives a view pass its two carriers as an address; what §12 says a window hears and reports, what its item is, and what a host
-/// browser reads off it, is what Stagewatch's server, context and window shell do, and the header names what of §12 Stagewatch's
-/// code does not keep yet, each exactly while the code lacks it. Every part the body cites is there, or the header names it as
-/// cited ahead of its words.
+/// browser reads off it, is what Stagewatch's server, context and window shell do; the header names what of §12 2.19 brings, and §8's
+/// Stagewatch row what no unit of 2.19 brings, each exactly while the code lacks it. Every part the body cites is there, or the header
+/// names it as cited ahead of its words.
 /// §6 keeps the Eye's rules, P1–P8, by their names; its link kinds and its kind table, and §14's kinds, are ShowBusKinds' tables; every
 /// link row and link end the master writes is one §6 allows; §6's example keeps §6's own rules; posting a context answers in 13.5's
 /// words; and 13.16 and 13.18 publish what P1 and P2 say. Stagewatch's own context keeps P1, P5 for its timer, P6 for its own parts but
-/// its vMix link, and P8's no-secret rule; the desk keeps a posted context as §6 says; and the header names what of §6's rules
-/// Stagewatch does not keep yet (<see cref="RulesNotKeptYet"/>), each exactly while its code still does that.
+/// its vMix link, and P8's no-secret rule; the desk keeps a posted context as §6 says; and §8's Stagewatch row names what of §6's rules
+/// Stagewatch does not keep yet (<see cref="RulesNotKeptYet"/>), each while its code still does that.
+/// §1–§11 hold 1.3's words. Each section names in code every row §14.4 gives it, and no dotted name but a row or one of the fields it
+/// names; §2's example hello keeps §2's table and §14's kinds, ports, caps and sizes, and Stagewatch's hello sends only §2's fields; §3's
+/// receipt is Stagewatch's, with its last four fields in order; §6's peers row and trimmed item are what Stagewatch writes and §6 allows;
+/// §7.1's refusals and verdicts are NodeLinks' and NodeBindings' own words; §11's proposal and its states are ProposalDesk's, a field
+/// appended after them allowed. §2's conflict holds a connector until its mark clears, in 13.15.3's words and 13.20's row. §8 gives each
+/// §14 kind its row, with the parts §8 names; Stagewatch's row names its doors, its two exemptions and its stuckMs as its code has it,
+/// and what it does not keep yet that a release after 2.19 ends or no unit is scheduled to end — every such row of
+/// <see cref="NotKeptYet"/>, every entry of <see cref="WordsNotKeptYet"/> and <see cref="RulesNotKeptYet"/>, each in its words, and while
+/// 1.3 is a draft nothing else — and the header names what 2.19 brings, each exactly while the code still lacks it.
 /// Parse, pure and machine rows are otherwise checked for shape only: running them is the kit's. Of Stagewatch's own code:
 /// a made key has 13.5.1's shape and its stored hash is K, and its level-0 proof makes every legacy row's proof and refuses
 /// every nonce a row refuses (the tokens a row does not prove are not held here); of the rows of §2, §6, §10, §11 and §12 and those
@@ -45,7 +54,7 @@ static class ShowBusSpecTests
     /// LF, one final LF. Any edit to the body changes it, so an edit is pinned here on purpose; the copies in Patterns,
     /// PlayMap and AGMessage hold the same hash, printed in the header, once 1.3 is final.
     /// </summary>
-    const string BodySha256 = "55e43748b9114f258063aa7c2d371ca6a5e4499d79c41d9352d29f9def87addc";
+    const string BodySha256 = "db77369f6bf069f896c5bcfaac821ecb4df04c8ced217c5046e76156e3520943";
 
     const string BodyStart = "## 1. Rules every node follows";
     const string ContextHeading = "## 6. Context — what an AI (or the Eye) needs to understand a node";
@@ -64,20 +73,16 @@ static class ShowBusSpecTests
     static readonly string[] ContextFields = ["node.t", "node.id"];
 
     /// <summary>
-    /// The context rows §6 does not name yet: its sizes, which 1.3's words for §6 bring (SW19.1e) — none once 1.3 is final. Every other
-    /// context row is named in §6's words.
+    /// The context rows §6 does not name yet: none, now that 1.3's words for §6 give its sizes. A row added to §14 for §6 is named in §6's
+    /// words before it binds, and 1.3 final has none here.
     /// </summary>
-    static readonly string[] SizesLater =
-    [
-        "context.bytes", "context.items", "context.links", "context.recent", "context.commands", "context.peers", "context.headline.chars",
-        "context.item.kind.chars", "context.item.label.chars", "context.item.state.chars", "context.recent.chars", "context.verb.chars",
-        "context.words.chars", "context.words.read.chars",
-    ];
+    static readonly string[] SizesLater = [];
 
     /// <summary>
     /// What of §6's rules for the Eye Stagewatch's own context does not keep yet: the rule, what of it, the unit that ends it, what
-    /// the code does today in the header's words, and a check that holds exactly while the code still does that. Once the code
-    /// changes the check fails, and the entry leaves this table and the header for a check of the rule kept.
+    /// the code does today in §8's Stagewatch row's words, and a check that holds exactly while the code still does that. Once the code
+    /// changes the check fails, and the entry leaves this table for a check of the rule kept (the row's words, frozen with 1.3, still
+    /// say what 2.19 did).
     /// </summary>
     static readonly (string Rule, string Of, string Unit, string Today, Func<bool> Differs)[] RulesNotKeptYet =
     [
@@ -140,14 +145,36 @@ static class ShowBusSpecTests
         "receipt.final.ms", "request.id.chars", "hello.port", "hello.caps", "hello.cap.chars", "hello.id.min", "hello.id.max", "peers.max",
         "context.bytes", "context.kept.ms", "context.items", "context.commands", "context.peers", "context.recent", "context.recent.chars",
         "context.headline.chars", "context.item.id.chars", "context.item.kind.chars", "context.item.label.chars", "context.item.state.chars",
-        "context.verb.chars", "proposal.undelivered.ms", "proposal.result.ms", "window.token.chars", "window.max",
+        "context.verb.chars", "proposal.undelivered.ms", "proposal.result.ms", "window.token.chars", "window.max", "hello.bytes", "hello.ports",
+        "hello.name.chars", "hello.inst.chars", "hello.kind.chars", "show.stuck.min.ms", "show.stuck.max.ms", "peer.stale.ms", "peer.conflict.clear.ms",
+        "peer.addresses",
     ];
 
     /// <summary>
-    /// The rows the header says bind nothing until their section's words land: no 1.2 words, §14 words or name hold their idea yet.
-    /// §6's and §12's words hold all of theirs; SW19.1e (§2, §10, §11) empties the rest, and 1.3 final has none.
+    /// The rows the header says bind nothing until their section's words land: none, now that §1–§11 have 1.3's words. A row added to
+    /// §14 before its section's words is named here and in the header until they land, and 1.3 final has none.
     /// </summary>
-    static readonly string[] Unworded = ["hello.inst.chars", "peer.conflict.clear.ms", "cert.backdate.hours", "proposal.result.ms"];
+    static readonly string[] Unworded = [];
+
+    /// <summary>The dotted names §1–§11 write in code that are fields of a message, not §14 rows.</summary>
+    static readonly string[] Fields = ["ports.https", "video.seq", "clip.seq", "node.t", "node.id"];
+
+    /// <summary>The §14 rows each of §2–§11 names in its words, by its section's number (§6's and §12's have checks of their own).</summary>
+    static readonly (int Section, string[] Rows)[] SectionRows =
+    [
+        (2, ["hello.", "peers.", "peer."]),
+        (3, ["request.id.chars", "receipt.deadline.ms", "receipt.final.ms", "receipt.late.ms"]),
+        (4, ["link.beat.ms", "link.stale.ms", "link.drop.ms", "link.redial.first.ms", "link.redial.max.ms", "ping.min.ms", "ping.max.ms"]),
+        (5, ["clock.window", "clock.apart.ms"]),
+        (10, ["cert."]),
+        (11, ["proposal."]),
+    ];
+
+    /// <summary>What each of §8's parts (one per §14 kind) says of its node, by its bold labels, in this order.</summary>
+    static readonly string[] RowParts = ["Scopes", "Show writer", "Doors that are not PeerLinks", "Named exemptions", "Not kept yet"];
+
+    /// <summary>The fields §3 appends to a receipt, in their order.</summary>
+    static readonly string[] ReceiptTail = ["final", "repeat", "lateMs", "frame"];
 
     /// <summary>The rows of §13's own numbers that 1.2's §3–§5 already state in words (§4's liveness and redial, §5's clock, §3's ids).</summary>
     static readonly string[] Before13 =
@@ -160,7 +187,8 @@ static class ShowBusSpecTests
     /// The rows Stagewatch's code does not keep yet, of those §14.4 gives §2, §6, §10, §11 and §12 and those 1.2's §3–§5 words
     /// (<see cref="Before13"/>): the row, the unit that ends it, what the code does today, and a check that holds while the code still
     /// differs (null where the suite reaches no code that could keep the row). Once the code keeps a row its check fails, and the row
-    /// leaves this table for a check in <see cref="TodaysCode"/>. Stagewatch's §8 row takes this list when 1.3's words land (SW19.1e).
+    /// leaves this table for a check in <see cref="TodaysCode"/>. The header names the rows a unit of 2.19 ends (<see cref="In219"/>),
+    /// which 2.19 keeps before it ships 1.3; §8's Stagewatch row names the rest, each in its Today words.
     /// </summary>
     static readonly (string Row, string Unit, string Today, Func<Numbers, bool>? Differs)[] NotKeptYet =
     [
@@ -172,12 +200,17 @@ static class ShowBusSpecTests
         ("peers.max", "SW19.3", $"the hello reader takes a new id while {SlidesBeacon.MaxPeers} peers are held, so it holds {SlidesBeacon.MaxPeers + 1}",
             n => SlidesBeacon.HasRoom((int)n.Of("peers.max"))),
         ("peer.conflict.clear.ms", "SW19.3", "no id is marked in conflict", null),
+        ("peer.addresses", "SW19.3", "its hello reader keeps the last address it heard for an id", _ => OneAddressAsToday()),
         ("link.stale.ms", "SW20.4a", "PatternsLink marks no link stale: a clip shows no time 3 s after its last frame, and the link drops after 12 s", null),
         ("link.redial.first.ms", "SW20.4a", $"PatternsLink waits {PatternsLink.RedialFirstMs} ms before its first redial, and never jitters",
             n => PatternsLink.RedialFirstMs != n.Of("link.redial.first.ms")),
         ("context.bytes", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
         ("context.items", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
         ("context.links", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
+        ("context.headline.chars", "SW19.4", WrittenWhole, n => OwnSizes() is { Capped: true } s && s.Headline > n.Of("context.headline.chars")),
+        ("context.item.label.chars", "SW19.4", WrittenWhole, n => OwnSizes() is { Capped: true } s && s.Label > n.Of("context.item.label.chars")),
+        ("context.item.state.chars", "SW19.4", WrittenWhole, n => OwnSizes() is { Capped: true } s && s.State > n.Of("context.item.state.chars")),
+        ("context.recent.chars", "SW19.4", WrittenWhole, n => OwnSizes() is { Capped: true } s && s.Recent > n.Of("context.recent.chars")),
         ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
         ("context.items", "SW21.1", "PeerContexts keeps a context's first 64 items",
             n => Peer(Many("items", "{\"id\":\"a\",\"kind\":\"b\",\"label\":\"c\",\"light\":\"green\",\"state\":\"d\"}", n.Of("context.items")))?.Items.Count < n.Of("context.items")),
@@ -192,10 +225,84 @@ static class ShowBusSpecTests
         ("cert.days", "SW19.5", "NodeCertificate spans 826 days: a day back and 825 on", n => Certificate() is { } c && c.Back + c.On != n.Of("cert.days")),
         ("proposal.line.chars", "SW21.2", $"ProposalDesk takes a line of {ProposalDesk.MaxLine} characters and cuts a longer one, which can run another command",
             n => ProposalDesk.MaxLine < n.Of("proposal.line.chars")),
+        ("proposal.collect.ms", "SW21.2", "the desk sends and approves for a target whatever its last collect",
+            _ => typeof(ProposalDesk).GetMethods().All(m => !m.Name.Contains("Collected", StringComparison.Ordinal))),
+        ("receipt.final.ms", "SW22.1c", "its receipts carry no `final`, `repeat`, `lateMs` or `frame`", _ => ReceiptTailAsToday()),
         ("view.wrong.per.minute", "SW19.6",
             "wrong window addresses and viewing codes count with wrong PINs, and a right PIN or key clears them; wrong crew links count nowhere",
             _ => ViewPassesCountedAsToday()),
         ("window.grants", "SW22.3", "it grants no window, so no grant's address travels", null),
+    ];
+
+    /// <summary>Whether a unit ends its entry in 2.19, the release that carries 1.3: then the header names it, else §8's Stagewatch row.</summary>
+    static bool In219(string unit) => unit.StartsWith("SW19.", StringComparison.Ordinal);
+
+    /// <summary>
+    /// What Stagewatch's own context writes whole today, in the header's words: §6's item, headline and recent sizes bind a sender, and
+    /// a title, a message (up to 500 characters) and a note (up to 1000) reach it uncut (<see cref="OwnSizes"/>).
+    /// </summary>
+    const string WrittenWhole = "its own context writes a title, a message's text and a journal line whole: a running order item's title as its timer's label "
+        + "and in its headline, a message's text in a cue's state, and each journal line in `recent`, a message up to 500 characters and a note up to 1000";
+
+    /// <summary>
+    /// What else of §1–§11 and §12 Stagewatch does not keep yet, past what a §14 row names: §8's Stagewatch row's words for it, the unit
+    /// that ends it (each after 2.19, or "not scheduled"), what the code does today in the row's words, and a check that holds exactly
+    /// while the code still does that. Once the code changes its check fails, and the entry leaves this table for a check of the words
+    /// kept. Nothing no unit of 2.19 ends is named in the header, which says only what 2.19 brings.
+    /// </summary>
+    static readonly (string What, string Unit, string Today, Func<bool> Differs)[] WordsNotKeptYet =
+    [
+        ("13.11's clock quality", "SW20.4a", "CLOCKS APART reads the offset alone, with no error, freshness or fitness",
+            () => typeof(ClockOffsetEstimator).GetMembers().All(m => !Regex.IsMatch(m.Name, "Err|Fresh|Fit"))),
+        ("its Patterns link proves at level 0 only", "SW23.1", "it answers NONCE with AUTH-PROOF and runs no LINK",
+            () => Source("src/Timer.Integrations/PatternsLink.cs") is { } link && link.Contains("\"AUTH-PROOF \"", StringComparison.Ordinal)
+                  && !Regex.IsMatch(link, @"""(?:@l\d+ )?LINK ")),
+        ("no playout link to PlayMap", "SW20.4a", "its Patterns link is its only line connector",
+            () => typeof(PatternsLink).Assembly.GetTypes().Where(t => t.Name.EndsWith("Link", StringComparison.Ordinal)).Select(t => t.Name)
+                  .SequenceEqual(["PatternsLink"])),
+        ("its `/ws` speaks no LINK", "SW22.1a", "a node link proves a bearer key or the operator's credential, §7.1",
+            () => Source("src/Timer.Core/NodeLinks.cs") is { } links && !links.Contains("snonce", StringComparison.Ordinal)
+                  && Source("src/Timer.Remote/WebServer.cs") is { } server && !server.Contains("snonce", StringComparison.Ordinal)),
+        ("13.6.9's mark on a key seen in clear", "SW22.1b", "it takes a key sent in clear from another machine as it takes any other, and marks nothing",
+            SeenInClearAsToday),
+        ("its risk by whole forms", "SW21.1", "it rates a line by the longest run of a listed verb's leading words",
+            () => ProposalDesk.RiskFromCommands([("pause", "low")], "pause every screen for good") == "low"),
+        ("its proposal ids", "SW21.2", "they restart with each desk run, `p<n>`, so a target pairs an id with `created`", ProposalIdsAsToday),
+        ("a `from` of kind `main` or `mcp`", "SW21.2", "the desk takes one from the network unless it names the desk's own id",
+            () => Proposed("{\"from\":{\"t\":\"main\",\"id\":\"b2c3d4e5f6a7\",\"name\":\"Hall B\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", "low") is not null),
+        ("a proposal sent with an `mcp` key", "SW21.2", "the desk queues one for a node no key is bound to, proved by nothing", McpProposalAsToday),
+        ("§11's line refusals", "SW21.2", "the desk takes a line that holds a key, a window's address or a filled secret placeholder, and drops its control characters",
+            () => Proposed("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"main\"},\"line\":\"note swk_abcdefghijkmnpqrstuvwxyz23456789\"}", "low") is not null),
+        ("a target's raise of its own proposal's risk", "SW21.2", "the desk takes a proposal's risk from the target's table alone",
+            () => Proposed("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\"},\"line\":\"CUE GO\",\"risk\":\"high\"}", "low") is { Risk: "low" }),
+        ("its commands rows in §6's notation", "SW21.2", "it lists `start / pause` and `patterns end 10`",
+            () => ShowContext.Commands.Any(c => c.Verb == "start / pause") && ShowContext.Commands.Any(c => c.Verb == "patterns end 10")),
+        ("a line a person sends to another app", "SW21.4", "it has no `peer` or `desk` verb",
+            () => !Enum.GetNames<ShowCommandKind>().Any(k => k is "Peer" or "Desk")),
+        ("verified peers' `recent` in its report", "SW21.7", "its report holds its own journal alone",
+            () => Source("src/Timer.Show/ShowReports.cs") is { } reports && !reports.Contains("Peer", StringComparison.Ordinal)),
+        ("an over-long context's `413`", "SW20.9", "a context over `context.bytes` closes its connection with no answer",
+            () => Source("src/Timer.Remote/WebServer.cs") is { } server && server.Contains("if (length > MaxBody) return null;", StringComparison.Ordinal)),
+        ("12.2's page rule for a page opened with a viewing code or a crew link", "not scheduled",
+            "it serves those pages without the window page's no-referrer, noindex and no-framing headers", PageRuleAtWindowsOnly),
+        ("12.2's revocation at once for a viewing code or a crew link", "not scheduled", "a screen already open on a changed one keeps its link until it reconnects",
+            ViewersNeverRechecked),
+    ];
+
+    /// <summary>
+    /// What else of §1–§11 Stagewatch does not keep yet past a row, which 2.19 brings: the header's words for it, the unit of 2.19 that
+    /// ends it, what the code does today, and a check that holds exactly while the code still does that. The header names each exactly
+    /// while its check holds.
+    /// </summary>
+    static readonly (string What, string Unit, string Today, Func<bool> Differs)[] NotKept219 =
+    [
+        ("§2's silence on loopback", "SW19.3", "it says hello whatever its doors are bound to",
+            () => Method(Source("src/Timer.App/ViewModels/MainViewModel.Slides.cs") ?? "", "private void InitSlides()") is { } init
+                  && init.Contains("_web is not { } web ? null", StringComparison.Ordinal) && !Regex.IsMatch(init, "Bind|Loopback")),
+        ("§2's every address per id", "SW19.3", "its hello reader keeps the last address it heard for an id", OneAddressAsToday),
+        ("§6's order of commands", "SW19.4", "its context lists `blackout`, `next` and `start / pause` after its notes, messages and cues",
+            () => ShowContext.Commands.Select(c => c.Verb).ToList() is var verbs && verbs.IndexOf("note <text>") is var note and >= 0
+                  && new[] { "blackout", "next", "start / pause" }.All(v => verbs.IndexOf(v) > note)),
     ];
 
     /// <summary>
@@ -254,7 +361,11 @@ static class ShowBusSpecTests
         }
         TodaysCode(Check, s13, rows ?? [], n);
         WindowsCode(Check, text[..^body.Length], s12, n);
-        ContextCode(Check, text[..^body.Length], n);
+        ContextCode(Check, n);
+        Words(Check, body, n);
+        WordsCode(Check, body, n);
+        NodeRows(Check, body, s13, n, draft);
+        Brings(Check, text[..^body.Length]);
     }
 
     // ------------------------------------------------------------------ the body and its hash
@@ -510,6 +621,7 @@ static class ShowBusSpecTests
             ("context.post.min.ms", "context.post.max.ms", false), ("context.post.max.ms", "context.kept.ms", true), ("context.items.first", "context.items", false),
             ("context.words.read.chars", "context.words.chars", false), ("report.retry.first.ms", "report.retry.max.ms", false),
             ("report.retry.max.ms", "report.retry.for.ms", false), ("cert.renew.days", "cert.days", true),
+            ("proposal.collect.ms", "proposal.undelivered.ms", true), ("context.peers", "peers.max", false),
         ];
         var broken = order.Where(o => n.Of(o.Low) < 0 || n.Of(o.High) < 0 || (o.Strict ? n.Of(o.Low) >= n.Of(o.High) : n.Of(o.Low) > n.Of(o.High)))
             .Select(o => o.Low + (o.Strict ? " < " : " ≤ ") + o.High).ToList();
@@ -573,8 +685,7 @@ static class ShowBusSpecTests
     /// put the show stuck in place of a time; P8 keeps a message's text private whatever screen shows it. A link end is @ and a §2 id,
     /// with an item id after a slash, within its §14 rows, and every end the master writes is one. §6's example keeps P1–P7: its light
     /// is its items' worst, its kinds the table's, its links its own items' or a peer's it lists one hop, its link item with its one P2
-    /// row, its items in P7's order (its peers row's `link` and `verified`, 13.16.4's, wait for the words SW19.1e gives the peers
-    /// fields). The kind table is <see cref="ShowBusKinds.Items"/> row for row, its last row ShowBusKinds' default, its planes the Eye's
+    /// row, its items in P7's order (its peers row has §6's fields: <see cref="Words"/>). The kind table is <see cref="ShowBusKinds.Items"/> row for row, its last row ShowBusKinds' default, its planes the Eye's
     /// bands, its words binding and its placement advice; P5's counting kinds are its words. Posting keeps the latest, is no node's
     /// command, and on a line is LINK's, a bound key's of scope post or above, and that key's own node's — never a code's — answered in
     /// 13.5.2's and 13.5.3's words. 13.16.4 and 13.16.5 publish P2's items and rows; 13.16.5 lights an accepted link as its connector
@@ -1218,7 +1329,8 @@ static class ShowBusSpecTests
     /// and <c>peerlink.redial.jitter.pct</c>, a range's n counted from its row's events with <c>peerlink.stable.ms</c>; clock and
     /// errms rows by 13.11.3's formulas with <c>clock.window</c>, <c>clock.rtt.max.ms</c>, <c>clock.apart.ms</c> and
     /// <c>clock.fresh.ms</c>; the in-flight row and words by <c>link.inflight.max</c>; the final answer by <c>receipt.final.ms</c>;
-    /// a hold's end, and no dial before it, by <c>peerlink.hold.refused.ms</c> and the refusal's retry; and 13.14's bounds are rows.
+    /// a hold's end, and no dial before it, by <c>peerlink.hold.refused.ms</c> and the refusal's retry; the conflict row's mark by
+    /// <c>peer.stale.ms</c> and its end by <c>peer.conflict.clear.ms</c>; and 13.14's bounds are rows.
     /// </summary>
     static void Agreement(Action<bool, string> Check, string s13, List<JsonElement> rows, Numbers n)
     {
@@ -1346,6 +1458,27 @@ static class ShowBusSpecTests
             Check(Int(Arg(held, 1), "heldUntil") == end, $"showbus spec: a hold ends peerlink.hold.refused.ms, or the retry if longer, after its refusal ({end}): " + name);
             foreach (var e in expect.Where(e => At(e) >= heldAt && Field(Arg(e, 1), "dial").ValueKind != JsonValueKind.Undefined))
                 Check((Field(Arg(e, 1), "dial").ValueKind == JsonValueKind.Null) == (At(e) < end), "showbus spec: nothing is dialled before a hold ends, and a dial goes at its end: " + name);
+        }
+
+        // §2 and 13.15.3 over the conflict row: its hellos keep the peer live and alternate (A, B, A) within peer.stale.ms, then say A alone;
+        // nothing is dialled while the mark stands, and the connector dials again once peer.conflict.clear.ms pass without the alternation.
+        var conflict = rows.FirstOrDefault(r => Str(r, "case") == "machine" && Str(r, "name") == "a conflict holds until its mark clears");
+        Check(conflict.ValueKind == JsonValueKind.Object, "showbus spec: 13.20's block holds §2's conflict row (a conflict holds until its mark clears)");
+        if (conflict.ValueKind == JsonValueKind.Object)
+        {
+            var heard = Items(conflict, "events").Where(e => Word(e) == "hello").Select(e => (At: At(e), Inst: Str(Arg(e, 2), "inst") ?? "")).ToList();
+            var heardFor = n.Of("peer.stale.ms");
+            var marked = Enumerable.Range(2, Math.Max(0, heard.Count - 2))
+                .Where(i => heard[i].Inst == heard[i - 2].Inst && heard[i].Inst != heard[i - 1].Inst)
+                .Select(i => heard[i]).FirstOrDefault((-1L, ""));
+            var clears = marked.Item1 + n.Of("peer.conflict.clear.ms");
+            var dials = Items(conflict, "expect").Where(e => Field(Arg(e, 1), "dial").ValueKind != JsonValueKind.Undefined).ToList();
+            Check(marked.Item1 >= 0 && heard.Zip(heard.Skip(1)).All(p => p.Second.At - p.First.At <= heardFor)
+                  && heard.Where(h => h.At > marked.Item1).All(h => h.Inst == marked.Item2)
+                  && dials.Any(e => At(e) < clears) && dials.Any(e => At(e) > clears)
+                  && dials.All(e => At(e) == clears || (Field(Arg(e, 1), "dial").ValueKind == JsonValueKind.Null) == (At(e) < clears)),
+                $"showbus spec: the conflict row marks its id when the hellos alternate within peer.stale.ms (at {marked.Item1}), dials nothing while the mark "
+                + $"stands, and dials again once peer.conflict.clear.ms pass without the alternation (after {clears})");
         }
     }
 
@@ -1540,9 +1673,10 @@ static class ShowBusSpecTests
     /// another site is never content; a window hears 12.3's window message and 12.3's end, its link is never a node link, and it reports
     /// 12.3's shown fields; the shell's root carries 12.9's data attributes with 12.9's values, and its state names what is loading. The
     /// draw messages of 12.6 carry 12.3's fields, and 12.7's black end is 12.3's end with black. A window asked to identify or reload
-    /// hears 12.3's messages; a locked device is never told its address is gone (12.2); a window's item is 12.10's. The header names
-    /// exactly the rows of §12 in <see cref="NotKeptYet"/>, each with what the code does today, and names 12.2's page rule and its
-    /// revocation for viewing codes and crew links, and cap windows in the hello, each exactly while the code lacks it.
+    /// hears 12.3's messages; a locked device is never told its address is gone (12.2); a window's item is 12.10's. The header names cap
+    /// windows in the hello exactly while the code lacks it, among what 2.19 brings (<see cref="Brings"/> holds its rows), and nothing of
+    /// 12.2, whose page rule and revocation for viewing codes and crew links no unit of 2.19 ends: §8's Stagewatch row names them
+    /// (<see cref="WordsNotKeptYet"/>).
     /// </summary>
     static void WindowsCode(Action<bool, string> Check, string header, string s12, Numbers n)
     {
@@ -1631,28 +1765,12 @@ static class ShowBusSpecTests
             "showbus spec: Stagewatch keeps 12.10: a window's item is window: and its name in lower case, kind screen, grey until opened and amber once its link is lost ("
             + string.Join(", ", items.Select(i => i.Id + " " + i.Kind + " " + i.Light)) + ")");
 
-        // The header: what of §12 Stagewatch does not keep yet, each named exactly while its code still lacks it.
-        var sentence = Regex.Match(Flat(header), @"does not keep these of §12 yet: (.+?)\.\s") is { Success: true } h ? h.Groups[1].Value : "";
-        var listed = CodeNames(sentence);
-        var later = NotKeptYet.Where(x => WindowRows.Any(p => x.Row.StartsWith(p, StringComparison.Ordinal))).ToList();
-        Check(sentence.Length > 0 && listed.SetEquals(later.Select(x => x.Row)), "showbus spec: the header names the rows of §12 Stagewatch does not keep yet, as NotKeptYet does ("
-            + string.Join(", ", listed.Order(StringComparer.Ordinal)) + " / " + string.Join(", ", later.Select(x => x.Row).Order(StringComparer.Ordinal)) + ")");
-        foreach (var (row, unit, today, _) in later)
-            Check(sentence.Contains("(`" + row + "`: today " + today + ")", StringComparison.Ordinal),
-                $"showbus spec: the header says what Stagewatch does today for {row} in NotKeptYet's words ({unit}): today {today}");
-
-        int Times(string text, string word) => Regex.Matches(text, Regex.Escape(word)).Count;
-        var pageRuleAtWindowsOnly = windowPage.Length > 0 && Times(server, "frame-ancestors") == 1
-            && new[] { "Referrer-Policy", "X-Robots-Tag" }.All(x => Times(windowPage, x) > 0 && Times(server, x) == Times(windowPage, x));
-        Check(sentence.Contains("12.2's page rule for a page opened with a viewing code or a crew link", StringComparison.Ordinal) == pageRuleAtWindowsOnly,
-            "showbus spec: the header names 12.2's page rule for viewing codes and crew links exactly while WebServer sends no-referrer, noindex and no-framing "
-            + "only with the window page (SW19.6)" + (pageRuleAtWindowsOnly ? "" : " — it sends them elsewhere now: take the page rule out of the header's list"));
-        var viewersNeverRechecked = (Method(server, "private void Recheck(WsClient client)") ?? "")
-            .Contains("if (link.KeyId is null && link.PinHash is null) return;", StringComparison.Ordinal);
-        Check(sentence.Contains("12.2's revocation at once for a viewing code or a crew link", StringComparison.Ordinal) == viewersNeverRechecked,
-            "showbus spec: the header names 12.2's revocation at once for viewing codes and crew links exactly while WebServer rechecks no socket that only "
-            + "a viewing code or a crew link let in (SW19.6)" + (viewersNeverRechecked ? "" : " — it rechecks them now: take the revocation out of the header's list"));
-
+        // The header: what of §12 past its rows 2.19 brings, named exactly while the code still lacks it (its rows: Brings). What of 12.2 no
+        // unit of 2.19 brings — its page rule and its revocation for viewing codes and crew links — is §8's Stagewatch row's
+        // (WordsNotKeptYet), never the header's.
+        var sentence = Brought(header);
+        Check(!sentence.Contains("12.2's", StringComparison.Ordinal),
+            "showbus spec: the header names nothing of 12.2 among what 2.19 brings: no unit of 2.19 ends its page rule or its revocation for viewing codes and crew links");
         var (readable, sends) = HelloCapsName(Source("src/Timer.App/ViewModels/MainViewModel.Slides.cs") ?? "", "windows");
         Check(readable, "showbus spec: every cap the desk's hello builder (MainViewModel.Slides.cs, HelloCaps) adds is a word written out, so this test reads "
             + "whether it sends cap windows — write each cap as a literal, or teach ShowBusSpecTests.HelloCapsName the new form");
@@ -1691,6 +1809,77 @@ static class ShowBusSpecTests
     }
 
     /// <summary>
+    /// Whether WebServer still sends no-referrer, noindex and no-framing only with the window page (12.2's page rule, kept for windows and
+    /// not for the pages a viewing code or a crew link opens): each header is written in the window page's handler and nowhere else.
+    /// </summary>
+    static bool PageRuleAtWindowsOnly()
+    {
+        var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
+        var windowPage = Method(server, "private async Task HandleWindowPageAsync(") ?? "";
+        int Times(string text, string word) => Regex.Matches(text, Regex.Escape(word)).Count;
+        return windowPage.Length > 0 && Times(server, "frame-ancestors") == 1
+               && new[] { "Referrer-Policy", "X-Robots-Tag" }.All(x => Times(windowPage, x) > 0 && Times(server, x) == Times(windowPage, x));
+    }
+
+    /// <summary>
+    /// Whether WebServer still rechecks no socket that only a viewing code or a crew link let in (12.2's revocation at once): a changed
+    /// code reaches a screen already open only when it reconnects.
+    /// </summary>
+    static bool ViewersNeverRechecked()
+        => (Method(Source("src/Timer.Remote/WebServer.cs") ?? "", "private void Recheck(WsClient client)") ?? "")
+            .Contains("if (link.KeyId is null && link.PinHash is null) return;", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether Stagewatch still marks no key seen in clear (13.6.9): a stored key has no field for it and the server names no such mark.
+    /// </summary>
+    static bool SeenInClearAsToday()
+        => typeof(ApiKey).GetProperties().All(p => !p.Name.Contains("Clear", StringComparison.Ordinal))
+           && Source("src/Timer.Remote/WebServer.cs") is { } server && !Regex.IsMatch(server, "(?i)seen ?in ?clear|InClear");
+
+    /// <summary>
+    /// Whether the desk still takes a proposal an mcp key sends: WebServer lets an mcp key post one, reads it as a credential that proves
+    /// nothing, and the desk queues a proposal proved by nothing for a node no key is bound to.
+    /// </summary>
+    static bool McpProposalAsToday()
+    {
+        var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
+        return server.Contains("return Authorize(req, remote, ApiKeyScope.Mcp);", StringComparison.Ordinal)
+               && Regex.IsMatch(Method(server, "private NodeCredential CredentialOf(") ?? "", @"_ => NodeCredential\.None")
+               && Proposed("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", "low",
+                   NodeCredential.None) is not null;
+    }
+
+    /// <summary>Whether Stagewatch's hello reader still keeps one address per id, the last it heard (§2's every address, and peer.addresses).</summary>
+    static bool OneAddressAsToday()
+        => typeof(SlidesBeacon.Peer).GetProperty("Address")?.PropertyType == typeof(string)
+           && typeof(SlidesBeacon.Peer).GetProperties().All(p => p.Name != "Addresses");
+
+    /// <summary>
+    /// How long Stagewatch's own context writes a title, a message and a journal line today: a running order item's 300-character title,
+    /// a message of 500 characters (the most the desk keeps of one) sent with an ack and journalled, and a note of 1000 (the most it keeps of
+    /// one) — the headline's length, the timer's label's, the speaker cue's state's and the longest recent line's; Capped while the desk
+    /// still cuts a message at 500 characters and a note at 1000, as the header's words say.
+    /// </summary>
+    static (int Headline, int Label, int State, int Recent, bool Capped) OwnSizes()
+    {
+        var message = new string('m', 500);
+        var frame = Running() with
+        {
+            Title = new string('t', 300),
+            Signals = new[] { new SignalView(2, SignalKind.Message, "speaker", message, SignalState.Sent, false, 5, "") }.ToEquatableArray(),
+        };
+        var input = Own(frame, false, [], [], journal: [new(Tonight, JournalKind.Message, 0, message), new(Tonight, JournalKind.Note, 0, new string('n', 1000))]);
+        var (_, headline, items) = ShowContext.Assess(input);
+        using var doc = JsonDocument.Parse(ShowContext.Build(input));
+        var recent = Items(doc.RootElement, "recent").Select(r => (Str(r, "text") ?? "").Length).DefaultIfEmpty(0).Max();
+        var state = Source("src/Timer.Core/ShowState.cs") ?? "";
+        var capped = state.Contains("if (text.Length > 500) text = text[..500];", StringComparison.Ordinal)
+                     && state.Contains("if (noteText.Length > 1000) noteText = noteText[..1000];", StringComparison.Ordinal);
+        return (headline.Length, items.FirstOrDefault(i => i.Id == "timer")?.Label.Length ?? 0, items.FirstOrDefault(i => i.Id == "cue:speaker")?.State.Length ?? 0,
+            recent, capped);
+    }
+
+    /// <summary>
     /// Whether WebServer still counts view passes as it did before SW19.6, on all three of their paths at once: a wrong window address
     /// is counted in the PIN's table (LockedOut reads it), and so is a wrong viewing code (ViewPass adds to it); a wrong crew link is
     /// counted nowhere (CheckCrewAck and CheckDeptKey count nothing); and a right key clears the PIN's table (AuthorizeSecret). A change
@@ -1722,10 +1911,10 @@ static class ShowBusSpecTests
     /// Its own context keeps P1 (a peer's red stays in its peers row), P5 for its timer (red, with no time in its words), P6 for its
     /// own parts but its vMix link (its Patterns link is P2's) and P8's no-secret rule (no window's address, with a message's text in
     /// the fixture as the desk sends it), and its rows use §6's link kinds. As the desk it keeps the latest context it took for a node,
-    /// context.kept.ms after it came; no command of its own posts one. The header names exactly <see cref="RulesNotKeptYet"/>, each in
-    /// its words, and each entry holds while the code still does what it says.
+    /// context.kept.ms after it came; no command of its own posts one. Each entry of <see cref="RulesNotKeptYet"/> holds while the code
+    /// still does what it says (§8's Stagewatch row names them: <see cref="NodeRows"/>).
     /// </summary>
-    static void ContextCode(Action<bool, string> Check, string header, Numbers n)
+    static void ContextCode(Action<bool, string> Check, Numbers n)
     {
         Check(ShowBusKinds.Nodes.SequenceEqual(n.Kinds) && n.Kinds.All(k => ShowBusKinds.Label(k.T) == k.Name && ShowNetwork.AppName(k.T) == k.Name)
               && ShowBusKinds.Label("eye") is null && ShowNetwork.AppName("eye") == "eye",
@@ -1779,15 +1968,10 @@ static class ShowBusSpecTests
         Check(ShowContext.Commands.All(c => !c.Verb.StartsWith("context", StringComparison.OrdinalIgnoreCase)),
             "showbus spec: Stagewatch lists no context post among the commands its context offers");
 
-        // The header: what of §6's rules Stagewatch does not keep yet, each named exactly while its code still does what it says.
-        var sentence = Regex.Match(Flat(header), @"keep these of §6's rules for the Eye yet: (.+?)\.\s") is { Success: true } h ? h.Groups[1].Value : "";
-        var entries = Regex.Split(sentence, "; (?:and )?").Select(e => Regex.Match(e, @"^(P\d) (.+?) \(today (.+)\)$")).ToList();
-        Check(sentence.Length > 0 && entries.All(e => e.Success)
-              && entries.Select(e => (e.Groups[1].Value, e.Groups[2].Value, e.Groups[3].Value)).SequenceEqual(RulesNotKeptYet.Select(r => (r.Rule, r.Of, r.Today))),
-            "showbus spec: the header names what of §6's rules Stagewatch does not keep yet, in ShowBusSpecTests.RulesNotKeptYet's words (" + sentence + ")");
+        // What of §6's rules Stagewatch does not keep yet: each entry holds exactly while its code still does what it says.
         foreach (var (rule, of, unit, today, differs) in RulesNotKeptYet)
             Check(differs(), $"showbus spec: Stagewatch does not keep {rule} {of} yet ({unit}): today {today} — once its code changes, the entry leaves "
-                + "ShowBusSpecTests.RulesNotKeptYet and the header for a check of the rule kept");
+                + "ShowBusSpecTests.RulesNotKeptYet for a check of the rule kept");
     }
 
     /// <summary>
@@ -1948,6 +2132,423 @@ static class ShowBusSpecTests
         static int Number(Group g) => int.Parse(g.Value, CultureInfo.InvariantCulture);
         return (Number(span.Groups[1]), Number(span.Groups[2]), Number(renew.Groups[1]));
     }
+
+    // ------------------------------------------------------------------ §1–§11's words
+
+    /// <summary>The text of the body's section <paramref name="number"/>, from its heading up to the next section's; empty when there is none.</summary>
+    static string Section(string body, int number)
+    {
+        var head = "## " + number.ToString(CultureInfo.InvariantCulture) + ". ";
+        var start = body.StartsWith(head, StringComparison.Ordinal) ? 0 : body.IndexOf("\n" + head, StringComparison.Ordinal) + 1;
+        if (start == 0 && !body.StartsWith(head, StringComparison.Ordinal)) return "";
+        var end = body.IndexOf("\n## ", start + 1, StringComparison.Ordinal);
+        return body[start..(end < 0 ? body.Length : end)];
+    }
+
+    /// <summary>The ticked text of the first table row of <paramref name="section"/> whose first cell starts with <paramref name="cell"/>, and its other cells.</summary>
+    static (string First, string Cells) TableRow(string section, string cell)
+    {
+        var line = section.Split('\n').FirstOrDefault(l => l.StartsWith("| " + cell + " |", StringComparison.Ordinal)) ?? "";
+        var cells = line.Split('|');
+        return cells.Length < 3 ? ("", "") : (cells[1], string.Join("|", cells[2..]));
+    }
+
+    /// <summary>A JSON text's value, cloned so nothing is left to dispose; null when there is no text or it is not JSON.</summary>
+    static JsonElement? Json(string? text)
+    {
+        if (text is null) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>The quoted names of a shape written <c>{"a","b":{…},"c"}</c>, at its top level, in order.</summary>
+    static List<string> TopNames(string shape)
+    {
+        var flat = shape;
+        for (var before = ""; before != flat;) { before = flat; flat = Regex.Replace(flat, @":\{[^{}]*\}", ""); }
+        return Regex.Matches(flat, "\"([A-Za-z]+)\"").Select(m => m.Groups[1].Value).ToList();
+    }
+
+    /// <summary>
+    /// §1–§11's words. Every dotted name they write in code is a §14 row or one of <see cref="Fields"/>, and each of §2–§5, §10 and §11
+    /// names every row <see cref="SectionRows"/> gives it. §1's rules 3 and 4 hold 13.12.6 and the public view; §2's hello table names
+    /// §14's kinds and ports, its example keeps that table and §14's numbers, and its heading's port is hello.port; §3 appends 13.12's
+    /// four fields to a receipt, in their order, and §4 and §5 hand liveness and the clock's quality to §13; §6 words its sizes, its
+    /// trimming (which touches reds, ambers and panic, air and transport commands only last, so every context has a form within its bytes)
+    /// and its trimmed item, its peers row (the example's row has its fields; fields appended after them; LINK's verified mapped), its
+    /// notation and its posting bound; §7 keeps a PIN, a viewing code and a view pass off PeerLinks and names a PIN-proved node link a
+    /// level-0 door, §7.1 and §7.2 are there with LINK among what a connection may send before pairing; §9 names the language model by what
+    /// it is; §10's span and line protocols are 1.3's; §11's states, ids, credentials and shape are worded. §2's conflict holds a connector,
+    /// in 13.15.3's and 13.16's words, until its mark clears.
+    /// </summary>
+    static void Words(Action<bool, string> Check, string body, Numbers n)
+    {
+        var all = string.Concat(Enumerable.Range(1, 11).Select(i => Section(body, i)));
+        var strays = CodeNames(all).Where(x => !n.Values.ContainsKey(x) && !Fields.Contains(x)).Order(StringComparer.Ordinal).ToList();
+        Check(strays.Count == 0, "showbus spec: every dotted name §1–§11 write in code is a §14 row or a field they name (" + string.Join(", ", strays) + ")");
+        foreach (var (section, of) in SectionRows)
+        {
+            var named = CodeNames(Section(body, section));
+            var owed = n.Values.Keys.Where(k => of.Any(r => r.EndsWith('.') ? k.StartsWith(r, StringComparison.Ordinal) : k == r)).ToList();
+            var missing = owed.Where(k => !named.Contains(k)).Order(StringComparer.Ordinal).ToList();
+            Check(owed.Count > 0 && missing.Count == 0, $"showbus spec: §{section} names every row §14 gives it (" + string.Join(", ", missing) + ")");
+        }
+
+        // §1.
+        var rules = Flat(Section(body, 1));
+        Check(rules.Contains("and a command is never applied twice (13.12.6)", StringComparison.Ordinal),
+            "showbus spec: §1 rule 3 says a command is never applied twice (13.12.6)");
+        Check(rules.Contains("A node's *public view* — what any screen in the room may show, named for each node in §8 — is open by design", StringComparison.Ordinal)
+              && rules.Contains("travels only on an authenticated link (a key, a proof, a pairing: §7), to this machine where the node trusts it, or from a node whose operator left it open (no PIN or token), which a connector says (13.6.7, 13.16.2)", StringComparison.Ordinal),
+            "showbus spec: §1 rule 4 keeps show data off all but the public view, an authenticated link, this machine and an open node, which a connector says");
+
+        // §2: its table, its example and its heading.
+        var s2 = Section(body, 2);
+        var kinds = n.Kinds.Select(k => k.T).ToHashSet(StringComparer.Ordinal);
+        var named2 = Regex.Matches(TableRow(s2, "`t`").Cells, @"`([a-z]+)` \(").Select(m => m.Groups[1].Value).ToList();
+        Check(named2.ToHashSet(StringComparer.Ordinal).SetEquals(kinds) && named2.Count == kinds.Count,
+            "showbus spec: §2's t row names §14's kinds, each once (" + string.Join(", ", named2) + ")");
+        var doors = Regex.Matches(TableRow(s2, "`ports`").Cells, "`([a-z]+)`").Select(m => m.Groups[1].Value).Where(w => w != "port").ToList();
+        Check(doors.ToHashSet(StringComparer.Ordinal).SetEquals(n.Ports) && doors.Count == n.Ports.Count,
+            "showbus spec: §2's ports row names §14's ports, each once (" + string.Join(", ", doors) + ")");
+        Check(s2.StartsWith("## 2. Discovery — one channel: the hello on UDP " + n.Of("hello.port").ToString(CultureInfo.InvariantCulture) + "\n", StringComparison.Ordinal),
+            "showbus spec: §2's heading names hello.port");
+        var fields = Table(s2, "field");
+        var ignored = Regex.Matches(TableRow(s2, "anything else").Cells, "`([a-z]+)`").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        Check(fields.SetEquals(["t", "v", "proto", "id", "inst", "name", "host", "ports", "caps", "clock", "tls", "presenting"]) && ignored.SetEquals(["build", "role", "web", "wire", "machine"]),
+            "showbus spec: §2's table names a hello's fields and the older ones a reader ignores (" + string.Join(", ", fields) + " / " + string.Join(", ", ignored) + ")");
+        if (Inside(s2, "\n```json\n", "\n```") is { } helloJson)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(helloJson);
+                var h = doc.RootElement;
+                var t = Str(h, "t") ?? "";
+                var id = Str(h, "id") ?? "";
+                var ports = h.TryGetProperty("ports", out var p) && p.ValueKind == JsonValueKind.Object ? p.EnumerateObject().Select(x => x.Name).ToList() : [];
+                var caps = Strings(h, "caps");
+                var compact = Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(h));
+                Check(h.EnumerateObject().All(x => fields.Contains(x.Name)) && kinds.Contains(t) && Int(h, "v") == 1 && Int(h, "proto") == n.Proto
+                      && id.Length >= n.Of("hello.id.min") && id.Length <= n.Of("hello.id.max") && Regex.IsMatch(id, "^[A-Za-z0-9_-]+$")
+                      && Regex.IsMatch(Str(h, "inst") ?? "", "^[0-9a-f]{" + n.Of("hello.inst.chars").ToString(CultureInfo.InvariantCulture) + "}$")
+                      && (Str(h, "name") ?? "").Length <= n.Of("hello.name.chars") && (Str(h, "host") ?? "").Length <= n.Of("hello.name.chars")
+                      && ports.Count <= n.Of("hello.ports") && ports.All(n.Ports.Contains)
+                      && caps.Count <= n.Of("hello.caps") && caps.All(c => n.Caps.Any(x => x.Word == c && x.Kinds.Contains(t)))
+                      && Regex.IsMatch(Str(h, "tls") ?? "", "^sha256:[0-9a-f]{64}$") && compact <= n.Of("hello.bytes"),
+                    $"showbus spec: §2's example hello keeps §2's table and §14's kinds, ports, caps for its kind and sizes ({compact} bytes)");
+            }
+            catch (JsonException e) { Check(false, "showbus spec: §2's example hello is JSON (" + e.Message + ")"); }
+        }
+        else Check(false, "showbus spec: §2 shows a hello");
+        var hearing = Flat(s2);
+        Check(hearing.Contains("A node whose doors are bound to this machine only says no hello", StringComparison.Ordinal)
+              && hearing.Contains("**No reader relies on the copy**", StringComparison.Ordinal)
+              && hearing.Contains("dials the address its link already uses while that address is still heard (13.15.4)", StringComparison.Ordinal)
+              && hearing.Contains("every address it heard within `peer.stale.ms`, at most `peer.addresses` of them", StringComparison.Ordinal)
+              && hearing.Contains("never of the one its link uses", StringComparison.Ordinal)
+              && hearing.Contains("marks the id **in conflict**", StringComparison.Ordinal)
+              && hearing.Contains("dials no new link to that id while the mark stands (13.4.4, 13.15.3), and clears the mark after `peer.conflict.clear.ms` without the alternation; a connector then dials it again", StringComparison.Ordinal),
+            "showbus spec: §2 says where a hello goes, how one id is heard, within peer.addresses addresses, and how two nodes with one id are a "
+            + "conflict that holds a connector until its mark clears, as 13.4.4, 13.15.3 and 13.15.4 cite it");
+        var reconnect = Flat(Between(body, "\n### 13.15 ", "\n### 13.16 ") ?? "");
+        var linkStates = Flat(Between(body, "\n### 13.16 ", "\n### 13.17 ") ?? "");
+        Check(reconnect.Contains("An id in conflict (§2) is held while §2's mark stands", StringComparison.Ordinal)
+              && reconnect.Contains("CERTIFICATE CHANGED, a floor and another id link nothing keyed until the operator acts", StringComparison.Ordinal)
+              && linkStates.Contains("| `held` | a key refused, or an id in conflict (§2); its hold runs |", StringComparison.Ordinal)
+              && linkStates.Contains("| `refused` | CERTIFICATE CHANGED, a floor, another id: a person must act |", StringComparison.Ordinal)
+              && linkStates.Contains("`conflict` while §2's mark holds the link (13.15.3)", StringComparison.Ordinal),
+            "showbus spec: 13.15.3 and 13.16 hold an id in conflict until §2's mark clears, never as a refusal a person must end");
+
+        // §3–§5.
+        var s3 = Section(body, 3);
+        var tail = Regex.Matches(s3, @"^- `([A-Za-z]+)`:", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToList();
+        Check(tail.SequenceEqual(ReceiptTail) && Flat(s3).Contains("A receipt may end with four more fields, in this order", StringComparison.Ordinal)
+              && Flat(s3).Contains("is 13.12.3's table", StringComparison.Ordinal),
+            "showbus spec: §3 appends final, repeat, lateMs and frame to a receipt, in that order, and hands reading an answer to 13.12.3 (" + string.Join(", ", tail) + ")");
+        Check(Flat(Section(body, 4)).Contains("Liveness, the same everywhere, is 13.10's", StringComparison.Ordinal)
+              && Flat(Section(body, 4)).Contains("is stale — amber, its counting values shown as \"?\" (13.16.1)", StringComparison.Ordinal)
+              && Flat(Section(body, 4)).Contains("Nothing is queued while a link is down (13.15.5)", StringComparison.Ordinal)
+              && Flat(Section(body, 5)).Contains("— its quality — are 13.11's", StringComparison.Ordinal),
+            "showbus spec: §4 hands liveness to 13.10 and 13.15.5, a stale link amber as 13.16.1 has it, and §5 a clock's quality to 13.11");
+
+        // §6.
+        var s6 = Section(body, 6);
+        var six = Flat(s6);
+        var peerFields = Regex.Match(six, @"A row is `\{((?:""[a-z]+"",?)+)\}`") is { Success: true } pf ? Regex.Matches(pf.Groups[1].Value, "\"([a-z]+)\"").Select(m => m.Groups[1].Value).ToList() : [];
+        var exampleRows = Json(Inside(s6, "\n```json\n", "\n```")) is { } example ? Items(example, "peers") : [];
+        Check(peerFields.Count > 0 && exampleRows.Count > 0 && exampleRows.All(r => r.EnumerateObject().Select(x => x.Name).SequenceEqual(peerFields)),
+            "showbus spec: §6's example's peers rows carry §6's peers fields, in order (" + string.Join(", ", peerFields) + ")");
+        var trimmed = Json(Regex.Match(six, "`(\\{\"id\":\"context:trimmed\"[^`]*\\})`") is { Success: true } tm ? tm.Groups[1].Value : null);
+        Check(trimmed is { } ti && Str(ti, "kind") is { } tk && ShowBusKinds.Known(tk)
+              && Str(ti, "light") == Light.Grey && (Str(ti, "state") ?? "").Length <= n.Of("context.item.state.chars")
+              && six.Contains("leaves out, in this order and only until it fits: the oldest `recent` lines; grey links, then the other links; commands other than panic, air and transport, from the end of its list; grey items, then green items", StringComparison.Ordinal)
+              && six.Contains("Only while what is left is still over does it touch a red or amber item, or a panic, air or transport command: it cuts the `state` of each amber item, then of each red item, ending each cut with `…`; then it leaves out amber items, then red items, then panic, air and transport commands, each from the end of its list", StringComparison.Ordinal),
+            "showbus spec: §6 trims an over-long context in its order, touches red and amber items and panic, air and transport commands only when "
+            + "nothing else is left to trim, so every context has a form within context.bytes, and adds one grey context:trimmed item of a table kind");
+        Check(six.Contains("A reader accepts at least these. It keeps a `verb` whole or drops it, and counts it, and keeps at least `context.words.read.chars` characters of `words`", StringComparison.Ordinal)
+              && six.Contains("It keeps contexts for at least `context.peers` node ids and at most `peers.max`", StringComparison.Ordinal)
+              && six.Contains("answers a context over `context.bytes` with `413` and its size", StringComparison.Ordinal),
+            "showbus spec: §6's sizes bind a reader, and a desk keeps contexts for context.peers to peers.max nodes and answers an over-long one 413");
+        Check(six.Contains("A `<…>` value is exactly one word, but for a form's last element and a value named `words`, `text` or `line`", StringComparison.Ordinal)
+              && six.Contains("A value whose whole name is `token`, `key`, `password`, `passcode` or `secret`", StringComparison.Ordinal)
+              && six.Contains("**A risk that depends on a word** is a row of its own", StringComparison.Ordinal)
+              && six.Contains("may appear line by line in that desk's show report and its operator's AI summary", StringComparison.Ordinal),
+            "showbus spec: §6 words the command notation, a word's risk, the secret placeholders, and that recent may reach a desk's report");
+        Check(six.Contains("A sender may append fields to a row after these; a reader ignores a field it does not know", StringComparison.Ordinal)
+              && six.Contains("A LINK verdict's `verified` (13.6.6) maps onto it: `key` and `link` are `key`, and `code`, the operator's credential (13.5.1), is `operator`", StringComparison.Ordinal),
+            "showbus spec: §6's peers rows take fields appended after theirs, and map a LINK verdict's verified onto their own");
+
+        // §7.
+        var seven = Flat(Section(body, 7));
+        Check(seven.Contains("a PIN, a viewing code or a view pass is never a PeerLink credential (13.5.1); a node link on Stagewatch's `/ws` that the PIN or a control key proves (§7.1) is level 0, a door that is not a PeerLink (13.18)", StringComparison.Ordinal)
+              && seven.Contains("one the operator's credential proves is `verified` `operator`, and is never a PeerLink, which no PIN proves (13.5.1)", StringComparison.Ordinal)
+              && seven.Contains("When the viewing code refuses the socket — its credential does not open the code, and its address does not carry it — that one message carries `\"view\":true`", StringComparison.Ordinal)
+              && seven.Contains("### 7.1 A node on another node's `/ws`", StringComparison.Ordinal) && seven.Contains("### 7.2 Reading a node that asks for a token", StringComparison.Ordinal)
+              && seven.Contains("`LINK` and `LINK PROOF` (13.6.4)", StringComparison.Ordinal)
+              && seven.Contains("`ERR [@id] not paired — this node shows its state only to a paired connection`", StringComparison.Ordinal),
+            "showbus spec: §7 keeps PINs and view passes off PeerLinks and names a PIN-proved node link a level-0 door; §7.1 and §7.2 are there, and LINK is "
+            + "among what a connection sends before pairing");
+
+        // §9–§11.
+        var nine = Section(body, 9);
+        Check(Regex.IsMatch(nine, @"^\| Discovery, links, commands, receipts, state, clock offset, liveness \| The language model: ", RegexOptions.Multiline),
+            "showbus spec: §9's first need for the internet is the language model, by what it is");
+        var ten = Flat(Section(body, 10));
+        Check(ten.Contains("whose whole span — NotBefore to NotAfter, any backdating for a skewed clock included — is at most `cert.days`", StringComparison.Ordinal)
+              && ten.Contains("or when the one it has spans more than `cert.days`", StringComparison.Ordinal)
+              && ten.Contains("(13.8.5); 1.3 has no `STARTTLS`", StringComparison.Ordinal),
+            "showbus spec: §10 bounds a certificate's whole span, replaces an over-long one, and serves TLS on a line wire as 13.8.5 does");
+        var eleven = Flat(Section(body, 11));
+        var states = Ticked(Line(Section(body, 11), "**States:**") + " " + (Between(eleven, "**States:**", "**Ids**") ?? "")).Distinct().ToList();
+        Check(states.ToHashSet(StringComparer.Ordinal).SetEquals(Enum.GetNames<SharedProposalState>().Select(s => s.ToLowerInvariant())),
+            "showbus spec: §11's states are ProposalDesk's (" + string.Join(", ", states) + ")");
+        Check(eleven.Contains("**Ids** are opaque, and unique across a desk's runs: `p<n>-<run>`", StringComparison.Ordinal)
+              && eleven.Contains("refused — never cut — when longer", StringComparison.Ordinal)
+              && eleven.Contains("A target may raise the risk of its own proposal, never lower it", StringComparison.Ordinal)
+              && eleven.Contains("A result is a report owed (13.12.9)", StringComparison.Ordinal),
+            "showbus spec: §11 words ids unique across runs, lines refused not cut, a raise-only self risk and results as reports owed");
+        Check(eleven.Contains("`POST /api/proposals` (a `node` or `control` key, or the PIN)", StringComparison.Ordinal)
+              && eleven.Contains("an `mcp` key posts no proposal here", StringComparison.Ordinal)
+              && eleven.Contains("A desk may append more fields after these, to a proposal and to its `201` answer; a reader ignores a field it does not know", StringComparison.Ordinal),
+            "showbus spec: §11 takes a proposal with a credential that can speak for its from, never an mcp key, and lets a desk append fields to a proposal and its 201");
+    }
+
+    /// <summary>
+    /// §1–§11 against Stagewatch's code: its hello sends only §2's fields or ones §2 says a reader ignores; §3's receipt is its receipt,
+    /// field for field; §6's peers row is its own; as the desk it keeps contexts within §6's bound; §7.1's refusals are NodeLinks', and its
+    /// verdicts are what NodeLinks and NodeBindings say; §11's proposal and its answer to one are ProposalDesk's and the desk's. Where §6 and
+    /// §11 let a sender append fields, the spec's fields come first, in order, and the code may write more after them.
+    /// </summary>
+    static void WordsCode(Action<bool, string> Check, string body, Numbers n)
+    {
+        var s2 = Section(body, 2);
+        var said = Table(s2, "field").Concat(Regex.Matches(TableRow(s2, "anything else").Cells, "`([a-z]+)`").Select(m => m.Groups[1].Value)).ToHashSet(StringComparer.Ordinal);
+        var sent = typeof(SlidesBeacon.Hello).GetProperties().Select(p => p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name).OfType<string>().ToList();
+        Check(sent.Count > 0 && sent.All(said.Contains), "showbus spec: Stagewatch's hello sends only §2's fields or ones §2 says a reader ignores ("
+            + string.Join(", ", sent.Where(x => !said.Contains(x))) + ")");
+
+        var receipt = Inside(Section(body, 3), "\n```json\n", "\n```") ?? "";
+        var made = new CommandReceipt("a1", true, "applied", "Message on the speaker screen", null, new Dictionary<string, long> { ["messageId"] = 12 }).ToJson();
+        Check(SameJson(receipt, Encoding.UTF8.GetString(made)), "showbus spec: Stagewatch keeps §3's receipt: its receipt is §3's example, field for field");
+
+        var six = Flat(Section(body, 6));
+        var peerFields = Regex.Match(six, @"A row is `\{((?:""[a-z]+"",?)+)\}`") is { Success: true } pf ? Regex.Matches(pf.Groups[1].Value, "\"([a-z]+)\"").Select(m => m.Groups[1].Value).ToList() : [];
+        var node = new PeerSummary("playmap", "pm5e6f7a", "PlayMap Stage left", Light.Green, "Out 3 · 60 fps", "10.0.0.12", 1, true) { Link = "ws", Verified = "key" };
+        using (var doc = JsonDocument.Parse(ShowContext.Build(Own(Running(), false, [], [node]))))
+            Check(peerFields.Count > 0 && Items(doc.RootElement, "peers").FirstOrDefault() is { ValueKind: JsonValueKind.Object } row
+                  && row.EnumerateObject().Select(x => x.Name).Take(peerFields.Count).SequenceEqual(peerFields),
+                "showbus spec: Stagewatch keeps §6's peers row: its fields first, in order, any it appends after them (" + string.Join(", ", peerFields) + ")");
+        Check(PeerContexts.MaxPeers >= n.Of("context.peers") && PeerContexts.MaxPeers <= n.Of("peers.max"),
+            $"showbus spec: Stagewatch keeps §6's posting bound: as the desk it keeps contexts for {PeerContexts.MaxPeers} node ids, within context.peers and peers.max");
+
+        var s71 = Between(body, "\n### 7.1 ", "\n### ") ?? "";
+        var errors = new List<string>();
+        var inTable = false;
+        foreach (var line in s71.Split('\n'))
+        {
+            if (line.StartsWith("| request | error |", StringComparison.Ordinal)) { inTable = true; continue; }
+            if (!inTable) continue;
+            if (!line.StartsWith('|')) break;
+            if (!line.StartsWith("|---", StringComparison.Ordinal)) errors.Add(line.Split('|')[2].Trim());
+        }
+        Check(errors.SequenceEqual([NodeLinks.WindowNotNode, NodeLinks.PinInUrl, NodeLinks.NodeDoesNotControl, NodeLinks.BadId, NodeLinks.BadKind, NodeLinks.OwnId]),
+            "showbus spec: Stagewatch keeps §7.1's refusals before the upgrade: NodeLinks' words, in order (" + string.Join(" · ", errors) + ")");
+        var verdicts = (Inside(s71, "\n```\n{", "\n```") is { } v ? "{" + v : "").Split('\n');
+        var bindings = new NodeBindings();
+        bindings.Speak(NodeCredential.Key("k1"), "patterns", "9f8e7d6c", Tonight);
+        var moved = bindings.Speak(NodeCredential.Key("k1"), "patterns", "5e6f7a8b", Tonight);
+        string Said(byte[] message) => Encoding.UTF8.GetString(message);
+        var verified = new WsLink { Class = WsClass.Node, Node = "9f8e7d6c", Kind = "patterns", Verified = NodeProof.Key, Scope = "node" };
+        var other = new WsLink { Class = WsClass.Node, Node = "5e6f7a8b", Kind = "patterns", Verified = NodeProof.None, Scope = "node", Words = moved.Error };
+        Check(verdicts.Length == 3 && !moved.Ok && SameJson(verdicts[0], Said(NodeLinks.Verdict(verified))) && SameJson(verdicts[1], Said(NodeLinks.Verdict(other)))
+              && SameJson(verdicts[2], Said(NodeLinks.Refusal("unknown or revoked API key", NodeLinks.RetrySeconds))),
+            "showbus spec: Stagewatch keeps §7.1's verdicts: a key's node link, a key bound to another id in NodeBindings' words, and a refused key, as NodeLinks writes them");
+
+        var eleven = Section(body, 11);
+        var shape = Regex.Match(Flat(eleven), @"`(\{""id"",""from"":[^`]+\})`") is { Success: true } sm ? TopNames(sm.Groups[1].Value) : [];
+        var proposal = new SharedProposal("p17", new NodeRef("patterns", "9f8e7d6c", "FOH"), new NodeRef("patterns", "9f8e7d6c", "FOH"), "EYE FOCUS screen 2", "", "review", false,
+            SharedProposalState.Pending, Tonight);
+        using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(proposal.ToJson())))
+            Check(shape.Count > 0 && doc.RootElement.EnumerateObject().Select(x => x.Name).Take(shape.Count).SequenceEqual(shape),
+                "showbus spec: Stagewatch keeps §11's proposal: ProposalDesk writes its fields first, in order, any it appends after them (" + string.Join(", ", shape) + ")");
+        var desk = Source("src/Timer.App/ViewModels/MainViewModel.Desk.cs") ?? "";
+        Check(Flat(eleven).Contains("→ `201 {\"ok\":true,\"id\":\"p17\",\"state\":\"pending\",\"risk\":\"review\"}`", StringComparison.Ordinal)
+              && Regex.IsMatch(desk, @"\(201, Json\(new \{ ok = true, id = p\.Id, state = p\.StateName, risk = p\.Risk(?: \}|,)"),
+            "showbus spec: Stagewatch keeps §11's answer to a proposal: 201 with ok, id, state and risk first (MainViewModel.Desk.cs)");
+    }
+
+    /// <summary>
+    /// §8: its table gives each §14 kind one row and its parts follow the table, and each part names what §8 says a row does; every door
+    /// 13.18 names is in a node's row. Stagewatch's row names its doors past 13.18's (OSC's feedback, scripts' bearer keys, the node links
+    /// its operator's credential proves), its two exemptions — ?pin= with its redirect's echo — and its stuckMs as its code has it, within
+    /// §14's bounds; and what it does not keep yet that a release after 2.19 ends or no unit is scheduled to end: every such row of
+    /// <see cref="NotKeptYet"/>, and every entry of <see cref="WordsNotKeptYet"/> and <see cref="RulesNotKeptYet"/>, each on its own in its
+    /// words (the rules in one list, in order, while 1.3 is a draft), and while 1.3 is a draft nothing else. Patterns' row names scope A's
+    /// open queries, and PlayMap's its 9941 exemption and when it ends. Each entry of WordsNotKeptYet holds while the code does that.
+    /// </summary>
+    static void NodeRows(Action<bool, string> Check, string body, string s13, Numbers n, bool draft)
+    {
+        var s8 = Section(body, 8);
+        var rows = Regex.Matches(s8, @"^\| \*\*[^*]+\*\* \(`([a-z]+)`\) \|", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToList();
+        var parts = Regex.Matches(s8, @"^### 8\.(\d+) .+ \(`([a-z]+)`\)$", RegexOptions.Multiline)
+            .Select(m => (N: int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), T: m.Groups[2].Value)).ToList();
+        var kinds = n.Kinds.Select(k => k.T).ToList();
+        Check(rows.Count == kinds.Count && rows.ToHashSet(StringComparer.Ordinal).SetEquals(kinds) && parts.Select(p => p.T).SequenceEqual(rows)
+              && parts.Select(p => p.N).SequenceEqual(Enumerable.Range(1, rows.Count)),
+            "showbus spec: §8's table gives each §14 kind one row, and its parts 8.1 onward follow the table (" + string.Join(", ", rows) + " / "
+            + string.Join(", ", parts.Select(p => p.T)) + ")");
+        string PartOf(string t) => parts.FindIndex(p => p.T == t) is var i and >= 0 ? Part(body, "8." + (i + 1).ToString(CultureInfo.InvariantCulture)) : "";
+        foreach (var t in kinds.Where(k => k != "agent"))
+        {
+            var at = RowParts.Select(label => PartOf(t).IndexOf("- **" + label + "**", StringComparison.Ordinal)).ToList();
+            Check(at.All(i => i >= 0) && at.Zip(at.Skip(1)).All(p => p.First < p.Second),
+                $"showbus spec: §8's row for {t} names, in order, " + string.Join(", ", RowParts));
+        }
+        var doors = Flat(Part(s13, 18) ?? "");
+        (string In1318, string In8)[] named =
+        [
+            ("- OSC;", "OSC"), ("Stagewatch's Companion TCP (9923)", "Companion TCP (9923)"), ("Companion decks on the line wires", "Companion decks on its"),
+            ("browser pages and `?pin=`", "browser pages and `?pin=`"), ("window links (§12)", "window links (§12)"), ("Slides agents", "Slides agents"),
+            ("PlayMap's sync (9942) and fleet traffic", "(9942)"), ("PlayMap's desk↔engine link on one machine", "desk↔engine link"), ("Patterns' twin and its node relays", "twin and node relays"),
+            ("Stagewatch's node links (§7.1) that the PIN or a control key proves", "node links (§7.1) the PIN or a control key proves"),
+        ];
+        var unnamed = named.Where(d => !doors.Contains(d.In1318, StringComparison.Ordinal) || !Flat(s8).Contains(d.In8, StringComparison.Ordinal)).Select(d => d.In1318).ToList();
+        Check(unnamed.Count == 0, "showbus spec: every door 13.18 names is in a node's §8 row (" + string.Join(" · ", unnamed) + ")");
+
+        // Stagewatch's row.
+        var sw = Flat(PartOf("main"));
+        var exemptions = Between(sw, "- **Named exemptions**", "- **Not kept yet**") ?? "";
+        var swDoors = Between(sw, "- **Doors that are not PeerLinks**", "- **Named exemptions**") ?? "";
+        Check(swDoors.Contains("its feedback, once set, sends the show's state to the host it names, unauthenticated and in clear", StringComparison.Ordinal)
+              && swDoors.Contains("scripts and `/mcp` clients (13.6.9's bearer keys)", StringComparison.Ordinal)
+              && swDoors.Contains("node links (§7.1) the PIN or a control key proves: the operator's credential as a bearer, level 0 and never a PeerLink", StringComparison.Ordinal),
+            "showbus spec: §8's Stagewatch row names OSC's feedback, scripts' bearer keys and the node links its operator's credential proves among its doors");
+        Check(exemptions.Contains("`?pin=`: a page or a script may carry the PIN or a key in its address", StringComparison.Ordinal)
+              && exemptions.Contains("not scheduled to end", StringComparison.Ordinal)
+              && exemptions.Contains("an `http://` address that carries the PIN or a key has crossed the network in clear by then, and the redirect's `Location` carries it back once more, in clear", StringComparison.Ordinal)
+              && exemptions.Contains("Companion TCP (9923) takes commands with no authentication when its operator binds it to the network", StringComparison.Ordinal)
+              && exemptions.Contains("its authentication comes with 1.4's default flip", StringComparison.Ordinal),
+            "showbus spec: §8's Stagewatch row names ?pin= (not scheduled to end) and Companion TCP 9923 (until 1.4's default flip) as its exemptions");
+        var stuck = (long)SnapshotHub.StuckAfter.TotalMilliseconds;
+        Check(sw.Contains("- **Show writer**: its show thread. `stuckMs` " + stuck.ToString(CultureInfo.InvariantCulture) + ", ", StringComparison.Ordinal)
+              && stuck >= n.Of("show.stuck.min.ms") && stuck <= n.Of("show.stuck.max.ms")
+              && sw.Contains("It offers neither `stuck` nor `expire` as a feature: no measurement yet", StringComparison.Ordinal),
+            $"showbus spec: §8's Stagewatch row names its show writer and its stuckMs as SnapshotHub has it ({stuck}), within show.stuck.min.ms and show.stuck.max.ms");
+        var notKept = sw[(sw.IndexOf("- **Not kept yet**", StringComparison.Ordinal) is var k and >= 0 ? k : sw.Length)..];
+        var later = NotKeptYet.Where(x => !In219(x.Unit)).ToList();
+        foreach (var (row, unit, today, _) in later)
+            Check(notKept.Contains("`" + row + "` (today " + today + ")", StringComparison.Ordinal),
+                $"showbus spec: §8's Stagewatch row says it does not keep {row} yet, in NotKeptYet's words ({unit}): today {today}");
+        foreach (var (what, unit, today, differs) in WordsNotKeptYet)
+        {
+            Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),
+                $"showbus spec: §8's Stagewatch row says it does not keep {what} yet, in WordsNotKeptYet's words ({unit}): today {today}");
+            Check(differs(), $"showbus spec: Stagewatch does not keep {what} yet ({unit}): today {today} — once its code changes, the entry leaves "
+                + "ShowBusSpecTests.WordsNotKeptYet for a check of the words kept");
+        }
+        // Each rule's entry on its own, so one leaving RulesNotKeptYet after 1.3 is final leaves the frozen row's words standing; their
+        // list, in order, only while 1.3 is a draft.
+        var rules = RulesNotKeptYet.Select(r => r.Rule + " " + r.Of + " (today " + r.Today + ")").ToList();
+        foreach (var (rule, of, unit, today, _) in RulesNotKeptYet)
+            Check(!In219(unit) && notKept.Contains(rule + " " + of + " (today " + today + ")", StringComparison.Ordinal),
+                $"showbus spec: §8's Stagewatch row says it does not keep {rule} {of} yet, in RulesNotKeptYet's words ({unit}): today {today}");
+        Check(!draft || (rules.Count > 1 && notKept.Contains("of §6's rules for the Eye: " + string.Join("; ", rules.SkipLast(1)) + "; and " + rules[^1], StringComparison.Ordinal)),
+            "showbus spec: while 1.3 is a draft, §8's Stagewatch row names what of §6's rules it does not keep yet in one list, in RulesNotKeptYet's order");
+        var entries = Regex.Matches(notKept, @"\(today ").Count;
+        var owed = later.Count + WordsNotKeptYet.Length + RulesNotKeptYet.Length;
+        Check(entries == owed || (!draft && entries > owed),
+            $"showbus spec: while 1.3 is a draft, §8's Stagewatch row says nothing is not kept yet but what NotKeptYet, WordsNotKeptYet and RulesNotKeptYet hold ({entries} entries, {owed} held)");
+
+        // Patterns' and PlayMap's exemptions.
+        Check(Flat(PartOf("patterns")).Contains("`NAV`, `MENU`, `CUE LIST`, `ARCADE …` and `ASSISTANT …` stay open before pairing (§7.2)", StringComparison.Ordinal),
+            "showbus spec: §8's Patterns row names scope A's queries that stay open before pairing");
+        Check(Flat(PartOf("playmap")).Contains("- **Named exemptions**: TCP 9941 sends `STATE` on `HELLO`", StringComparison.Ordinal)
+              && Flat(PartOf("playmap")).Contains("its owner's decision 17; it ends after Patterns' Round 96, once Patterns' node devices pair by proof", StringComparison.Ordinal),
+            "showbus spec: §8's PlayMap row names its 9941 greeting as an exemption under its owner's decision 17, ending after Patterns' Round 96");
+    }
+
+    /// <summary>The header's sentence of what this tree does not keep of 1.3 yet that 2.19 brings, flattened; empty when there is none.</summary>
+    static string Brought(string header)
+        => Regex.Match(Flat(header), @"this tree does not keep these of 1\.3 yet either, which Stagewatch 2\.19 brings before it ships: (.+?)\.\s") is { Success: true } m
+            ? m.Groups[1].Value : "";
+
+    /// <summary>
+    /// The header names what 2.19 brings: every row of <see cref="NotKeptYet"/> a unit of 2.19 ends, in its words, and no other row; and
+    /// each entry of <see cref="NotKept219"/> exactly while its code still does what it says. The rows each 2.19 unit ends are in
+    /// the header, never in the body, which 1.3 final freezes.
+    /// </summary>
+    static void Brings(Action<bool, string> Check, string header)
+    {
+        var sentence = Brought(header);
+        Check(sentence.Length > 0, "showbus spec: the header says what this tree does not keep of 1.3 yet, which Stagewatch 2.19 brings");
+        // An entry names its rows in code, then what the code does today: "`a`, `b` and `c` (today …)".
+        var now = NotKeptYet.Where(x => In219(x.Unit)).ToList();
+        foreach (var (row, unit, today, _) in now)
+            Check(Regex.IsMatch(sentence, "`" + Regex.Escape(row) + @"`[^()]*\(today " + Regex.Escape(today) + @"\)"),
+                $"showbus spec: the header says this tree does not keep {row} yet, in NotKeptYet's words ({unit}): today {today}");
+        var listed = Regex.Matches(sentence, @"`([a-z][a-z0-9.]*)`(?=[^()]*\(today )").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        Check(listed.SetEquals(now.Select(x => x.Row)), "showbus spec: the header's rows that 2.19 brings are NotKeptYet's rows a 2.19 unit ends ("
+            + string.Join(", ", listed.Order(StringComparer.Ordinal)) + " / " + string.Join(", ", now.Select(x => x.Row).Distinct().Order(StringComparer.Ordinal)) + ")");
+        foreach (var (what, unit, today, differs) in NotKept219)
+            Check(In219(unit) && sentence.Contains(what + " (today " + today + ")", StringComparison.Ordinal) == differs(),
+                $"showbus spec: the header names {what} exactly while Stagewatch does that ({unit}): today {today}"
+                + (differs() ? "" : " — it keeps it now: take it out of the header's list"));
+    }
+
+    /// <summary>Whether two JSON texts are one value, their top-level fields in one order; false when either is not JSON.</summary>
+    static bool SameJson(string a, string b)
+    {
+        try
+        {
+            using var x = JsonDocument.Parse(a);
+            using var y = JsonDocument.Parse(b);
+            static IEnumerable<string> Names(JsonElement e) => e.ValueKind == JsonValueKind.Object ? e.EnumerateObject().Select(p => p.Name) : [];
+            return JsonElement.DeepEquals(x.RootElement, y.RootElement) && Names(x.RootElement).SequenceEqual(Names(y.RootElement));
+        }
+        catch (JsonException) { return false; }
+    }
+
+    /// <summary>Whether Stagewatch's receipts still carry none of §3's last fields.</summary>
+    static bool ReceiptTailAsToday()
+    {
+        using var doc = JsonDocument.Parse(new CommandReceipt("a1", true, "applied", "", null).ToJson());
+        return ReceiptTail.All(f => !doc.RootElement.TryGetProperty(f, out _));
+    }
+
+    /// <summary>Whether ProposalDesk's ids still restart with each desk: a new desk's first proposal is p1.</summary>
+    static bool ProposalIdsAsToday()
+        => Proposed("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", "low") is { Id: "p1" };
+
+    /// <summary>
+    /// What a new desk makes of <paramref name="json"/>, proposed with <paramref name="credential"/> (the operator's when none is given),
+    /// when its target's table rates every line <paramref name="tableRisk"/>: the proposal it queued, or null when it refused it.
+    /// </summary>
+    static SharedProposal? Proposed(string json, string tableRisk, NodeCredential? credential = null)
+        => new ProposalDesk(() => "abc123abc123", new NodeBindings()).Submit(json, credential ?? NodeCredential.Operator, (_, _) => tableRisk, Tonight).Proposal;
 
     // ------------------------------------------------------------------ reading the text
 

@@ -1,37 +1,36 @@
 # Show Bus 1.3 (draft) — the contract between Stagewatch, Patterns, PlayMap, AGMessage and their micro-apps
 
-*Version 1.3, a draft (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello `tls` and
-caps `approvals`). 1.3 so far adds §6's rules for the Eye: what every node publishes so any Eye can draw it (P1–P8), the link ends
-that name another node, posting a context — on a `line` link too, `CONTEXT POST` — and the kind table; §12 Windows: what a window
-is, its view passes and its link, how a node grants a window to another node's app and how that app holds it, with §1 rule 5's
-words for view passes and the two carriers they ride; §13 PeerLink: one authenticated link between two nodes, with the vectors
-every tree checks itself against; and §14 The numbers: every number the contract names, with its node kinds, doors and caps, in
-one block each tree's test reads. Before 1.3 is final it gains 1.3's words for §1–§11, each citing its §14 rows — §2's hello
-limits, `proto` as the revision and the `playmap` kind, §6's sizes and the order in which a sender leaves things out of an
-over-long context, §10's whole span, the `playmap` §8 row, and each node's §8 row with what it does not keep yet and its named
-exemptions, among them. Until those words land, a §14 row's name, §14's own words and its section's 1.2 words say what it bounds;
-a row whose idea none of those words holds yet binds nothing until its section's words land: `hello.inst.chars` and
-`peer.conflict.clear.ms` (§2), `cert.backdate.hours` (§10) and `proposal.result.ms` (§11). §12 and §13 cite §7.1 and §7.2 ahead of
-their words: the node link on Stagewatch's `/ws`, and what a `line` acceptor answers before LINK. Until Stagewatch's §8 row says
-so, it does not keep these of §12 yet: wrong view passes in a count of their own (`view.wrong.per.minute`: today wrong window
-addresses and viewing codes count with wrong PINs, and a right PIN or key clears them; wrong crew links count nowhere); 12.2's
-page rule for a page opened with a viewing code or a crew link (it serves those pages without the window page's no-referrer,
-noindex and no-framing headers); 12.2's revocation at once for a viewing code or a crew link (a screen already open on a changed
-one keeps its link until it reconnects); grants (`window.grants`: today it grants no window, so no grant's address travels); and
-cap `windows` in its hello. No node holds or draws a granted window yet. Nor does Stagewatch keep these of §6's rules for the Eye
-yet: P2 for its links (today its only rows run from its timer, its Patterns link is an item of kind `playout`, and no row names a
-peer); P2 for the node links it accepts on `/ws` (today it lists them only as `peers` rows, with `link` and `verified`); P3 for
-the clip time it shows from Patterns (today its screens show Patterns' clip time, and no row names Patterns' item); P5 for its
-schedule (today a stuck show thread turns its timer red and leaves its schedule's light as the frame gives it); P6 for its vMix
-link (today an item of kind `playout`); P7 for its order (today its timer is its first item whatever its light); and P8 for its
-messages (today a cue item carries the text of a message it sent, a speaker message sent with an ack among them, and `recent`
-carries the text of every message and audience question its journal holds). The scripted peer §13.20 names comes with the
-conformance kit, and its hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is final every node
-keeps 1.2, and a node offers LINK only once its tree passes §13.20. This page is the contract. `docs/ECOSYSTEM.md` is the why
-and the roadmap; each app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, AGMessage
-`docs/NODES.md`) shows how its endpoints implement this. Patterns and AGMessage keep copies of 1.2; this one is the master. Its body — from
-`## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends and one final LF — is held by a SHA-256 pinned in
-Stagewatch's own test, so every edit to it is deliberate; that hash is printed here, for the copies to hold, once 1.3 is final.*
+*Version 1.3, a draft (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello `tls` and caps
+`approvals`). 1.3 adds, in §1–§11: the `playmap` kind, `proto` as the revision whose shapes a node speaks, the hello's numbers, where a
+hello is sent from and how one id is heard (§2); reads after pairing and each node's public view (§1 rule 4, §7.2); a receipt's last
+fields (§3); the context's sizes, the order a sender trims it in, the command notation and the `peers` fields (§6); one key for one
+node, and a node on another node's `/ws` (§7, §7.1); each node's row — its public view, its scopes, its show writer, its doors and
+named exemptions, and what it does not keep yet (§8); the certificate's whole span (§10); and the approval queue's lines, risk, ids and
+shape (§11). §6 gains the rules for the Eye: what every node publishes so any Eye can draw it (P1–P8), the link ends that name another
+node, posting a context — on a `line` link too, `CONTEXT POST` — and the kind table. §12 Windows says what a window is, its view passes
+and its link, how a node grants a window to another node's app and how that app holds it, with §1 rule 5's words for view passes and
+the two carriers they ride; §13 PeerLink, one authenticated link between two nodes, with the vectors every tree checks itself against;
+and §14 The numbers, every number the contract names, with its node kinds, doors and caps, in one block each tree's test reads. The
+scripted peer §13.20 names comes with the conformance kit, and its hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until
+then). Until 1.3 is final every node keeps 1.2, and a node offers LINK only once its tree passes §13.20. §8's Stagewatch row says what
+Stagewatch 2.19, which carries 1.3, does not keep of it; this tree does not keep these of 1.3 yet either, which Stagewatch 2.19 brings
+before it ships: `proto` (today a hello says proto 1); `hello.caps` (today the hello reader keeps 16 caps); `hello.name.chars` (today
+the hello reader cuts a name at 60 characters); `hello.inst.chars` (today no hello carries inst); `peers.max` (today the hello reader
+takes a new id while 128 peers are held, so it holds 129); `peer.conflict.clear.ms` (today no id is marked in conflict); §2's silence
+on loopback (today it says hello whatever its doors are bound to); `peer.addresses` and §2's every address per id (today its hello
+reader keeps the last address it heard for an id); `context.bytes`, `context.items` and `context.links` (today nothing bounds
+Stagewatch's own context's bytes, items or links); `context.headline.chars`, `context.item.label.chars`, `context.item.state.chars` and
+`context.recent.chars` (today its own context writes a title, a message's text and a journal line whole: a running order item's title
+as its timer's label and in its headline, a message's text in a cue's state, and each journal line in `recent`, a message up to 500
+characters and a note up to 1000); §6's order of commands (today its context lists `blackout`, `next` and `start / pause` after its
+notes, messages and cues); `cert.days` (today NodeCertificate spans 826 days: a day back and 825 on); `view.wrong.per.minute` (today
+wrong window addresses and viewing codes count with wrong PINs, and a right PIN or key clears them; wrong crew links count nowhere);
+and cap `windows` in its hello. No node holds or draws a granted window yet. This page is the contract. `docs/ECOSYSTEM.md` is the why
+and the roadmap; each app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, PlayMap
+`docs/SHOWBUS-NODE.md`, AGMessage `docs/NODES.md`) shows how its endpoints implement this. Patterns and AGMessage keep copies of 1.2;
+this one is the master. Its body — from `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends and one final LF
+— is held by a SHA-256 pinned in Stagewatch's own test, so every edit to it is deliberate; that hash is printed here, for the copies to
+hold, once 1.3 is final.*
 
 *Landed (§14): Stagewatch.*
 
@@ -41,13 +40,18 @@ off-site. See §9.
 
 ## 1. Rules every node follows
 
-1. **Attempts are not facts.** A command is *sent → accepted → applied*. A node answers every command it was given an
-   id for with a receipt that says which (§3). "OK" from a socket write is never success.
-2. **Durations, not wall clocks, for anything that counts.** Remaining time travels as a duration with a sequence
-   number; a receiver counts down from the frame it holds and re-syncs when the sequence moves (§4).
-3. **Latest wins for state, nothing is dropped for replies.** A slow peer gets the newest state, never a backlog; a
-   reply is never dropped but a peer that stops reading is cut (one writer per connection).
-4. **Discovery says what a node is, never what the show is doing.** Show data travels only on authenticated links (§2).
+1. **Attempts are not facts.** A command is *sent → accepted → applied*. A node answers every command it was given an id for with a
+   receipt that says which (§3). "OK" from a socket write is never success.
+2. **Durations, not wall clocks, for anything that counts.** Remaining time travels as a duration with a counter that moves on every
+   discontinuity; a receiver counts down from the frame it holds and re-syncs when the counter moves (§4).
+3. **Latest wins for state, nothing is dropped for replies.** A slow peer gets the newest state, never a backlog; a reply is never
+   dropped but a peer that stops reading is cut (one writer per connection); and a command is never applied twice (13.12.6).
+4. **Discovery says what a node is, never what the show is doing; show data goes only where the node knows the reader.** The one show
+   fact a hello carries is a Slides agent's `presenting` (§2). A node's *public view* — what any screen in the room may show, named for
+   each node in §8 — is open by design. Everything else (its state beyond that view, its context, its journal lines, the answers to its
+   queries) travels only on an authenticated link (a key, a proof, a pairing: §7), to this machine where the node trusts it, or from a
+   node whose operator left it open (no PIN or token), which a connector says (13.6.7, 13.16.2). A node that still serves more names it in
+   its §8 row, with what ends it.
 5. **Secrets ride in no URL, no journal line, no frame and no beacon.** Keys, tokens and PINs go in a header or a proof (§7, 13.6);
    the doors that still take one in an address are named in 13.18. The one exception is a *view pass* (§12.2) — a window's address,
    a viewing code, a crew link: it views (a crew link also answers its department's cues and keeps its department's notes), is
@@ -62,35 +66,71 @@ off-site. See §9.
 
 ## 2. Discovery — one channel: the hello on UDP 9928
 
-Every node broadcasts a hello every **2 s** to UDP 9928 (broadcast and loopback), and **every node listens** on 9928
-(shared port, `SO_REUSEADDR`). Nothing else is needed to find a peer.
+Every node says hello every `hello.every.ms` on UDP `hello.port` (9928), and **every node listens** on it (a shared port,
+`SO_REUSEADDR`). Nothing else is needed to find a peer.
+
+**Where a hello goes.** A node whose doors the network can reach broadcasts its hello (255.255.255.255), sent from a socket bound to the
+address its doors are bound to — every interface, or the one address — so the address a hello comes from is one its doors answer on. It
+may also send a copy to 127.0.0.1; each send is on its own, so a broadcast that fails never stops the copy. **No reader relies on the
+copy**: on a shared port a datagram sent to one address reaches one listener of several. A node whose doors are bound to this machine
+only says no hello. `ports` names only doors every receiver of that hello can open. 1.3 names no carrier that finds nodes on one machine
+with no network: there a typed address (127.0.0.1 and the port) links them, in each app's link settings.
 
 ```json
-{"t":"main","v":1,"proto":1,"id":"a1b2c3d4","name":"Hall A","host":"FOH-LAPTOP",
- "ports":{"http":9924,"ws":9924},"caps":["timer","cues","messages","context","receipts"],"clock":1760101234567}
+{"t":"main","v":1,"proto":3,"id":"3f9c2a1b7d0e","inst":"c3d4e5f6","name":"Hall A","host":"FOH-PC",
+ "ports":{"http":9924,"https":9924,"ws":9924},
+ "caps":["timer","cues","messages","context","receipts","clock","screens","windows","aux","slides-in","copilot","approvals","mcp"],
+ "clock":1760101234567,"tls":"sha256:03e9b152ca42518c28128f36def699be8aea5eec11bb9d5afc18a314f8c3eb04"}
 ```
 
 | field | meaning |
 |---|---|
-| `t` | node kind: `main` (Stagewatch), `agent` (Stagewatch Slides presenter PC), `patterns`, `messenger` (AGMessage) |
-| `v` / `proto` | hello format version (1) / Show Bus version this node speaks (1 = 1.1 contract) |
-| `id` | stable per install (random, 8 hex), so a renamed node is still the same node |
-| `ports` | where to connect: `http`, `ws`, `wire` (Patterns TCP), `osc` — only those it serves |
-| `caps` | what it can do: `timer`, `cues`, `messages`, `video`, `eye`, `context`, `receipts`, `clock`, `slides`, `mcp`, `ai` |
-| `clock` | sender's Unix time in ms (for a first, rough offset; the real one is §5) |
+| `t` | the node's kind: a §14 `kind` row — `main` (Stagewatch), `agent` (Stagewatch Slides on a presenter PC), `patterns` (Patterns), `playmap` (PlayMap), `messenger` (AGMessage) — or another word of letters, digits, `-` and `_`, at most `hello.kind.chars` |
+| `v` | the hello's format: 1. A reader drops a hello whose `v` it does not know |
+| `proto` | the Show Bus revision whose shapes the node speaks: §14's `proto` for that revision, a whole number that only grows (1.1 and 1.2 nodes sent 1). What a node does not keep yet of its revision is in its §8 row. A reader never refuses a hello for it, and never decides a safety question by it |
+| `id` | stable per install and random — at least 32 bits, never derived from a secret, a serial or a licence — so a renamed node is still the same node: `hello.id.min` to `hello.id.max` letters, digits, `-` and `_` |
+| `inst` | `hello.inst.chars` lowercase hex, new at every start of the process |
+| `name` / `host` | the node's name and its machine's, each at most `hello.name.chars` characters |
+| `ports` | where to connect, only the doors it serves, at most `hello.ports` of §14's `port` words: `http`, `https`, `ws`, `wire` (a line wire: Patterns 9697, PlayMap 9941), `osc`, `companion` (Stagewatch's Companion TCP), `sync` (PlayMap's clock exchange) |
+| `caps` | what it can do: at most `hello.caps` words of lowercase letters, digits, `.` and `-`, each at most `hello.cap.chars` — §14's `cap` rows for its kind (§14.6 says what each means), and words its own node page declares. A dotted word is a finer ability of the word before its dot. A reader ignores a word it does not know |
+| `clock` | the sender's Unix time in ms (a first, rough offset; §5 is the real one) |
+| `tls` | `sha256:` and 64 lowercase hex of its certificate's DER, beside `ports.https` (§10) |
+| `presenting` | a Slides agent only: whether it is showing a slide — the one show fact a hello carries (§1 rule 4) |
+| anything else | ignored by a reader that does not know it (`build`, `role`, and the older top-level `web`, `wire` and `machine`) |
 
-A peer is **live** while hellos keep coming, **stale** after 6 s without one, **gone** after 12 s (§5). A node bound
-to loopback only does not broadcast. The older beacons (Patterns 9700, Stagewatch rooms 9927) remain for their own
-features (Patterns' twin/standby, Stagewatch's multi-room dashboard) and are not used for discovery between apps.
+A hello is at most `hello.bytes` as sent, one datagram that needs no fragmenting; a reader takes one of at least `hello.read.bytes`,
+keeps at least `hello.caps` of its caps, and keeps its `name` and `host` whole.
+
+**Hearing.** A reader lists every kind that passes these rules and acts only on kinds it knows. A peer is **live** while hellos keep
+coming, **stale** after `peer.stale.ms` without one, **gone** after `peer.gone.ms`; a reader forgets it after `peer.forget.ms`, and keeps
+at most `peers.max` peers: a new id beyond that is dropped.
+
+**One id, one peer.** A reader keeps, per id, every address it heard within `peer.stale.ms`, at most `peer.addresses` of them: a new
+address past that takes the place of the one heard longest ago, never of the one its link uses. It dials the address its link already
+uses while that address is still heard (13.15.4); an address change alone is not a change of the peer. A peer heard from 127.0.0.1, or
+from one of the reader's own addresses, is on the reader's machine: the reader may dial 127.0.0.1 first and, if refused, the heard
+address. A host name alike on two machines proves nothing.
+
+**Two nodes, one id.** Ids are not authenticated and travel with copied settings. A reader that hears one id with `inst` A, then B,
+then A again, each within `peer.stale.ms` of the last — or, from a node that sends no `inst`, two different `host` values within
+`peer.stale.ms` — marks the id **in conflict**: it shows it amber, naming both hosts and addresses ("two machines say they are
+3f9c2a1b7d0e: FOH-PC at 10.0.0.5 and FOH-PC2 at 10.0.0.7"), keeps the link it had, dials no new link to that id while the mark stands
+(13.4.4, 13.15.3), and clears the mark after `peer.conflict.clear.ms` without the alternation; a connector then dials it again. A
+restart (A, then only B) is not a conflict; one `inst` from two addresses is one node with two addresses.
+
+The older beacons (Patterns 9700, Stagewatch rooms 9927) remain for their own features (Patterns' twin and standby, Stagewatch's
+multi-room dashboard) and are not used for discovery between apps.
 
 ## 3. Commands and receipts
 
-Any command may carry a **request id** (`[A-Za-z0-9_-]{1,32}`). A node that sees an id answers with a receipt for it.
+Any command may carry a **request id**: 1 to `request.id.chars` letters, digits, `-` and `_`. A node that sees an id answers with a
+receipt for it.
 
 | transport | request | receipt |
 |---|---|---|
 | Patterns wire (TCP 9697) | `@a1 VIDEO END 10` | `OK @a1 <json?>` · `ERR @a1 <reason>` |
-| Stagewatch Companion TCP (9923) | `@a1 START` | `OK @a1` · `ERROR @a1 <reason>` |
+| PlayMap wire (TCP 9941) | `@a1 PLAYLIST GO show #4` | `OK @a1 <json?>` · `ERR @a1 <reason>` |
+| Stagewatch Companion TCP (9923) | `@a1 START` | `OK @a1 <stage> <effect>` · `ERROR @a1 <reason>` |
 | Stagewatch HTTP (`/api/...`) | header `X-Request-Id: a1` | JSON body (below) |
 | Stagewatch WS (`/ws`) | `{"cmd":"start","args":[],"id":"a1"}` | `{"type":"receipt", ...}` (below) |
 | AGMessage HTTP / Socket.io | `id` field / ack callback | same JSON |
@@ -98,44 +138,61 @@ Any command may carry a **request id** (`[A-Za-z0-9_-]{1,32}`). A node that sees
 Receipt JSON (HTTP and WS):
 
 ```json
-{"type":"receipt","id":"a1","ok":true,"stage":"applied","effect":"Message on the speaker screen","refs":{"messageId":12}}
+{"type":"receipt","id":"a1","ok":true,"stage":"applied","effect":"Message on the speaker screen","error":null,"refs":{"messageId":12}}
 ```
 
-`stage` is `accepted` (queued; the node could not confirm within its deadline, normally 3 s) or `applied` (run on the
-show thread; `effect` says what changed). `ok:false` carries `error`. `refs` names what the command made — a message's
-signal id (so the sender can follow its acknowledgement), a proposal id (an AI agent's command waiting for the
-operator). A command without an id behaves exactly as before.
+`stage` is `accepted` (taken; the node could not confirm it within its deadline, `receipt.deadline.ms`) or `applied` (run by its show
+writer; `effect` says what changed). `ok:false` carries `error`. `refs` names what the command made, by number — a message's signal id
+(so the sender can follow its acknowledgement), an AI agent's proposal waiting for the operator. A command without an id behaves exactly
+as before.
+
+A receipt may end with four more fields, in this order, each only where it applies:
+
+- `final`: `true` on the one follow-up of a receipt that said `accepted` while the command waited on another node — on WS and line
+  transports, with the same id, once, within `receipt.final.ms` (on a line, the word `final` after the id: 13.12.4);
+- `repeat`: `true` when the receipt is answered from the node's record of an id it already ran, which it does not run again (13.12.6);
+- `lateMs`: how late the command ran, when it ran more than `receipt.late.ms` after it was read (13.12.5);
+- `frame`: the counter (§4) of the first state frame published after it ran (13.12.2).
+
+A reader ignores a field it does not know. How a connector reads every answer — a line, a JSON receipt or an HTTP status — into one of
+five outcomes is 13.12.3's table.
 
 ## 4. State frames
 
-Every state stream carries `v` (frame format version), `seq` (increases with every published change; a receiver
-seeing a smaller `seq` after a reconnect knows the sender restarted) and the node's `id`. Counting values are durations
-(`seconds`, `remainingMs`) plus a `seq` that changes on every discontinuity (seek, pause, nudge, loop, item change).
+Every state stream carries its frame format version and a **frame counter** that rises with every published frame, so a receiver that
+sees a smaller one after a reconnect knows the sender restarted: Stagewatch's frames `v` and `seq`, PlayMap's STATE `seq`, Patterns'
+STATE `rev`. The node a stream belongs to is named by how it was found (its hello) or by the first message of its link (§7.1); a frame
+need not repeat it. Counting values travel as durations (`seconds`, `remainingMs`, `positionMs`) with a counter that moves on every
+discontinuity — a seek, a pause, a nudge, a loop, an item change: a **discontinuity counter** inside the object it counts (`video.seq` in
+Patterns' STATE, `clip.seq` in PlayMap's), which never moves for the playhead running on, or the frame counter itself where a node sends
+a frame on every change (Stagewatch's `seq`).
 
-Liveness, the same everywhere: a state stream sends at least one frame or beat every **2 s**; a receiver marks the
-link **stale after 6 s** of silence (show "?" / grey) and **drops and redials after 12 s**. Redial backoff: 0.5 s
-doubling to 5 s, with jitter. A node never queues commands while a link is down: a command to a dead link fails at once
-with a receipt saying so.
+Liveness, the same everywhere, is 13.10's. A state stream sends a frame or a beat at least every `link.beat.ms`, and a link pings every
+`ping.min.ms` to `ping.max.ms` (§5). A link silent past `link.stale.ms` is stale — amber, its counting values shown as "?" (13.16.1) —
+and past `link.drop.ms` it is down: dropped and redialled on 13.15's waits, from `link.redial.first.ms` doubling to
+`link.redial.max.ms`, with jitter. Nothing is queued while a link is down (13.15.5): a command to a link that is not live is `not-sent`
+at once, with a receipt that says so (13.12.3).
 
 ## 5. Clock offset
 
-Links that can ping carry timestamps, NTP-style: the client sends its time `t1`, the server answers with its receive
-time `t2` and send time `t3`, the client notes `t4` on arrival.
+Links that can ping carry timestamps, NTP-style: the client sends its time `t1`, the server answers with its receive time `t2` and send
+time `t3`, the client notes `t4` on arrival.
 
 | transport | ping | pong |
 |---|---|---|
-| Patterns wire | `PING 1760101234567` | `OK PONG 1760101234567 <t2> <t3>` |
+| Patterns and PlayMap wires | `PING 1760101234567` | `OK PONG 1760101234567 <t2> <t3>` |
 | Stagewatch WS | `{"cmd":"ping","t":1760101234567}` | `{"type":"pong","t":...,"t2":...,"t3":...}` |
 | Stagewatch Companion | `PING 1760101234567` | `PONG 1760101234567 <t2> <t3>` (after the existing words) |
 
-`offset = ((t2 − t1) + (t3 − t4)) / 2`, `rtt = (t4 − t1) − (t3 − t2)`; keep the sample with the smallest rtt of the
-last 8. A node shows **CLOCKS APART** when a peer's offset exceeds **2 s** — timers on two machines then disagree on
-what time "14:30" is, even though durations stay right.
+`offset = ((t2 − t1) + (t3 − t4)) / 2`, `rtt = (t4 − t1) − (t3 − t2)`; keep the sample with the smallest rtt of the last
+`clock.window`. A node shows **CLOCKS APART** when a peer's offset, less that sample's error, exceeds `clock.apart.ms` — timers on two
+machines then disagree on what time "14:30" is, even though durations stay right. Which samples a link refuses, a sample's error, and
+when a clock is fresh and fit for a timed command — its quality — are 13.11's.
 
 ## 6. Context — what an AI (or the Eye) needs to understand a node
 
-Every node answers **`GET /api/context`** (HTTP, authenticated read) and Patterns also **`CONTEXT`** on the wire, with
-one shape:
+A node with cap `context` answers **`GET /api/context`** (HTTP, an authenticated read), and a `line` acceptor — Patterns, PlayMap —
+also **`CONTEXT`** on its wire, with one shape:
 
 ```json
 {"v":1,"node":{"t":"main","id":"a1b2c3d4","name":"Hall A"},"at":1760101234567,
@@ -147,7 +204,8 @@ one shape:
  "links":[{"from":"link:patterns","to":"@9f8e7d6c","kind":"controls","light":"green"}],
  "recent":[{"at":1760101230000,"text":"GO Lighting: LX 11 (done by Sam)"}],
  "commands":[{"verb":"signal go all","risk":"high","words":"GO every department standing by"}],
- "peers":[{"t":"patterns","id":"9f8e7d6c","name":"Patterns FOH","light":"green","headline":"Programme: VT1 · 3 screens green"}]}
+ "peers":[{"t":"patterns","id":"9f8e7d6c","name":"Patterns FOH","light":"green","headline":"Programme: VT1 · 3 screens green",
+   "heard":"live","link":"line","verified":"key"}]}
 ```
 
 - `light` is the worst light of the node's items: `red` (wrong now: overtime, curfew missed, unanswered cue, link
@@ -172,16 +230,55 @@ one shape:
   item in its words; a link whose end names a node the reader does not show is left out and counted. A link with an end on another
   node is the publishing node's claim, never a fact about that node, and a reader words it as one ("PlayMap Stage left says: drawing
   it").
-- `recent` is the last ≤ 20 journal lines in plain words; `commands` the verbs a peer (or an AI) may propose, each with
-  its risk (`low`, `review`, `high` — high is never pre-ticked by any assistant).
+- `recent` is the last `context.recent` journal lines in plain words, each at most `context.recent.chars`. A context posted to, or read
+  by, a desk may appear line by line in that desk's show report and its operator's AI summary: a node puts nothing in `recent` that the
+  desk's readers may not see (P8).
+- `commands` are the verbs a peer (or an AI) may propose, each `{"verb","risk","words"}`: its form in the notation below, its risk
+  (`low`, `review`, `high` — high is never pre-ticked by any assistant) and what it does, in words. A sender lists its panic, air and
+  transport commands first.
+  - **The notation.** A literal word matches whatever its case. `A|B` is one word, either of those; `[…]` is optional and nests; a bare
+    `…` is any further words. ` | ` outside brackets separates whole forms, and a form that does not start with the verb's first word
+    carries on from the first form's leading literal words, all but the last. A `<…>` value is exactly one word, but for a form's last
+    element and a value named `words`, `text` or `line`, or ending in ` words` or ` line`, each of which takes one word or more. A line's
+    words are read as the line wires read them: a quoted phrase, with `\"` inside it, is one word, and a word that opens with `{` or `[`
+    runs to the end of the line.
+  - **A risk that depends on a word** is a row of its own: the form again with that word written in, and its own risk.
+  - **Secrets.** A value whose whole name is `token`, `key`, `password`, `passcode` or `secret`, in any case, is a secret placeholder,
+    and so is every word from the n-th on of a row that carries `"secret": n`. A line that fills one with anything but `‹secret›` is
+    never sent or queued (§11).
 - `peers` is one hop only: the peers this node hears, with their light and headline (never their peers), so a node
-  that can reach only one other still sees the room.
+  that can reach only one other still sees the room. A row is `{"t","id","name","light","headline","heard","link","verified"}`:
+  - `heard`: `live`, `stale` or `gone`, by §2's ages;
+  - `link`: `ws` while a node link on this node's `/ws` proves the id (§7.1: `verified` `key` or `operator`), or the carrier of a link
+    LINK verified to or from that node (13.1, 13.16.4); else empty;
+  - `verified`: what proves the row's light and headline now — `key`, `operator` or `none` — or empty when only a hello named the node.
+    A LINK verdict's `verified` (13.6.6) maps onto it: `key` and `link` are `key`, and `code`, the operator's credential (13.5.1), is
+    `operator`.
+
+  A proved link with no hello or context still has a row; a claim (§7.1), an id in conflict (§2) and a key that names no node add none.
+  A node lists at most `context.peers` rows, those a hello or a context gives first. A sender may append fields to a row after these; a
+  reader ignores a field it does not know.
 - No secrets, no private content (P8): AGMessage never puts message text or documents in its context — only counts, the
   room's state and action prompts' titles.
+- **Sizes.** A context is at most `context.bytes` as sent, counted in UTF-8 bytes, with at most `context.items` items, `context.links`
+  links, `context.recent` recent lines, `context.commands` commands and `context.peers` peers. Its `headline` is at most
+  `context.headline.chars` characters; an item's `id`, `kind`, `label` and `state` at most `context.item.id.chars`,
+  `context.item.kind.chars`, `context.item.label.chars` and `context.item.state.chars`; a recent line `context.recent.chars`; a command's
+  `verb` `context.verb.chars` and its `words` `context.words.chars`. A reader accepts at least these. It keeps a `verb` whole or drops it,
+  and counts it, and keeps at least `context.words.read.chars` characters of `words`. A reader that keeps a node's commands keeps at
+  least `context.commands` of them; a view of them — a prompt's brief, a drawn card — may show fewer, panic, air and transport first, and
+  says how many it left out.
+- **Trimming.** A sender over `context.bytes` leaves out, in this order and only until it fits: the oldest `recent` lines; grey links,
+  then the other links; commands other than panic, air and transport, from the end of its list; grey items, then green items. Only
+  while what is left is still over does it touch a red or amber item, or a panic, air or transport command: it cuts the `state` of each
+  amber item, then of each red item, ending each cut with `…`; then it leaves out amber items, then red items, then panic, air and
+  transport commands, each from the end of its list. It then adds one grey item that says what it left out:
+  `{"id":"context:trimmed","kind":"health","label":"Context","light":"grey","state":"left out: 12 recent, 40 links, 30 commands, 5 items"}`.
 - **Posting.** A node that gives its context to another (a desk) posts it on change and at least every `context.post.max.ms`
   while linked, never more often than once a `context.post.min.ms`. The node it posts to keeps the latest it took for each node id
-  for `context.kept.ms` after it came, then drops it. A post is a node's own act: no node lists it among its `commands`, and no
-  assistant proposes it.
+  for `context.kept.ms` after it came, then drops it. It keeps contexts for at least `context.peers` node ids and at most `peers.max`,
+  refusing one for an id past its own bound with words, and answers a context over `context.bytes` with `413` and its size. A post is a
+  node's own act: no node lists it among its `commands`, and no assistant proposes it.
   - Over HTTP, and on a `ws` link as a side call (13.7): `POST /api/peers/context`.
   - On a `line` link: the line `CONTEXT POST <json>`. It is taken only on a connection LINK verified (13.6) with a key bound to one
     node — made for it or enrolled (13.5.2, 13.5.7) — of scope `post` or above (13.5.3), and only for the node that key speaks for:
@@ -273,30 +370,270 @@ column in its node's cluster. The words bind; the placement is advice to an Eye.
 
 ## 7. Keys and pairing
 
-- **Stagewatch**: scoped keys (`swk_…`) in `Authorization: Bearer`, hashed at rest, rate-limited. Scopes: `read`,
-  `control`, `mcp`, and **`node`** (1.1): read + post a stage message + post its own context — what a messenger app
-  needs, nothing more. Keys are accepted wherever the PIN is (a key never counts as a wrong PIN).
-- **Patterns**: the pairing token is never sent in clear on the wire in 1.1: `AUTH` becomes a challenge — the server
-  sends `NONCE <hex>` on connect, the client answers `AUTH-PROOF <hex>` = HMAC-SHA256(token, nonce + client name). Plain
-  `AUTH <token>` stays accepted only on loopback. HTTP keeps `X-Patterns-Token` (local network, behind the bind
-  address).
-- **AGMessage**: holds the Stagewatch key encrypted at rest (Windows DPAPI where available, else AES with a machine key
-  file outside `data/`), sends it in a header — never `?pin=` in a WebSocket URL — and asks for a `node`-scope key.
+App links prove keys by 13.6, and a PIN, a viewing code or a view pass is never a PeerLink credential (13.5.1); a node link on
+Stagewatch's `/ws` that the PIN or a control key proves (§7.1) is level 0, a door that is not a PeerLink (13.18). **One node, one
+key**: a route that takes something for a node — a node link (§7.1), a context, a proposal's `from`, a collect, a result — takes it
+only with the key bound to that node's id (13.5.2), or, while no key is bound to it, with the operator's credential. A key binds to the
+id it first speaks for, or to the one its operator names, and is refused for any other — "this key speaks for <kind> <id>" — and that
+refusal is never counted. Each node's §8 row maps its keys onto 13.5.3's scopes.
+
+- **Stagewatch**: scoped keys (`swk_…`, 13.5.1's shape) in `Authorization: Bearer`, hashed at rest, rate-limited. Scopes: `read`,
+  `control`, `mcp`, and **`node`** (1.1): read, put a message on the stage, and post its own context, proposals and their results — what
+  a show app needs, nothing more. Keys are accepted wherever the PIN is; a key never counts as a wrong PIN, and an unknown or revoked key
+  counts toward no lockout.
+- **Patterns** and **PlayMap**: the pairing token is never sent in clear on their line wires from 1.1: `AUTH` becomes a challenge — the
+  server sends `NONCE <32 hex>` on connect, the client answers `AUTH-PROOF <hex>` = HMAC-SHA256(token, nonce + client name), the token
+  keyed as 13.6.8 says. Plain `AUTH <token>` is taken only from this machine. Patterns' HTTP keeps `X-Patterns-Token` (local network,
+  behind the bind address; 13.18).
+- **AGMessage**: holds the Stagewatch key encrypted at rest (Windows DPAPI where available, else AES with a machine key file outside
+  `data/`), sends it in a header — never `?pin=` in a WebSocket address — and asks for a `node`-scope key.
+
+### 7.1 A node on another node's `/ws`
+
+A show app that follows a Stagewatch opens a **node link** on its `/ws`: it names itself in the address and carries its credential in
+the `Authorization` header, never in the address.
+
+```
+GET /ws?node=<its id>&t=<its kind>[&detail=1] HTTP/1.1
+Upgrade: websocket
+Authorization: Bearer swk_…        a node key; a control key or the PIN also proves, at level 0; none makes the socket a claim
+```
+
+- `node` is a §2 id and `t` a §2 kind. With `node`, the browser's `cid` and `page` are ignored.
+- **Refused before the upgrade**, with HTTP 400 and words, and never counted toward a lockout:
+
+| request | error |
+|---|---|
+| `node` with `win`, or `Authorization: Window …` | a window's link is not a node link |
+| `node` with `pin` in the address | a node link carries its key in the Authorization header, never in the URL |
+| `node` with `role=control` | a node link reads; it does not control |
+| a bad `node` | a node id is 1-40 letters, digits, - or _ |
+| a bad or missing `t` | a node link names its kind (t=patterns, playmap, messenger…) |
+| the node's own id | that's this Stagewatch |
+
+- **What the socket is.** The credential is checked first, then the viewing code, then:
+
+| credential | binding | the socket is | `verified` |
+|---|---|---|---|
+| a node key | bound to this id, or bound to none while the id is free (it binds now) | a node link | `key` |
+| a node key | bound to another id, or the id bound to another key | a node link | `none`, with words |
+| a control key or the PIN | the id bound to no key | a node link | `operator` |
+| a control key or the PIN | the id bound to a key | a node link | `none`, with words |
+| a read or MCP key, or none | — | a claim | `none` |
+| a refused key (unknown, revoked, locked out, over its rate) | — | a claim | — |
+
+  A node link is never listed as a screen and never hears a screen command (`redirect`, `identify`, `reload`, `disconnect`). A claim
+  stays among the screens, flagged with what it claims ("patterns 9f8e7d6c"), never reached by `all`, only by its own screen id or a name
+  its operator gave it. A binding refused keeps the frames: the binding governs contexts and proposals, not reading. A node key on a
+  socket that names no node is a node link listed under its key, with no id asserted. Every node link here is level 0 (13.6.8) until
+  its connector runs LINK (13.6.5); one the operator's credential proves is `verified` `operator`, and is never a PeerLink, which no PIN
+  proves (13.5.1).
+- **The verdict, first.** Before any frame a node link hears what the node made of it, and again — latest wins — whenever that changes:
+  a key revoked or rebound, the PIN changed.
+
+```
+{"type":"auth","ok":true,"scope":"node","node":{"t":"patterns","id":"9f8e7d6c","verified":"key"}}
+{"type":"auth","ok":true,"scope":"node","node":{"t":"patterns","id":"5e6f7a8b","verified":"none"},"words":"this key speaks for patterns 9f8e7d6c — make a key for patterns 5e6f7a8b"}
+{"type":"auth","ok":false,"error":"unknown or revoked API key","retry":60}
+```
+
+  `scope` is `node`, `control`, `read`, `mcp`, `pin` or `none`; `verified` is `key`, `operator` or `none`, with `words` when it is
+  `none`. A refused credential is told once, with `retry` in seconds, and the socket stays open with the public frame: no socket closes
+  for a key's sake, so an app that redials never loops. When the viewing code refuses the socket — its credential does not open the
+  code, and its address does not carry it — that one message carries `"view":true` and the socket closes, as a screen's does. 13.6.5
+  appends LINK's fields to the verdict.
+
+### 7.2 Reading a node that asks for a token
+
+- **Line wires** (Patterns 9697, PlayMap 9941 and its `/ws` line channel). On a node with a token, a connection the node does not trust
+  — not from this machine where it trusts loopback, not from a trusted address — hears `NONCE <32 hex>` as its first line and nothing
+  of the show until it pairs. `STATE` (the greeting and the pushes) and the answers to `STATE`, `STATUS`, `CONTEXT`, `EYE` and every
+  subscription begin after `OK paired`, and stop again when the node's token changes. Before pairing a connection may send what finding
+  and pairing need — `HELLO`, `NONCE`, `AUTH-PROOF`, `AUTH` from this machine, `LINK` and `LINK PROOF` (13.6.4), `PING`, `HELP` and
+  `VERBS` — and the queries the node's §8 row names as still open; anything else is answered
+  `ERR [@id] not paired — this node shows its state only to a paired connection`. An open node (no token) greets with `STATE` at once.
+
+```
+← NONCE 3f9a0c…(32 hex)                    the first line, and nothing else of the show
+→ HELLO Stagewatch
+← OK
+→ @s1 STATE
+← ERR @s1 not paired — this node shows its state only to a paired connection
+→ @pa AUTH-PROOF <64 hex>                  HMAC-SHA256(token, nonce + "Stagewatch")
+← OK @pa paired
+← STATE {…}                                 the greeting, now; then on every change
+```
+
+- **HTTP and WebSockets**: every read beyond the public view wants a key, the token or the PIN (§7), as in 1.2, or a verified link's
+  session credential (13.7).
+- **A reader pairs before it reads.** It answers `NONCE` with `AUTH-PROOF`, or runs LINK (13.6); it sends its reads only after
+  `OK paired` or `OK open`, and takes `STATE` whenever it comes. With no token for a node that sent `NONCE`, it shows that link amber —
+  "not paired — <node> shows its state only to a paired link; its pairing token goes in <where>" — and sends nothing but `PING`.
 
 ## 8. What each node publishes and consumes
 
-| | publishes | consumes |
-|---|---|---|
-| **Stagewatch** (`main`) | hello; `/ws` frames (`v`,`seq`); receipts; `/api/context`; pong with times | Patterns STATE + context (clip end, `seq` re-sync, Eye headline); AGMessage context (action prompts, room) via `POST /api/peers/context`; Slides agents |
-| **Patterns** (`patterns`) | hello; wire STATE; receipts `@id`; `CONTEXT` + `/api/context` (the Eye's headline, problems, programme) | Stagewatch frames (its stage timer page follows Stagewatch when one is linked) and context (drawn on the Eye) |
-| **AGMessage** (`messenger`) | hello; `/api/context` (room, counts, action-prompt titles — no content); posts its context to Stagewatch | Stagewatch frames (timer, message ack by message id, VT) and context |
-| **Slides agent** (`agent`) | hello; slide feed (already `seq`'d) | — |
+Each node's row says what it publishes and consumes and its **public view** — what any screen in the room may show, open by design
+(§1 rule 4); how its keys map onto 13.5.3's scopes; its show writer (13.1); its doors that are not PeerLinks (13.18), each with what it
+leaves open; its **named exemptions** from §1's rules, each with what ends it; and what it does not keep yet of this revision, each with
+what ends it. A node's own remote documentation lists its verbs by scope.
+
+| node (`t`) | publishes | consumes | public view |
+|---|---|---|---|
+| **Stagewatch** (`main`) | hello; `/ws` frames (`v`, `seq`: public, public detail, operator); receipts; `/api/context`; pong with times; the approval desk (§11); windows (§12); `/tls` | Patterns' and PlayMap's STATE, context and receipts over its playout links; every node's posted context; proposals and their results; Slides agents' feeds; verified peers' `recent` → its show report | the public frame on `/ws` and `/api/state`, `detail=1`'s public detail, the viewer, role and audience pages, `/api/holding/<id>`, `/tls`; a window's page to whoever holds its address (§12) |
+| **Patterns** (`patterns`) | hello; wire STATE (`rev`); receipts `@id`; `CONTEXT` and `/api/context` (the Eye's headline, problems, programme); its context and proposals to a desk; the results of the approved lines it collected | Stagewatch's frames and context (its stage timer page follows Stagewatch when one is linked; the Eye draws it); its twin's | its pages, the EDID files, the audience port |
+| **PlayMap** (`playmap`) | hello (with `sync` and `build`); its line wire on TCP 9941 and its `/ws` line channel, in Patterns' grammar, with receipts; `/api/context` (its token), `/mcp`; its context to a desk; the results of the approved lines it collected | Stagewatch's `/ws` frames; Patterns' STATE and context; other PlayMap nodes (sync anchors, media) | `/health`, `/fleet`, `/tls` |
+| **AGMessage** (`messenger`) | hello; `/api/context` (the room, counts, action-prompt titles — no content); its context and proposals to a desk; the results of the approved lines it collected | Stagewatch's frames (the timer, a message's acknowledgement by its id, VT), receipts and context | `/api/health` (`ok`, version, uptime), `/tls` |
+| **Slides agent** (`agent`) | hello (with `presenting`); its slide feed (its own `seq` and version) | — | — |
+
+### 8.1 Stagewatch (`main`)
+
+- **Scopes**: `follow` is a `read` key; `post` a `node` key, which also puts a message on the stage; `operate` a `control` key or the
+  PIN. No key of its is `drive`: it lists no verbs for a playout desk. An `mcp` key reads and reaches the MCP endpoint, whose changes may
+  wait for a person; it is no app link's credential. Its `docs/REMOTE.md` gives each route's scope.
+- **Show writer**: its show thread. `stuckMs` 3000, its shipped stall mark, not yet set from a measured stall; it says its show is stuck
+  on `/ws` with `{"type":"beat","live":false}` (13.10.5). It offers neither `stuck` nor `expire` as a feature: no measurement yet.
+- **Doors that are not PeerLinks**:
+  - OSC (off by default; once on, on every interface unless set to this PC): it takes show verbs with no PIN or key, so it leaves the
+    show to anything that reaches its port; and its feedback, once set, sends the show's state to the host it names, unauthenticated
+    and in clear;
+  - Companion TCP (9923; this PC by default): no authentication, so bound to the network it leaves the show to anything that reaches
+    the port;
+  - browser pages and `?pin=`: on plain HTTP a PIN or a key a page sends, or an address carries, crosses the network in clear — on
+    every request with Require HTTPS off (the default), and with it on in an `http://` address, which its redirect echoes (below);
+  - scripts and `/mcp` clients (13.6.9's bearer keys): on plain HTTP a key they send in `Authorization: Bearer` crosses the network in
+    clear;
+  - node links (§7.1) the PIN or a control key proves: the operator's credential as a bearer, level 0 and never a PeerLink, in clear
+    on plain HTTP;
+  - window links (§12): on plain HTTP a window's address crosses the network in clear, in the browser's address bar;
+  - Slides agents: a feed carries the PIN or a control key in a header, in clear on plain HTTP.
+- **Named exemptions**:
+  - `?pin=`: a page or a script may carry the PIN or a key in its address (bookmarks, scripts), which §1 rule 5 keeps out of every
+    other address — not scheduled to end. Require HTTPS refuses a plain WebSocket from another machine and redirects a plain page to
+    its `https://` address, but an `http://` address that carries the PIN or a key has crossed the network in clear by then, and the
+    redirect's `Location` carries it back once more, in clear;
+  - Companion TCP (9923) takes commands with no authentication when its operator binds it to the network, which §1 rule 4 leaves to an
+    authenticated link — its authentication comes with 1.4's default flip.
+- **Not kept yet**, by what ends it:
+  - its Patterns link: `link.stale.ms` (today PatternsLink marks no link stale: a clip shows no time 3 s after its last frame, and the
+    link drops after 12 s); `link.redial.first.ms` (today PatternsLink waits 250 ms before its first redial, and never jitters); 13.11's
+    clock quality (today CLOCKS APART reads the offset alone, with no error, freshness or fitness); its Patterns link proves at level 0
+    only (today it answers NONCE with AUTH-PROOF and runs no LINK); no playout link to PlayMap (today its Patterns link is its only line
+    connector) — ends when its playout links run on the PeerLink core, and speak LINK to Patterns and PlayMap where they offer it;
+  - its `/ws` speaks no LINK (today a node link proves a bearer key or the operator's credential, §7.1); 13.6.9's mark on a key seen in
+    clear (today it takes a key sent in clear from another machine as it takes any other, and marks nothing); `receipt.final.ms` (today
+    its receipts carry no `final`, `repeat`, `lateMs` or `frame`) — ends when its `/ws` speaks LINK, with features `final` and
+    `receipts`;
+  - as a reader of contexts: `context.items` (today PeerContexts keeps a context's first 64 items); `context.commands` (today
+    PeerContexts keeps a context's first 64 commands); `context.verb.chars` (today PeerContexts cuts a verb at 80 characters, where a
+    reader keeps a verb whole or drops it); `context.links` (today PeerContexts reads no links); `context.link.end.chars` (today
+    PeerContexts reads no links); `context.words.read.chars` (today PeerContexts reads no command words); its risk by whole forms (today
+    it rates a line by the longest run of a listed verb's leading words) — ends with one owner for every reader's numbers, its verb
+    table;
+  - as the desk: `proposal.line.chars` (today ProposalDesk takes a line of 400 characters and cuts a longer one, which can run another
+    command); `proposal.collect.ms` (today the desk sends and approves for a target whatever its last collect); its proposal ids (today
+    they restart with each desk run, `p<n>`, so a target pairs an id with `created`); a `from` of kind `main` or `mcp` (today the desk
+    takes one from the network unless it names the desk's own id); a proposal sent with an `mcp` key (today the desk queues one for a
+    node no key is bound to, proved by nothing); §11's line refusals (today the desk takes a line that holds a key, a window's address
+    or a filled secret placeholder, and drops its control characters); a target's raise of its own proposal's risk (today the desk
+    takes a proposal's risk from the target's table alone); its commands rows in §6's notation (today it lists `start / pause` and
+    `patterns end 10`) — ends with the desk's rules; a line a person sends to another app (today it has no `peer` or `desk` verb) —
+    ends with the desk's verbs; verified peers' `recent` in its report (today its report holds its own journal alone) — ends with one
+    report;
+  - an over-long context's `413` (today a context over `context.bytes` closes its connection with no answer) — ends with `413`, and
+    its size, for an over-long body;
+  - `window.grants` (today it grants no window, so no grant's address travels) — ends with grants (§12);
+  - 12.2's page rule for a page opened with a viewing code or a crew link (today it serves those pages without the window page's
+    no-referrer, noindex and no-framing headers); 12.2's revocation at once for a viewing code or a crew link (today a screen already
+    open on a changed one keeps its link until it reconnects) — not scheduled;
+  - of §6's rules for the Eye: P2 for its links (today its only rows run from its timer, its Patterns link is an item of kind
+    `playout`, and no row names a peer); P2 for the node links it accepts on `/ws` (today it lists them only as `peers` rows, with
+    `link` and `verified`); P3 for the clip time it shows from Patterns (today its screens show Patterns' clip time, and no row names
+    Patterns' item); P5 for its schedule (today a stuck show thread turns its timer red and leaves its schedule's light as the frame
+    gives it); P6 for its vMix link (today an item of kind `playout`); P7 for its order (today its timer is its first item whatever its
+    light); and P8 for its messages (today a cue item carries the text of a message it sent, a speaker message sent with an ack among
+    them, and `recent` carries the text of every message and audience question its journal holds); `context.items.first` (today its
+    timer is its first item whatever its light, ahead of a red or amber one) — ends when it publishes by P1–P8.
+
+### 8.2 Patterns (`patterns`)
+
+- **Scopes**: its pairing token is `operate`. Its app keys (`ptk_`) take `follow` (STATE, CONTEXT, SUBSCRIBE, EYE), `post` (that, and
+  CONTEXT POST and its own proposals and results), `drive` (that, and VIDEO transport, CUE GO and STANDBY, PLAYLIST transport and STAGE
+  MESSAGE) and `operate` (everything); no OUTPUTS, TAKE or CUT, SCREEN or setting is reached below `operate`. Its `docs/REMOTE.md` lists
+  the verbs.
+- **Show writer**: its desk thread. `stuck` not offered: no measurement yet; nor `expire`.
+- **Doors that are not PeerLinks**:
+  - OSC: it takes verbs from the addresses on its OSC ALLOW list and from this machine, with no proof; a proof on the wire grants an
+    address nothing;
+  - Companion decks on its wire: the 1.1 proof, never plain `AUTH` off this machine; on a plain wire a recorded proof is an offline
+    guessing target for the token;
+  - its HTTP's `X-Patterns-Token` is the token itself: on plain HTTP from another machine it crosses in clear, and Patterns marks it seen
+    in clear;
+  - its twin and node relays (13.18): plain between the two desks, with device secrets — a view pass it keeps among them — only under
+    their own switch, off by default and refused on a plain link to another machine.
+- **Named exemptions**: once its wire shows its state only to a paired connection (below), `NAV`, `MENU`, `CUE LIST`, `ARCADE …` and
+  `ASSISTANT …` stay open before pairing (§7.2), which §1 rule 4 leaves to an authenticated link — until the desk's own cross-machine
+  asks pair by proof.
+- **Not kept yet**, by what ends it:
+  - its wire greets every connection with `STATE` before `NONCE` and answers its queries before pairing (§7.2) — ends when its wire shows
+    its state only to a paired connection (its ADR-016);
+  - its Stagewatch link names no node on `/ws` (§7.1) — ends when it dials as a node and reads its verdict;
+  - it keeps a peer context's first 64 commands (§6) — ends when it keeps `context.commands`, each verb and its words whole;
+  - `proto` 1; its hello reader keeps one address per id, marks no id in conflict and holds every id it hears; certificates of 1,826
+    days (§2, §10) — ends with its hello 1.3 and certificates within `cert.days`;
+  - LINK, TLS on its wire (no `STARTTLS` is offered either), app keys, `final` and `receipts` (§13) — ends with its app links;
+  - CONTEXT POST (§6) — ends when another app gives it its context over a verified PeerLink.
+
+### 8.3 PlayMap (`playmap`)
+
+- **Scopes**: its pairing token is `operate`. Its app keys (`pmk_`) take `follow`, `post`, `drive` and `operate`, mapped onto its
+  ShowPolicy roles; its own wire documentation lists the verbs.
+- **Show writer**: its engine's control lane. `stuck` not offered: no measurement yet; nor `expire`.
+- **Doors that are not PeerLinks**:
+  - its sync group's clock exchange (9942): a follower takes the clock, the transport and the air of the leader it names, as heard on
+    the show network, with no PeerLink proof;
+  - its fleet traffic: pulls proved by its pairing token's HMAC, never the token (its `docs/FLEET.md`);
+  - its desk↔engine link on one machine, at level 0 on loopback;
+  - Companion decks on its line wire and its `/ws` line channel: the 1.1 proof, never plain `AUTH` off this machine;
+  - Lines devices on trusted addresses pair with no proof — an address, not an identity.
+- **Posted contexts**: it takes none on its wire: `CONTEXT POST` is a word it does not know (§6).
+- **Named exemptions**: TCP 9941 sends `STATE` on `HELLO` and answers `STATE` and `CONTEXT` before pairing (§7.2), which §1 rule 4 leaves
+  to an authenticated link — its owner's decision 17; it ends after Patterns' Round 96, once Patterns' node devices pair by proof, when
+  9941's `STATE` and `CONTEXT` wait for pairing on a node with a token.
+- **Not kept yet**, by what ends it:
+  - `proto` 1, and its hello reader's limits (§2) — ends with its 1.3 copy;
+  - certificates of 826 days, a day back and 825 on (§10) — not scheduled;
+  - it posts its context every 5 s whether or not it changed, not on change (§6) — not scheduled;
+  - its posted context is not trimmed to `context.bytes` (§6) — ends when it trims at the poster, in §6's order;
+  - LINK on 9941 and its `/ws` line channel, app keys, `final` and `receipts` (§13) — ends with its PeerLink acceptor;
+  - its links to Stagewatch and Patterns prove at level 0 — ends when they speak LINK.
+
+### 8.4 AGMessage (`messenger`)
+
+- **Scopes**: no node link reaches it with a key in 1.3 (13.3.1), so it maps none. It holds a Stagewatch `node` key (`post`).
+- **Show writer**: its event loop. It accepts no node link, so it names no `stuckMs` and offers no feature.
+- **Doors that are not PeerLinks**: its admin page and its board on its own web port, which keep its own rules (its `docs/NODES.md`).
+- **Named exemptions**: none.
+- **Not kept yet**, by what ends it:
+  - it drops a hello of a kind it does not know (§2), and reads a proposal's `ok` only from an object `result` (§11) — ends with its
+    0.5.1 reader;
+  - `proto` 1 and no `inst` in its hello, and its hello reader's limits (§2): 20 caps, names cut at 60 characters, up to 256 peers, one
+    address per id, a peer forgotten once gone, and no id marked in conflict — ends with its 0.5.1 hello and reader;
+  - its certificate spans `cert.days` and an hour more (§10) — ends with its 0.5.1 certificate;
+  - its links to Patterns and PlayMap carry their operator token, which reaches them only over TLS to a pinned certificate or on this
+    machine, and no command (§7) — ends when it holds an app key of its own;
+  - LINK (§13) — ends with its 0.6.0.
+
+### 8.5 Slides agent (`agent`)
+
+- **Scopes**: none; its feed carries a Stagewatch's PIN or a control key (§8.1's doors).
+- **Show writer**: none it shares.
+- **Doors that are not PeerLinks**, **named exemptions** and **not kept yet**: none.
 
 ## 9. With and without AI
 
 | Works with no internet and no AI | Needs the internet |
 |---|---|
-| Discovery, links, commands, receipts, state, clock offset, liveness | Claude: copilot plans, the assistant's cloud advice, drafting messages and recaps, ASK in the Eye |
+| Discovery, links, commands, receipts, state, clock offset, liveness | The language model: copilot plans, the assistant's cloud advice, drafting messages and recaps, ASK in the Eye |
 | Every node's context, lights and headline; the Eye drawing every node and device | AGMessage's Cloudflare tunnel (people off-site) |
 | Rule-based advice (Stagewatch's advisor, Patterns' Super Check), problems queues, triggers | Time from pool.ntp.org (the LAN clock offset still works) |
 | Cross-app automation: clip end → next item, ALL GO → lights, action prompt → producer | |
@@ -308,25 +645,26 @@ rule as the Eye: the facts are evidence, unknown stays unknown, verbs are propos
 
 Show data and keys cross the local network; from 1.2 every web endpoint can be reached over TLS.
 
-- **One certificate per install.** On first run each node makes a self-signed certificate (ECDSA P-256, 825 days —
-  Apple devices refuse longer — renewed 30 days before it ends;
-  subject = the node's name; SANs = the host name, `localhost` and the machine's LAN addresses at the time) and keeps
-  its private key protected at rest (Windows DPAPI where available). It is never copied between machines.
+- **One certificate per install.** On first run each node makes a self-signed certificate (ECDSA P-256, SHA-256) whose whole span —
+  NotBefore to NotAfter, any backdating for a skewed clock included — is at most `cert.days` (Apple devices refuse a TLS server
+  certificate valid for longer, even one the user chose to trust): its NotBefore at most `cert.backdate.hours` before it was made, and
+  its NotAfter counted from its NotBefore. At a start a node makes a new one when fewer than `cert.renew.days` remain, or when the one it
+  has spans more than `cert.days` — a new fingerprint, so every peer that pinned it sees CERTIFICATE CHANGED once (13.8.3). Its subject
+  names the node; its SANs are the host name, `localhost`, 127.0.0.1 and the machine's LAN addresses at the time. Its private key is
+  protected at rest (Windows DPAPI where available) and never copied between machines.
 - **Its fingerprint is public.** The hello carries `"tls":"sha256:<64 hex>"` (SHA-256 of the certificate's DER) and
   `ports.https`. Stagewatch serves HTTP and HTTPS **on the same port** (9924: a connection whose first byte is a TLS
   handshake is TLS); Patterns and AGMessage may use the same trick or a second port, as `ports.https` says.
-- **App-to-app: pinned, not trusted by name.** A client that connects to another node over TLS checks the server's
-  certificate fingerprint, never its name or a certificate authority: the fingerprint from the node's hello (or typed by
-  the operator) is pinned per node id on first successful authenticated use, and a later change is refused with
-  "CERTIFICATE CHANGED" until the operator accepts it (as SSH does). The hello is unauthenticated, so the pin — not the
-  hello — is the trust.
+- **App-to-app: pinned, not trusted by name.** A client that connects to another node over TLS checks the server's certificate
+  fingerprint, never its name or a certificate authority. A fingerprint is pinned per node id only after a proof verifies over it, or
+  when a person confirms it (13.8.2), and a later change is refused with CERTIFICATE CHANGED until the operator accepts it (13.8.3), as
+  SSH does. The hello is unauthenticated, so the pin — not the hello — is the trust (13.4.2).
 - **Browsers.** A self-signed certificate shows a browser warning. Each node serves `GET /tls` (a page with the
   fingerprint, how to trust it on Windows, macOS, iOS and Android) and `GET /tls.cer` (the certificate, DER), so a show
   laptop's screens can trust it once. Plain HTTP keeps working unless the operator turns on **Require HTTPS**, which
   refuses plain HTTP and plain WebSockets from anything but this machine (loopback).
-- **Line protocols.** Patterns' wire (TCP 9697) and Stagewatch's Companion port (9923) may offer `STARTTLS` (answered
-  `OK STARTTLS`, then the TLS handshake on the same socket, pinned as above). Pairing by proof (§7) already keeps tokens
-  off the wire; TLS adds privacy for show data.
+- **Line protocols.** A line wire serves TLS on the port it already uses, told from plain by its first byte, as HTTP is (13.8.5); 1.3
+  has no `STARTTLS`. Pairing by proof (§7, 13.6) keeps tokens and keys off the wire; TLS adds privacy for show data.
 
 ## 11. The shared approval queue (1.2)
 
@@ -335,20 +673,41 @@ Stagewatch: the show caller's desk), the other apps send their AI's proposals th
 With no desk on the bus, each app approves its own (as in 1.1).
 
 - **A proposal** names who proposes and which node is to act, in that node's own grammar:
-  `POST /api/proposals` (a `node`, `mcp` or `control` key, or the PIN)
+  `POST /api/proposals` (a `node` or `control` key, or the PIN)
   `{"from":{"t":"patterns","id":"9f8e7d6c","name":"Patterns FOH"},"target":{"t":"patterns","id":"9f8e7d6c"},"line":"EYE FOCUS screen 2",
-  "reason":"Projector 1 is on the wrong mode","risk":"review"}` → `{"id":"p17","state":"pending"}`.
-  Target `{"t":"main"}` (or the desk's own id) means the desk itself.
-- **Risk is the target's call.** The desk uses the risk the target lists for that verb in its context's `commands`
-  (§6); the desk's own verbs use its own rules; anything unknown is `high` — never pre-ticked, always shown in red.
-- **States:** `pending` → `approved` / `rejected` (by whom, when) → for an approved one: `done` / `failed` (with the
-  target's receipt words) or `undelivered` (the target didn't collect it within 60 s). `GET /api/proposals/<id>` reads
-  one; `GET /api/proposals?from=<node id>` the proposer's own.
-- **Delivery is by the target, pulled:** each node polls `GET /api/proposals?target=<its id>&state=approved` (its `node`
-  key; a key is bound to the node id it first posted its context under, so it can only collect its own), runs the line
-  through its own command path — its own checks and fences still apply — and reports
-  `POST /api/proposals/<id>/result {"ok":true,"words":"…"}`. The desk never holds another app's credentials. The desk
-  runs proposals aimed at itself directly, with a receipt.
+  "reason":"Projector 1 is on the wrong mode","risk":"review"}` → `201 {"ok":true,"id":"p17","state":"pending","risk":"review"}`.
+  Target `{"t":"main"}` (or the desk's own id) means the desk itself. Its `from` is spoken for as §7 says: a node key speaks only for
+  the id it is bound to. A `from` of kind `main` or `mcp`, or with the desk's own id, is the desk's own, and is refused from the
+  network: an AI on the desk's own MCP endpoint proposes through `/mcp`, as the desk's own, and an `mcp` key posts no proposal here.
+- **The line** is at most `proposal.line.chars` characters, refused — never cut — when longer, and refused when it holds a control
+  character, a key (13.5.1's shape), a window's address, or a secret placeholder (§6) filled with anything but `‹secret›`. A proposer
+  that keeps a secret itself sends `‹secret›` in its place and runs its own record.
+- **Risk is the target's call.** The desk rates a line by the most specific whole form it matches in the target's verified table — the
+  commands of a context posted with the key bound to the target's id, or read by the desk over its own link (§6): most literal words
+  wins, an exact tie goes higher, a line carried in a `line` value raises the risk to that line's, and a line no form matches is
+  `high`. A table that no proof stands behind rates every line `high`. A target may raise the risk of its own proposal, never lower it.
+  The desk's own verbs use its own rules; anything unknown is `high` — never pre-ticked, always shown in red.
+- **States:** `pending` → `approved` / `rejected` (by whom, when) → for an approved one: `done` / `failed` (with the target's words) or
+  `undelivered` — not collected within `proposal.undelivered.ms` of its approval, or collected with no result within
+  `proposal.result.ms`.
+- **Ids** are opaque, and unique across a desk's runs: `p<n>-<run>`, the run 4 random base-32 characters drawn at each start; `p<n>`
+  alone resolves within the current run.
+- **The proposal** reads
+  `{"id","from":{"t","id","name"},"target":{"t","id","name"},"line","reason","risk","state","created","decided","decidedBy","result","ok","words"}`:
+  `created` and `decided` in Unix ms, `ok` `true` once done, `false` once failed or undelivered and `null` before, `words` the
+  target's words (`result` the same, as 1.2 sent it); a desk that records collects appends `collected` (Unix ms, or `null`). A desk
+  may append more fields after these, to a proposal and to its `201` answer; a reader ignores a field it does not know.
+  `GET /api/proposals/<id>` reads one; `GET /api/proposals?from=<node id>` the proposer's own; `GET /api/proposals` the whole queue.
+- **Delivery is by the target, pulled:** each node polls `GET /api/proposals?target=<its id>&state=approved` with a credential that
+  speaks for its id (§7), which claims what it collects; it runs each line through its own command path — its own checks and fences
+  still apply — and reports `POST /api/proposals/<id>/result {"ok":true,"words":"…"}`. The desk records each target's last collect, and
+  neither sends nor approves a line for a target that has not asked within `proposal.collect.ms`; it says why. A result is a report owed
+  (13.12.9): retried until the desk takes it, and answered `409` once the proposal is settled, which counts as delivered. A target that
+  lost a collect's answer finds its claimed, approved proposals in `GET /api/proposals`, and runs only those it never ran, keeping what
+  it ran across restarts. The desk never holds another app's credentials. The desk runs proposals aimed at itself directly, with a
+  receipt.
+- **A person's line.** A line a person sends to another app from the desk (`peer <app> <line>`) must match a form of that app's verified
+  table, under the line rules above; it is born approved, `decidedBy` a role word (`operator`, `deck`, `wire` or `trigger`).
 - **Everything is journalled** on the desk (asked, approved or rejected by whom, the result) and each target journals
   what it ran, so the report shows what each AI suggested, who decided and what happened.
 - **Offline:** the queue is plain LAN traffic; it works with no internet (proposals made by a person's own rules, or
@@ -641,7 +1000,7 @@ Anything on the show network — the venue's Wi-Fi included, where every client 
    - An acceptor that answers LINK with an id other than the one the connector meant is refused, naming both ids ("10.0.0.5:9697 now
      answers as patterns 7a7a… — not Patterns FOH 9f8e…; accept it on the Nodes page"). Nothing it says is followed until the operator
      accepts the new id.
-4. An id in conflict (§2) gets no new link; a link it already has keeps running.
+4. An id in conflict (§2) gets no new link; a link it already has keeps running (13.15.3).
 
 ### 13.5 Keys
 
@@ -1040,7 +1399,9 @@ The show writer never writes to, reads from or waits on a socket.
      - The connector proves that key again only when the hold ends, the key changes, or the operator presses *Link again now*.
      - A `ws` link keeps its public frames meanwhile.
    - The acceptor operator's `disconnect` holds `peerlink.hold.disconnect.ms`.
-   - CERTIFICATE CHANGED, a floor, another id and an id conflict link nothing keyed until the operator acts.
+   - An id in conflict (§2) is held while §2's mark stands: a link it has keeps running (13.4.4), and nothing new is dialled to it —
+     state `held`, refusal `conflict` — until the mark clears, when the connector dials again at once.
+   - CERTIFICATE CHANGED, a floor and another id link nothing keyed until the operator acts.
 4. **Where.** The connector dials the address its link uses while the hello still names it (§2), and a peer on its own machine at
    127.0.0.1 first.
 5. **Nothing crosses a drop** (§4). A command not yet written becomes `not-sent`; a written one becomes `unconfirmed`.
@@ -1057,8 +1418,8 @@ The show writer never writes to, reads from or waits on a socket.
 | `live` | heard within `link.stale.ms`; verified, or up with `legacy`, `open` or `keyless` | ✓ green; △ amber with an amber flag | "Hall A · pinned 03e9 b152 · key e63c… · scope post · PeerLink 1 · +12 ms ±3" | sent | shown while its show is live |
 | `stale` | silent past `link.stale.ms`, up to `link.drop.ms` | △ amber | "Hall A quiet for 8 s" | sent; may end unconfirmed | `?` |
 | `down` | silent past `link.drop.ms`, dropped or unreachable; redialling | ✕ red when the show needs it, else △ amber | "Hall A not answering — dialling again in 2.4 s; nothing is queued" | not-sent | none |
-| `held` | a key refused; its hold runs | ✕ red when the show needs it, else △ amber | "Hall A refused this desk's key (revoked) — next try 20:15:05; make a node key on Hall A" | not-sent | public view only |
-| `refused` | CERTIFICATE CHANGED, a floor, another id, an id conflict: a person must act | ✕ red | "CERTIFICATE CHANGED: Hall A now shows ab12 … — nothing sent; accept it on the Nodes page" | not-sent | public view only, where the carrier has one |
+| `held` | a key refused, or an id in conflict (§2); its hold runs | ✕ red when the show needs it, else △ amber | "Hall A refused this desk's key (revoked) — next try 20:15:05; make a node key on Hall A" | not-sent | public view only |
+| `refused` | CERTIFICATE CHANGED, a floor, another id: a person must act | ✕ red | "CERTIFICATE CHANGED: Hall A now shows ab12 … — nothing sent; accept it on the Nodes page" | not-sent | public view only, where the carrier has one |
 
    Beside the state is the **show**:
    - `stuck`: the link △ amber "Hall A says its show is stuck"; every value from it ✕ "no time shown"; commands not-sent;
@@ -1090,8 +1451,8 @@ The show writer never writes to, reads from or waits on a socket.
  "floor":{"tls","level","proof"}}
 ```
 
-   `refusal` is empty, a LINK verdict's class as 13.6.4 records it, or why the state is `refused`: `certificate`, `floor`,
-   `other-id` or `conflict`.
+   `refusal` is empty, a LINK verdict's class as 13.6.4 records it, `conflict` while §2's mark holds the link (13.15.3), or why the
+   state is `refused`: `certificate`, `floor` or `other-id`.
 4. **Every reader.** The connector publishes the record in:
    - its STATE;
    - its context item `link:<name>` (kind `link`, the light and the state's words) with its one `links` row to the peer node (§6's
@@ -1142,7 +1503,9 @@ These doors keep their own rules:
 - Stagewatch's Companion TCP (9923);
 - Companion decks on the line wires: they keep §7's legacy proof until their modules adopt LINK, and never send plain `AUTH` off this
   machine;
-- browser pages and `?pin=`: on plain HTTP (Require HTTPS off) a PIN crosses the network in clear;
+- browser pages and `?pin=`: on plain HTTP a PIN crosses the network in clear — with Require HTTPS off, or in an `http://` address
+  that Require HTTPS then redirects;
+- Stagewatch's node links (§7.1) that the PIN or a control key proves: the operator's credential as a bearer, level 0;
 - window links (§12): on plain HTTP a window's address crosses the network in clear, in the browser's address bar;
 - Slides agents;
 - PlayMap's sync (9942) and fleet traffic;
@@ -1234,7 +1597,7 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 | `pong` | a pong without `STUCK`: its `t1`, `t2` and `t3` when given, else it answers the last ping |
 | `pong-stuck` | a pong with `STUCK` |
 | `evaluate` | one run of the evaluator |
-| `hello` | a hello heard with this `id` and `tls` (null: none) |
+| `hello` | a hello heard with this `id`, `tls` (null: none) and, where given, `inst` |
 | `send` | `count` commands asked for, numbered from 1 in `outcome` |
 | `written` | the command with this `id` was written |
 | `receipts` | a `RECEIPTS` answer: each id's receipt, or `unknown` |
@@ -1342,6 +1705,7 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 {"case":"machine","name":"line stuck","config":{"carrier":"line","can":["stuck"]},"events":[[0,"verified"],[2000,"pong-stuck"],[4000,"pong"]],"expect":[[2000,{"show":"stuck"}],[4000,{"show":"live"}]]}
 {"case":"machine","name":"line without stuck","config":{"carrier":"line","can":[]},"events":[[0,"verified"],[2000,"pong"]],"expect":[[2000,{"show":"unknown"}]]}
 {"case":"machine","name":"the pin decides","config":{"carrier":"line","pin":"node:9f8e7d6c"},"events":[[0,"hello",{"id":"9f8e7d6c","tls":null}],[0,"dial"]],"expect":[[0,{"dial":"tls","flags":["note"],"state":"connecting"}]]}
+{"case":"machine","name":"a conflict holds until its mark clears","config":{"carrier":"line","pin":"node:9f8e7d6c"},"events":[[0,"verified"],[1000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[3000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"b7c3d9e1"}],[5000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[6000,"closed"],[9000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[13000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[17000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[21000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[25000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[29000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[33000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[37000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[41000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[45000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[49000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[53000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[57000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[61000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[65000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}]],"expect":[[5000,{"state":"live"}],[6000,{"state":"held","refusal":"conflict","dial":null}],[64999,{"state":"held","dial":null}],[65001,{"dial":"tls"}]]}
 {"case":"machine","name":"floor","config":{"carrier":"line","floor":{"tls":true,"level":1,"proof":"mutual"}},"events":[[0,"answer",{"tls":false}]],"expect":[[0,{"state":"refused","refusal":"floor","sent":[]}]]}
 {"case":"machine","name":"floor on a stripped LINK","config":{"carrier":"line","floor":{"tls":false,"level":1,"proof":"mutual"}},"events":[[0,"answer",{"line":"ERR @l1 unknown command 'LINK'"}]],"expect":[[0,{"state":"refused","refusal":"floor","sent":["HELLO","LINK"]}]]}
 {"case":"machine","name":"33rd command","config":{"carrier":"line"},"events":[[0,"verified"],[1,"send",{"count":33}]],"expect":[[1,{"inFlight":32,"outcome":{"33":"not-sent"}}]]}
@@ -1388,7 +1752,7 @@ its §8 row, with what ends it.
    `hello.read.bytes` and `link.read.min.bytes` are what a reader takes at least; a reader accepts a command's `words` up to
    `context.words.chars` and keeps at least `context.words.read.chars` of them. Every other row is its own section's: a time, a
    table's bound, a count kept.
-4. **Whose rows.** `proto`, `kind`, `port`, `cap`, `reserved`, `hello.*`, `peers.max` and `peer.*` are §2's; `context.*` §6's;
+4. **Whose rows.** `proto`, `kind`, `port`, `cap`, `reserved`, `hello.*`, `peers.*` and `peer.*` are §2's; `context.*` §6's;
    `cert.*` §10's; `proposal.*` §11's; `window.*` and `view.*` §12's; the rest are §3–§5's and §13's. §13 names every number of its
    own in `code` but these, whose meaning is here:
    - `peerlink.version`: the PeerLink version this contract defines (13.9.1);
@@ -1412,6 +1776,7 @@ its §8 row, with what ends it.
 | `context` | answers §6's context |
 | `receipts` | answers a command's request id with a receipt (§3) |
 | `clock` | answers §5's ping with its times |
+| `peerlink` | accepts LINK (13.6), its tree having passed 13.20: a hint to a connector to try LINK first (13.4.2) |
 | `screens` | drives browsers that show its pages |
 | `windows` | controls windows at their own addresses (§12) |
 | `aux` | runs extra timers beside the show's |
@@ -1456,6 +1821,7 @@ hello.id.min 6
 hello.id.max 40
 hello.inst.chars 8
 peers.max 128
+peer.addresses 4
 peer.stale.ms 6000
 peer.gone.ms 12000
 peer.forget.ms 60000
@@ -1493,6 +1859,7 @@ context.kept.ms 30000
 proposal.line.chars 2048
 proposal.undelivered.ms 60000
 proposal.result.ms 300000
+proposal.collect.ms 15000
 cert.days 825
 cert.backdate.hours 24
 cert.renew.days 30
@@ -1519,6 +1886,7 @@ cap messages main messenger
 cap context main patterns playmap messenger
 cap receipts main patterns playmap messenger
 cap clock main patterns playmap
+cap peerlink main patterns playmap
 cap screens main
 cap windows main
 cap aux main
