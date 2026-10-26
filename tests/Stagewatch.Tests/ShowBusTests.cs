@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -82,6 +83,7 @@ static class ShowBusTests
     public static async Task Run(Action<bool, string> Check)
     {
         Pure(Check);
+        ContextSizes(Check);
         DeskRules(Check);
         await Web(Check);
         await Tls(Check);
@@ -684,6 +686,271 @@ static class ShowBusTests
               && PatternsLink.IsLoopbackAddress(IPAddress.Loopback.MapToIPv6()) && !PatternsLink.IsLoopbackAddress(IPAddress.Parse("10.0.0.5"))
               && !PatternsLink.IsLoopbackAddress(IPAddress.Parse("::ffff:10.0.0.5")),
               "patterns pairing: the default seam calls a socket loopback by its address alone (IPv4, IPv6, IPv4-mapped)");
+    }
+
+    /// <summary>
+    /// Stagewatch's own context within §14's sizes (Show Bus §6): its panic, air and transport commands first, a department's GO among
+    /// them; a context within its sizes sent whole; every text within its field, cut with "…" and never inside a surrogate pair, an id
+    /// and a kind clipped, an unknown light grey, and its name the hello's; a crowded room trimmed in §6's order, each step only until it
+    /// fits, with one grey context:trimmed item, last, whose words are what it left out; the last resort only when nothing else is left,
+    /// amber before red at each of its steps, within the bytes even with every peer and name at its longest; past a count, the counts
+    /// kept and no link naming an item left out.
+    /// </summary>
+    static void ContextSizes(Action<bool, string> Check)
+    {
+        var t0 = new DateTime(2026, 10, 10, 19, 0, 0, DateTimeKind.Utc);
+
+        // §6's order of commands.
+        Check(ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air)
+              && new[] { "blackout", "next", "start / pause", "signal go all", "signal go <dept> <cue>" }.All(v => ShowContext.Commands.Any(c => c.Verb == v && c.Air)),
+            "context: its panic, air and transport commands come first, blackout, next, start / pause and a department's GO among them ("
+            + string.Join(", ", ShowContext.Commands.TakeWhile(c => c.Air).Select(c => c.Verb)) + ")");
+
+        // Within its sizes, whole.
+        var quiet = Crowded(t0, windows: 4, links: 2, departments: 3, recent: 5, peers: 2, words: 20, letter: 'x');
+        var whole = Read(ShowContext.Build(quiet));
+        Check(whole.Items.Count == ShowContext.Assess(quiet).Items.Count && whole.Items.All(i => i.Id != ShowContext.TrimmedId)
+              && whole.Links.Count == quiet.Links.Count && whole.Recent.Count == 5 && whole.Commands.Count == ShowContext.Commands.Count && whole.Peers.Count == 2,
+            "context: a context within its sizes is sent whole, with no context:trimmed item");
+
+        // Every text within its field: cut with "…" at the field's size, a surrogate pair never split.
+        static bool Whole(string s) => Encoding.UTF8.GetString(Encoding.UTF8.GetBytes(s)) == s;
+        var emoji = string.Concat(Enumerable.Repeat("😀", 150));
+        var small = Crowded(t0, windows: 0, links: 1, departments: 1, recent: 1, peers: 1, words: 300, letter: 'x');
+        var longest = small with { Name = "Hall\u0007 A\nx" + string.Concat(Enumerable.Repeat("😀", 50)), Frame = small.Frame with { Title = emoji } };
+        var cut = Read(ShowContext.Build(longest));
+        var timer = cut.Items.First(i => i.Id == "timer");
+        var linkState = cut.Items.First(i => i.Id == "link:l0").State;
+        var deptState = cut.Items.First(i => i.Id.StartsWith("cue:", StringComparison.Ordinal)).State;
+        Check(timer.Label.Length <= ShowContext.LabelChars && timer.Label.EndsWith('…') && Whole(timer.Label)
+              && cut.Headline.Length <= ShowContext.HeadlineChars && cut.Headline.EndsWith('…') && Whole(cut.Headline),
+            $"context: a title of emoji is cut within its label and the headline, never inside a pair ({timer.Label.Length}, {cut.Headline.Length})");
+        Check(linkState.Length == ShowContext.StateChars && linkState.EndsWith('…') && deptState.Length == ShowContext.StateChars && deptState.EndsWith('…')
+              && cut.Recent is [{ Length: ShowContext.RecentChars } line] && line.EndsWith('…')
+              && cut.Peers is [{ Name.Length: ShowBusText.NameChars, Headline.Length: ShowContext.HeadlineChars }],
+            $"context: a link's and a department's state, a recent line and a peer's name and headline are cut to their sizes ({linkState.Length}, "
+            + $"{deptState.Length}, {cut.Recent.FirstOrDefault()?.Length})");
+        Check(cut.Name == ShowBusHello.Name(longest.Name) && cut.Name.StartsWith("Hall Ax😀", StringComparison.Ordinal) && cut.Name.Length == ShowBusText.NameChars - 1
+              && Whole(cut.Name) && ShowBusHello.Main("3f9c2a1b7d0e", "c3d4e5f6", longest.Name, "FOH-PC", new HelloDoors(9924, true, null, 0, false, 0, false), false, 1)
+                  .Hello?.Name == cut.Name,
+            $"context: its name is the one its hello says — no control characters, at most a hello's characters, a pair never split ({cut.Name.Length})");
+        var odd = Crowded(t0, windows: 0, links: 0, departments: 0, recent: 0, peers: 0, words: 10, letter: 'x');
+        var oddLink = new ContextItem("link:" + new string('i', 65), "link-" + new string('k', 35), "Odd", "blue", "up");
+        var oddSent = Read(ShowContext.Build(odd with { Links = [oddLink] }));
+        Check(oddSent.Items.FirstOrDefault(i => i.Label == "Odd") is { } oddItem && oddItem.Id == oddLink.Id[..ShowContext.IdChars]
+              && oddItem.Kind == oddLink.Kind[..ShowContext.KindChars] && oddItem.Light == Light.Grey
+              && oddSent.Links is [{ From: "timer" } oddRow] && oddRow.To == oddItem.Id && oddRow.Light == Light.Grey,
+            "context: a link's id and kind are clipped to their sizes with no mark, an unknown light is sent grey, and its links row names the id as sent");
+
+        // A crowded room (64 windows, 8 links, 30 departments, 20 long recent lines, 32 peers): trimmed in §6's order, no red or amber touched.
+        var room = Crowded(t0, windows: 64, links: 8, departments: 30, recent: 20, peers: 32, words: 160, letter: '€', name: '€');
+        var crowded = Read(ShowContext.Build(room));
+        var (steps, words) = LeftOut(room, crowded);
+        var trimmed = crowded.Items.Where(i => i.Id == ShowContext.TrimmedId).ToList();
+        Check(crowded.Bytes <= ShowContext.MaxBytes && crowded.Items.Count <= ShowContext.MaxItems && crowded.Links.Count <= ShowContext.MaxLinks,
+            $"context: a crowded room's context is within its bytes, items and links ({crowded.Bytes} bytes, {crowded.Items.Count} items, {crowded.Links.Count} links)");
+        Check(OutOfOrder(steps) is null, "context: a crowded room's context is trimmed in §6's order, each step only from its end (" + OutOfOrder(steps) + ")");
+        Check(trimmed is [{ Light: Light.Grey, Kind: "health", Label: "Context" } one] && one.State == words && crowded.Items[^1] == one && words.Length > 0,
+            $"context: one grey context:trimmed item, last, says what it left out ({string.Join(" | ", trimmed.Select(x => x.State))} / {words})");
+        bool All(string step) => steps.First(x => x.Name == step).Out.All(o => o);
+        bool None(string step) => steps.First(x => x.Name == step).Out.All(o => !o);
+        Check(All("recent lines") && All("grey links") && All("other links") && All("other commands") && !None("grey items")
+              && new[] { "green items", "amber states", "red states", "amber items", "red items", "panic, air and transport commands" }.All(None),
+            "context: in a crowded room the recent lines, the links and the other commands go, then grey items, until it fits; no green, amber or red "
+            + "item and no panic, air or transport command is touched (" + words + ")");
+
+        // Just over: only as much as it takes.
+        ContextInput? over = null;
+        for (var k = 0; k <= 20 && over is null; k++)
+        {
+            var next = Crowded(t0, windows: 20, links: 8, departments: 20, recent: k, peers: 32, words: 160, letter: '€');
+            if (Read(ShowContext.Build(next)).Items.Any(i => i.Id == ShowContext.TrimmedId)) over = next;
+        }
+        var justWords = "never over";
+        var justEnough = false;
+        if (over is not null)
+        {
+            var (justSteps, words1) = LeftOut(over, Read(ShowContext.Build(over)));
+            justWords = words1;
+            justEnough = justSteps[0].Out.Count(o => o) is 1 or 2 && justSteps.Skip(1).All(step => step.Out.All(o => !o)) && OutOfOrder(justSteps) is null;
+        }
+        Check(justEnough, $"context: a context just over its bytes leaves out the oldest recent line or two and nothing else ({justWords})");
+        // Room for the context:trimmed item: one more link whose state grows six bytes at a time moves the room left after the oldest line
+        // goes through every size a recent line frees, and every one is sent within the bytes, with its one context:trimmed item.
+        var sizes = new List<int>();
+        if (over is not null)
+            for (var grow = 0; grow <= ShowContext.StateChars; grow++)
+            {
+                var padded = over with { Links = [.. over.Links, new ContextItem("link:pad", "link", "Pad", Light.Green, new string('€', grow))] };
+                var sentPadded = Read(ShowContext.Build(padded));
+                sizes.Add(sentPadded.Items.Count(i => i.Id == ShowContext.TrimmedId) == 1 ? sentPadded.Bytes : int.MaxValue);
+            }
+        Check(sizes.Count > 0 && sizes.All(b => b <= ShowContext.MaxBytes) && sizes.Max() > ShowContext.MaxBytes - 200,
+            $"context: whatever room trimming leaves, the context:trimmed item fits in it ({(sizes.Count > 0 ? sizes.Min() : 0)}–{(sizes.Count > 0 ? sizes.Max() : 0)} bytes)");
+
+        // The last resort: every peer and name at its longest, sixty red links; reds' states cut short, then reds left out from the end,
+        // and still within the bytes with the panic, air and transport commands kept.
+        var reds = Enumerable.Range(0, 60).Select(i => new ContextItem("link:r" + i.ToString(CultureInfo.InvariantCulture), "link", new string('€', 100), Light.Red,
+            new string('€', 200))).ToList();
+        var bare = Crowded(t0, windows: 0, links: 0, departments: 0, recent: 20, peers: 32, words: 200, letter: '€', name: '€', heading: '€');
+        var worst = bare with { Links = reds, ShowThreadStuck = true, Name = new string('€', 100), Frame = bare.Frame with { Title = new string('€', 300) } };
+        var dire = Read(ShowContext.Build(worst));
+        var (direSteps, direWords) = LeftOut(worst, dire);
+        Check(dire.Bytes <= ShowContext.MaxBytes && OutOfOrder(direSteps) is null && !NoneOut("red states", direSteps) && !NoneOut("red items", direSteps)
+              && NoneOut("panic, air and transport commands", direSteps) && dire.Items.Count(i => i.Light == Light.Red) > 0
+              && dire.Items.Where(i => i.Id.StartsWith("link:r", StringComparison.Ordinal)).All(i => i.State.Length <= ShowContext.LastResortChars && i.State.EndsWith('…'))
+              && dire.Items[^1] is { Id: ShowContext.TrimmedId } direTrimmed && direTrimmed.State == direWords,
+            $"context: the last resort cuts reds' states short, then leaves reds out from the end, within the bytes with its peers and names at their longest "
+            + $"({dire.Bytes} bytes; {direWords}; {OutOfOrder(direSteps)})");
+
+        // The last resort, amber before red at each of its steps: twenty departments standing by (amber) and k red links beside 32 peers
+        // whose headlines are at their longest past ASCII. As k grows the last resort cuts ambers' states, then reds', then leaves out
+        // ambers, then reds; every k is sent within the bytes in §6's order, its context:trimmed item last, and each stage is reached with
+        // reds there to be taken too early.
+        var stages = new SortedSet<string>(StringComparer.Ordinal);
+        string? broke = null;
+        var lit = Crowded(t0, windows: 0, links: 0, departments: 20, recent: 20, peers: 32, words: 160, letter: '€', heading: '€');
+        for (var k = 0; k <= 40 && broke is null; k++)
+        {
+            var mixed = lit with
+            {
+                Links = Enumerable.Range(0, k).Select(i => new ContextItem("link:r" + i.ToString(CultureInfo.InvariantCulture), "link", new string('€', 80), Light.Red,
+                    new string('€', 200))).ToList(),
+            };
+            var sentMixed = Read(ShowContext.Build(mixed));
+            var (mixedSteps, mixedWords) = LeftOut(mixed, sentMixed);
+            if (sentMixed.Bytes > ShowContext.MaxBytes || OutOfOrder(mixedSteps) is not null
+                || sentMixed.Items[^1] is not { Id: ShowContext.TrimmedId } mixedTrimmed || mixedTrimmed.State != mixedWords)
+            {
+                broke = $"{k} reds: {sentMixed.Bytes} bytes; {OutOfOrder(mixedSteps)}; {mixedWords}";
+                continue;
+            }
+            bool Took(string step) => mixedSteps.First(x => x.Name == step).Out.Contains(true);
+            if (k > 0 && Took("amber states") && !Took("red states")) stages.Add("1 amber states");
+            if (Took("red states") && !Took("amber items")) stages.Add("2 red states");
+            if (Took("amber items") && !Took("red items")) stages.Add("3 amber items");
+            if (Took("red items") && !Took("panic, air and transport commands")) stages.Add("4 red items");
+        }
+        Check(broke is null && stages.SequenceEqual(["1 amber states", "2 red states", "3 amber items", "4 red items"]),
+            "context: the last resort cuts every amber state before a red one and leaves out every amber item before a red one, each stage "
+            + $"reached with reds there ({string.Join(", ", stages)}{(broke is null ? "" : "; broke at " + broke)})");
+
+        // Past a count: 450 links. The counts are kept, the context:trimmed item among the items, and no link names an item left out.
+        var many = Crowded(t0, windows: 0, links: 450, departments: 0, recent: 0, peers: 0, words: 10, letter: 'x');
+        var counted = Read(ShowContext.Build(many));
+        var ids = counted.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var manyWords = LeftOut(many, counted).Words;
+        Check(counted.Items.Count == ShowContext.MaxItems && counted.Links.Count <= ShowContext.MaxLinks
+              && counted.Links.All(row => ids.Contains(row.From) && ids.Contains(row.To))
+              && counted.Items.Select(item => item.Id).Take(3).SequenceEqual(["timer", "schedule", "link:l0"]) && counted.Items[^2].Id == "link:l196"
+              && counted.Items[^1] is { Id: ShowContext.TrimmedId } countedTrimmed && countedTrimmed.State == manyWords && manyWords == "left out: 253 links, 253 items",
+            $"context: past its counts it keeps context.items items, the context:trimmed item among them, leaves out the last first, and no link "
+            + $"names an item left out ({counted.Items.Count} items, {counted.Links.Count} links; {manyWords})");
+    }
+
+    static bool NoneOut(string step, List<(string Name, List<bool> Out, bool FromStart)> steps) => steps.First(x => x.Name == step).Out.All(o => !o);
+
+    /// <summary>
+    /// A room for Stagewatch's own context: a countdown running on time in a running order (its timer and schedule green),
+    /// <paramref name="windows"/> windows not opened yet (grey), <paramref name="links"/> green links, <paramref name="departments"/>
+    /// departments standing by (amber), <paramref name="recent"/> journal notes, numbered, and <paramref name="peers"/> peers. Every
+    /// text is <paramref name="words"/> of <paramref name="letter"/> (a notes' 1000), a peer's name 100 of <paramref name="name"/> and its
+    /// headline 300 of <paramref name="heading"/>: a letter past ASCII is six bytes as sent, escaped.
+    /// </summary>
+    internal static ContextInput Crowded(DateTime now, int windows, int links, int departments, int recent, int peers, int words, char letter,
+        char name = 'p', char heading = 'h')
+    {
+        static string N(int i, string format = "D") => i.ToString(format, CultureInfo.InvariantCulture);
+        var text = new string(letter, words);
+        var frame = new ShowSnapshot
+        {
+            Mode = TimerMode.Countdown, State = TimerState.Running, Seconds = 300, Text = "05:00", Phase = TimerPhase.Normal, Title = "Keynote",
+            ItemIndex = 0, ItemCount = 3, OffsetSeconds = 0, ScheduleText = "on time",
+            Signals = Enumerable.Range(0, departments).Select(i => new SignalView(i + 1, SignalKind.Standby, "Dept" + N(i, "D2"), text, SignalState.Seen, false, 5, ""))
+                .ToEquatableArray(),
+        };
+        var shown = Enumerable.Range(0, windows)
+            .Select(i => new ScreenWindow { Id = "w" + N(i), Name = "window-" + N(i), Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 1 }).ToList();
+        var items = ScreenWindows.ContextItems(shown, [])
+            .Concat(Enumerable.Range(0, links).Select(i => new ContextItem("link:l" + N(i), "link", "Link " + N(i), Light.Green, text))).ToList();
+        var journal = Enumerable.Range(0, recent).Select(i => new JournalEntry(now.AddSeconds(i - recent), JournalKind.Note, 0, N(i) + " " + new string(letter, 1000))).ToList();
+        var heard = Enumerable.Range(0, peers)
+            .Select(i => new PeerSummary("patterns", "pat" + N(i, "D4"), new string(name, 100), Light.Green, new string(heading, 300), "10.0.1." + N(i), 1, true)).ToList();
+        return new ContextInput("abc123abc123", "Hall A", now, frame, false, items, heard, journal, ShowClock.For("UTC"), 0);
+    }
+
+    /// <summary>A context as sent: its UTF-8 bytes, its name and headline, its items in order, links, recent lines, commands' verbs and peers.</summary>
+    internal sealed record Sent(int Bytes, string Name, string Headline, List<ContextItem> Items, List<(string From, string To, string Light)> Links,
+        List<string> Recent, List<string> Commands, List<(string Name, string Headline)> Peers);
+
+    internal static Sent Read(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        static string S(JsonElement e, string name) => e.GetProperty(name).GetString() ?? "";
+        List<T> Each<T>(string name, Func<JsonElement, T> read) => root.GetProperty(name).EnumerateArray().Select(read).ToList();
+        return new Sent(Encoding.UTF8.GetByteCount(json), S(root.GetProperty("node"), "name"), S(root, "headline"),
+            Each("items", i => new ContextItem(S(i, "id"), S(i, "kind"), S(i, "label"), S(i, "light"), S(i, "state"))),
+            Each("links", l => (S(l, "from"), S(l, "to"), S(l, "light"))), Each("recent", r => S(r, "text")), Each("commands", c => S(c, "verb")),
+            Each("peers", p => (S(p, "name"), S(p, "headline"))));
+    }
+
+    /// <summary>
+    /// What §6's trimming left out of <paramref name="x"/>'s context, as <paramref name="sent"/> shows it: its steps in §6's order, each
+    /// with its elements in their list's order, true for one left out (a state: cut short) and whether its step takes them from the
+    /// start of the list; and the context:trimmed words those counts make.
+    /// </summary>
+    internal static (List<(string Name, List<bool> Out, bool FromStart)> Steps, string Words) LeftOut(ContextInput x, Sent sent)
+    {
+        var all = ShowContext.Assess(x).Items;
+        var kept = sent.Items.Where(i => i.Id != ShowContext.TrimmedId).ToDictionary(i => i.Id, StringComparer.Ordinal);
+        List<bool> Items(string light) => all.Where(i => i.Light == light).Select(i => !kept.ContainsKey(i.Id)).ToList();
+        List<bool> States(string light) => all.Where(i => i.Light == light && i.State.Length > ShowContext.LastResortChars && kept.ContainsKey(i.Id))
+            .Select(i => kept[i.Id].State != i.State).ToList();
+        var linked = sent.Links.Select(l => l.To).ToHashSet(StringComparer.Ordinal);
+        List<bool> Links(bool grey) => x.Links.Where(l => (Light.Clean(l.Light) == Light.Grey) == grey).Select(l => !linked.Contains(l.Id)).ToList();
+        var said = sent.Commands.ToHashSet(StringComparer.Ordinal);
+        List<bool> Commands(bool air) => ShowContext.Commands.Where(c => c.Air == air).Select(c => !said.Contains(c.Verb)).ToList();
+        var recent = x.Journal.TakeLast(ShowContext.MaxRecent)
+            .Select(e => !sent.Recent.Any(r => r.Contains(" Note: " + e.Text[..e.Text.IndexOf(' ')] + " ", StringComparison.Ordinal))).ToList();
+        var steps = new List<(string Name, List<bool> Out, bool FromStart)>
+        {
+            ("recent lines", recent, true),
+            ("grey links", Links(true), false),
+            ("other links", Links(false), false),
+            ("other commands", Commands(false), false),
+            ("grey items", Items(Light.Grey), false),
+            ("green items", Items(Light.Green), false),
+            ("amber states", States(Light.Amber), true),
+            ("red states", States(Light.Red), true),
+            ("amber items", Items(Light.Amber), false),
+            ("red items", Items(Light.Red), false),
+            ("panic, air and transport commands", Commands(true), false),
+        };
+        static string N(int n, string one, string many) => n.ToString(CultureInfo.InvariantCulture) + " " + (n == 1 ? one : many);
+        var parts = new List<string>();
+        if (recent.Count(o => o) is var r and > 0) parts.Add(N(r, "recent", "recent"));
+        if (x.Links.Count - sent.Links.Count is var l and > 0) parts.Add(N(l, "link", "links"));
+        if (ShowContext.Commands.Count - sent.Commands.Count is var c and > 0) parts.Add(N(c, "command", "commands"));
+        if (all.Count - kept.Count is var i and > 0) parts.Add(N(i, "item", "items"));
+        return (steps, parts.Count > 0 ? "left out: " + string.Join(", ", parts) : "");
+    }
+
+    /// <summary>
+    /// Null when <paramref name="steps"/> keep §6's order: a step touches its list only once every step before it has left out all of
+    /// its own, and takes from its list's end (the recent lines and the states from its start). Else what broke it.
+    /// </summary>
+    internal static string? OutOfOrder(List<(string Name, List<bool> Out, bool FromStart)> steps)
+    {
+        for (var k = 0; k < steps.Count; k++)
+        {
+            var (name, outs, fromStart) = steps[k];
+            var shaped = fromStart ? outs.SkipWhile(o => o).All(o => !o) : outs.SkipWhile(o => !o).All(o => o);
+            if (!shaped) return $"{name} not taken from the {(fromStart ? "start" : "end")} of their list";
+            if (outs.Contains(true) && steps.Take(k).FirstOrDefault(p => p.Out.Contains(false)) is { Name: { } before })
+                return $"{name} touched while some {before} were kept";
+        }
+        return null;
     }
 
     /// <summary>The shared approval queue's rules (Show Bus §11), pure.</summary>

@@ -180,14 +180,10 @@ public static class ShowBusHello
     public static byte[] Bytes(SlidesBeacon.Hello hello) => JsonSerializer.SerializeToUtf8Bytes(hello, Wire);
 
     /// <summary>
-    /// A name or a host as a hello says it: no control characters, and at most <see cref="SlidesBeacon.NameChars"/> characters, never
-    /// ending inside a character a surrogate pair makes.
+    /// A name or a host as a hello says it, by the one rule its context says its name by too (<see cref="ShowBusText.Name"/>): no control
+    /// characters, and at most <see cref="SlidesBeacon.NameChars"/> characters, never ending inside a character a surrogate pair makes.
     /// </summary>
-    public static string Name(string? text) => Cut(new string((text ?? "").Where(c => !char.IsControl(c)).ToArray()), SlidesBeacon.NameChars);
-
-    /// <summary>At most <paramref name="max"/> UTF-16 units of <paramref name="text"/> ("" for none), never cutting a surrogate pair in two.</summary>
-    public static string Cut(string text, int max)
-        => max <= 0 ? "" : text.Length <= max ? text : char.IsHighSurrogate(text[max - 1]) ? text[..(max - 1)] : text[..max];
+    public static string Name(string? text) => ShowBusText.Name(text);
 
     /// <summary>
     /// The hello within <see cref="HelloBytes"/>: whole when it fits; else its name, host and older <c>machine</c> cut shorter until it
@@ -198,7 +194,7 @@ public static class ShowBusHello
         foreach (var max in new[] { 32, 16, 8, 0 })
         {
             if (Bytes(hello).Length <= HelloBytes) return hello;
-            hello = hello with { Name = Cut(hello.Name, max), Machine = Cut(hello.Machine, max), Host = hello.Host is null ? null : Cut(hello.Host, max) };
+            hello = hello with { Name = ShowBusText.Clip(hello.Name, max), Machine = ShowBusText.Clip(hello.Machine, max), Host = hello.Host is null ? null : ShowBusText.Clip(hello.Host, max) };
         }
         return hello;
     }
@@ -266,7 +262,7 @@ public static class ShowBusHello
         if (status.CannotGoOut) parts.Add($"this Stagewatch's hello can't go out: {Words(status)} — other apps can't find it");
         if (own is not null) parts.Add(Twin(own));
         return parts.Count == 0 ? null
-            : new ContextItem("bus:hello", "health", "Show network hello", Light.Amber, Cut(string.Join("; ", parts), ItemStateChars));
+            : new ContextItem("bus:hello", "health", "Show network hello", Light.Amber, ShowBusText.Clip(string.Join("; ", parts), ItemStateChars));
     }
 
     /// <summary>The producer's warning while another machine says this Stagewatch's id; null otherwise. Never urgent: nothing is merged.</summary>
@@ -280,7 +276,7 @@ public static class ShowBusHello
     private static string Twin(HelloConflict own) => $"another machine says it is this Stagewatch: {own.Other} — give one of them a new id";
 
     /// <summary>The first failure's words, cut so the item's state stays within §6's size.</summary>
-    private static string Words(HelloStatus status) => status.Words.Length == 0 ? "no reason given" : Cut(status.Words, 80);
+    private static string Words(HelloStatus status) => status.Words.Length == 0 ? "no reason given" : ShowBusText.Clip(status.Words, 80);
 }
 
 /// <summary>

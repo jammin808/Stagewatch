@@ -119,7 +119,7 @@ public sealed class SlidesBeacon : IDisposable
     /// A heard hello keeps its first <see cref="KeptCaps"/> caps of §2's shape and <see cref="KeptPorts"/> doors; its name, machine
     /// and host are kept whole up to <see cref="NameChars"/> characters and cut there.
     /// </summary>
-    public const int KeptCaps = 32, KeptPorts = 8, NameChars = 64;
+    public const int KeptCaps = 32, KeptPorts = 8, NameChars = ShowBusText.NameChars;
 
     /// <summary>The most ids held: a hello from a new id is dropped while this many are (<see cref="HasRoom"/>).</summary>
     public const int MaxPeers = 128;

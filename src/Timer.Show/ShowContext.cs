@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Stagewatch.Core;
 
@@ -20,30 +22,79 @@ public sealed record ContextInput(
 /// Stagewatch's Show Bus context (§6): its light, a one-line headline and its parts — the timer, the schedule, each
 /// department's cue, the speaker's message, every link — plus recent events, the verbs a peer or an AI may propose, and
 /// the peers it hears. Computed from facts by rules (no model), so the Eye, a dashboard, a Stream Deck and an AI all read
-/// the same truth, online or not. Pure; tested headless.
+/// the same truth, online or not. It is always within §14's context sizes: every text within its field's characters, and the
+/// whole within its counts and bytes, trimmed in §6's order with one grey <see cref="TrimmedId"/> item saying what it left
+/// out. Pure; tested headless.
 /// </summary>
 public static class ShowContext
 {
-    /// <summary>The verbs a peer or an AI may propose, with their risk (high is never pre-ticked by any assistant).</summary>
-    public static readonly IReadOnlyList<(string Verb, string Risk, string Words)> Commands = new[]
+    /// <summary>§14 <c>context.bytes</c>: the most a context takes as sent, counted in UTF-8 bytes.</summary>
+    public const int MaxBytes = 65536;
+
+    /// <summary>§14 <c>context.items</c>: the most items, the <see cref="TrimmedId"/> item among them.</summary>
+    public const int MaxItems = 200;
+
+    /// <summary>§14 <c>context.links</c>.</summary>
+    public const int MaxLinks = 400;
+
+    /// <summary>§14 <c>context.recent</c>: the journal's last lines, no more.</summary>
+    public const int MaxRecent = 20;
+
+    /// <summary>§14 <c>context.commands</c>.</summary>
+    public const int MaxCommands = 256;
+
+    /// <summary>§14 <c>context.peers</c>.</summary>
+    public const int MaxPeers = 32;
+
+    /// <summary>§14 <c>context.headline.chars</c>, the context's headline and each peer's.</summary>
+    public const int HeadlineChars = 200;
+
+    /// <summary>§14 <c>context.item.id.chars</c>, <c>context.item.kind.chars</c>, <c>context.item.label.chars</c> and <c>context.item.state.chars</c>.</summary>
+    public const int IdChars = 60, KindChars = 30, LabelChars = 80, StateChars = 160;
+
+    /// <summary>§14 <c>context.recent.chars</c>.</summary>
+    public const int RecentChars = 200;
+
+    /// <summary>
+    /// How short §6's last resort cuts an amber or a red item's state, its "…" included: enough to name what is wrong. §6 leaves the
+    /// length to the sender and §14 has no row for it, so this is Stagewatch's own choice as a sender, and the context:trimmed item's
+    /// words keep to §6's "left out: …" alone (a cut state says it was cut by its "…"). A state no longer than this is never cut.
+    /// </summary>
+    public const int LastResortChars = 40;
+
+    /// <summary>The id of the one grey item a trimmed context adds, saying what it left out (§6).</summary>
+    public const string TrimmedId = "context:trimmed";
+
+    /// <summary>
+    /// The verbs a peer or an AI may propose, with their risk (high is never pre-ticked by any assistant). <c>Air</c> marks §6's panic,
+    /// air and transport commands, listed first and left out last: what blacks out every screen, what puts a page on a screen at once,
+    /// and what starts, pauses or moves the show or Patterns' clip — a department's GO among them, the call that moves a called show.
+    /// The rest follow by what an operator needs most on a failing night, a standby before messages, time and notes, because trimming
+    /// leaves commands out from the end of the list.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Verb, string Risk, string Words, bool Air)> Commands = new[]
     {
-        ("note <text>", "low", "Add a line to the show log"),
-        ("message <text> warning", "review", "Put a message on the speaker's screen"),
-        ("signal standby <dept> <cue>", "review", "Stand a department by"),
-        ("signal go <dept> <cue>", "high", "GO one department"),
-        ("signal go all", "high", "GO every department standing by"),
-        ("nudge <seconds>", "review", "Add or take time from the live item"),
-        ("trim <item> <seconds>", "review", "Lengthen or shorten a coming item"),
-        ("delay <seconds>", "review", "Announce a delay before the next item"),
-        ("next", "high", "Go to the next item"),
-        ("start / pause", "high", "Start or pause the timer"),
-        ("blackout", "high", "Black out every screen"),
-        ("window show <window> <page>", "high", "Put a page on a controlled browser window (the audience sees it at once)"),
-        ("window hold <window>", "high", "Put a window on its holding page"),
-        ("window revoke <window>", "high", "Give a window a new address (the screen on the old one goes dark)"),
-        ("patterns end 10", "high", "Jump Patterns' clip to its last 10 seconds"),
+        ("blackout", "high", "Black out every screen", true),
+        ("window hold <window>", "high", "Put a window on its holding page", true),
+        ("window show <window> <page>", "high", "Put a page on a controlled browser window (the audience sees it at once)", true),
+        ("window revoke <window>", "high", "Give a window a new address (the screen on the old one goes dark)", true),
+        ("start / pause", "high", "Start or pause the timer", true),
+        ("next", "high", "Go to the next item", true),
+        ("patterns end 10", "high", "Jump Patterns' clip to its last 10 seconds", true),
+        ("signal go all", "high", "GO every department standing by", true),
+        ("signal go <dept> <cue>", "high", "GO one department", true),
+        ("signal standby <dept> <cue>", "review", "Stand a department by", false),
+        ("message <text> warning", "review", "Put a message on the speaker's screen", false),
+        ("nudge <seconds>", "review", "Add or take time from the live item", false),
+        ("delay <seconds>", "review", "Announce a delay before the next item", false),
+        ("trim <item> <seconds>", "review", "Lengthen or shorten a coming item", false),
+        ("note <text>", "low", "Add a line to the show log", false),
     };
 
+    /// <summary>
+    /// The context's light (the worst of every item, those trimming may leave out among them), its headline within
+    /// <see cref="HeadlineChars"/> and its items, each within §14's item sizes.
+    /// </summary>
     public static (string Light, string Headline, IReadOnlyList<ContextItem> Items) Assess(ContextInput x)
     {
         var f = x.Frame;
@@ -115,30 +166,208 @@ public static class ShowContext
         if (standing.Count > 0) headline.Add(string.Join(", ", standing) + " standing by");
         var worst = items.Where(i => i.Light == Light.Red).Concat(items.Where(i => i.Light == Light.Amber && i.Id is not "timer" and not "schedule" && !i.Id.StartsWith("cue:", StringComparison.Ordinal))).FirstOrDefault();
         if (worst is not null && worst.Id != "timer") headline.Add($"{worst.Label}: {worst.State}");
-        return (light, string.Join(" · ", headline), items);
+        return (light, ShowBusText.Cut(string.Join(" · ", headline), HeadlineChars), items.Select(Sized).ToList());
     }
 
-    /// <summary>The §6 JSON.</summary>
+    /// <summary>
+    /// The §6 JSON, within §14's sizes. A context over <see cref="MaxBytes"/> as sent, or over a count, is trimmed in §6's order — the
+    /// oldest recent lines; grey links, then the other links; commands that are not panic, air or transport, from the end; grey items,
+    /// then green items — and only while it is still over, the last resort: each amber item's state cut short, then each red item's,
+    /// then amber items, red items and panic, air and transport commands left out, each from the end. One grey <see cref="TrimmedId"/>
+    /// item then says what it left out in §6's words, within the same bytes and items. A link left without the item it names goes with
+    /// it. The headline, the node and its peers are never trimmed: within their sizes they leave room for the rest. The node's name and
+    /// each peer's are said by the hello's rule (<see cref="ShowBusText.Name"/>), so a peer hears one name for a node in both.
+    /// </summary>
     public static string Build(ContextInput x)
     {
         var (light, headline, items) = Assess(x);
-        var links = new List<object>();
-        foreach (var l in x.Links) links.Add(new { from = "timer", to = l.Id, kind = l.Kind == "playout" ? "follows" : "hears", light = l.Light });
-        return JsonSerializer.Serialize(new
+        var node = new { t = "main", id = x.NodeId, name = ShowBusText.Name(x.Name) };
+        var at = new DateTimeOffset(x.NowUtc).ToUnixTimeMilliseconds();
+        // One hop (ShowNetwork's join): link is "ws" while a node link proves the id; verified is what proves the row's light and
+        // headline now ("" when nothing spoke for it). Both last in the row: readers match the earlier fields as written.
+        var peers = x.Peers.Take(MaxPeers).Select(p => new
+        {
+            t = p.Kind, id = p.Id, name = ShowBusText.Name(p.Name), light = p.Light, headline = ShowBusText.Cut(p.Headline, HeadlineChars), heard = p.Liveness,
+            link = p.Link, verified = p.Verified,
+        }).ToList();
+        string Json(Shape s) => JsonSerializer.Serialize(new
         {
             v = 1,
-            node = new { t = "main", id = x.NodeId, name = x.Name },
-            at = new DateTimeOffset(x.NowUtc).ToUnixTimeMilliseconds(),
+            node,
+            at,
             light,
             headline,
-            items = items.Select(i => new { id = i.Id, kind = i.Kind, label = i.Label, light = i.Light, state = i.State }),
-            links,
-            recent = x.Journal.TakeLast(20).Select(e => new { at = new DateTimeOffset(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(), text = $"{x.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}" }),
-            commands = Commands.Select(c => new { verb = c.Verb, risk = c.Risk, words = c.Words }),
-            // One hop (ShowNetwork's join): link is "ws" while a node link proves the id; verified is what proves the
-            // row's light and headline now ("" when nothing spoke for it). Both last in the row: readers match the
-            // earlier fields as written.
-            peers = x.Peers.Select(p => new { t = p.Kind, id = p.Id, name = p.Name, light = p.Light, headline = p.Headline, heard = p.Liveness, link = p.Link, verified = p.Verified }),
+            items = s.Items.Select(p => p.Json).ToList(),
+            links = s.Links.Select(p => p.Json).ToList(),
+            recent = s.Recent.Select(p => p.Json).ToList(),
+            commands = s.Commands.Select(p => p.Json).ToList(),
+            peers,
         });
+
+        var whole = new Shape(
+            items.Select(Part.Of).ToList(),
+            x.Links.Select(Sized).Select(l => Part.Of(new ContextLink("timer", l.Id, l.Kind == "playout" ? "follows" : "hears", l.Light))).ToList(),
+            x.Journal.TakeLast(MaxRecent).Select(e => Part.Of(new DateTimeOffset(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
+                ShowBusText.Cut(string.Create(CultureInfo.InvariantCulture, $"{x.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}"), RecentChars))).ToList(),
+            Commands.Select(Part.Of).ToList());
+        // The usual context fits: one serialization, as it is sent. Only one over a count or the bytes is measured part by part.
+        var json = Json(whole);
+        if (whole.Items.Count <= MaxItems && whole.Links.Count <= MaxLinks && whole.Commands.Count <= MaxCommands
+            && Encoding.UTF8.GetByteCount(json) <= MaxBytes)
+            return json;
+        return Json(Fit(whole, Encoding.UTF8.GetByteCount(Json(Shape.Empty))));
+    }
+
+    /// <summary>An item within §14's item sizes — its id and kind clipped, a word each; its label and state cut — its light one of §6's four.</summary>
+    private static ContextItem Sized(ContextItem i)
+        => new(ShowBusText.Clip(i.Id, IdChars), ShowBusText.Clip(i.Kind, KindChars), ShowBusText.Cut(i.Label, LabelChars), Light.Clean(i.Light),
+            ShowBusText.Cut(i.State, StateChars));
+
+    /// <summary>
+    /// <paramref name="whole"/>, over a count or <see cref="MaxBytes"/>, trimmed to make room for the <see cref="TrimmedId"/> item at its
+    /// longest — the words with every count at its most — which it then adds. <paramref name="fixedBytes"/> is the context with its
+    /// four trimmed arrays empty.
+    /// </summary>
+    private static Shape Fit(Shape whole, long fixedBytes)
+    {
+        var most = new Trimmed(whole.Recent.Count, whole.Links.Count, whole.Commands.Count, whole.Items.Count);
+        var room = Part.Of(TrimmedItem(most)).Bytes + 1;
+        var trimmer = new Trimmer(whole, MaxBytes - fixedBytes - room, MaxItems - 1);
+        var done = trimmer.Run();
+        trimmer.Items.Add(Part.Of(TrimmedItem(done)));
+        return new Shape(trimmer.Items, trimmer.Links, trimmer.Recent, trimmer.Commands);
+    }
+
+    private static ContextItem TrimmedItem(Trimmed t) => Sized(new ContextItem(TrimmedId, "health", "Context", Light.Grey, t.Words));
+
+    /// <summary>
+    /// What §6's trimming left out of a context, by array. A trimmed context always left something out, so its words always name a count:
+    /// one over a count leaves out what is past it, and one over the bytes leaves something out before its last resort cuts any state —
+    /// at the latest a command that is not panic, air or transport, which the list always holds.
+    /// </summary>
+    private readonly record struct Trimmed(int Recent, int Links, int Commands, int Items)
+    {
+        /// <summary>§6's words: "left out: 12 recent, 40 links, 30 commands, 5 items", each part only when it left one out.</summary>
+        public string Words
+        {
+            get
+            {
+                static string Count(int n, string one, string many) => n.ToString(CultureInfo.InvariantCulture) + " " + (n == 1 ? one : many);
+                var parts = new List<string>();
+                if (Recent > 0) parts.Add(Count(Recent, "recent", "recent"));
+                if (Links > 0) parts.Add(Count(Links, "link", "links"));
+                if (Commands > 0) parts.Add(Count(Commands, "command", "commands"));
+                if (Items > 0) parts.Add(Count(Items, "item", "items"));
+                return "left out: " + string.Join(", ", parts);
+            }
+        }
+    }
+
+    /// <summary>
+    /// One element of a context's array as it is sent, with its light and whether it is a panic, air or transport command; its UTF-8
+    /// bytes are measured the first time trimming asks.
+    /// </summary>
+    private sealed record Part(object Json, string Light, bool Air, ContextItem? Item, ContextLink? Link)
+    {
+        private int _bytes = -1;
+
+        /// <summary>Its bytes as sent, inside the context as on its own (the same writer and encoder).</summary>
+        public int Bytes => _bytes >= 0 ? _bytes : _bytes = JsonSerializer.SerializeToUtf8Bytes(Json).Length;
+
+        public static Part Of(ContextItem i)
+        {
+            var json = new { id = i.Id, kind = i.Kind, label = i.Label, light = i.Light, state = i.State };
+            return new Part(json, i.Light, false, i, null);
+        }
+
+        public static Part Of(ContextLink l)
+        {
+            var json = new { from = l.From, to = l.To, kind = l.Kind, light = l.Light };
+            return new Part(json, Core.Light.Clean(l.Light), false, null, l);
+        }
+
+        public static Part Of(long at, string text)
+        {
+            var json = new { at, text };
+            return new Part(json, "", false, null, null);
+        }
+
+        public static Part Of((string Verb, string Risk, string Words, bool Air) c)
+        {
+            var json = new { verb = c.Verb, risk = c.Risk, words = c.Words };
+            return new Part(json, "", c.Air, null, null);
+        }
+    }
+
+    /// <summary>The four arrays trimming may shorten, in their order.</summary>
+    private sealed record Shape(List<Part> Items, List<Part> Links, List<Part> Recent, List<Part> Commands)
+    {
+        public static readonly Shape Empty = new([], [], [], []);
+
+        /// <summary>What the four arrays add to the context with them empty: each element's bytes and the comma between two.</summary>
+        public long Bytes => Of(Items) + Of(Links) + Of(Recent) + Of(Commands);
+
+        public static long Of(List<Part> parts) => parts.Count == 0 ? 0 : parts.Sum(p => (long)p.Bytes) + parts.Count - 1;
+    }
+
+    /// <summary>§6's trimming, step by step, each step only until the context fits: copies of the arrays, and what it left out.</summary>
+    private sealed class Trimmer(Shape whole, long budget, int maxItems)
+    {
+        public readonly List<Part> Items = [.. whole.Items], Links = [.. whole.Links], Recent = [.. whole.Recent], Commands = [.. whole.Commands];
+        private long _bytes = whole.Bytes;
+        private int _recent, _links, _commands, _items;
+
+        private bool Over => _bytes > budget;
+
+        public Trimmed Run()
+        {
+            // The counts first, in the same order: a list over its count leaves out what the bytes would leave out first.
+            _commands += Drop(Commands, c => !c.Air, () => Commands.Count > MaxCommands) + Drop(Commands, _ => true, () => Commands.Count > MaxCommands);
+            _links += Drop(Links, l => l.Light == Light.Grey, () => Links.Count > MaxLinks) + Drop(Links, _ => true, () => Links.Count > MaxLinks);
+            foreach (var light in new[] { Light.Grey, Light.Green, Light.Amber, Light.Red })
+                _items += Drop(Items, i => i.Light == light, () => Items.Count > maxItems);
+            // A link whose own end names an item left out goes with it (an end on another node starts with @).
+            var kept = Items.Select(i => i.Item!.Id).ToHashSet(StringComparer.Ordinal);
+            _links += Drop(Links, l => !Names(l.Link!.From) || !Names(l.Link!.To), () => true);
+            bool Names(string end) => end.StartsWith('@') || kept.Contains(end);
+
+            // Then the bytes, in §6's order.
+            while (Over && Recent.Count > 0) { RemoveAt(Recent, 0); _recent++; }
+            _links += Drop(Links, l => l.Light == Light.Grey, () => Over) + Drop(Links, _ => true, () => Over);
+            _commands += Drop(Commands, c => !c.Air, () => Over);
+            _items += Drop(Items, i => i.Light == Light.Grey, () => Over) + Drop(Items, i => i.Light == Light.Green, () => Over);
+            // The last resort, only while it is still over: the states of ambers then reds cut short, then ambers, reds and the
+            // panic, air and transport commands left out.
+            foreach (var light in new[] { Light.Amber, Light.Red })
+                for (var i = 0; i < Items.Count && Over; i++)
+                    if (Items[i].Light == light && Items[i].Item is { } item && item.State.Length > LastResortChars)
+                    {
+                        var cut = Part.Of(item with { State = ShowBusText.Cut(item.State, LastResortChars) });
+                        _bytes += cut.Bytes - Items[i].Bytes;
+                        Items[i] = cut;
+                    }
+            _items += Drop(Items, i => i.Light == Light.Amber, () => Over) + Drop(Items, i => i.Light == Light.Red, () => Over);
+            _commands += Drop(Commands, _ => true, () => Over);
+            return new Trimmed(_recent, _links, _commands, _items);
+        }
+
+        /// <summary>Leaves out the elements <paramref name="which"/> takes, the last first, while <paramref name="more"/> holds; how many it left out.</summary>
+        private int Drop(List<Part> parts, Func<Part, bool> which, Func<bool> more)
+        {
+            var n = 0;
+            for (var i = parts.Count - 1; i >= 0 && more(); i--)
+            {
+                if (!which(parts[i])) continue;
+                RemoveAt(parts, i);
+                n++;
+            }
+            return n;
+        }
+
+        private void RemoveAt(List<Part> parts, int i)
+        {
+            _bytes -= parts[i].Bytes + (parts.Count > 1 ? 1 : 0);
+            parts.RemoveAt(i);
+        }
     }
 }

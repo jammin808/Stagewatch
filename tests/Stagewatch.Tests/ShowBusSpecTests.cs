@@ -144,7 +144,7 @@ static class ShowBusSpecTests
         "peerlink.hold.refused.ms", "peerlink.redial.jitter.pct", "peerlink.stable.ms", "link.stale.ms", "link.drop.ms", "link.redial.first.ms",
         "link.redial.max.ms", "link.inflight.max", "link.read.min.bytes", "clock.window", "clock.apart.ms", "clock.rtt.max.ms", "clock.fresh.ms",
         "receipt.final.ms", "request.id.chars", "hello.port", "hello.caps", "hello.cap.chars", "hello.id.min", "hello.id.max", "peers.max",
-        "context.bytes", "context.kept.ms", "context.items", "context.commands", "context.peers", "context.recent", "context.recent.chars",
+        "context.bytes", "context.kept.ms", "context.items", "context.links", "context.commands", "context.peers", "context.recent", "context.recent.chars",
         "context.headline.chars", "context.item.id.chars", "context.item.kind.chars", "context.item.label.chars", "context.item.state.chars",
         "context.verb.chars", "proposal.undelivered.ms", "proposal.result.ms", "window.token.chars", "window.max", "hello.bytes", "hello.ports",
         "hello.name.chars", "hello.inst.chars", "hello.kind.chars", "show.stuck.min.ms", "show.stuck.max.ms", "peer.stale.ms", "peer.conflict.clear.ms",
@@ -196,13 +196,6 @@ static class ShowBusSpecTests
         ("link.stale.ms", "SW20.4a", "PatternsLink marks no link stale: a clip shows no time 3 s after its last frame, and the link drops after 12 s", null),
         ("link.redial.first.ms", "SW20.4a", $"PatternsLink waits {PatternsLink.RedialFirstMs} ms before its first redial, and never jitters",
             n => PatternsLink.RedialFirstMs != n.Of("link.redial.first.ms")),
-        ("context.bytes", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
-        ("context.items", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
-        ("context.links", "SW19.4", "nothing bounds Stagewatch's own context's bytes, items or links", null),
-        ("context.headline.chars", "SW19.4", WrittenWhole, n => OwnSizes() is { Capped: true } s && s.Headline > n.Of("context.headline.chars")),
-        ("context.item.label.chars", "SW19.4", WrittenWhole, n => OwnSizes() is { Capped: true } s && s.Label > n.Of("context.item.label.chars")),
-        ("context.item.state.chars", "SW19.4", WrittenWhole, n => OwnSizes() is { Capped: true } s && s.State > n.Of("context.item.state.chars")),
-        ("context.recent.chars", "SW19.4", WrittenWhole, n => OwnSizes() is { Capped: true } s && s.Recent > n.Of("context.recent.chars")),
         ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
         ("context.items", "SW21.1", "PeerContexts keeps a context's first 64 items",
             n => Peer(Many("items", "{\"id\":\"a\",\"kind\":\"b\",\"label\":\"c\",\"light\":\"green\",\"state\":\"d\"}", n.Of("context.items")))?.Items.Count < n.Of("context.items")),
@@ -228,13 +221,6 @@ static class ShowBusSpecTests
 
     /// <summary>Whether a unit ends its entry in 2.19, the release that carries 1.3: then the header names it, else §8's Stagewatch row.</summary>
     static bool In219(string unit) => unit.StartsWith("SW19.", StringComparison.Ordinal);
-
-    /// <summary>
-    /// What Stagewatch's own context writes whole today, in the header's words: §6's item, headline and recent sizes bind a sender, and
-    /// a title, a message (up to 500 characters) and a note (up to 1000) reach it uncut (<see cref="OwnSizes"/>).
-    /// </summary>
-    const string WrittenWhole = "its own context writes a title, a message's text and a journal line whole: a running order item's title as its timer's label "
-        + "and in its headline, a message's text in a cue's state, and each journal line in `recent`, a message up to 500 characters and a note up to 1000";
 
     /// <summary>
     /// What else of §1–§11 and §12 Stagewatch does not keep yet, past what a §14 row names: §8's Stagewatch row's words for it, the unit
@@ -284,14 +270,10 @@ static class ShowBusSpecTests
     /// <summary>
     /// What else of §1–§11 Stagewatch does not keep yet past a row, which 2.19 brings: the header's words for it, the unit of 2.19 that
     /// ends it, what the code does today, and a check that holds exactly while the code still does that. The header names each exactly
-    /// while its check holds.
+    /// while its check holds. Empty: every rule of §1–§11 that 2.19 brings is kept (§6's order of commands is held in
+    /// <see cref="ContextCode"/>, §6's sizes and trimming in <see cref="OwnContextSizes"/>).
     /// </summary>
-    static readonly (string What, string Unit, string Today, Func<bool> Differs)[] NotKept219 =
-    [
-        ("§6's order of commands", "SW19.4", "its context lists `blackout`, `next` and `start / pause` after its notes, messages and cues",
-            () => ShowContext.Commands.Select(c => c.Verb).ToList() is var verbs && verbs.IndexOf("note <text>") is var note and >= 0
-                  && new[] { "blackout", "next", "start / pause" }.All(v => verbs.IndexOf(v) > note)),
-    ];
+    static readonly (string What, string Unit, string Today, Func<bool> Differs)[] NotKept219 = [];
 
     /// <summary>
     /// Rows of those sections that Stagewatch's code bears on but this suite does not reach yet, with where that code is and the unit
@@ -347,7 +329,7 @@ static class ShowBusSpecTests
         }
         TodaysCode(Check, s13, rows ?? [], n);
         WindowsCode(Check, text[..^body.Length], s12, n);
-        ContextCode(Check, n);
+        ContextCode(Check, s6, n);
         Words(Check, body, n);
         WordsCode(Check, body, n);
         NodeRows(Check, body, s13, n, draft);
@@ -1621,6 +1603,7 @@ static class ShowBusSpecTests
         Keeps(ShowContext.Commands.Count <= n.Of("context.commands")
               && ShowContext.Commands.All(x => x.Verb.Length <= n.Of("context.verb.chars") && x.Words.Length <= n.Of("context.words.chars")),
             "its own context lists no more commands, with no longer verbs or words", "context.commands", "context.verb.chars", "context.words.chars");
+        OwnContextSizes(Keeps, n);
 
         // §10: Timer.App is not built beside this suite on every platform, so the certificate's numbers are read from its source.
         var cert = Certificate();
@@ -1953,12 +1936,12 @@ static class ShowBusSpecTests
         });
 
     /// <summary>
-    /// How long Stagewatch's own context writes a title, a message and a journal line today: a running order item's 300-character title,
-    /// a message of 500 characters (the most the desk keeps of one) sent with an ack and journalled, and a note of 1000 (the most it keeps of
-    /// one) — the headline's length, the timer's label's, the speaker cue's state's and the longest recent line's; Capped while the desk
-    /// still cuts a message at 500 characters and a note at 1000, as the header's words say.
+    /// How long Stagewatch's own context sends a title, a message and a journal line, each longer than its field: a running order item's
+    /// 300-character title, a message of 500 characters (the most the desk keeps of one) sent with an ack and journalled, and a note of
+    /// 1000 (the most it keeps of one) — the headline's length, the timer's label's, the speaker cue's state's and the longest recent
+    /// line's, as sent.
     /// </summary>
-    static (int Headline, int Label, int State, int Recent, bool Capped) OwnSizes()
+    static (int Headline, int Label, int State, int Recent) OwnSizes()
     {
         var message = new string('m', 500);
         var frame = Running() with
@@ -1967,14 +1950,54 @@ static class ShowBusSpecTests
             Signals = new[] { new SignalView(2, SignalKind.Message, "speaker", message, SignalState.Sent, false, 5, "") }.ToEquatableArray(),
         };
         var input = Own(frame, false, [], [], journal: [new(Tonight, JournalKind.Message, 0, message), new(Tonight, JournalKind.Note, 0, new string('n', 1000))]);
-        var (_, headline, items) = ShowContext.Assess(input);
-        using var doc = JsonDocument.Parse(ShowContext.Build(input));
-        var recent = Items(doc.RootElement, "recent").Select(r => (Str(r, "text") ?? "").Length).DefaultIfEmpty(0).Max();
-        var state = Source("src/Timer.Core/ShowState.cs") ?? "";
-        var capped = state.Contains("if (text.Length > 500) text = text[..500];", StringComparison.Ordinal)
-                     && state.Contains("if (noteText.Length > 1000) noteText = noteText[..1000];", StringComparison.Ordinal);
-        return (headline.Length, items.FirstOrDefault(i => i.Id == "timer")?.Label.Length ?? 0, items.FirstOrDefault(i => i.Id == "cue:speaker")?.State.Length ?? 0,
-            recent, capped);
+        var sent = ShowBusTests.Read(ShowContext.Build(input));
+        return (sent.Headline.Length, sent.Items.FirstOrDefault(i => i.Id == "timer")?.Label.Length ?? 0,
+            sent.Items.FirstOrDefault(i => i.Id == "cue:speaker")?.State.Length ?? 0, sent.Recent.Select(r => r.Length).DefaultIfEmpty(0).Max());
+    }
+
+    /// <summary>
+    /// §6's sizes and trimming against Stagewatch's own context (ShowBusTests.ContextSizes walks the order step by step). Its sizes are
+    /// §14's rows, its name within a hello's; a title, a message and a journal line longer than their fields are sent cut to exactly
+    /// their sizes (<see cref="OwnSizes"/>); a crowded room — 64 windows, 8 links, 30 departments standing by, 20 long recent lines and
+    /// 32 peers — is sent within context.bytes, context.items, context.links and context.recent, trimmed in §6's order with one grey
+    /// context:trimmed item of a table kind saying what it left out in §6's words alone, and every red and amber item sent whole; and
+    /// past context.links links it sends context.items items, the context:trimmed item among them, and no more than context.links links.
+    /// </summary>
+    static void OwnContextSizes(KeepsRows Keeps, Numbers n)
+    {
+        Keeps(ShowContext.MaxBytes == n.Of("context.bytes") && ShowContext.MaxItems == n.Of("context.items") && ShowContext.MaxLinks == n.Of("context.links")
+              && ShowContext.MaxRecent == n.Of("context.recent") && ShowContext.MaxCommands == n.Of("context.commands") && ShowContext.MaxPeers == n.Of("context.peers")
+              && ShowContext.HeadlineChars == n.Of("context.headline.chars") && ShowContext.IdChars == n.Of("context.item.id.chars")
+              && ShowContext.KindChars == n.Of("context.item.kind.chars") && ShowContext.LabelChars == n.Of("context.item.label.chars")
+              && ShowContext.StateChars == n.Of("context.item.state.chars") && ShowContext.RecentChars == n.Of("context.recent.chars")
+              && ShowBusText.NameChars == n.Of("hello.name.chars"),
+            "its own context's sizes are those rows, its name and its peers' names a hello's", "context.bytes", "context.items", "context.links", "context.recent",
+            "context.commands", "context.peers", "context.headline.chars", "context.item.id.chars", "context.item.kind.chars", "context.item.label.chars",
+            "context.item.state.chars", "context.recent.chars", "hello.name.chars");
+        var (headline, label, state, recent) = OwnSizes();
+        Keeps(headline == n.Of("context.headline.chars") && label == n.Of("context.item.label.chars") && state == n.Of("context.item.state.chars")
+              && recent == n.Of("context.recent.chars"),
+            $"its own context sends a 300-character title, a 500-character message and a 1000-character note cut to those sizes ({headline}, {label}, {state}, {recent})",
+            "context.headline.chars", "context.item.label.chars", "context.item.state.chars", "context.recent.chars");
+
+        var room = ShowBusTests.Crowded(Tonight, windows: 64, links: 8, departments: 30, recent: 20, peers: 32, words: 160, letter: '€', name: '€');
+        var sent = ShowBusTests.Read(ShowContext.Build(room));
+        var (steps, words) = ShowBusTests.LeftOut(room, sent);
+        var trimmed = sent.Items.Where(i => i.Id == ShowContext.TrimmedId).ToList();
+        var urgent = ShowContext.Assess(room).Items.Where(i => i.Light is Light.Red or Light.Amber).ToList();
+        Keeps(sent.Bytes <= n.Of("context.bytes") && sent.Items.Count <= n.Of("context.items") && sent.Links.Count <= n.Of("context.links")
+              && sent.Recent.Count <= n.Of("context.recent") && ShowBusTests.OutOfOrder(steps) is null
+              && trimmed is [{ } one] && one.Light == Light.Grey && ShowBusKinds.Known(one.Kind) && one.State == words && one.State.Length <= n.Of("context.item.state.chars")
+              && Regex.IsMatch(one.State, @"^left out: \d+ (?:recent|links?|commands?|items?)(?:, \d+ (?:recent|links?|commands?|items?))*$")
+              && urgent.Count >= 30 && urgent.All(sent.Items.Contains),
+            $"its own context in a crowded room is sent within them, trimmed in §6's order, says what it left out in §6's words and sends every red and amber item whole "
+            + $"({sent.Bytes} bytes, {sent.Items.Count} items, {sent.Links.Count} links, {sent.Recent.Count} recent; {words}{ShowBusTests.OutOfOrder(steps)})",
+            "context.bytes", "context.items", "context.links", "context.recent");
+        var many = ShowBusTests.Crowded(Tonight, windows: 0, links: (int)n.Of("context.links") + 50, departments: 0, recent: 0, peers: 0, words: 10, letter: 'x');
+        var counted = ShowBusTests.Read(ShowContext.Build(many));
+        Keeps(counted.Items.Count == n.Of("context.items") && counted.Links.Count <= n.Of("context.links") && counted.Items[^1].Id == ShowContext.TrimmedId,
+            $"its own context with more links than that sends that many items, the context:trimmed item among them, and no more links ({counted.Items.Count}, {counted.Links.Count})",
+            "context.items", "context.links");
     }
 
     /// <summary>
@@ -2012,7 +2035,7 @@ static class ShowBusSpecTests
     /// context.kept.ms after it came; no command of its own posts one. Each entry of <see cref="RulesNotKeptYet"/> holds while the code
     /// still does what it says (§8's Stagewatch row names them: <see cref="NodeRows"/>).
     /// </summary>
-    static void ContextCode(Action<bool, string> Check, Numbers n)
+    static void ContextCode(Action<bool, string> Check, string s6, Numbers n)
     {
         Check(ShowBusKinds.Nodes.SequenceEqual(n.Kinds) && n.Kinds.All(k => ShowBusKinds.Label(k.T) == k.Name && ShowNetwork.AppName(k.T) == k.Name)
               && ShowBusKinds.Label("eye") is null && ShowNetwork.AppName("eye") == "eye",
@@ -2065,6 +2088,12 @@ static class ShowBusSpecTests
             "showbus spec: Stagewatch keeps §6's posting as the desk: the latest context it took for an id, context.kept.ms after it came and no longer");
         Check(ShowContext.Commands.All(c => !c.Verb.StartsWith("context", StringComparison.OrdinalIgnoreCase)),
             "showbus spec: Stagewatch lists no context post among the commands its context offers");
+
+        // §6's order of commands: panic, air and transport first.
+        var airFirst = ShowContext.Commands.TakeWhile(c => c.Air).Select(c => c.Verb).ToList();
+        Check(Flat(s6).Contains("A sender lists its panic, air and transport commands first.", StringComparison.Ordinal)
+              && ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air) && new[] { "blackout", "next", "start / pause" }.All(airFirst.Contains),
+            "showbus spec: Stagewatch keeps §6's order of commands: its panic, air and transport commands first (" + string.Join(", ", airFirst) + ")");
 
         // What of §6's rules Stagewatch does not keep yet: each entry holds exactly while its code still does what it says.
         foreach (var (rule, of, unit, today, differs) in RulesNotKeptYet)

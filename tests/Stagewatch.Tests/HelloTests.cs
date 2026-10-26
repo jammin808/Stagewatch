@@ -82,9 +82,10 @@ static class HelloTests
               && ShowBusHello.Main("3f9c2a1b7d0e", "c3d4e5f6", "Hall A", "FOH-PC", lan with { WebPort = 0 }, false, 1) is { Hello: null, Scope: HelloScope.Off }
               && ShowBusHello.Main("3f9c2a1b7d0e", "c3d4e5f6", "Hall\u0007 A\n", "FOH-PC", lan, true, 1).Hello is { Name: "Hall A" } m && m.Caps![^1] == "mcp",
             "hello: the builder names the doors bound to the network, mcp only when allowed, no control characters, and nothing for no web server, a bad id or inst");
-        Check(ShowBusHello.Cut("abc", 0) == "" && ShowBusHello.Cut("abc", -1) == "" && ShowBusHello.Cut("", 0) == "" && ShowBusHello.Cut("a😀", 2) == "a"
-              && ShowBusHello.Cut("abc", 3) == "abc",
-            "hello: cutting to no room gives nothing (never a throw on the beacon's timer thread), and never splits a surrogate pair");
+        Check(ShowBusText.Clip("abc", 0) == "" && ShowBusText.Clip("abc", -1) == "" && ShowBusText.Clip("", 0) == "" && ShowBusText.Clip("a😀", 2) == "a"
+              && ShowBusText.Clip("abc", 3) == "abc" && ShowBusText.Cut("abc", 0) == "" && ShowBusText.Cut("abc", 1) == "…" && ShowBusText.Cut("a😀b", 3) == "a…"
+              && ShowBusText.Cut("abc", 3) == "abc",
+            "hello: clipping or cutting to no room gives nothing (never a throw on the beacon's timer thread), and never splits a surrogate pair");
 
         // On the wire: no null field, and presenting only from an agent that presents.
         var main = ShowBusHello.Main("3f9c2a1b7d0e", "c3d4e5f6", "Hall A", "FOH-PC", lan, false, 1).Hello!;
