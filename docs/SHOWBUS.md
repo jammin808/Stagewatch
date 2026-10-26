@@ -1,28 +1,32 @@
-# Show Bus 1.3 (draft) — the contract between Stagewatch, Patterns, PlayMap, AGMessage and their micro-apps
+# Show Bus 1.3 — the contract between Stagewatch, Patterns, PlayMap, AGMessage and their micro-apps
 
-*Version 1.3, a draft (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello `tls` and caps
-`approvals`). 1.3 adds, in §1–§11: the `playmap` kind, `proto` as the revision whose shapes a node speaks, the hello's numbers, where a
-hello is sent from and how one id is heard (§2); reads after pairing and each node's public view (§1 rule 4, §7.2); a receipt's last
-fields (§3); the context's sizes, the order a sender trims it in, the command notation and the `peers` fields (§6); one key for one
-node, and a node on another node's `/ws` (§7, §7.1); each node's row — its public view, its scopes, its show writer, its doors and
-named exemptions, and what it does not keep yet (§8); the certificate's whole span (§10); and the approval queue's lines, risk, ids and
-shape (§11). §6 gains the rules for the Eye: what every node publishes so any Eye can draw it (P1–P8), the link ends that name another
-node, posting a context — on a `line` link too, `CONTEXT POST` — and the kind table. §12 Windows says what a window is, its view passes
-and its link, how a node grants a window to another node's app and how that app holds it, with §1 rule 5's words for view passes and
-the two carriers they ride; §13 PeerLink, one authenticated link between two nodes, with the vectors every tree checks itself against;
-and §14 The numbers, every number the contract names, with its node kinds, doors and caps, in one block each tree's test reads. The
-scripted peer §13.20 names is in this tree, honest and as an attacker; this tree runs S1–S15, S17–S19, S21 and S22 with it against its
-PeerLink core — its connector on `line`, `playmap.lines.v1` and `ws`, and its acceptor's parsers, proofs, session check and receipt
-store behind the kit's stand-in. S16 and S20 run only the peer's attack, as do S15's slow reader and S12's emitting half, until its
-`/ws` acceptor speaks LINK and takes the acceptor's rows over; the connector's readers come with its playout links on the core, and
-the peer's hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is final every node keeps 1.2, and a
-node offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19, which carries 1.3, does not keep of
-it, and this tree already keeps every rule of 1.3 that 2.19 brings. No node holds or draws a granted window yet. This page is the
-contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns
-`docs/REMOTE.md`, PlayMap `docs/SHOWBUS-NODE.md`, AGMessage `docs/NODES.md`) shows how its endpoints implement this. Patterns and
-AGMessage keep copies of 1.2; this one is the master. Its body — from `## 1. Rules every node follows` to the end, UTF-8 without a
-BOM, LF line ends and one final LF — is held by a SHA-256 pinned in Stagewatch's own test, so every edit to it is deliberate; that
-hash is printed here, for the copies to hold, once 1.3 is final.*
+*Version 1.3, 2026-10-26 (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello `tls`
+and caps `approvals`). 1.3 adds, in §1–§11: the `playmap` kind, `proto` as the revision whose shapes a node speaks, the hello's
+numbers, where a hello is sent from and how one id is heard (§2); reads after pairing and each node's public view (§1 rule 4, §7.2);
+a receipt's last fields (§3); the context's sizes, the order a sender trims it in, the command notation and the `peers` fields (§6);
+one key for one node, and a node on another node's `/ws` (§7, §7.1); each node's row — its public view, its scopes, its show writer,
+its doors and named exemptions, and what it does not keep yet (§8); the certificate's whole span (§10); and the approval queue's
+lines, risk, ids and shape (§11). §6 gains the rules for the Eye: what every node publishes so any Eye can draw it (P1–P8), the link
+ends that name another node, posting a context — on a `line` link too, `CONTEXT POST` — and the kind table. §12 Windows says what a
+window is, its view passes and its link, how a node grants a window to another node's app and how that app holds it, with §1 rule
+5's words for view passes and the two carriers they ride; §13 PeerLink, one authenticated link between two nodes, with the vectors
+every tree checks itself against; and §14 The numbers, every number the contract names, with its node kinds, doors and caps, in one
+block each tree's test reads. The scripted peer §13.20 names is in this tree, honest and as an attacker, and §14's
+`peerlink.peer.sha256` is its hash; this tree runs S1–S15, S17–S19, S21 and S22 with it against its PeerLink core — its connector on
+`line`, `playmap.lines.v1` and `ws`, and its acceptor's parsers, proofs, session check and receipt store behind the kit's stand-in.
+S16 and S20 run only the peer's attack, as do S15's slow reader and S12's emitting half, until its `/ws` acceptor speaks LINK and
+takes the acceptor's rows over; the connector's readers come with its playout links on the core. A node keeps 1.2 until a release of
+its own carries 1.3, and offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19, which carries
+1.3, does not keep of it, and this tree already keeps every rule of 1.3 that 2.19 brings. No node holds or draws a granted window
+yet. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote documentation (Stagewatch
+`docs/REMOTE.md`, Patterns `docs/REMOTE.md`, PlayMap `docs/SHOWBUS-NODE.md`, AGMessage `docs/NODES.md`) shows how its endpoints
+implement this. This one is the master. Patterns and AGMessage keep copies of 1.2, and PlayMap none, until each tree's copy of 1.3
+lands and the Landed line below names it. The body — from `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line
+ends and one final LF — hashes to the SHA-256 the Body line below prints, which Stagewatch's own test pins, so every edit to it is
+deliberate. A copy holds the same body, prints the same Body line and copies the scripted peer byte for byte, its own tree's test
+holding both hashes; `tools/showbus-copies.sh` in this tree holds the trees the Landed line names to this master (§14.5).*
+
+*Body SHA-256 (§14): 9ca83889a3735eba9dd948a53be3045b9cd1855c68a3682d5e734adf8f901fd5.*
 
 *Landed (§14): Stagewatch.*
 
@@ -1817,7 +1821,7 @@ its §8 row, with what ends it.
 |---|---|
 | `revision <major>.<minor>` | this contract's revision |
 | `proto <n>` | the hello's `proto` for this revision (§2): the revision's minor number |
-| `<name> <value>` | a number: lowercase words joined by dots, and a whole number — but `peerlink.label`, a word; `window.token.alphabet`, its symbols; and `peerlink.peer.sha256`, 64 lowercase hex, or `pending` while this contract is a draft |
+| `<name> <value>` | a number: lowercase words joined by dots, and a whole number — but `peerlink.label`, a word; `window.token.alphabet`, its symbols; and `peerlink.peer.sha256`, 64 lowercase hex |
 | `kind <t> <name>` | a node kind (§2's `t`) and the name a reader shows for it |
 | `port <word>` | a door a hello's `ports` may name (§2) |
 | `cap <word> <t> …` | a cap word (§2) and the kinds that may send it; a dotted word is a finer ability of the word before its dot |
@@ -1843,11 +1847,17 @@ its §8 row, with what ends it.
    - `peerlink.nonce.bytes`: a nonce's bytes (13.6.1);
    - `peerlink.redial.jitter.pct`: how far 13.15.1's jitter moves a wait either way;
    - `link.connect.timeout.ms`: how long a dial waits for its connection before it counts as a failed dial (13.15.1).
-5. **Copies.** A tree that copies this body copies the scripted peer with it. The master's header names, in its line
-   `*Landed (§14): …*`, the trees whose copies the hashes hold — the body's and `peerlink.peer.sha256` — by repository name, from
-   (Stagewatch, Patterns, Mapper, AGMessage), each once, separated by a comma and a space, Stagewatch's own first. A tree joins once
-   its copy passes its own test against both, or against the body's alone while `peerlink.peer.sha256` reads `pending`. The line is
-   outside the body, so it grows without changing the hash; a comparison of the trees holds only the trees it names to this master.
+5. **Copies.** A tree that copies this body copies the scripted peer with it, byte for byte. Every tree's header — the master's
+   and each copy's — prints the body's SHA-256 once, on a line of its own, `*Body SHA-256 (§14): <hash>.*`, where `<hash>` is its 64
+   lowercase hex and a full stop follows it; the tree's own test holds its body to that line and its scripted peer to
+   `peerlink.peer.sha256`, so the body's hash is in the header and the peer's in this section. The master's header names, on its one
+   line `*Landed (§14): <trees>.*`, the trees whose copies the hashes hold — the body's and `peerlink.peer.sha256` —
+   by repository name, from (Stagewatch, Patterns, Mapper, AGMessage), each once, separated by a comma and a space, Stagewatch's own
+   first. A tree joins once its copy passes its own test against both, and the master's next release names it. Both lines are
+   outside the body, so neither changes the hash. A comparison of the trees, Stagewatch's `tools/showbus-copies.sh`, holds only the
+   trees the Landed line names to this master — each one's body hashes to the master's, its header prints that hash, and its
+   scripted peer hashes to `peerlink.peer.sha256` — and names each that does not as stale; a tree it does not name, it does not
+   compare.
 6. **Caps.** What each cap word says a node does:
 
 | cap | the node |
@@ -2017,7 +2027,7 @@ peerlink.cert.probe.ms 60000
 peerlink.stable.ms 10000
 peerlink.redial.jitter.pct 20
 peerlink.pings.matched 8
-peerlink.peer.sha256 pending
+peerlink.peer.sha256 f36847cfebeee05e9e76fa4f2071a4c205a544fddb0231c247c6975893dabc28
 link.check.max.ms 1000
 link.selfgap.ms 2000
 link.connect.timeout.ms 5000

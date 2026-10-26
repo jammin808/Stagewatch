@@ -173,7 +173,7 @@ static partial class PeerLinkScenarios
     /// The master and the peer agree: 13.20 names S1–S22 in order, and the commands it names are the peer's; the header names the
     /// scenarios this group runs against the core and those that check only the peer's attack; the peer is ASCII with LF line ends, so
     /// its bytes are one in every tree (.gitattributes keeps them LF in any checkout); every §14 number the peer keeps is its row's;
-    /// and §14's <c>peerlink.peer.sha256</c> reads <c>pending</c> while 1.3 is a draft, or the peer's SHA-256.
+    /// and §14's <c>peerlink.peer.sha256</c>, pinned with 1.3 final, is the peer's SHA-256 (a copy holds the peer to the same row).
     /// </summary>
     static void Words(Action<bool, string> Check, string script)
     {
@@ -201,9 +201,9 @@ static partial class PeerLinkScenarios
         PeerNumbers(Check, text, script);
         var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(script)));
         var pinned = Regex.Match(text, @"^peerlink\.peer\.sha256 (\S+)$", RegexOptions.Multiline).Groups[1].Value;
-        var draft = text.Split('\n')[0].Contains("(draft)", StringComparison.Ordinal);
-        Check(pinned == hash || (draft && pinned == "pending"),
-            $"peerlink scenarios: §14's peerlink.peer.sha256 is the scripted peer's SHA-256, or pending while 1.3 is a draft (it reads {pinned}; the peer hashes to {hash} — SW19.12 pins it)");
+        Check(pinned == hash,
+            $"peerlink scenarios: §14's peerlink.peer.sha256 is the scripted peer's SHA-256 (it reads {pinned}; the peer hashes to {hash}) — "
+            + "an edit to the peer is a new pin in §14, and so a new body hash");
         Check(bytes.All(b => b < 0x80) && !bytes.Contains((byte)'\r') && bytes[^1] == (byte)'\n',
             "peerlink scenarios: the scripted peer is ASCII — any other character a \\u escape, so no editor drops or changes an invisible one — with LF line ends and one final LF");
         var attributes = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(script)!)!)!, ".gitattributes");

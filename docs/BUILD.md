@@ -58,7 +58,8 @@ tools/test.sh rig             # the headless rig in the foreground: open its pag
 ```
 
 - The suite names the checks it leaves to the Windows job (`Bench.OnWindows`): today the WMI hardware id, the crafted
-  master file, the report file names and the slides agent's PowerPoint loop. They are never counted as passed.
+  master file, the report file names and the slides agent's PowerPoint loop. On Windows it names the one it leaves to the
+  Linux bench (`Bench.OffWindows`): `tools/showbus-copies.sh` run by bash. Neither is ever counted as passed.
 - `tools/Stagewatch.Rig` is the real web server, Companion server and OSC server around a simulated show (timer,
   messages, blackout, a holding image, Next/Previous/GoTo, windows, screen commands, the contexts show apps post and
   their node links); anything else is refused with words. Its first output line is JSON with its ports and the node
@@ -77,6 +78,13 @@ tools/test.sh rig             # the headless rig in the foreground: open its pag
   load, link loss and a restarted rig, revoke), every public page drawing a real frame alone and inside a window, the
   same commands over HTTP, Companion TCP, OSC and MCP, show apps' node links on /ws (`nodes.e2e.cjs`) and a stuck
   show's exact beat (`stall.e2e.cjs`). `SW_E2E_OUT=<folder>` keeps screenshots.
+- `tools/showbus-copies.sh` is Show Bus 1.3's comparison of the trees (`docs/SHOWBUS.md` §14.5): it holds the master's own
+  header and §14 to its body and its scripted peer (`tools/showbus/peerlink-peer.mjs`), then each tree the header's Landed
+  line names — at `../Patterns`, `../Mapper`, `../AGMessage`, or `$SW_PATTERNS_DIR`, `$SW_MAPPER_DIR`, `$SW_AGMESSAGE_DIR`,
+  or `Patterns=<dir>` — to it, and names each stale copy (`bash tools/showbus-copies.sh`; an absent tree is "not run", a
+  failure with `SW_INTEROP_REQUIRED=1`). A tree the Landed line does not name is not compared: until then its copy is held by
+  its own tree's test. The suite's `ShowBusCopiesTests` run it against this tree and trees made for it. It needs bash 4 and
+  GNU sed, grep and coreutils: Linux, or Git Bash on Windows by hand.
 
 ## Single-file publish
 

@@ -2203,6 +2203,7 @@ await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);
 await BusCarrierProbeTests.Run(Check);
 ShowBusSpecTests.Run(Check);
+await ShowBusCopiesTests.Run(Check);
 PeerLinkVectors.Run(Check);
 await PeerLinkScenarios.Run(Check);
 await CompanionV2Tests.Run(Check);
@@ -2211,6 +2212,8 @@ if (args.Contains("--powerpoint")) await PowerPointLiveTest.Run(Check);
 Console.WriteLine($"\n{passes} passed, {failures} failed");
 if (Bench.WindowsOnlyNotRun is { Count: > 0 } windowsOnly)
     Console.WriteLine($"{windowsOnly.Count} Windows-only check(s) not run on {System.Runtime.InteropServices.RuntimeInformation.OSDescription} (the Windows job runs them): {string.Join("; ", windowsOnly)}");
+if (Bench.LinuxBenchNotRun is { Count: > 0 } linuxBench)
+    Console.WriteLine($"{linuxBench.Count} Linux bench check(s) not run on {System.Runtime.InteropServices.RuntimeInformation.OSDescription} (the Linux job runs them): {string.Join("; ", linuxBench)}");
 return failures == 0 ? 0 : 1;
 
 // ---------------------------------------------------------------- helpers

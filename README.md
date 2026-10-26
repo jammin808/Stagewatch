@@ -34,6 +34,8 @@ tools/
   KeyGen/             owner-only license generator (kept on the maintainer's PC, never in the repo)
   Stagewatch.Rig/     the headless rig: the real servers around a simulated show, on any OS
   BusCarrierProbe/    lab line LB-1: which carrier finds apps on one machine with no network (docs/WHATS_NEXT.md)
+  showbus/            Show Bus 1.3's scripted peer, which every tree that copies the contract carries (docs/SHOWBUS.md §13.20)
+  showbus-copies.sh   the copies check: holds each tree the contract's Landed line names to this master (§14.5)
   setup-dev.sh, test.sh   the Linux bench: install, then every test lane (docs/BUILD.md)
 tests/
   Stagewatch.Tests/   the suite (dotnet run); e2e/ browser workflows (Playwright); UiSmoke/, PageShot/ smoke

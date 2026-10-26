@@ -20,8 +20,10 @@ using Stagewatch.Show;
 /// §14's ```showbus block is read as data too: every row is one §14.1 names, given once, with §14.2's units; every number §13
 /// names in code is one of its rows, and every number of §13's own that §13 does not name is given its meaning in §14.4; the
 /// vectors, the examples and the words §13 states with a number (13.10.3, 13.12, 13.14, 13.15, 13.16.1, 13.11.3) hold with
-/// §14's numbers; the caps and kinds agree with each other and with §14.6's table. The header's Landed line, outside the body,
-/// names the trees whose copies the hashes hold, and its list of rows that bind nothing yet is <see cref="Unworded"/>.
+/// §14's numbers; the caps and kinds agree with each other and with §14.6's table. 1.3 is final: its title says so, the header's
+/// Body line, outside the body, prints the body's hash, and §14 pins the scripted peer's (<see cref="PeerLinkScenarios"/> holds the
+/// peer to it). The header's Landed line names the trees whose copies the hashes hold, and its list of rows that bind nothing yet is
+/// <see cref="Unworded"/>; <see cref="ShowBusCopiesTests"/> runs tools/showbus-copies.sh, which compares those trees.
 /// §12 Windows keeps its numbered parts, names every window and view row of §14 and no number that is not a row, and §1 rule 5
 /// gives a view pass its two carriers as an address; what §12 says a window hears and reports, what its item is, and what a host
 /// browser reads off it, is what Stagewatch's server, context and window shell do; the header names what of §12 2.19 brings, and §8's
@@ -52,10 +54,24 @@ static class ShowBusSpecTests
 {
     /// <summary>
     /// SHA-256 of the master's body: from the line <see cref="BodyStart"/> to the end, UTF-8 without a BOM, every CRLF read as
-    /// LF, one final LF. Any edit to the body changes it, so an edit is pinned here on purpose; the copies in Patterns,
-    /// PlayMap and AGMessage hold the same hash, printed in the header, once 1.3 is final.
+    /// LF, one final LF. Any edit to the body changes it, so an edit is pinned here on purpose. 1.3 is final: the header's Body
+    /// line prints this hash (§14.5), and each copy in Patterns, PlayMap and AGMessage holds it, by its own tree's test, once that
+    /// tree's 1.3 copy has landed.
     /// </summary>
-    const string BodySha256 = "93f043905d48f5159f9f5aa4df40ed8a1dc46c7cf4bac61531880e8926bf69f1";
+    const string BodySha256 = "9ca83889a3735eba9dd948a53be3045b9cd1855c68a3682d5e734adf8f901fd5";
+
+    /// <summary>
+    /// A header's Body line, read by this test and by tools/showbus-copies.sh with this one pattern (an extended regex both read
+    /// alike): §14.5's `*Body SHA-256 (§14): &lt;hash&gt;.*`, the hash 64 lowercase hex and a full stop after it, once, on a line of its
+    /// own. Each copy's own test reads its header with it too.
+    /// </summary>
+    const string BodyLine = @"^\*Body SHA-256 \(§14\): ([0-9a-f]{64})\.\*$";
+
+    /// <summary>The master's Landed line, §14.5's `*Landed (§14): &lt;trees&gt;.*`, read by this test and the script alike.</summary>
+    const string LandedLine = @"^\*Landed \(§14\): (.+)\.\*$";
+
+    /// <summary>§14's pin of the scripted peer's SHA-256, its row's line in the numbers block, read by the script with this pattern.</summary>
+    const string PeerPin = @"^peerlink\.peer\.sha256 ([0-9a-f]{64})$";
 
     const string BodyStart = "## 1. Rules every node follows";
     const string ContextHeading = "## 6. Context — what an AI (or the Eye) needs to understand a node";
@@ -187,13 +203,14 @@ static class ShowBusSpecTests
     /// <summary>
     /// The rows Stagewatch's code does not keep yet, of those §14.4 gives §2, §6, §10, §11 and §12 and those 1.2's §3–§5 words
     /// (<see cref="Before13"/>): the row, the unit that ends it, what the code does today, and a check that holds while the code still
-    /// differs (null where the suite reaches no code that could keep the row). Once the code keeps a row its check fails, and the row
+    /// differs, every row with one, so no row stays here once its code keeps it. Once the code keeps a row its check fails, and the row
     /// leaves this table for a check in <see cref="TodaysCode"/>. The header names the rows a unit of 2.19 ends (<see cref="In219"/>),
     /// which 2.19 keeps before it ships 1.3; §8's Stagewatch row names the rest, each in its Today words.
     /// </summary>
-    static readonly (string Row, string Unit, string Today, Func<Numbers, bool>? Differs)[] NotKeptYet =
+    static readonly (string Row, string Unit, string Today, Func<Numbers, bool> Differs)[] NotKeptYet =
     [
-        ("link.stale.ms", "SW20.4a", "PatternsLink marks no link stale: a clip shows no time 3 s after its last frame, and the link drops after 12 s", null),
+        ("link.stale.ms", "SW20.4a", "PatternsLink marks no link stale: a clip shows no time 3 s after its last frame, and the link drops after 12 s",
+            LinkStaleAsToday),
         ("link.redial.first.ms", "SW20.4a", $"PatternsLink waits {PatternsLink.RedialFirstMs} ms before its first redial, and never jitters",
             n => PatternsLink.RedialFirstMs != n.Of("link.redial.first.ms")),
         ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
@@ -206,13 +223,13 @@ static class ShowBusSpecTests
                  && c.Commands.Count == 1 && c.Commands[0].Verb.Length < n.Of("context.verb.chars")),
         ("context.links", "SW21.1", "PeerContexts reads no links", _ => typeof(PeerContexts.Entry).GetProperty("Links") is null),
         ("context.link.end.chars", "SW21.1", "PeerContexts reads no links", _ => typeof(PeerContexts.Entry).GetProperty("Links") is null),
-        ("context.words.read.chars", "SW21.1", "PeerContexts reads no command words", null),
+        ("context.words.read.chars", "SW21.1", "PeerContexts reads no command words", _ => CommandWordsAsToday()),
         ("proposal.line.chars", "SW21.2", $"ProposalDesk takes a line of {ProposalDesk.MaxLine} characters and cuts a longer one, which can run another command",
             n => ProposalDesk.MaxLine < n.Of("proposal.line.chars")),
         ("proposal.collect.ms", "SW21.2", "the desk sends and approves for a target whatever its last collect",
             _ => typeof(ProposalDesk).GetMethods().All(m => !m.Name.Contains("Collected", StringComparison.Ordinal))),
         ("receipt.final.ms", "SW22.1c", "its receipts carry no `final`, `repeat`, `lateMs` or `frame`", _ => ReceiptTailAsToday()),
-        ("window.grants", "SW22.3", "it grants no window, so no grant's address travels", null),
+        ("window.grants", "SW22.3", "it grants no window, so no grant's address travels", _ => GrantsAsToday()),
     ];
 
     /// <summary>Whether a unit ends its entry in 2.19, the release that carries 1.3: then the header names it, else §8's Stagewatch row.</summary>
@@ -302,6 +319,9 @@ static class ShowBusSpecTests
             "showbus spec: §6 Context, §12 Windows, §13 PeerLink and §14 The numbers are in the hashed body");
         if (s6 is null || s12 is null || s13 is null || s14 is null) return;
         var draft = text.Split('\n')[0].Contains("(draft)", StringComparison.Ordinal);
+        // 1.3 is final: its body is frozen under BodySha256, which the copies hold. Each check below that a draft relaxes holds whole.
+        Check(!draft && Regex.IsMatch(text, @"\A# Show Bus \d+\.\d+ — [^\n]+\n\n\*Version \d+\.\d+, \d{4}-\d{2}-\d{2} \("),
+            "showbus spec: 1.3 is final — its title says no draft, and its version line gives the day it became final");
         Landed(Check, text, body, s14, draft);
         Parts(Check, s13);
         WindowsText(Check, body, s12);
@@ -309,7 +329,7 @@ static class ShowBusSpecTests
         Doors(Check, s13);
         var rows = Block(Check, text, body, s13);
         if (rows is not null) Rows(Check, s13, rows);
-        if (ReadNumbers(Check, text, body, s14, draft) is not { } n) return;
+        if (ReadNumbers(Check, text, body, s14) is not { } n) return;
         var missing = Computed.Where(c => n.Of(c) < 0).ToList();
         Check(missing.Count == 0, "showbus spec: §14 gives every number this test computes with (" + string.Join(", ", missing) + ")");
         if (missing.Count > 0) return;
@@ -324,6 +344,9 @@ static class ShowBusSpecTests
             Agreement(Check, s13, rows, n);
         }
         TodaysCode(Check, s13, rows ?? [], n);
+        Check(draft || Unreached.Length == 0,
+            "showbus spec: 1.3 final leaves no row whose code is not reached here: each is kept, not kept yet or not Stagewatch's ("
+            + string.Join(", ", Unreached.Select(x => x.Row)) + ")");
         WindowsCode(Check, text[..^body.Length], s12, n);
         ContextCode(Check, s6, n);
         Words(Check, body, n);
@@ -389,8 +412,9 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// The header's one Landed line names, from §14.5's repository names, the trees whose copies the hashes hold, each once, the
-    /// master's own first; it stays outside the body, so it grows without changing the hash. The header's rows that bind nothing yet
-    /// are <see cref="Unworded"/>, and none once 1.3 is final.
+    /// master's own first; it stays outside the body, so it grows without changing the hash. The header's one Body line prints
+    /// <see cref="BodySha256"/>, outside the body too, and §14.5 names both lines and the comparison of the trees, which is in this
+    /// tree. The header's rows that bind nothing yet are <see cref="Unworded"/>, and none once 1.3 is final.
     /// </summary>
     static void Landed(Action<bool, string> Check, string text, string body, string s14, bool draft)
     {
@@ -399,7 +423,7 @@ static class ShowBusSpecTests
         var trees = Regex.Match(copies, @"by repository name, from\s+\(([^)]+)\)") is { Success: true } named ? Regex.Split(named.Groups[1].Value, @",\s+") : [];
         Check(trees.Length > 0 && trees[0] == "Stagewatch" && trees.Distinct(StringComparer.Ordinal).Count() == trees.Length,
             "showbus spec: §14.5 names the trees by repository name, each once, Stagewatch first (" + string.Join(", ", trees) + ")");
-        var lines = Regex.Matches(header, @"^\*Landed \(§14\): (.+)\.\*$", RegexOptions.Multiline);
+        var lines = Regex.Matches(header, LandedLine, RegexOptions.Multiline);
         Check(lines.Count == 1, $"showbus spec: the header has one '*Landed (§14): …*' line ({lines.Count})");
         if (lines.Count == 1)
         {
@@ -407,8 +431,23 @@ static class ShowBusSpecTests
             Check(landed[0] == "Stagewatch" && landed.All(trees.Contains) && landed.Distinct(StringComparer.Ordinal).Count() == landed.Length,
                 "showbus spec: the Landed line names §14.5's trees, each once and comma-separated, Stagewatch first (" + lines[0].Groups[1].Value + ")");
         }
-        Check(!Regex.IsMatch(body, @"^\*Landed", RegexOptions.Multiline) && copies.Contains("`*Landed (§14): …*`", StringComparison.Ordinal),
+        Check(!Regex.IsMatch(body, @"^\*Landed", RegexOptions.Multiline) && copies.Contains("`*Landed (§14): <trees>.*`", StringComparison.Ordinal),
             "showbus spec: the Landed line is the header's, outside the body, and §14.5 names it");
+
+        // The Body line: the body's hash, printed outside the body for the copies to hold; a draft may print it, 1.3 final does.
+        var printed = Regex.Matches(header, BodyLine, RegexOptions.Multiline);
+        Check((draft ? printed.Count <= 1 : printed.Count == 1) && printed.All(m => m.Groups[1].Value == BodySha256),
+            $"showbus spec: the header has one '*Body SHA-256 (§14): …*' line, which prints the pinned body hash {BodySha256} ("
+            + string.Join(", ", printed.Select(m => m.Groups[1].Value)) + ")");
+        var script = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Master()!)!)!, "tools", "showbus-copies.sh");
+        Check(!Regex.IsMatch(body, @"^\*Body SHA-256", RegexOptions.Multiline) && copies.Contains("`*Body SHA-256 (§14): <hash>.*`", StringComparison.Ordinal)
+              && Flat(copies).Contains("where `<hash>` is its 64 lowercase hex and a full stop follows it", StringComparison.Ordinal)
+              && Flat(copies).Contains("Stagewatch's `tools/showbus-copies.sh`, holds only the trees the Landed line names to this master", StringComparison.Ordinal)
+              && File.Exists(script),
+            "showbus spec: the Body line is the header's, outside the body; §14.5 names it exactly, and the comparison of the trees, which is in this tree");
+        var reads = File.Exists(script) ? File.ReadAllText(script) : "";
+        Check(new[] { BodyLine, LandedLine, PeerPin }.All(x => reads.Contains("one '" + x + "'", StringComparison.Ordinal)),
+            "showbus spec: tools/showbus-copies.sh reads the Body line, the Landed line and §14's peer pin by the patterns this test reads them by");
 
         var unworded = Regex.Match(header, @"binds nothing until its section's words land: (.+?\))\.", RegexOptions.Singleline) is { Success: true } u
             ? Regex.Matches(u.Groups[1].Value, "`([a-z][a-z0-9.]*)`").Select(m => m.Groups[1].Value).ToList() : [];
@@ -444,10 +483,10 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// The one ```showbus block, inside §14 and so inside the hashed body. Each row is one §14.1 names: printable ASCII, words one
-    /// space apart, no empty line; a number named once, with a whole value but for the three §14.1 names (the peer's hash may read
-    /// <c>pending</c> only while the title says draft); a kind, port, cap, reserved word and feature each named once.
+    /// space apart, no empty line; a number named once, with a whole value but for the three §14.1 names (the peer's hash is 64
+    /// lowercase hex: 1.3 is final); a kind, port, cap, reserved word and feature each named once.
     /// </summary>
-    static Numbers? ReadNumbers(Action<bool, string> Check, string text, string body, string s14, bool draft)
+    static Numbers? ReadNumbers(Action<bool, string> Check, string text, string body, string s14)
     {
         var fences = Regex.Matches(text, "^```showbus$", RegexOptions.Multiline);
         Check(fences.Count == 1, "showbus spec: one ```showbus block in the master");
@@ -496,7 +535,7 @@ static class ShowBusSpecTests
                     break;
                 default:
                     if (!(w.Length == 2 && w[0] != "peerlink.feature" && Regex.IsMatch(w[0], @"^[a-z][a-z0-9]*(?:\.[a-z0-9]+)+$")
-                          && NumberValue(w[0], w[1], draft) && values.TryAdd(w[0], w[1])))
+                          && NumberValue(w[0], w[1]) && values.TryAdd(w[0], w[1])))
                         bad.Add(line);
                     break;
             }
@@ -510,11 +549,11 @@ static class ShowBusSpecTests
     }
 
     /// <summary>A number's value as §14.1 has it: a whole number, but for the label, the window alphabet and the peer's hash.</summary>
-    static bool NumberValue(string name, string value, bool draft) => name switch
+    static bool NumberValue(string name, string value) => name switch
     {
         "peerlink.label" => Regex.IsMatch(value, "^[a-z0-9-]+$"),
         "window.token.alphabet" => Regex.IsMatch(value, "^[a-z0-9]+$") && value.Distinct().Count() == value.Length,
-        "peerlink.peer.sha256" => Hex64(value) || (draft && value == "pending"),
+        "peerlink.peer.sha256" => Hex64(value),
         _ => Whole(value) is not null,
     };
 
@@ -1582,8 +1621,10 @@ static class ShowBusSpecTests
         Keeps(within.Offset is not null && beyond.Offset is null, "its clock takes a sample of that rtt and refuses one past it", "clock.rtt.max.ms");
 
         // §6: a peer's context as PeerContexts reads it, and Stagewatch's own.
-        Keeps((long)PeerContexts.KeepFor.TotalMilliseconds == n.Of("context.kept.ms") && PeerContexts.MaxBytes == n.Of("context.bytes"),
-            "PeerContexts keeps a posted context that long and takes one that big", "context.kept.ms", "context.bytes");
+        Keeps((long)PeerContexts.KeepFor.TotalMilliseconds == n.Of("context.kept.ms") && PeerContexts.MaxBytes == n.Of("context.bytes")
+              && ContextDoorKeepsBytes(n.Of("context.bytes")),
+            "PeerContexts keeps a posted context that long, and the one door a context comes through, /api/peers/context, refuses one over "
+            + "that many UTF-8 bytes", "context.kept.ms", "context.bytes");
         string Xs(string name) => new('x', (int)n.Of(name));
         var item = $"{{\"id\":\"{Xs("context.item.id.chars")}\",\"kind\":\"{Xs("context.item.kind.chars")}\",\"label\":\"{Xs("context.item.label.chars")}\",\"light\":\"green\",\"state\":\"{Xs("context.item.state.chars")}\"}}";
         var context = Peer($",\"light\":\"green\",\"headline\":\"{Xs("context.headline.chars")}\",\"items\":[{item}]" + Many("recent", $"{{\"text\":\"{Xs("context.recent.chars")}\"}}", n.Of("context.recent")));
@@ -1616,7 +1657,7 @@ static class ShowBusSpecTests
         ViewPassCode(Keeps, n);
 
         foreach (var (row, unit, today, differs) in NotKeptYet)
-            Check(differs is null || differs(n),
+            Check(differs(n),
                 $"showbus spec: Stagewatch does not keep {row} yet ({unit}): {today} — once its code keeps the row, the row leaves ShowBusSpecTests.NotKeptYet for a check of its own");
 
         // Every row §14.4 gives §2, §6, §10, §11 or §12, and every row 1.2's §3–§5 words, is held here, not kept yet, not reached yet,
@@ -2717,6 +2758,71 @@ static class ShowBusSpecTests
     {
         using var doc = JsonDocument.Parse(new CommandReceipt("a1", true, "applied", "", null).ToJson());
         return ReceiptTail.All(f => !doc.RootElement.TryGetProperty(f, out _));
+    }
+
+    /// <summary>
+    /// Whether PeerContexts still reads a command as its verb and its risk alone, keeping none of its <c>words</c>: the reader's
+    /// row <c>context.words.read.chars</c> is asserted against it, and leaves <see cref="NotKeptYet"/> once the reader keeps words.
+    /// </summary>
+    static bool CommandWordsAsToday()
+        => typeof(PeerContexts.Entry).GetProperty("Commands")?.PropertyType is { IsGenericType: true } list
+           && list.GetGenericArguments() is [var command] && command == typeof((string, string))
+           && typeof(PeerContexts.Entry).GetProperties().All(p => !p.Name.Contains("Words", StringComparison.Ordinal));
+
+    /// <summary>
+    /// Whether Stagewatch's Patterns link still marks no link stale: PatternsLink's one member named for staleness is
+    /// <see cref="PatternsLink.StaleAfter"/>, a playing clip's frame age, which is not <c>link.stale.ms</c>, and no type of the
+    /// assembly its links live in holds a <see cref="PeerLinkConnector"/>, whose 13.16.1 states mark a link stale past that row.
+    /// </summary>
+    static bool LinkStaleAsToday(Numbers n)
+    {
+        const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        static bool Holds(Type t) => t == typeof(PeerLinkConnector) || (t.IsArray && Holds(t.GetElementType()!)) || (t.IsGenericType && t.GetGenericArguments().Any(Holds));
+        var stale = typeof(PatternsLink).GetMembers(All).Select(m => m.Name).Where(x => x.Contains("Stale", StringComparison.Ordinal)).Distinct().ToList();
+        return stale.SequenceEqual(["StaleAfter"]) && (long)PatternsLink.StaleAfter.TotalMilliseconds != n.Of("link.stale.ms")
+               && !typeof(PatternsLink).Assembly.GetTypes().Any(t => t.GetFields(All).Any(f => Holds(f.FieldType)));
+    }
+
+    /// <summary>
+    /// Whether Stagewatch still grants no window: no type of Core, Show or Remote is named for a grant, and a window keeps no
+    /// <c>Grants</c> of its own, so no grant's address can travel.
+    /// </summary>
+    static bool GrantsAsToday()
+        => new[] { typeof(ScreenWindow).Assembly, typeof(ShowContext).Assembly, typeof(WebServer).Assembly }.Distinct()
+               .SelectMany(a => a.GetTypes()).All(t => !t.Name.Contains("Grant", StringComparison.Ordinal))
+           && typeof(ScreenWindow).GetProperty("Grants") is null;
+
+    /// <summary>
+    /// Whether the one door a peer's context comes through keeps <c>context.bytes</c> in UTF-8 bytes: HttpRequest, WebServer's
+    /// reader (internal to Remote, reached by reflection), reads a body of exactly <paramref name="bytes"/> bytes whole and refuses
+    /// one byte more, here of two-byte characters whose UTF-16 length is half the row, so a count of characters would take it;
+    /// and the route /api/peers/context measures the body's bytes before it decodes them. PeerContexts.Accept, behind the door,
+    /// counts UTF-16 code units, which a body the door took never exceeds.
+    /// </summary>
+    static bool ContextDoorKeepsBytes(long bytes)
+    {
+        var request = typeof(WebServer).Assembly.GetType("Stagewatch.Remote.HttpRequest");
+        var read = request?.GetMethod("ReadAsync", BindingFlags.Public | BindingFlags.Static);
+        var body = request?.GetProperty("Body");
+        if (read is null || body is null) return false;
+        byte[]? Read(byte[] content)
+        {
+            var head = Encoding.ASCII.GetBytes("POST /api/peers/context HTTP/1.1\r\nHost: stagewatch\r\nContent-Length: "
+                                               + content.Length.ToString(CultureInfo.InvariantCulture) + "\r\n\r\n");
+            using var stream = new MemoryStream(head.Concat(content).ToArray());
+            var task = (Task)read.Invoke(null, [stream, 16 * 1024, CancellationToken.None])!;
+            task.GetAwaiter().GetResult();
+            return task.GetType().GetProperty("Result")?.GetValue(task) is { } taken ? body.GetValue(taken) as byte[] : null;
+        }
+        var half = new string('\u00e9', (int)(bytes / 2));
+        var whole = Encoding.UTF8.GetBytes(half);
+        var over = Encoding.UTF8.GetBytes(half + "a");
+        var route = Source("src/Timer.Remote/WebServer.cs") is { } server && Between(server, "case \"/api/peers/context\":", "case \"") is { } c ? c : "";
+        var measured = route.IndexOf("req.Body.Length is 0 or >", StringComparison.Ordinal);
+        var decoded = route.IndexOf("Encoding.UTF8.GetString(req.Body)", StringComparison.Ordinal);
+        return whole.Length == bytes && Read(whole)?.Length == bytes
+               && over.Length == bytes + 1 && half.Length + 1 < bytes && Read(over) is null
+               && measured >= 0 && decoded > measured;
     }
 
     /// <summary>Whether ProposalDesk's ids still restart with each desk: a new desk's first proposal is p1.</summary>

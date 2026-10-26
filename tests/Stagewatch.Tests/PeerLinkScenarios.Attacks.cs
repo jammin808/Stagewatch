@@ -437,9 +437,12 @@ static partial class PeerLinkScenarios
             var refused = await Command(c, T0 + 40);
             await Set(peer, new { answer = "applied", late = 1500 });
             var late = await Command(c, T0 + 50);
+            // The receipt reaches the core on the socket, the peer's events on its stdout through a reader of their own: the count is
+            // read once the last command's event is in, and the peer writes its events in order, so the three before it are in too.
+            var ranLate = await peer.Wait(e => Ev(e, "command") && Str(e, "id") == late);
             Check(up && c.M.OutcomeOf(applied) == PeerOutcome.Applied && waiting && final && c.M.InFlight == 0 && c.M.OutcomeOf(refused) == PeerOutcome.Refused
                   && c.M.WordsOf(refused) == "the scripted peer refuses it" && c.M.OutcomeOf(late) == PeerOutcome.Applied && c.M.Record(T0 + 50).Counts.Late == 1
-                  && peer.Events.Count(e => Ev(e, "command")) == 4,
+                  && ranLate is not null && peer.Events.Count(e => Ev(e, "command")) == 4,
                 $"peerlink scenarios: {name} — receipts read by 13.12.3: applied; accepted, waiting in flight, then applied by its final; refused with its words; applied late, counted ({c.M.Record(T0 + 50).ToJson()}) {peer.Faults}");
 
             // A drop after the write: unconfirmed. Relinked to the same acceptor (its inst), RECEIPTS asks, and its record says applied.
