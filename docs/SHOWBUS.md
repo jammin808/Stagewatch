@@ -1,20 +1,28 @@
 # Show Bus 1.3 (draft) — the contract between Stagewatch, Patterns, PlayMap, AGMessage and their micro-apps
 
 *Version 1.3, a draft (1.1: 2026-10-10; 1.2: 2026-10-11, §10 encrypted connections, §11 the shared approval queue, hello `tls`
-and caps `approvals`). 1.3 so far adds §13 PeerLink: one authenticated link between two nodes, with the vectors every tree
-checks itself against; and §14 The numbers: every number the contract names, with its node kinds, doors and caps, in one block
-each tree's test reads. Before 1.3 is final it gains §12 windows, with §1 rule 5's words for view passes; the Eye's rules in
-§6; and 1.3's words for §1–§11, each citing its §14 rows — §2's hello limits, `proto` as the revision and the `playmap` kind,
-§6's sizes, §10's whole span, the `playmap` §8 row, and each node's §8 row with what it does not keep yet and its named
-exemptions, among them. Until those words land, a §14 row's name, §14's own words and its section's 1.2 words say what it
-bounds; a row whose idea none of those words holds yet binds nothing until its section's words land: `window.token.chars`,
-`window.token.alphabet`, `window.max`, `window.grants` and `view.wrong.per.minute` (§12), `hello.inst.chars` and
-`peer.conflict.clear.ms` (§2), `context.link.end.chars`, `context.post.min.ms` and `context.post.max.ms` (§6),
-`cert.backdate.hours` (§10) and `proposal.result.ms` (§11). The scripted peer §13.20 names comes with the conformance kit, and
-its hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is final every node keeps 1.2, and a node
-offers LINK only once its tree passes §13.20. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each
-app's own remote documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, AGMessage `docs/NODES.md`) shows how
-its endpoints implement this. Patterns and AGMessage keep copies of 1.2; this one is the master. Its body — from
+and caps `approvals`). 1.3 so far adds §12 Windows: what a window is, its view passes and its link, how a node grants a window
+to another node's app and how that app holds it, with §1 rule 5's words for view passes and the two carriers they ride; §13
+PeerLink: one authenticated link between two nodes, with the vectors every tree checks itself against; and §14 The numbers:
+every number the contract names, with its node kinds, doors and caps, in one block each tree's test reads. Before 1.3 is final
+it gains the Eye's rules in §6, and 1.3's words for §1–§11, each citing its §14 rows — §2's hello limits, `proto` as the
+revision and the `playmap` kind, §6's sizes and the link end that names another node's item (12.10 uses it), §10's whole span,
+the `playmap` §8 row, and each node's §8 row with what it does not keep yet and its named exemptions, among them. Until those
+words land, a §14 row's name, §14's own words and its section's 1.2 words say what it bounds; a row whose idea none of those
+words holds yet binds nothing until its section's words land: `hello.inst.chars` and `peer.conflict.clear.ms` (§2),
+`context.link.end.chars`, `context.post.min.ms` and `context.post.max.ms` (§6), `cert.backdate.hours` (§10) and
+`proposal.result.ms` (§11). §12 and §13 cite §7.1 and §7.2 ahead of their words: the node link on Stagewatch's `/ws`, and what
+a `line` acceptor answers before LINK. Until Stagewatch's §8 row says so, it does not keep these of §12 yet: wrong view passes in
+a count of their own (`view.wrong.per.minute`: today wrong window addresses and viewing codes count with wrong PINs, and a right
+PIN or key clears them; wrong crew links count nowhere); 12.2's page rule for a page opened with a viewing code or a crew link
+(it serves those pages without the window page's no-referrer, noindex and no-framing headers); 12.2's revocation at once for a
+viewing code or a crew link (a screen already open on a changed one keeps its link until it reconnects); grants
+(`window.grants`: today it grants no window, so no grant's address travels); and cap `windows` in its hello. No node holds or
+draws a granted window yet. The scripted peer §13.20 names comes with the conformance kit, and its hash with 1.3 final
+(`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is final every node keeps 1.2, and a node offers LINK only once
+its tree passes §13.20. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote
+documentation (Stagewatch `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, AGMessage `docs/NODES.md`) shows how its endpoints
+implement this. Patterns and AGMessage keep copies of 1.2; this one is the master. Its body — from
 `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends and one final LF — is held by a SHA-256 pinned in
 Stagewatch's own test, so every edit to it is deliberate; that hash is printed here, for the copies to hold, once 1.3 is final.*
 
@@ -33,7 +41,15 @@ off-site. See §9.
 3. **Latest wins for state, nothing is dropped for replies.** A slow peer gets the newest state, never a backlog; a
    reply is never dropped but a peer that stops reading is cut (one writer per connection).
 4. **Discovery says what a node is, never what the show is doing.** Show data travels only on authenticated links (§2).
-5. **Secrets ride in no URL, no journal line and no beacon.** Keys go in a header or a proof (§7).
+5. **Secrets ride in no URL, no journal line, no frame and no beacon.** Keys, tokens and PINs go in a header or a proof (§7, 13.6);
+   the doors that still take one in an address are named in 13.18. The one exception is a *view pass* (§12.2) — a window's address,
+   a viewing code, a crew link: it views (a crew link also answers its department's cues and keeps its department's notes), is
+   revocable and is counted — which a browser can be given only as an address. Beyond the node that issues it, which shows it only
+   to its own operator, a view pass rides as an address in exactly two carriers: a browser's address bar, and the one verified
+   PeerLink (or key-verified node link) to the grant's own app (12.5). Everywhere else it is a secret: never in STATE, a context, a
+   frame, a journal line, a log line, a report, a show file, a proposal or any other URL. A node that holds another node's view pass
+   keeps it as its own secret, which travels only where that node's secrets may (13.18's twin, under its switch); a grant's address
+   travels nowhere else (12.5, 12.8).
 6. **The picture is computed, the model only reads it.** Lights and headlines come from facts with rules, so they are
    the same with or without AI (§6, §9).
 
@@ -224,6 +240,185 @@ With no desk on the bus, each app approves its own (as in 1.1).
 - **Offline:** the queue is plain LAN traffic; it works with no internet (proposals made by a person's own rules, or
   by an AI earlier, still queue and run).
 
+## 12. Windows (1.3)
+
+A **window** is a browser that a node controls through an address of its own. 12.1–12.3 say what a window is, how its address is kept
+and the link it holds to its node. 12.4–12.10 say how a node grants a window to another node's app — one that shows the window's page
+in a browser of its own, or draws the window's content itself — and how that app holds it. A node grants windows only with cap
+`windows`, and an app holds one only with cap `pages` or `window-draw` (14.6).
+
+### 12.1 What a window is
+
+- A window's address is `/w/<token>` on its node's web port: `window.token.chars` symbols of `window.token.alphabet`, each five random
+  bits from the platform's CSPRNG. A node keeps at most `window.max` windows.
+- The address is the window's identity and its pass: whoever opens it sees what the node puts on that window, and controls nothing.
+  Identity lives in the node, not in the browser: two browser sources of one program are two windows, and a browser that clears its
+  storage is still the same window.
+- A window shows its `content`: a page of its node that needs no credential, `holding` (its holding page) or `black`. A page that needs
+  the PIN, and another site, are never a window's content. The window draws its holding page and black itself, so they show with no
+  page and no network.
+- When its link goes stale (§4) or drops, a window shows its own loss state, its `onLoss`: `hold`, the holding page, or `warn`, dimmed
+  with NOT CONNECTED. Never a confident stale time.
+- Windows stay with the machine, never in a show file.
+
+### 12.2 View passes
+
+A window's address — like a viewing code and a crew link — is a **view pass**: a pass a browser can be given only as an address. A
+node that issues one:
+
+- makes it view-only — a crew link also answers its own department's cues and reads and writes its department's notes — and
+  revocable at once: `window revoke` gives the window a new address, the old one stops, and a screen on it says so;
+- serves every page opened with one so that nothing caches or indexes it, no referrer leaves it and no other site frames it;
+- counts wrong view passes per device in a count of their own, apart from wrong PINs and keys: `view.wrong.per.minute` in a minute
+  lock that device out of view passes for the minute, and a right PIN or key never clears that count. A locked device is never
+  told its address is gone: a page it asks for says to wait, and a window's link is closed and tries again. An unknown or revoked
+  key counts toward no lockout;
+- shows a window's address only to its own operator (the PIN or a control key; never a read or node key), to hand out.
+
+A view pass is never a PeerLink credential (13.5.1). Where else it may ride is §1 rule 5's, and 12.5's for a grant.
+
+### 12.3 The window link
+
+- A window holds one WebSocket to its node: `/ws?win=<token>&detail=1`. A page can set no header on a WebSocket, and its own address
+  already holds the token. `win` with `node` is refused before the upgrade: a window's link is not a node link (§7.1).
+- Before any frame, and again on each change, it hears what to show:
+  `{"type":"window","id","name","content","hold","holdText","holdImage","onLoss","fadeMs","rev"}`, where `rev` rises with every change
+  the window must act on. Then public detail frames and beats (§4). It sends only what any public page may.
+- When its operator asks: `{"type":"identify","name","id"}` (its name on the screen for a few seconds) and `{"type":"reload"}`.
+- When its address stops working — revoked or deleted — `{"type":"window","revoked":true}`: the window says so in words and stops
+  trying. A page grant's address ends black instead (12.7).
+- After each swap, hold or failure it reports `{"type":"shown","rev","content","hold","ms","error"}`.
+  - Its node shows a window green only when it reports the revision it was sent;
+  - amber while a change is sent and not shown, when it could not show a page, or when its link is lost;
+  - grey until it is opened.
+
+  A window's light never turns its node red.
+
+### 12.4 Grants
+
+- A node with cap `windows` MAY grant a window to another node's app: `window grant <window> <app>`, the app named by its id (§2) or by
+  a name no other app on the show network has. `window withdraw <window|all> [<app>]` ends grants. A grant is one window to one app,
+  and a window has at most `window.grants`.
+- **A grant is a person's act.** The node takes one only from a door that authenticates its operator: its desk, the PIN, a control key.
+  A door that authenticates nobody refuses it with the reason, or queues it as a proposal (§11) for a person to decide: OSC, and
+  Companion TCP (9923), which authenticates nobody in 1.3, loopback included (13.18). An assistant or a peer only proposes one
+  (§11), and a person decides.
+- **An app asks only for itself**, with the §11 proposal `window grant <window> <its own id>`. A proposal under an app's key that names
+  another app is refused: "a show app may ask a window only for itself".
+- **How the app holds it**, `how`, fixed when the grant is made:
+  - `page`: the app opens the window's page in a browser of its own (cap `pages`);
+  - `draw`: the app draws the window's content itself (cap `window-draw`) and holds no address.
+
+  It is read from what the app's link offers (12.6's `can=`) when the app is linked, else from its hello's caps, and then worded as a
+  claim: "it says it shows pages — checked when it links". An app that offers neither is refused: "<app> can't show a window: it offers
+  neither pages nor window-draw".
+- **A page grant has an address of its own**, `/w/<grant token>`, made as 12.1 makes a window's. Withdrawing one app stops only that
+  app's address, and the node knows which link is that app's by the address it came in on. A draw grant has no address.
+- `window revoke` gives the window and each of its page grants a new address. Deleting a window ends its grants.
+- **Grants outlive the link.** The granting node keeps them with the machine, never in a show file. An app drops a grant only when a
+  `grants` message (12.6) leaves it out, or a `window-end` ends it: a dropped link, or a restart of either node, drops nothing.
+- A standby is a node of its own, with its own id: it needs a grant of its own, and no grant's address rides a twin's link.
+
+### 12.5 Where a grant's address travels
+
+A page grant's address, its `path`, is sent only on a link that is all of these:
+
+- **the grant's own node's**, proved by a key bound to that node (13.5.2): verified by LINK (13.6), or, until that node speaks LINK, a
+  node link its key proves (§7.1, `verified:"key"`) — never a link the operator's PIN or a control key proves;
+- **pinned TLS, or local**: TLS to the certificate the app pinned — on a verified link the proofs bind it (13.6.1), and a level-0
+  key is sent only inside it (13.6.8) — or local (13.1): a loopback address, never one the node owns, so an app on the same machine
+  dials loopback (13.15.4) or TLS;
+- **on a key never seen in clear** (13.6.9). A key seen in clear gets no grant at all — no address and no draw assignment — until its
+  node is made a new key;
+- **offering `pages`** in its current `can=` (12.6).
+
+Otherwise the grant's row says `cannot`, with the reason. A grant's address rides nowhere else: not in a hello, a frame, STATE, a
+context, the node's window list (for any credential, the PIN included), a journal line, a log line, a report or a proposal.
+
+### 12.6 Messages on a node link
+
+- **What the app offers.** A connecting app lists the abilities it offers on this link in its upgrade's query: `can=pages`,
+  `can=window-draw`, or both, comma-separated. Each is a cap word whose row (14.6) names the app's kind. The node reads the first
+  `hello.caps` words and ignores the rest, a word it does not know and a word whose cap row does not name the app's kind: an
+  ability it ignores is not offered. These are the app's abilities, not 13.1's features, which the verdict's `can` lists.
+- **The grants**, node → app, on every link of 12.5's first point, whether or not that node holds a grant: after the verdict and
+  before any frame or other window message, then whole whenever they change (latest wins). A node that holds none hears an empty
+  list, so a grant withdrawn while its app was away ends when that app links again.
+
+```json
+{"type":"grants","from":"3f9c2a1b7d0e","rev":3,"link":"tls","grants":[
+ {"window":"wk3m9x2","name":"lobby","how":"page","path":"/w/k7m2…","cannot":""},
+ {"window":"wq8r4t1","name":"foyer","how":"page","path":"","cannot":"this link is not encrypted — link over wss://"},
+ {"window":"wz5n6p7","name":"stage","how":"draw","path":"","cannot":""}]}
+```
+
+  - `link` is `tls`, `local` or `plain`. `path` is set only as 12.5 allows; `cannot` is empty, or says why not.
+  - `rev` rises whenever the list changes, and restarts with the node: a receiver takes the first `grants` on each new link whatever
+    its `rev`, and later ones only with a higher `rev`.
+- **A draw grant's window**, node → app, only on a link of 12.5's first point, on a key never seen in clear (13.6.9), that offers
+  `window-draw`:
+  - `{"type":"window-assign","window","name","content","hold","holdText","holdImage","onLoss","fadeMs","rev"}` — 12.3's window
+    message for that window — on connect and on each change;
+  - `{"type":"window-end","window","why"}`, `why` `withdrawn` or `deleted`;
+  - `{"type":"window-identify","window","name"}`.
+- **The app → the node**, each within `link.ws.in.bytes`:
+  - `{"type":"grants-seen","rev","cannot"}`, where `cannot` says why the app shows no page at all, or is empty;
+  - `{"type":"window-shown","window","rev","content","hold","ms","error"}` — 12.3's report — only for a draw grant of that window
+    held by this link's node. Any other is answered
+    `{"type":"error","error":"only a show app a window is granted to draw may say what it draws"}`.
+- A node link hears no screen message (identify, reload, redirect, disconnect), and no window message but these, for its own grants.
+  `window reload` of a window that only apps draw is refused: it has no page to reload.
+
+### 12.7 The black end
+
+- A page grant's address opens a window link as 12.3's does: `/ws?win=<grant token>&detail=1`.
+- When that address stops working — withdrawn, deleted or revoked — its link hears
+  `{"type":"window","revoked":true,"black":true}` and is let go. With `black`, the window draws plain black with no words, sets
+  `data-link` to `gone` (12.9) and stops trying.
+- A window's own address keeps 12.3's end, in words: a person put it there, and a person reads it.
+
+### 12.8 What a holder publishes
+
+A node that holds another node's view pass keeps it as a secret (§1 rule 5). Wherever it would name that address — its STATE, context,
+journal, logs, reports, show file, library — it names a held form that carries no pass:
+
+- `stagewatch://<granting node's id>/<window id>`: a grant;
+- `kept://<host[:port]>/<id>`: a pass its operator kept, the id of its own random making and never a function of the address;
+- `unkept://<host[:port]>`: a pass that reached it without being kept. It opens nothing and draws black.
+
+Only its browser, as it navigates, turns a held form back into the address. A twin carries a kept pass only as 13.18 lets it carry a
+secret, and never a grant's address.
+
+### 12.9 Drawing a held window
+
+- A browser that hosts a window's page MAY read the window's state to decide when to draw it:
+  - the root element's `data-rev` (0 until the node has said what the window shows), `data-link` (`ok`, `lost` or `gone`),
+    `data-showing`, `data-hold` (`1` or `0`) and `data-error`;
+  - `SWShell.state()`, whose `loading` names a page still on its way.
+- It draws the page only once its navigation succeeded, `data-rev` is above 0 and `data-link` is not `gone`. Otherwise — no page yet,
+  a failed navigation, gone — it draws **black, never words or white**, and says why on its own desk, STATE and context.
+- An app that draws a window draws:
+  - its content, from the last `window-assign` for it on its current link to the granting node;
+  - the window's own loss state, its `onLoss`, while that link is down, or is up but has not assigned it;
+  - black for a window it was never granted, or whose grant ended: a `window-end`, or a `grants` that leaves it out, a new link's
+    first included.
+
+  It never falls back to another source, and says in `window-shown`'s `error` what it could not draw.
+
+### 12.10 Placement claims and the granting node's readers
+
+- An app says where it shows a granted window in its own context (§6), with a link whose `from` names the granting node's item,
+  `window:` and the window's name in lower case:
+  `{"from":"@3f9c2a1b7d0e/window:lobby","to":"source:web:stagewatch://3f9c2a1b7d0e/wk3m9x2","kind":"feeds"}`.
+- The granting node takes a placement only from a context that app's key proves (12.5's first point), from an app that holds a grant
+  of that window, and only while that grant has an open page or a `window-shown` report. It is always the app's claim: "Patterns FOH
+  says: Screen 2 — LED wall".
+- Its context has one item per window, `window:` and the window's name in lower case (kind `screen`; no two of a node's windows'
+  names differ only in case). Its light is 12.3's over every viewer the window has — its own address, each page grant's address,
+  each draw grant's report — the worst of those opened, grey while none has been opened. Its words name the grants and the claims.
+- Its operator frame (§4) MAY list its windows — name, light, what each shows, to whom it is granted, the claims — never with a
+  token or a path. Its public frames name no window.
+
 ## 13. PeerLink — one authenticated link between two nodes (1.3)
 
 Discovery (§2) finds a node and says where its doors are. A **PeerLink** is one connection between two nodes that have proved to each
@@ -270,7 +465,7 @@ Anything on the show network — the venue's Wi-Fi included, where every client 
 
 | anyone on the show network can | under this section they cannot |
 |---|---|
-| hear every hello: names, ids, hosts, ports, caps, fingerprints (public by design) | learn a key, code, PIN or view pass from a PeerLink: none crosses it in clear. Keys and codes are proved, not sent (a level-0 bearer key goes only inside TLS to a certificate a proof or a person pinned, 13.6.8). The one derived credential, S, and a view pass on the one link §1 rule 5 lets it ride, travel only inside pinned TLS or on this machine (13.6, 13.7, 13.19). The browser doors (`?pin=`, a window's address on plain HTTP) are named in 13.18 with what they leave open |
+| hear every hello: names, ids, hosts, ports, caps, fingerprints (public by design) | learn a key, code, PIN or view pass from a PeerLink: none crosses it in clear. Keys and codes are proved, not sent (a level-0 bearer key goes only inside TLS to a certificate a proof or a person pinned, 13.6.8). The one derived credential, S, and a view pass on the one link §1 rule 5 lets it ride, travel only inside pinned TLS or on a local link (13.1, 13.6, 13.7, 13.19). The browser doors (`?pin=`, a window's address on plain HTTP) are named in 13.18 with what they leave open |
 | forge hellos for any id, address or fingerprint | make a link plain, change or confirm a pin, choose the key that is proved, mark a link verified, or refuse a link (13.4.2) |
 | answer at a node's address (ARP, a stolen IP, a forged hello) | complete LINK without the key, or relay a proof between two nodes, because proofs are mutual and bound to the certificate each end saw (13.6.3); nor, once that node has proved itself to a connector (its floor, 13.9.3), be followed by it for a fact. Before a floor, a level-0 or `open` answer is followed as in 1.2, amber, and says so (13.6.7, 13.6.8) |
 | intercept a first contact with its own certificate | have that certificate pinned on a keyed link: the proofs fail and nothing secret was sent (13.8.2); a certificate pinned from the public view (`first`) is sent no key (13.6.8) |
@@ -813,8 +1008,8 @@ The show writer never writes to, reads from or waits on a socket.
   - It is shown with its age: "holding Patterns' blackout since 20:14:03 — link lost".
   - It is released only by the peer's live word or by a person, never by silence.
 - A counting value is never held (13.10.6).
-- What a link feeds to air goes to that output's own loss state — a window's `onLoss`, black for a drawn window — never to the last
-  picture of a live count.
+- What a link feeds to air goes to that output's own loss state — a window's `onLoss`, whether a browser shows it or an app draws it
+  (12.9) — never to the last picture of a live count.
 - No command is sent to a peer whose show is stuck (13.12.3).
 
 ### 13.18 Doors that are not PeerLinks
@@ -832,7 +1027,8 @@ These doors keep their own rules:
 - PlayMap's desk↔engine link on one machine;
 - Patterns' twin and its node relays. These keep failover's own carrier, beat (1 s), silence (5 s) and dialling, and:
   - MUST honour the bind address;
-  - send device secrets only under their own switch, which is off by default and refused on a plain link to another machine;
+  - send device secrets — a view pass the node keeps among them (12.8) — only under their own switch, which is off by default and
+    refused on a plain link to another machine, and never a grant's address (12.4);
   - adopt 13.12's outcomes and 13.19 in a later round of their node.
 
 Each door is named in its node's §8 row with what it does without a proof, and each node's health lights say what these doors leave

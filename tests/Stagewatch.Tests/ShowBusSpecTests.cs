@@ -22,6 +22,11 @@ using Stagewatch.Show;
 /// vectors, the examples and the words §13 states with a number (13.10.3, 13.12, 13.14, 13.15, 13.16.1, 13.11.3) hold with
 /// §14's numbers; the caps and kinds agree with each other and with §14.6's table. The header's Landed line, outside the body,
 /// names the trees whose copies the hashes hold, and its list of rows that bind nothing yet is <see cref="Unworded"/>.
+/// §12 Windows keeps its numbered parts, names every window and view row of §14 and no number that is not a row, and §1 rule 5
+/// gives a view pass its two carriers as an address; what §12 says a window hears and reports, what its item is, and what a host
+/// browser reads off it, is what Stagewatch's server, context and window shell do, and the header names what of §12 Stagewatch's
+/// code does not keep yet, each exactly while the code lacks it. Every part the body cites is there, or the header names it as
+/// cited ahead of its words.
 /// Parse, pure and machine rows are otherwise checked for shape only: running them is the kit's. Of Stagewatch's own code:
 /// a made key has 13.5.1's shape and its stored hash is K, and its level-0 proof makes every legacy row's proof and refuses
 /// every nonce a row refuses (the tokens a row does not prove are not held here); of the rows of §2, §6, §10, §11 and §12 and those
@@ -35,9 +40,21 @@ static class ShowBusSpecTests
     /// LF, one final LF. Any edit to the body changes it, so an edit is pinned here on purpose; the copies in Patterns,
     /// PlayMap and AGMessage hold the same hash, printed in the header, once 1.3 is final.
     /// </summary>
-    const string BodySha256 = "e02f04422fa775b8053a379fcd58de6e781ecc8ab2b5efe3f1205010664696b8";
+    const string BodySha256 = "df742d9c942a655f9db297804704e3a90b66e4b92f89badb5db683e0deb9f1aa";
 
     const string BodyStart = "## 1. Rules every node follows";
+    const string WindowsHeading = "## 12. Windows (1.3)";
+
+    /// <summary>§12's parts in order. Patterns and PlayMap cite them by number (12.5's path rule, 12.9's black), so none moves.</summary>
+    static readonly string[] WindowParts =
+    [
+        "What a window is", "View passes", "The window link", "Grants", "Where a grant's address travels", "Messages on a node link",
+        "The black end", "What a holder publishes", "Drawing a held window", "Placement claims and the granting node's readers",
+    ];
+
+    /// <summary>The rows §14.4 gives §12.</summary>
+    static readonly string[] WindowRows = ["window.", "view."];
+
     const string PeerLinkHeading = "## 13. PeerLink — one authenticated link between two nodes (1.3)";
 
     /// <summary>§13's parts in order. Readers in four trees cite them by number (13.12.3, 13.16.5, 13.18), so none moves.</summary>
@@ -75,12 +92,12 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// The rows the header says bind nothing until their section's words land: no 1.2 words, §14 words or name hold their idea yet.
-    /// SW19.1c (§12) and SW19.1e (§2, §6, §10, §11) empty it; 1.3 final has none.
+    /// §12's words hold all of its rows; SW19.1d and SW19.1e (§2, §6, §10, §11) empty the rest, and 1.3 final has none.
     /// </summary>
     static readonly string[] Unworded =
     [
-        "window.token.chars", "window.token.alphabet", "window.max", "window.grants", "view.wrong.per.minute", "hello.inst.chars",
-        "peer.conflict.clear.ms", "context.link.end.chars", "context.post.min.ms", "context.post.max.ms", "cert.backdate.hours", "proposal.result.ms",
+        "hello.inst.chars", "peer.conflict.clear.ms", "context.link.end.chars", "context.post.min.ms", "context.post.max.ms", "cert.backdate.hours",
+        "proposal.result.ms",
     ];
 
     /// <summary>The rows of §13's own numbers that 1.2's §3–§5 already state in words (§4's liveness and redial, §5's clock, §3's ids).</summary>
@@ -125,8 +142,10 @@ static class ShowBusSpecTests
         ("cert.days", "SW19.5", "NodeCertificate spans 826 days: a day back and 825 on", n => Certificate() is { } c && c.Back + c.On != n.Of("cert.days")),
         ("proposal.line.chars", "SW21.2", $"ProposalDesk takes a line of {ProposalDesk.MaxLine} characters and cuts a longer one, which can run another command",
             n => ProposalDesk.MaxLine < n.Of("proposal.line.chars")),
-        ("view.wrong.per.minute", "SW19.6", "wrong view passes count toward the same lockout as wrong PINs", null),
-        ("window.grants", "SW22.3", "no window is granted to a peer", null),
+        ("view.wrong.per.minute", "SW19.6",
+            "wrong window addresses and viewing codes count with wrong PINs, and a right PIN or key clears them; wrong crew links count nowhere",
+            _ => ViewPassesCountedAsToday()),
+        ("window.grants", "SW22.3", "it grants no window, so no grant's address travels", null),
     ];
 
     /// <summary>
@@ -154,13 +173,16 @@ static class ShowBusSpecTests
         var (text, body) = read;
 
         Sections(Check, body);
+        var s12 = Between(body, "\n" + WindowsHeading + "\n", "\n## ");
         var s13 = Between(body, "\n" + PeerLinkHeading + "\n", "\n## ");
         var s14 = Between(body, "\n" + NumbersHeading + "\n", "\n## ");
-        Check(s13 is not null && s14 is not null, "showbus spec: §13 PeerLink and §14 The numbers are in the hashed body");
-        if (s13 is null || s14 is null) return;
+        Check(s12 is not null && s13 is not null && s14 is not null, "showbus spec: §12 Windows, §13 PeerLink and §14 The numbers are in the hashed body");
+        if (s12 is null || s13 is null || s14 is null) return;
         var draft = text.Split('\n')[0].Contains("(draft)", StringComparison.Ordinal);
         Landed(Check, text, body, s14, draft);
         Parts(Check, s13);
+        WindowsText(Check, body, s12);
+        References(Check, text[..^body.Length], body, draft);
         Doors(Check, s13);
         var rows = Block(Check, text, body, s13);
         if (rows is not null) Rows(Check, s13, rows);
@@ -170,12 +192,14 @@ static class ShowBusSpecTests
         if (missing.Count > 0) return;
         Vocabulary(Check, text, s13, s14, n);
         Named(Check, s13, s14, n);
+        WindowsNamed(Check, s12, n);
         if (rows is not null)
         {
             Crypto(Check, s13, rows, n);
             Agreement(Check, s13, rows, n);
         }
         TodaysCode(Check, s13, rows ?? [], n);
+        WindowsCode(Check, text[..^body.Length], s12, n);
     }
 
     // ------------------------------------------------------------------ the body and its hash
@@ -227,8 +251,8 @@ static class ShowBusSpecTests
         Check(!fenced, "showbus spec: every code fence in the body is closed");
         Check(numbers.Count > 0 && numbers[0] == 1 && numbers.Zip(numbers.Skip(1)).All(p => p.Second > p.First),
             "showbus spec: sections are numbered from 1 in increasing order (" + string.Join(", ", numbers) + ")");
-        Check(Enumerable.Range(1, 11).All(numbers.Contains) && numbers.Contains(13) && numbers.Contains(14) && numbers[^1] == 14,
-            "showbus spec: §1–§11, §13 and §14 are in the body, §14 last");
+        Check(Enumerable.Range(1, 14).All(numbers.Contains) && numbers[^1] == 14, "showbus spec: §1–§14 are in the body, §14 last (" + string.Join(", ", numbers) + ")");
+        Check(Regex.Matches(body, "^" + Regex.Escape(WindowsHeading) + "$", RegexOptions.Multiline).Count == 1, "showbus spec: §12 is Windows, once");
         Check(Regex.Matches(body, "^" + Regex.Escape(PeerLinkHeading) + "$", RegexOptions.Multiline).Count == 1, "showbus spec: §13 is PeerLink, once");
         Check(Regex.Matches(body, "^" + Regex.Escape(NumbersHeading) + "$", RegexOptions.Multiline).Count == 1, "showbus spec: §14 is The numbers, once");
     }
@@ -443,8 +467,6 @@ static class ShowBusSpecTests
     /// </summary>
     static void Named(Action<bool, string> Check, string s13, string s14, Numbers n)
     {
-        static HashSet<string> CodeNames(string text)
-            => Regex.Matches(text, @"`([a-z][a-z0-9]*(?:\.[a-z0-9-]+)+)`").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
         var named = CodeNames(s13);
         named.ExceptWith(NotNumbers);
         var unknown = named.Where(x => !n.Values.ContainsKey(x)).Order(StringComparer.Ordinal).ToList();
@@ -463,6 +485,130 @@ static class ShowBusSpecTests
         var strays = CodeNames(prose).Where(x => !words.Contains(x)).ToList();
         Check(strays.Count == 0, "showbus spec: every dotted name §14's text writes in code is one of its rows (" + string.Join(", ", strays) + ")");
         Check(Unworded.All(n.Values.ContainsKey), "showbus spec: every row the header says binds nothing yet is a §14 row (" + string.Join(", ", Unworded.Where(x => !n.Values.ContainsKey(x))) + ")");
+    }
+
+    /// <summary>The dotted names a text writes in code: the §14 rows it names, and anything else written like one.</summary>
+    static HashSet<string> CodeNames(string text)
+        => Regex.Matches(text, @"`([a-z][a-z0-9]*(?:\.[a-z0-9-]+)+)`").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+
+    // ------------------------------------------------------------------ §12's text
+
+    /// <summary>
+    /// §12 keeps its ten parts in order, with their titles and nothing below them. §1 rule 5 makes a window's address, a viewing code
+    /// and a crew link view passes and gives a view pass exactly two carriers as an address — a browser's address bar, and the one
+    /// verified PeerLink (or key-verified node link) to the grant's own app — the second one 12.5's, whose four conditions all hold
+    /// before a grant's address is sent; anywhere else a holder keeps it as its own secret, which 13.18's twin may carry and a grant's
+    /// address never. 12.5 and 13.2 say where it travels in the same words. 12.6 sends the grants on every link of the app's node, an
+    /// empty list when it holds none, sends a draw grant's window only where a grant's own node may hear it, and reads an app's
+    /// abilities failing closed; 12.9 draws a granted window's content only from its current link's assignment.
+    /// </summary>
+    static void WindowsText(Action<bool, string> Check, string body, string s12)
+    {
+        var parts = Regex.Matches(s12, @"^### 12\.(\d+) (.+)$", RegexOptions.Multiline)
+            .Select(m => (N: int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), Title: m.Groups[2].Value)).ToList();
+        Check(parts.Select(p => p.N).SequenceEqual(Enumerable.Range(1, WindowParts.Length)),
+            "showbus spec: §12's parts are 12.1–12.10 in order (" + string.Join(", ", parts.Select(p => p.N)) + ")");
+        Check(parts.Select(p => p.Title).SequenceEqual(WindowParts),
+            "showbus spec: §12's parts keep their titles (" + string.Join(" · ", parts.Select(p => p.Title).Except(WindowParts)) + ")");
+        Check(Regex.Matches(s12, "^#### ", RegexOptions.Multiline).Count == 0, "showbus spec: §12 has no level below its parts");
+
+        var rule5 = Flat(Between(body, "\n5. **Secrets ride", "\n6. **") ?? "");
+        Check(rule5.Contains("*view pass* (§12.2) — a window's address, a viewing code, a crew link", StringComparison.Ordinal),
+            "showbus spec: §1 rule 5 makes a window's address, a viewing code and a crew link view passes (§12.2)");
+        Check(rule5.Contains("a view pass rides as an address in exactly two carriers: a browser's address bar, and the one verified PeerLink (or key-verified node link) to the grant's own app (12.5)", StringComparison.Ordinal),
+            "showbus spec: §1 rule 5 gives a view pass exactly two carriers as an address, the second one 12.5's");
+        Check(rule5.Contains("keeps it as its own secret, which travels only where that node's secrets may (13.18's twin, under its switch); a grant's address travels nowhere else (12.5, 12.8)", StringComparison.Ordinal)
+              && Flat(Part(body, "13.18")).Contains("send device secrets — a view pass the node keeps among them (12.8) — only under their own switch", StringComparison.Ordinal)
+              && Flat(Part(body, "13.18")).Contains("and never a grant's address (12.4)", StringComparison.Ordinal),
+            "showbus spec: §1 rule 5 and 13.18 agree: a view pass a node keeps is its own secret, which its twin carries only under its switch, and a grant's address never");
+
+        var path = WindowPart(s12, 5) ?? "";
+        var conditions = Regex.Matches(path, @"^- \*\*([^*]+)\*\*", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToList();
+        Check(path.Contains("is sent only on a link that is all of these:", StringComparison.Ordinal)
+              && conditions.SequenceEqual(["the grant's own node's", "pinned TLS, or local", "on a key never seen in clear", "offering `pages`"]),
+            "showbus spec: 12.5 sends a grant's address only on the grant's own node's link, pinned TLS or local, on a key never seen in clear, offering pages ("
+            + string.Join(" · ", conditions) + ")");
+        Check(Flat(path).Contains("**pinned TLS, or local**: TLS to the certificate the app pinned", StringComparison.Ordinal)
+              && Flat(path).Contains("or local (13.1): a loopback address, never one the node owns", StringComparison.Ordinal)
+              && Flat(Part(body, "13.2")).Contains("a view pass on the one link §1 rule 5 lets it ride, travel only inside pinned TLS or on a local link (13.1,", StringComparison.Ordinal)
+              && Flat(Part(body, "13.1")).Contains("**Local**: the socket's remote address is a loopback address", StringComparison.Ordinal),
+            "showbus spec: 12.5 and 13.2 say alike where a grant's address travels — pinned TLS, or a local link, which 13.1 makes loopback only");
+
+        var messages = Flat(WindowPart(s12, 6) ?? "");
+        Check(messages.Contains("**The grants**, node → app, on every link of 12.5's first point, whether or not that node holds a grant", StringComparison.Ordinal)
+              && messages.Contains("A node that holds none hears an empty list", StringComparison.Ordinal),
+            "showbus spec: 12.6 sends the grants on every link of 12.5's first point, an empty list when that node holds none, so a grant withdrawn while its app was away ends");
+        Check(messages.Contains("**A draw grant's window**, node → app, only on a link of 12.5's first point, on a key never seen in clear (13.6.9), that offers `window-draw`", StringComparison.Ordinal),
+            "showbus spec: 12.6 sends a draw grant's window only on the grant's own node's link, on a key never seen in clear, offering window-draw");
+        Check(messages.Contains("The node reads the first `hello.caps` words and ignores the rest, a word it does not know and a word whose cap row does not name the app's kind: an ability it ignores is not offered", StringComparison.Ordinal),
+            "showbus spec: 12.6 reads an app's can= failing closed: past hello.caps, an unknown word or one whose cap row names another kind is not offered");
+        var drawing = Flat(WindowPart(s12, 9) ?? "");
+        Check(drawing.Contains("its content, from the last `window-assign` for it on its current link to the granting node", StringComparison.Ordinal)
+              && drawing.Contains("black for a window it was never granted, or whose grant ended: a `window-end`, or a `grants` that leaves it out, a new link's first included", StringComparison.Ordinal),
+            "showbus spec: 12.9 draws a granted window's content only from its current link's assignment, and black once a grants leaves it out");
+    }
+
+    /// <summary>The text of part 12.<paramref name="n"/>, up to the next part.</summary>
+    static string? WindowPart(string s12, int n) => Between(s12, $"\n### 12.{n.ToString(CultureInfo.InvariantCulture)} ", "\n### ");
+
+    /// <summary>The text of the body's part <paramref name="number"/> (13.2), up to the next part or section; empty when there is none.</summary>
+    static string Part(string body, string number)
+    {
+        var start = body.IndexOf("\n### " + number + " ", StringComparison.Ordinal);
+        if (start < 0) return "";
+        var ends = new[] { body.IndexOf("\n### ", start + 1, StringComparison.Ordinal), body.IndexOf("\n## ", start + 1, StringComparison.Ordinal) }.Where(i => i > 0).ToList();
+        return body[(start + 1)..(ends.Count > 0 ? ends.Min() : body.Length)];
+    }
+
+    /// <summary>The text with every run of white space one space, so a sentence reads the same however it is wrapped.</summary>
+    static string Flat(string text) => Regex.Replace(text, @"\s+", " ");
+
+    /// <summary>
+    /// Every dotted name §12 writes in code is a §14 row, and every row §14.4 gives §12 is named there, so §12's words hold each of
+    /// them; the caps §12 names are §14's cap words, and what 12.6's can= offers is exactly the caps an app holds a window with.
+    /// </summary>
+    static void WindowsNamed(Action<bool, string> Check, string s12, Numbers n)
+    {
+        var named = CodeNames(s12);
+        var unknown = named.Where(x => !n.Values.ContainsKey(x)).Order(StringComparer.Ordinal).ToList();
+        Check(unknown.Count == 0, "showbus spec: every number §12 names in code is a §14 row (" + string.Join(", ", unknown) + ")");
+        var unworded = n.Values.Keys.Where(k => WindowRows.Any(p => k.StartsWith(p, StringComparison.Ordinal)) && !named.Contains(k)).Order(StringComparer.Ordinal).ToList();
+        Check(unworded.Count == 0, "showbus spec: §12 names every window and view row §14 gives it (" + string.Join(", ", unworded) + ")");
+        var intro = s12[..s12.IndexOf("\n### ", StringComparison.Ordinal)];
+        var caps = Regex.Matches(intro, "`([a-z-]+)`").Select(m => m.Groups[1].Value).ToList();
+        Check(caps.Order(StringComparer.Ordinal).SequenceEqual(["pages", "window-draw", "windows"]) && caps.All(c => n.Caps.Any(x => x.Word == c)),
+            "showbus spec: §12 grants with cap windows and holds with pages or window-draw, each a §14 cap (" + string.Join(", ", caps) + ")");
+        var offers = Regex.Matches(WindowPart(s12, 6) ?? "", "`can=([a-z-]+)`").Select(m => m.Groups[1].Value).ToList();
+        var holders = caps.Where(c => c != "windows").ToList();
+        Check(offers.Order(StringComparer.Ordinal).SequenceEqual(holders.Order(StringComparer.Ordinal)) && offers.All(w => n.Caps.Any(x => x.Word == w && x.Kinds.Length > 0)),
+            "showbus spec: 12.6's can= offers exactly the caps an app holds a window with, each a §14 cap row that names the kinds that may offer it ("
+            + string.Join(", ", offers) + ")");
+    }
+
+    /// <summary>
+    /// Every part the body cites is there: §N.M is a part's heading; a bare 12.x, 13.x or 14.x (outside code) is one of §12's or §13's
+    /// parts, or one of §14's numbered items, and with a third number one of that part's numbered items. The header names the parts
+    /// the body cites ahead of their words, and only those, and 1.3 final has none.
+    /// </summary>
+    static void References(Action<bool, string> Check, string header, string body, bool draft)
+    {
+        var prose = Regex.Replace(body, "^```[^\n]*\n.*?^```$", "", RegexOptions.Multiline | RegexOptions.Singleline);
+        var heads = Regex.Matches(body, @"^### (\d+\.\d+) ", RegexOptions.Multiline).Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        var s14 = Between(body, "\n" + NumbersHeading + "\n", "\n## ") ?? "";
+        bool There(string section, string part, string item) => section == "14"
+            ? item.Length == 0 && Regex.IsMatch(s14, "^" + part + @"\. ", RegexOptions.Multiline)
+            : heads.Contains(section + "." + part) && (item.Length == 0 || Regex.IsMatch(Part(body, section + "." + part), @"^\s*" + item + @"\. ", RegexOptions.Multiline));
+        var missing = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (Match m in Regex.Matches(prose, @"(?<![\w.])(§?)(\d+)\.(\d+)(?:\.(\d+))?(?![\d])(?!\.\d)"))
+        {
+            var (cited, section) = (m.Groups[1].Length > 0, m.Groups[2].Value);
+            if ((cited || section is "12" or "13" or "14") && !There(section, m.Groups[3].Value, m.Groups[4].Value)) missing.Add(m.Value);
+        }
+        var ahead = Regex.Match(Flat(header), @"cite (.+?) ahead of their words") is { Success: true } a
+            ? Regex.Matches(a.Groups[1].Value, @"§\d+\.\d+").Select(x => x.Value).ToHashSet(StringComparer.Ordinal) : [];
+        Check(missing.SetEquals(ahead), "showbus spec: every part the body cites is there, or the header names it as cited ahead of its words (not there: "
+            + string.Join(", ", missing) + "; the header names: " + string.Join(", ", ahead.Order(StringComparer.Ordinal)) + ")");
+        Check(draft || ahead.Count == 0, "showbus spec: 1.3 final cites no part ahead of its words (" + string.Join(", ", ahead) + ")");
     }
 
     /// <summary>13.18 keeps the two doors §8 names as exemptions in 1.3: browser pages with ?pin=, and Companion TCP 9923.</summary>
@@ -1100,6 +1246,199 @@ static class ShowBusSpecTests
             + "is not reached here yet (Unreached) or does not bind (NotStagewatchs) (" + string.Join(", ", loose) + ")");
     }
 
+    /// <summary>
+    /// What §12 says a window is told, reports and shows a host browser, against Stagewatch's server and its window shell (the shell
+    /// is a page, read from source): the alphabet is exactly the window alphabet, five bits a symbol, and a page that needs the PIN or
+    /// another site is never content; a window hears 12.3's window message and 12.3's end, its link is never a node link, and it reports
+    /// 12.3's shown fields; the shell's root carries 12.9's data attributes with 12.9's values, and its state names what is loading. The
+    /// draw messages of 12.6 carry 12.3's fields, and 12.7's black end is 12.3's end with black. A window asked to identify or reload
+    /// hears 12.3's messages; a locked device is never told its address is gone (12.2); a window's item is 12.10's. The header names
+    /// exactly the rows of §12 in <see cref="NotKeptYet"/>, each with what the code does today, and names 12.2's page rule and its
+    /// revocation for viewing codes and crew links, and cap windows in the hello, each exactly while the code lacks it.
+    /// </summary>
+    static void WindowsCode(Action<bool, string> Check, string header, string s12, Numbers n)
+    {
+        // 12.1: the token's symbols, and what a window may show.
+        var symbols = n.Values.GetValueOrDefault("window.token.alphabet", "");
+        var length = (int)n.Of("window.token.chars");
+        var strangers = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".Where(c => !symbols.Contains(c)).ToList();
+        Check(symbols.Length == 32 && symbols.All(c => ScreenWindows.ValidToken(new string(c, length))) && strangers.All(c => !ScreenWindows.ValidToken(new string(c, length))),
+            "showbus spec: Stagewatch keeps 12.1: a window's address takes exactly window.token.alphabet's symbols, 32 of them, five bits each (outside it: "
+            + string.Join("", strangers.Where(c => ScreenWindows.ValidToken(new string(c, length)))) + ")");
+        Check(ScreenWindows.CanShow("/clock", out _) && !ScreenWindows.CanShow("/control", out _) && !ScreenWindows.CanShow("https://example.com/clock", out _),
+            "showbus spec: Stagewatch keeps 12.1: a window shows a page that needs no credential, never one that needs the PIN or another site");
+
+        // 12.3: what a window hears, and how its link ends.
+        var link = WindowPart(s12, 3) ?? "";
+        var window = Shape(link, "window");
+        var lobby = new ScreenWindow { Id = "wk3m9x2", Name = "lobby", Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 3 };
+        var told = JsonDocument.Parse(WebServer.WindowJson(lobby)).RootElement;
+        var toldFields = told.EnumerateObject().Select(p => p.Name).ToList();
+        Check(window is not null && Str(told, "type") == "window" && toldFields.SequenceEqual(window.Prepend("type")) && !told.GetRawText().Contains(lobby.Token, StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps 12.3: a window hears its window message's fields, in its order, and never its address (" + string.Join(", ", toldFields) + ")");
+        Check(link.Contains("`" + WebServer.WindowGoneJson + "`", StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps 12.3: a window whose address stopped working hears " + WebServer.WindowGoneJson);
+        var nodeAndWindow = new Dictionary<string, string>(StringComparer.Ordinal) { ["node"] = "9f8e7d6c", ["t"] = "patterns", ["win"] = ScreenWindows.NewToken() };
+        Check(NodeLinks.BadRequest(nodeAndWindow, null, "3f9c2a1b7d0e") == NodeLinks.WindowNotNode && Flat(link).Contains(NodeLinks.WindowNotNode, StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps 12.3: win with node is refused before the upgrade, in 12.3's words");
+        var identify = JsonDocument.Parse(WebServer.IdentifyJson("lobby", "wk3m9x2")).RootElement;
+        var identifyFields = identify.EnumerateObject().Select(p => p.Name).ToList();
+        Check(Shape(link, "identify") is { } asked && Str(identify, "type") == "identify" && identifyFields.SequenceEqual(asked.Prepend("type")),
+            "showbus spec: Stagewatch keeps 12.3: a window asked to identify hears 12.3's identify message, in its order (" + string.Join(", ", identifyFields) + ")");
+        Check(link.Contains("`" + WebServer.ReloadJson + "`", StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps 12.3: a window asked to reload hears " + WebServer.ReloadJson);
+
+        // 12.2: a device locked out of view passes is never told its address is gone: its window link closes, its page says wait.
+        var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
+        var windowPage = Method(server, "private async Task HandleWindowPageAsync(") ?? "";
+        Check(Regex.IsMatch(server, @"if \(!lockedWindow\) await ws\.SendAsync\(WindowGone\b") && Regex.IsMatch(windowPage, @"if \(LockedOut\(remote\)\)\s*\{\s*await WriteAsync\(stream, 429,")
+              && Flat(WindowPart(s12, 2) ?? "").Contains("A locked device is never told its address is gone: a page it asks for says to wait, and a window's link is closed and tries again", StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps 12.2: a locked device's window link is closed without the gone message, and its window page says wait (429)");
+
+        // 12.6 and 12.7 against 12.3: a draw grant's messages carry a window's fields, and a page grant's end is a window's end, black.
+        var messages = WindowPart(s12, 6) ?? "";
+        var shown = Shape(link, "shown");
+        Check(Shape(messages, "window-assign") is { } assign && window is not null && assign.SequenceEqual(window.Select(f => f == "id" ? "window" : f)),
+            "showbus spec: 12.6's window-assign is 12.3's window message, the window named by window");
+        Check(Shape(messages, "window-shown") is { } drawn && shown is not null && drawn.SequenceEqual(shown.Prepend("window")),
+            "showbus spec: 12.6's window-shown is 12.3's report, the window named by window");
+        Check((WindowPart(s12, 7) ?? "").Contains("`" + WebServer.WindowGoneJson[..^1] + ",\"black\":true}`", StringComparison.Ordinal),
+            "showbus spec: 12.7's black end is 12.3's end with black");
+
+        // 12.3 and 12.9 against the window shell.
+        var shell = Source("src/Timer.Remote/wwwroot/window.js");
+        Check(shell is not null, "showbus spec: the window shell (src/Timer.Remote/wwwroot/window.js) is in the tree");
+        if (shell is null) return;
+        var reported = Regex.Match(shell, @"type: 'shown', ([^}]+)\}") is { Success: true } r ? Regex.Matches(r.Groups[1].Value, @"(\w+):").Select(m => m.Groups[1].Value).ToList() : [];
+        Check(shown is not null && reported.SequenceEqual(shown), "showbus spec: Stagewatch keeps 12.3: a window reports the shown fields, in their order (" + string.Join(", ", reported) + ")");
+        var drawing = WindowPart(s12, 9) ?? "";
+        var attributes = Regex.Matches(shell, @"setAttribute\('data-([a-z]+)'").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        var named = Regex.Matches(drawing, "`data-([a-z]+)`").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        Check(attributes.SetEquals(named), "showbus spec: Stagewatch keeps 12.9: the shell's root carries exactly the data attributes 12.9 names ("
+            + string.Join(", ", attributes.Order(StringComparer.Ordinal)) + " / " + string.Join(", ", named.Order(StringComparer.Ordinal)) + ")");
+        foreach (var attribute in new[] { "link", "hold" })
+        {
+            var values = Regex.Matches(shell, @"setAttribute\('data-" + attribute + @"', ([^)]*)\)").SelectMany(m => Regex.Matches(m.Groups[1].Value, "'([^']*)'"))
+                .Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+            var said = Regex.Match(Flat(drawing), "`data-" + attribute + @"` \(([^)]*)\)") is { Success: true } v
+                ? Regex.Matches(v.Groups[1].Value, "`([^`]*)`").Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal) : [];
+            Check(values.Count > 0 && values.SetEquals(said), $"showbus spec: Stagewatch keeps 12.9: the shell's data-{attribute} takes exactly 12.9's values ("
+                + string.Join(", ", values.Order(StringComparer.Ordinal)) + " / " + string.Join(", ", said.Order(StringComparer.Ordinal)) + ")");
+        }
+        var state = Regex.Match(shell, @"state: function \(\) \{\s*return \{([^}]*)\}") is { Success: true } st
+            ? Regex.Matches(st.Groups[1].Value, @"(\w+):").Select(m => m.Groups[1].Value).ToList() : [];
+        Check(drawing.Contains("`SWShell.state()`, whose `loading`", StringComparison.Ordinal) && shell.Contains("window.SWShell = {", StringComparison.Ordinal) && state.Contains("loading"),
+            "showbus spec: Stagewatch keeps 12.9: SWShell.state() says what is loading (" + string.Join(", ", state) + ")");
+
+        // 12.10: a window's item is window: and its name in lower case, a screen, grey until opened, amber when its link is lost, never red.
+        var hall = new ScreenWindow { Id = "wq8r4t1", Name = "Hall-A", Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 2 };
+        var foyer = new ScreenWindow { Id = "wz5n6p7", Name = "Foyer", Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 4 };
+        var items = ScreenWindows.ContextItems([hall, foyer], [new WindowObserved(foyer.Id, 0, 4, "/clock", false, 40, Tonight, "", "", "")]);
+        var placement = Flat(WindowPart(s12, 10) ?? "");
+        var claimed = Regex.Match(placement, @"""from"":""@[0-9a-z]+/window:([^""]+)""") is { Success: true } c ? c.Groups[1].Value : "";
+        Check(items.Select(i => i.Id).SequenceEqual(["window:hall-a", "window:foyer"]) && items.All(i => i.Kind == "screen")
+              && items.Select(i => i.Light).SequenceEqual([Light.Grey, Light.Amber])
+              && placement.Contains("Its context has one item per window, `window:` and the window's name in lower case (kind `screen`;", StringComparison.Ordinal)
+              && placement.Contains("grey while none has been opened", StringComparison.Ordinal) && claimed.Length > 0 && claimed == claimed.ToLowerInvariant(),
+            "showbus spec: Stagewatch keeps 12.10: a window's item is window: and its name in lower case, kind screen, grey until opened and amber once its link is lost ("
+            + string.Join(", ", items.Select(i => i.Id + " " + i.Kind + " " + i.Light)) + ")");
+
+        // The header: what of §12 Stagewatch does not keep yet, each named exactly while its code still lacks it.
+        var sentence = Regex.Match(Flat(header), @"does not keep these of §12 yet: (.+?)\.\s") is { Success: true } h ? h.Groups[1].Value : "";
+        var listed = CodeNames(sentence);
+        var later = NotKeptYet.Where(x => WindowRows.Any(p => x.Row.StartsWith(p, StringComparison.Ordinal))).ToList();
+        Check(sentence.Length > 0 && listed.SetEquals(later.Select(x => x.Row)), "showbus spec: the header names the rows of §12 Stagewatch does not keep yet, as NotKeptYet does ("
+            + string.Join(", ", listed.Order(StringComparer.Ordinal)) + " / " + string.Join(", ", later.Select(x => x.Row).Order(StringComparer.Ordinal)) + ")");
+        foreach (var (row, unit, today, _) in later)
+            Check(sentence.Contains("(`" + row + "`: today " + today + ")", StringComparison.Ordinal),
+                $"showbus spec: the header says what Stagewatch does today for {row} in NotKeptYet's words ({unit}): today {today}");
+
+        int Times(string text, string word) => Regex.Matches(text, Regex.Escape(word)).Count;
+        var pageRuleAtWindowsOnly = windowPage.Length > 0 && Times(server, "frame-ancestors") == 1
+            && new[] { "Referrer-Policy", "X-Robots-Tag" }.All(x => Times(windowPage, x) > 0 && Times(server, x) == Times(windowPage, x));
+        Check(sentence.Contains("12.2's page rule for a page opened with a viewing code or a crew link", StringComparison.Ordinal) == pageRuleAtWindowsOnly,
+            "showbus spec: the header names 12.2's page rule for viewing codes and crew links exactly while WebServer sends no-referrer, noindex and no-framing "
+            + "only with the window page (SW19.6)" + (pageRuleAtWindowsOnly ? "" : " — it sends them elsewhere now: take the page rule out of the header's list"));
+        var viewersNeverRechecked = (Method(server, "private void Recheck(WsClient client)") ?? "")
+            .Contains("if (link.KeyId is null && link.PinHash is null) return;", StringComparison.Ordinal);
+        Check(sentence.Contains("12.2's revocation at once for a viewing code or a crew link", StringComparison.Ordinal) == viewersNeverRechecked,
+            "showbus spec: the header names 12.2's revocation at once for viewing codes and crew links exactly while WebServer rechecks no socket that only "
+            + "a viewing code or a crew link let in (SW19.6)" + (viewersNeverRechecked ? "" : " — it rechecks them now: take the revocation out of the header's list"));
+
+        var (readable, sends) = HelloCapsName(Source("src/Timer.App/ViewModels/MainViewModel.Slides.cs") ?? "", "windows");
+        Check(readable, "showbus spec: every cap the desk's hello builder (MainViewModel.Slides.cs, HelloCaps) adds is a word written out, so this test reads "
+            + "whether it sends cap windows — write each cap as a literal, or teach ShowBusSpecTests.HelloCapsName the new form");
+        Check(readable && sentence.Contains("cap `windows` in its hello", StringComparison.Ordinal) != sends,
+            "showbus spec: the header says Stagewatch's hello lacks cap windows exactly while the desk's hello builder (MainViewModel.Slides.cs) lacks it"
+            + (sends ? " — it sends it now: take it out of the header's list" : ""));
+    }
+
+    /// <summary>
+    /// Whether the desk's hello builder can be read as data — a list of literal cap words, each added cap a literal, and the list
+    /// returned whole — and whether it names <paramref name="cap"/> among them. A cap added any other way makes it unreadable.
+    /// </summary>
+    static (bool Readable, bool Names) HelloCapsName(string builder, string cap)
+    {
+        var hello = Method(builder, "private string[] HelloCaps()") ?? "";
+        static bool Literal(string x) => Regex.IsMatch(x, "^\"[a-z0-9.-]+\"$");
+        var listed = Regex.Match(hello, @"new List<string>\s*\{([^}]*)\}") is { Success: true } l
+            ? l.Groups[1].Value.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToList() : [];
+        var calls = Regex.Matches(hello, @"\bcaps\.(\w+)\(([^)]*)\)").Select(m => (Verb: m.Groups[1].Value, Arg: m.Groups[2].Value.Trim())).ToList();
+        var readable = listed.Count > 0 && listed.All(Literal)
+            && calls.All(x => (x.Verb == "Add" && Literal(x.Arg)) || (x.Verb == "ToArray" && x.Arg.Length == 0))
+            && Regex.IsMatch(hello, @"return caps\.ToArray\(\);\s*$");
+        return (readable, listed.Concat(calls.Where(x => x.Verb == "Add").Select(x => x.Arg)).Contains("\"" + cap + "\""));
+    }
+
+    /// <summary>
+    /// The text of the method of <paramref name="source"/> that starts with <paramref name="signature"/>, up to its closing brace at a
+    /// class member's indent; null when there is none.
+    /// </summary>
+    static string? Method(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        if (start < 0) return null;
+        var end = source.IndexOf("\n    }\n", start, StringComparison.Ordinal);
+        return end < 0 ? null : source[start..end];
+    }
+
+    /// <summary>
+    /// Whether WebServer still counts view passes as it did before SW19.6, on all three of their paths at once: a wrong window address
+    /// is counted in the PIN's table (LockedOut reads it), and so is a wrong viewing code (ViewPass adds to it); a wrong crew link is
+    /// counted nowhere (CheckCrewAck and CheckDeptKey count nothing); and a right key clears the PIN's table (AuthorizeSecret). A change
+    /// to any one path ends it, so NotKeptYet's words for view.wrong.per.minute never outlive the code they describe.
+    /// </summary>
+    static bool ViewPassesCountedAsToday()
+    {
+        if (Source("src/Timer.Remote/WebServer.cs") is not { } server) return false;
+        string Of(string signature) => Method(server, signature) ?? "";
+        var windows = Regex.IsMatch(server, @"bool LockedOut\(IPAddress remote\)\s*=>\s*_authFailures\.");
+        var codes = Of("private string? ViewPass(").Contains("_authFailures.AddOrUpdate", StringComparison.Ordinal);
+        var crew = new[] { "private string? CheckCrewAck(", "private string? CheckDeptKey(" }.Select(Of)
+            .All(b => b.Length > 0 && !Regex.IsMatch(b, "AddOrUpdate|CountFailure|Failures"));
+        var cleared = Of("private Denied? AuthorizeSecret(").Contains("_authFailures.TryRemove", StringComparison.Ordinal);
+        return windows && codes && crew && cleared;
+    }
+
+    /// <summary>
+    /// The fields of the message of <paramref name="type"/> a text writes in code as <c>{"type":"…","a","b"}</c>, after its type;
+    /// null when it writes none.
+    /// </summary>
+    static List<string>? Shape(string text, string type)
+        => Regex.Match(Flat(text), "`\\{\"type\":\"" + Regex.Escape(type) + "\",((?:\"[A-Za-z]+\",?)+)\\}`") is { Success: true } m
+            ? Regex.Matches(m.Groups[1].Value, "\"([A-Za-z]+)\"").Select(f => f.Groups[1].Value).ToList() : null;
+
+    /// <summary>
+    /// A file of this tree, read as text with LF line ends whatever the checkout wrote — a page, or Timer.App, which is not built beside
+    /// this suite on every platform; null when it is not there.
+    /// </summary>
+    static string? Source(string relative)
+    {
+        if (Master() is not { } master || Path.GetDirectoryName(Path.GetDirectoryName(master)) is not { } root) return null;
+        var path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+        return File.Exists(path) ? File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal) : null;
+    }
+
     /// <summary>A peer's context as PeerContexts reads it: a patterns node, then <paramref name="extra"/>.</summary>
     static PeerContexts.Entry? Peer(string extra)
         => PeerContexts.Parse("{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"}" + extra + "}", "10.0.0.5", Tonight);
@@ -1113,10 +1452,7 @@ static class ShowBusSpecTests
     /// </summary>
     static (int Back, int On, int Renew)? Certificate()
     {
-        if (Master() is not { } master || Path.GetDirectoryName(Path.GetDirectoryName(master)) is not { } root) return null;
-        var path = Path.Combine(root, "src", "Timer.App", "NodeCertificate.cs");
-        if (!File.Exists(path)) return null;
-        var source = File.ReadAllText(path);
+        if (Source("src/Timer.App/NodeCertificate.cs") is not { } source) return null;
         var span = Regex.Match(source, @"CreateSelfSigned\(DateTimeOffset\.UtcNow\.AddDays\(-(\d+)\), DateTimeOffset\.UtcNow\.AddDays\((\d+)\)\)");
         var renew = Regex.Match(source, @"NotAfter > DateTime\.Now\.AddDays\((\d+)\)");
         if (!span.Success || !renew.Success) return null;

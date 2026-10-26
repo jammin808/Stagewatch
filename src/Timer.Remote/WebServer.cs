@@ -210,13 +210,19 @@ public sealed class WebServer : IAsyncDisposable
         foreach (var id in windowIds.Distinct())
         {
             var name = _control.Windows.FirstOrDefault(w => w.Id == id)?.Name ?? "";
-            n += PushToWindows(new[] { id }, JsonSerializer.SerializeToUtf8Bytes(new { type = "identify", name, id }));
+            n += PushToWindows(new[] { id }, IdentifyJson(name, id));
         }
         return n;
     }
 
+    /// <summary>What a window hears when its operator asks it to show its name (Show Bus 12.3).</summary>
+    public static byte[] IdentifyJson(string name, string id) => JsonSerializer.SerializeToUtf8Bytes(new { type = "identify", name, id });
+
     /// <summary>Make windows reload themselves (they come back to what they were showing).</summary>
-    public int ReloadWindows(IEnumerable<string> windowIds) => PushToWindows(windowIds, "{\"type\":\"reload\"}"u8.ToArray());
+    public int ReloadWindows(IEnumerable<string> windowIds) => PushToWindows(windowIds, Encoding.UTF8.GetBytes(ReloadJson));
+
+    /// <summary>What a window hears when its operator reloads it (Show Bus 12.3).</summary>
+    public const string ReloadJson = "{\"type\":\"reload\"}";
 
     private int PushToWindows(IEnumerable<string> windowIds, byte[] payload)
     {
@@ -1516,10 +1522,12 @@ public sealed class WebServer : IAsyncDisposable
         }
     }
 
-    private static readonly byte[] WindowGone = "{\"type\":\"window\",\"revoked\":true}"u8.ToArray();
+    /// <summary>What a window whose address stopped working (revoked, deleted) hears before it is let go (Show Bus 12.3).</summary>
+    public const string WindowGoneJson = "{\"type\":\"window\",\"revoked\":true}";
+    private static readonly byte[] WindowGone = Encoding.UTF8.GetBytes(WindowGoneJson);
 
-    /// <summary>What a window is told: everything it acts on, never its own address.</summary>
-    private static byte[] WindowJson(ScreenWindow w) => JsonSerializer.SerializeToUtf8Bytes(new
+    /// <summary>What a window is told (Show Bus 12.3): everything it acts on, never its own address.</summary>
+    public static byte[] WindowJson(ScreenWindow w) => JsonSerializer.SerializeToUtf8Bytes(new
     {
         type = "window", id = w.Id, name = w.Name, content = w.Content, hold = w.Hold, holdText = w.HoldText, holdImage = w.HoldImage,
         onLoss = w.OnLoss, fadeMs = w.FadeMs, rev = w.Revision,
