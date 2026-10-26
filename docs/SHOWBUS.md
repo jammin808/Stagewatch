@@ -11,9 +11,11 @@ node, posting a context — on a `line` link too, `CONTEXT POST` — and the kin
 and its link, how a node grants a window to another node's app and how that app holds it, with §1 rule 5's words for view passes and
 the two carriers they ride; §13 PeerLink, one authenticated link between two nodes, with the vectors every tree checks itself against;
 and §14 The numbers, every number the contract names, with its node kinds, doors and caps, in one block each tree's test reads. The
-scripted peer §13.20 names is in this tree with its honest ends; this tree runs S1–S7 with it against its PeerLink core's connector,
-on `line`, `playmap.lines.v1` and `ws`; the acceptor's half comes with its `/ws` acceptor's LINK. Its attacker ends and S8–S22 come
-with the rest of the conformance kit, and its hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is
+scripted peer §13.20 names is in this tree, honest and as an attacker; this tree runs S1–S15, S17–S19, S21 and S22 with it against its
+PeerLink core — its connector on `line`, `playmap.lines.v1` and `ws`, and its acceptor's parsers, proofs, session check and receipt
+store behind the kit's stand-in. S16 and S20 run only the peer's attack, as do S15's slow reader and S12's emitting half, until its
+`/ws` acceptor speaks LINK and takes the acceptor's rows over; the connector's readers come with its playout links on the core, and
+the peer's hash with 1.3 final (`peerlink.peer.sha256` reads `pending` until then). Until 1.3 is
 final every node keeps 1.2, and a node offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19,
 which carries 1.3, does not keep of it; this tree does not keep these of 1.3 yet either, which Stagewatch 2.19 brings
 before it ships: `proto` (today a hello says proto 1); `hello.caps` (today the hello reader keeps 16 caps); `hello.name.chars` (today
@@ -1045,6 +1047,9 @@ Anything on the show network — the venue's Wi-Fi included, where every client 
    - Revoking or re-binding a key, or a new code, MUST refuse every verified link that used it (13.16) and end its session
      credentials (13.7).
    - A new code (Patterns' NEW TOKEN) also revokes every key enrolled from the old one.
+   - The refusal reaches the link on its carrier. On `line` the acceptor writes `ERR LINK refused — <words>`, with no id, and ends
+     the connection; on `ws` it sends the refused verdict (`{"type":"auth","ok":false,…,"class":"refused","retry":60}`), and the
+     socket stays a public viewer (13.6.5). The connector takes either as a refused verdict: the key is held (13.15.3).
 6. **Counting.**
    - Unknown kids and binding refusals are never counted toward any lockout.
    - Wrong proofs are counted in a table of their own: per (address, kid), and per address for `code`.
@@ -1178,7 +1183,9 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
    - It goes only over TLS, to the certificate that link pinned, or to loopback; never in a URL.
    - S is valid while its link's socket is open and verified. The socket's end, a revocation or a refused verdict ends it, answered
      `401 {"ok":false,"error":…,"relink":true}`.
-   - An acceptor that receives an S in clear from another machine refuses it and ends that link.
+   - An S that verifies for its lid, received in clear from another machine (no TLS, and a remote address that is not loopback), is
+     refused — 401 with `relink` — and that link ended: anyone on the path read it. A wrong S in clear is the same 401 and ends
+     nothing: a lid is not a secret.
 2. Side calls run on a lane of their own:
    - never in the beat's path (13.10.3);
    - at most `link.sidecall.inflight` per kind at a time, each within `link.sidecall.timeout.ms`;
@@ -1309,10 +1316,11 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
 | the answer | outcome | words |
 |---|---|---|
 | line `OK @id`, or `OK @id <words>` that is not JSON | applied | the words |
+| line `OK @id {…}` with `"ok":false` (a refused command's repeat, 13.12.6) | refused | `error` |
 | line `OK @id {…}` with `"stage":"accepted"` (PlayMap) | accepted | `effect` |
 | line `OK @id {…}` with `"outcome":"Requested"` (Patterns `CUE GO`) | accepted | Patterns' words |
 | line `OK @id {…}` with `"outcome":"Confirm"` | accepted | Patterns' words + "asks for a second GO — a person's" |
-| line `OK @id {…}` with `"stage":"applied"`, `"outcome":"Done"`, or neither | applied | `effect`, or the words |
+| line `OK @id {…}` with `"stage":"applied"`, `"outcome":"Done"`, or neither, and no `"ok":false` | applied | `effect`, or the words |
 | line `ERR @id <words>` | refused | the words |
 | line `OK @id final {…}` / `ERR @id final <words>` | as the rows above, final | |
 | JSON receipt `"ok":true,"stage":"applied"` | applied | `effect` |
@@ -1345,11 +1353,16 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
 6. **Receipts kept** (feature `receipts`).
    - The acceptor keeps, per verified connector id, the final receipts of its last `receipts.kept` ids for `receipts.kept.ms`.
    - A command whose id it holds MUST NOT run again: it is answered with the receipt it had and `"repeat":true` appended (or `accepted`
-     while it still runs).
+     while it still runs). On `line` that answer is the receipt as JSON: `OK @<id> {"ok":true,"stage":"applied",…,"repeat":true}`, a
+     refused one's `"ok":false` with its `error`.
    - After a relink, the connector MAY ask `@rq1 RECEIPTS <id> …` (at most `receipts.ask.max` ids) or
      `{"cmd":"receipts","args":[…],"id":"rq1"}`, for its own ids only. The answer, from an acceptor whose `inst` is `a41f09c2`, to a
-     connector whose `inst` is `11aa22bb`: `OK @rq1 {"inst":"a41f09c2","receipts":{"s17-11aa22bb":{…},"s18-11aa22bb":"unknown"}}`.
-   - "unknown" from an acceptor whose `inst` is not the one the command was sent to leaves it `unconfirmed`.
+     connector whose `inst` is `11aa22bb`: `OK @rq1 {"inst":"a41f09c2","receipts":{"s17-11aa22bb":{…},"s18-11aa22bb":"unknown"}}`, or
+     on `ws` that object's fields in a receipt to the ask, `{"type":"receipt","id":"rq1","ok":true,"inst":"a41f09c2","receipts":{…}}`.
+   - The answer gives each id its final receipt, `{"ok":true,"stage":"accepted",…}` for one that still runs, or "unknown" for one the
+     record does not hold: from the same `inst`, an id the acceptor never read or no longer holds; from another, one it cannot know.
+   - Only a final receipt moves an `unconfirmed` command (13.12.2): `accepted`, and "unknown" from any `inst`, leave it `unconfirmed`,
+     and neither is a reason to send it again (rule 7).
 7. **No blind resends.** A connector MUST NOT send a command again once any byte of it may have reached the acceptor. Sending it again
    is a person's act, with the outcome in view and a new id.
 8. **In flight.** At most `link.inflight.max` commands wait for answers on one link; the next is `not-sent` ("32 commands are waiting on
@@ -1566,6 +1579,13 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
   is §14's `peerlink.peer.sha256`.
   - It plays either end of a link, the connector or the acceptor, honestly or as an attacker: on `line` (TCP, TLS told from plain by
     its first byte, or `playmap.lines.v1`), on `ws` and on side calls.
+  - Its acceptor keeps the features 13.1 names when a test lists them, binds and revokes keys (13.5.2, 13.5.5), enrols (13.5.7), and
+    answers commands as the test sets it: applied, accepted with a final to follow, refused, late, unanswered or dropped.
+  - Either end attacks when a command names an `attack`: a LINK replayed as it was sent (its cnonce, kid and proof), a forged kid, a
+    server proof as a client's, a second proof under one nonce; a reused snonce, a replayed or reflected verdict, a NONCE that is not
+    32 hex; an unmatched, forged or backwards pong and a lying clock; S in clear, under another lid or after its link; a flood of
+    connections that never link; a reader that stops reading; a foreign `Origin` or `Host`. Each end reports what it did and what
+    came back.
   - A tree's test drives it over its stdin and stdout, one JSON object a line: `listen`, `dial`, `send`, `call`, `set`, `expect`,
     `silence`, `close` and `quit`, each answered by one event, with an event for what it reads, writes and decides on each
     connection. The head of the file is its grammar. A command or a field it does not know, or a value of a shape its field does not
@@ -1575,6 +1595,7 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
     a named exemption.
   - It has no clock of its own: the link under test keeps its injected clock, and the times the peer stamps are the ones the test
     gives it. An `expect` or a `silence` waits at most 2 s of real time.
+  - Each §14 number it keeps names its row on its own line (`// 14: <name>`), and a tree's test holds each to the block.
   - It never writes a key, a code, `K` or S of its own — from its files, or made from them — to its stdout. What crossed a wire, its
     own or the other end's, it reports as it was, so a test reads what went in clear.
 - **The scenarios.** A tree runs these with the scripted peer against its own links, on each carrier each link uses:
@@ -1588,7 +1609,7 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 | S5 | a pinned id and a forged hello with no `tls`, another certificate or another address → TLS dialled anyway; a note; no refusal |
 | S6 | CERTIFICATE CHANGED → nothing of the connector's sent; public view only; a probe at most every `peerlink.cert.probe.ms`; accepted only with 8 hex of the new one typed |
 | S7 | LINK stripped (`unknown command` on `line`, a first frame on `ws`) on a floored id → floor-refused; never AUTH-PROOF, AUTH or a bearer sent |
-| S8 | a replayed client proof or a reused nonce → refused |
+| S8 | a LINK replayed as it was sent (its cnonce, kid and client proof), a reused nonce or a forged kid → refused |
 | S9 | a server proof offered as a client proof → refused |
 | S10 | S replayed in clear from another machine → refused and the link ended; S after the link closed → 401 relink; a wrong lid → 401 |
 | S11 | silence: stale past `link.stale.ms`, down past `link.drop.ms`; each redial within 13.15.1's wait; the self-gap |
@@ -1614,6 +1635,9 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
   - parse rows;
   - pure rows: `liveness`, `redial`, `errms`, `clock`, `outcome`;
   - machine rows: events on injected time → the link record and what the node did.
+- An `http` parse row is a side call's `Authorization` checked against the first `ws` `proof` row's live link: `clear` true when it
+  came in clear from another machine, and `ends` the lid whose link the acceptor ends (null: none). A row that names no `ends`
+  carries a header 13.7.1 does not take.
 - `refuse` rows reuse the first `proof` row with the one named field changed; `role` offers that row's server proof as its client
   proof. `legacy` rows are §7's AUTH-PROOF, keyed as 13.6.8 says; one with `prove` false is a nonce or a token the connector does
   not prove. Hex is lowercase. `K` is the 32-byte key as hex.
@@ -1657,7 +1681,9 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 | `receipts` | a `RECEIPTS` answer: each id's receipt, or `unknown` |
 | `side-call` | a side call's answer, in an `outcome` row's `answer` shape |
 | `restart` | the connector's process restarts; only what it persists remains |
-| `command` | the acceptor reads a command with this `id` on a verified link |
+| `command` | the acceptor reads a command with this `id` on a verified link, and runs it to its end |
+| `running` | the acceptor reads a command with this `id` on a verified link, and it is still running |
+| `ask` | the acceptor reads a `RECEIPTS` ask for these `ids` |
 
 | field | holds when |
 |---|---|
@@ -1675,7 +1701,7 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 | `inFlight` | how many commands wait for answers |
 | `outcome` | each command's outcome (13.12.2), by its id or its `send` number |
 | `runs` | how many times the acceptor ran the command |
-| `answer` | the acceptor's last receipt holds these fields |
+| `answer` | the acceptor's last answer — a receipt's fields, or a `RECEIPTS` answer — holds these fields |
 
 ```peerlink
 {"case":"canon","code":"k7qm-3xwd p9ra","canon":"K7QM3XWDP9RA","K":"5155f2dfc471eeab6498c03b18e3e3df5f8c9f7a2e5f85c8ed4526aaad49e5c8","kid":"code"}
@@ -1710,6 +1736,9 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 {"case":"parse","carrier":"ws","query":"node=7a7a7a7a&t=patterns&link=1","message":{"type":"link","client":{"t":"patterns","id":"9f8e7d6c"}},"expect":{"ok":false,"class":"malformed"}}
 {"case":"parse","carrier":"http","authorization":"ShowBus lid=618b61b446eefa81","expect":{"status":401,"relink":true}}
 {"case":"parse","carrier":"http","authorization":"ShowBus lid=618B61B446EEFA81, s=c08920c546466a5a3ead976d6fbc50c240e5f071599439e8da889414aa350741","expect":{"status":401,"relink":true}}
+{"case":"parse","carrier":"http","authorization":"ShowBus lid=618b61b446eefa81, s=c08920c546466a5a3ead976d6fbc50c240e5f071599439e8da889414aa350741","clear":false,"expect":{"status":200,"relink":false,"ends":null}}
+{"case":"parse","carrier":"http","authorization":"ShowBus lid=618b61b446eefa81, s=c08920c546466a5a3ead976d6fbc50c240e5f071599439e8da889414aa350741","clear":true,"expect":{"status":401,"relink":true,"ends":"618b61b446eefa81"}}
+{"case":"parse","carrier":"http","authorization":"ShowBus lid=618b61b446eefa81, s=0000000000000000000000000000000000000000000000000000000000000000","clear":true,"expect":{"status":401,"relink":true,"ends":null}}
 {"case":"liveness","silenceMs":6000,"state":"live"}
 {"case":"liveness","silenceMs":6001,"state":"stale"}
 {"case":"liveness","silenceMs":12000,"state":"stale"}
@@ -1748,6 +1777,8 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 {"case":"outcome","answer":{"http":200,"body":{"ok":true}},"outcome":"accepted"}
 {"case":"outcome","answer":{"http":502},"outcome":"unconfirmed"}
 {"case":"outcome","answer":{"ws":{"type":"receipt","id":"p1-0a1b2c3d","ok":true,"stage":"applied","repeat":true}},"outcome":"applied"}
+{"case":"outcome","answer":{"line":"OK @s1-11aa22bb {\"ok\":true,\"stage\":\"applied\",\"effect\":\"cut\",\"repeat\":true}"},"outcome":"applied","words":"cut \u2014 answered from its record \u2014 not run again"}
+{"case":"outcome","answer":{"line":"OK @s1-11aa22bb {\"ok\":false,\"error\":\"standby moved\",\"repeat\":true}"},"outcome":"refused","words":"standby moved \u2014 answered from its record \u2014 not run again"}
 {"case":"outcome","answer":{"written":true,"silenceMs":30001},"outcome":"unconfirmed"}
 {"case":"outcome","answer":{"written":false,"link":"down"},"outcome":"not-sent"}
 {"case":"machine","name":"silence","config":{"carrier":"line"},"events":[[0,"verified"]],"expect":[[6000,{"state":"live"}],[6001,{"state":"stale","light":"amber"}],[12000,{"state":"stale"}],[12001,{"state":"down"}]]}
@@ -1766,8 +1797,10 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 {"case":"machine","name":"33rd command","config":{"carrier":"line"},"events":[[0,"verified"],[1,"send",{"count":33}]],"expect":[[1,{"inFlight":32,"outcome":{"33":"not-sent"}}]]}
 {"case":"machine","name":"drop after write, same acceptor","config":{"carrier":"line","can":["receipts"]},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"a41f09c2"}],[810,"receipts",{"s1-11aa22bb":{"ok":true,"stage":"applied"}}]],"expect":[[200,{"outcome":{"s1-11aa22bb":"unconfirmed"}}],[810,{"outcome":{"s1-11aa22bb":"applied"}}]]}
 {"case":"machine","name":"drop after write, acceptor restarted","config":{"carrier":"line","can":["receipts"]},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"b7c3d9e1"}],[810,"receipts",{"s1-11aa22bb":"unknown"}]],"expect":[[810,{"outcome":{"s1-11aa22bb":"unconfirmed"},"sent":["RECEIPTS"]}]]}
+{"case":"machine","name":"drop after write, still running","config":{"carrier":"line","can":["receipts"]},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"a41f09c2"}],[810,"receipts",{"s1-11aa22bb":{"ok":true,"stage":"accepted","effect":""}}]],"expect":[[810,{"outcome":{"s1-11aa22bb":"unconfirmed"},"sent":["RECEIPTS"]}]]}
 {"case":"machine","name":"drop after write, no receipts feature","config":{"carrier":"line"},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"a41f09c2"}]],"expect":[[800,{"outcome":{"s1-11aa22bb":"unconfirmed"},"sent":[]}]]}
 {"case":"machine","name":"repeated id at the acceptor","role":"acceptor","config":{"carrier":"line","can":["receipts"]},"events":[[0,"verified"],[10,"command",{"id":"s1-11aa22bb"}],[20,"command",{"id":"s1-11aa22bb"}]],"expect":[[20,{"runs":1,"answer":{"repeat":true}}]]}
+{"case":"machine","name":"an id that still runs","role":"acceptor","config":{"carrier":"line","can":["receipts"]},"events":[[0,"verified"],[10,"running",{"id":"s1-11aa22bb"}],[20,"command",{"id":"s1-11aa22bb"}],[30,"ask",{"ids":["s1-11aa22bb","s2-11aa22bb"]}]],"expect":[[20,{"runs":1,"answer":{"stage":"accepted","repeat":true}}],[30,{"runs":1,"answer":{"receipts":{"s1-11aa22bb":{"ok":true,"stage":"accepted","effect":""},"s2-11aa22bb":"unknown"}}}]]}
 {"case":"machine","name":"unmatched pong","config":{"carrier":"line"},"events":[[0,"verified"],[0,"ping",{"t1":1000}],[50,"pong",{"t1":999,"t2":1505,"t3":1506}]],"expect":[[50,{"state":"live","samples":0,"counts":{"unmatched":1}}]]}
 {"case":"machine","name":"stuck show refuses commands","config":{"carrier":"ws"},"events":[[0,"verified"],[1000,"frame"],[2000,"beat-stuck"],[2100,"send",{"count":1}]],"expect":[[2100,{"outcome":{"1":"not-sent"}}]]}
 {"case":"machine","name":"a first pin carries no key","config":{"carrier":"ws","key":"e63c317763b14546"},"events":[[0,"answer",{"cert":"8e8bc45bb14f9c7413604ef78eb1c42b465437cf700ae04a8f9553ffb0286edc","first":"frame"}],[100,"closed"],[700,"answer",{"cert":"8e8bc45bb14f9c7413604ef78eb1c42b465437cf700ae04a8f9553ffb0286edc","first":"frame"}]],"expect":[[0,{"tls":"first","flags":["first","keyless","legacy"],"credentials":[]}],[700,{"tls":"first","flags":["first","keyless","legacy"],"credentials":[]}]]}

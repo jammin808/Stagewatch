@@ -5,27 +5,35 @@ using System.Text.RegularExpressions;
 using Stagewatch.Core;
 
 /// <summary>
-/// The PeerLink kit's scenarios S1–S7 (Show Bus 13.20): the scripted peer, tools/showbus/peerlink-peer.mjs, on one end of a real
-/// socket and Stagewatch's core on the other, the core on injected time.
+/// The PeerLink kit's scenarios S1–S22 (Show Bus 13.20): the scripted peer, tools/showbus/peerlink-peer.mjs, on one end of a real
+/// socket and Stagewatch's core on the other, the core on injected time. S1–S7 are here; S8–S22, the peer as an attacker as well as
+/// honest, are in PeerLinkScenarios.Attacks.cs.
 /// <para>
-/// The core connecting is the connector 13.20 holds to S1, S2 and S4–S7: <see cref="PeerLinkConnector"/> decides and
-/// <see cref="CoreConnector"/> carries, on every carrier the connector keeps — <c>line</c> over TCP and TLS, <c>line</c> over
-/// <c>playmap.lines.v1</c> (PlayoutLink's to PlayMap), and <c>ws</c> with its side calls. Each scenario runs on each of them.
+/// The core connecting is the connector 13.20 holds to S1, S2, S4–S7, S11–S14, S17–S19 and S22: <see cref="PeerLinkConnector"/> decides
+/// and <see cref="CoreConnector"/> carries, on every carrier the connector keeps — <c>line</c> over TCP and TLS, <c>line</c> over
+/// <c>playmap.lines.v1</c> (PlayoutLink's to PlayMap), and <c>ws</c> with its side calls. Each scenario runs on each of them. S21's
+/// connector half is the core's crypto (enrolment's K and kid, and proving with the enrolled key): the connector that keeps an enrolled
+/// key is PlayoutLink's (SW23.1).
 /// </para>
 /// <para>
-/// The acceptor's half of S1–S3 is not Stagewatch's yet: its /ws acceptor speaks LINK with SW22.1a, which takes those rows over. Until
-/// then <see cref="CoreAcceptor"/>, the kit's stand-in, answers the peer's connector with the core's parsers, proofs and session check,
-/// so what those checks hold is the peer's connector end against the core's crypto — not an acceptor's decisions, which are the
-/// stand-in's own. It runs no command and answers no ping: S1's command and pong at an acceptor are SW22.1a's.
+/// The acceptor's rows (S1–S3, S8–S10, S12's emitting, S14–S18, S20) are not Stagewatch's yet: its /ws acceptor speaks LINK with
+/// SW22.1a–c, which take them over. Until then <see cref="CoreAcceptor"/>, the kit's stand-in, answers the peer's connector with the
+/// core's parsers, proofs, session check and receipt store, so what those checks hold is the peer's connector end — honest, or an
+/// attacker's — against the core's crypto, CheckSession and PeerReceipts; an acceptor's own decisions are the stand-in's. What has no
+/// part in the core yet — an acceptor's wrong-proof table, its unpaired bound, its reply bound, its Host and Origin checks, its stuck
+/// beat — is checked here as the peer's attack on the wire, and named with the unit that brings it. So S16 and S20, S15's slow reader
+/// and S12's emitting half run no Stagewatch code yet (<see cref="PeerOnly"/>; the master's header says so beside
+/// <see cref="OnCore"/>). Stagewatch offers no enrolment and runs no forwarder, so S21's acceptor half and S20's forwarder are not its
+/// rows.
 /// </para>
 /// <para>
-/// The peer's honest ends are what these run: S8–S22, with the peer as an attacker, are the kit's second half (SW19.2c), and the carriers
-/// of Stagewatch's own links take these scenarios over as they land on the core (PlayoutLink: SW20.4a/b, SW23.1). The peer's own rules
-/// are held too: no arguments, keys and certificates only from owner-only files, an unknown command, field or shape refused, its framing
-/// in step past an oversize line or message, an open node's answers, and no key, code or K on its stdout.
+/// The carriers of Stagewatch's own links take these scenarios over as they land on the core (PlayoutLink: SW20.4a/b, SW23.1). The
+/// peer's own rules are held too: no arguments, keys and certificates only from owner-only files, an unknown command, field, attack or
+/// shape refused, its framing in step past an oversize line or message, an open node's answers, and no key, code, K or S of its own on
+/// its stdout.
 /// </para>
 /// </summary>
-static class PeerLinkScenarios
+static partial class PeerLinkScenarios
 {
     /// <summary>The injected clock's start, in ms: one clock for the monotonic and the wall time, as 13.20's machine rows have it.</summary>
     const long T0 = 1_000_000_000;
@@ -73,8 +81,60 @@ static class PeerLinkScenarios
 
     static object CodeOf(Material kit, string code) => new { file = kit.File(code), kind = "code" };
 
-    /// <summary>The scenarios this group runs; the master's header names them as what this tree runs, and the rest as still to come.</summary>
-    static readonly string[] Ran = ["S1", "S2", "S3", "S4", "S5", "S6", "S7"];
+    /// <summary>
+    /// The scenarios this group runs against Stagewatch's PeerLink core — its connector, or the core behind the kit's stand-in. The
+    /// master's header names them as what this tree runs against its core.
+    /// </summary>
+    static readonly int[] OnCore = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 21, 22];
+
+    /// <summary>
+    /// The scenarios that run no Stagewatch code yet, only the peer's attack on the wire, until Stagewatch's /ws acceptor speaks LINK
+    /// (SW22.1a–c). The master's header names them so, with S15's slow reader and S12's emitting half, which are halves of rows above.
+    /// </summary>
+    static readonly int[] PeerOnly = [16, 20];
+
+    /// <summary>Every connector the scenarios made, for S19's capture of what the core published.</summary>
+    static readonly List<CoreConnector> Every = [];
+
+    /// <summary>Every scripted peer the scenarios started, for S19's look at each one's stdout.</summary>
+    static readonly List<ScriptedPeer> Peers = [];
+
+    /// <summary>Every stand-in the scenarios started, for the session credentials it made (S19).</summary>
+    static readonly List<CoreAcceptor> Stands = [];
+
+    /// <summary>A scripted peer on <paramref name="script"/>, kept for S19.</summary>
+    static ScriptedPeer Peer(string script)
+    {
+        var peer = ScriptedPeer.Start(script);
+        Peers.Add(peer);
+        return peer;
+    }
+
+    /// <summary>The kit's stand-in acceptor (<see cref="CoreAcceptor"/>), kept for S19.</summary>
+    static CoreAcceptor Stand(PeerCarrier carrier, KitCert? cert, IEnumerable<(byte[] K, string Kid, string Kind)> keys, System.Net.IPAddress? on = null)
+    {
+        var stand = new CoreAcceptor(carrier, cert, keys, on);
+        Stands.Add(stand);
+        return stand;
+    }
+
+    /// <summary>
+    /// Scenario numbers as the master writes them: a run of three or more as <c>Sa–Sb</c>, the rest one by one, joined by commas and
+    /// <c>and</c> before the last.
+    /// </summary>
+    static string Ranges(IReadOnlyList<int> n)
+    {
+        var parts = new List<string>();
+        for (var i = 0; i < n.Count;)
+        {
+            var j = i;
+            while (j + 1 < n.Count && n[j + 1] == n[j] + 1) j++;
+            if (j - i >= 2) parts.Add("S" + n[i].ToString(CultureInfo.InvariantCulture) + "–S" + n[j].ToString(CultureInfo.InvariantCulture));
+            else for (var k = i; k <= j; k++) parts.Add("S" + n[k].ToString(CultureInfo.InvariantCulture));
+            i = j + 1;
+        }
+        return parts.Count == 1 ? parts[0] : string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1];
+    }
 
     public static async Task Run(Action<bool, string> Check)
     {
@@ -92,12 +152,28 @@ static class PeerLinkScenarios
         await S5(Check, script, kit);
         await S6(Check, script, kit);
         await S7(Check, script, kit);
+        await S8(Check, script, kit);
+        await S9(Check, script, kit);
+        await S10(Check, script, kit);
+        await S11(Check, script, kit);
+        await S12(Check, script, kit);
+        await S13(Check, script, kit);
+        await S14(Check, script, kit);
+        await S15(Check, script, kit);
+        await S16(Check, script);
+        await S17(Check, script, kit);
+        await S18(Check, script, kit);
+        await S20(Check, script, kit);
+        await S21(Check, script, kit);
+        await S22(Check, script, kit);
+        await S19(Check, script, kit);
     }
 
     /// <summary>
     /// The master and the peer agree: 13.20 names S1–S22 in order, and the commands it names are the peer's; the header names the
-    /// scenarios this group runs, and those still to come; the peer is ASCII with LF line ends, so its bytes are one in every tree
-    /// (.gitattributes keeps them LF in any checkout).
+    /// scenarios this group runs against the core and those that check only the peer's attack; the peer is ASCII with LF line ends, so
+    /// its bytes are one in every tree (.gitattributes keeps them LF in any checkout); every §14 number the peer keeps is its row's;
+    /// and §14's <c>peerlink.peer.sha256</c> reads <c>pending</c> while 1.3 is a draft, or the peer's SHA-256.
     /// </summary>
     static void Words(Action<bool, string> Check, string script)
     {
@@ -114,15 +190,69 @@ static class PeerLinkScenarios
         Check(named.Count > 0 && named.SequenceEqual(commands) && commands.All(c => source.Contains("//   " + c + " ", StringComparison.Ordinal)),
             $"peerlink scenarios: the commands 13.20 names are the peer's, each documented at the head of its file ({string.Join(", ", named)} / {string.Join(", ", commands)})");
         var header = text[..text.IndexOf("\n## 1. ", StringComparison.Ordinal)].Replace("\n", " ", StringComparison.Ordinal);
-        var runs = Ran[0] + "–" + Ran[^1];
-        var after = "S" + (Ran.Length + 1).ToString(CultureInfo.InvariantCulture) + "–S22";
-        Check(header.Contains("this tree runs " + runs + " with it", StringComparison.Ordinal) && header.Contains(after + " come with", StringComparison.Ordinal),
-            $"peerlink scenarios: the master's header says this tree runs {runs} with the scripted peer, and {after} are still to come");
+        var onCore = Ranges(OnCore);
+        var peerOnly = Ranges(PeerOnly);
+        Check(OnCore.Concat(PeerOnly).Order().SequenceEqual(Enumerable.Range(1, 22)) && OnCore.Intersect(PeerOnly).Any() == false,
+            "peerlink scenarios: each of S1–S22 runs against the core or checks only the peer's attack, never both");
+        Check(header.Contains("this tree runs " + onCore + " with it against its PeerLink core", StringComparison.Ordinal)
+              && header.Contains(peerOnly + " run only the peer's attack", StringComparison.Ordinal)
+              && !header.Contains(" come with the rest of the conformance kit", StringComparison.Ordinal),
+            $"peerlink scenarios: the master's header says this tree runs {onCore} with the scripted peer against its core, and that {peerOnly} run only the peer's attack");
+        PeerNumbers(Check, text, script);
+        var hash = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(script)));
+        var pinned = Regex.Match(text, @"^peerlink\.peer\.sha256 (\S+)$", RegexOptions.Multiline).Groups[1].Value;
+        var draft = text.Split('\n')[0].Contains("(draft)", StringComparison.Ordinal);
+        Check(pinned == hash || (draft && pinned == "pending"),
+            $"peerlink scenarios: §14's peerlink.peer.sha256 is the scripted peer's SHA-256, or pending while 1.3 is a draft (it reads {pinned}; the peer hashes to {hash} — SW19.12 pins it)");
         Check(bytes.All(b => b < 0x80) && !bytes.Contains((byte)'\r') && bytes[^1] == (byte)'\n',
             "peerlink scenarios: the scripted peer is ASCII — any other character a \\u escape, so no editor drops or changes an invisible one — with LF line ends and one final LF");
         var attributes = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(script)!)!)!, ".gitattributes");
         Check(File.Exists(attributes) && File.ReadAllLines(attributes).Contains("tools/showbus/*.mjs text eol=lf"),
             "peerlink scenarios: .gitattributes keeps the scripted peer's line ends LF in every checkout");
+    }
+
+    /// <summary>The peer's numbers it keeps for itself, none of them §14's: an expect's wait (13.20's 2 s), an HTTP head, the events kept.</summary>
+    static readonly string[] PeerOwn = ["WAIT_MAX_MS", "HEAD_MAX", "LOG_MAX"];
+
+    /// <summary>
+    /// The scripted peer's numbers are §14's: each <c>const NAME = value;</c> that names a row (<c>// 14: &lt;name&gt;</c>) holds that
+    /// row's value — the features §14's <c>peerlink.feature</c> rows, in order — and every other whole-number constant is one of
+    /// <see cref="PeerOwn"/>. The kit's carriers read §14's <c>link.read.min.bytes</c> whole.
+    /// </summary>
+    static void PeerNumbers(Action<bool, string> Check, string text, string script)
+    {
+        const string Fence = "\n```showbus\n";
+        var at = text.IndexOf(Fence, StringComparison.Ordinal);
+        var block = at < 0 ? "" : text[(at + Fence.Length)..];
+        block = block[..Math.Max(0, block.IndexOf("\n```", StringComparison.Ordinal))];
+        var rows = new Dictionary<string, string>(StringComparer.Ordinal);
+        var features = new List<string>();
+        foreach (var w in block.Split('\n').Select(l => l.Split(' ')).Where(w => w.Length == 2))
+        {
+            if (w[0] == "peerlink.feature") features.Add(w[1]);
+            else rows.TryAdd(w[0], w[1]);
+        }
+        var peer = File.ReadAllText(script, new UTF8Encoding(false));
+        var wrong = new List<string>();
+        var named = new List<string>();
+        foreach (Match m in Regex.Matches(peer, @"^const ([A-Z][A-Z0-9_]*) = (.+?);(?: // 14: ([a-z0-9.]+))?$", RegexOptions.Multiline))
+        {
+            var (name, value) = (m.Groups[1].Value, m.Groups[2].Value);
+            if (!m.Groups[3].Success)
+            {
+                if (Regex.IsMatch(value, "^[0-9]+$") && !PeerOwn.Contains(name)) wrong.Add(name + " names no §14 row");
+                continue;
+            }
+            var row = m.Groups[3].Value;
+            named.Add(row);
+            var want = row == "peerlink.feature" ? "[" + string.Join(", ", features.Select(f => "'" + f + "'")) + "]"
+                : rows.TryGetValue(row, out var v) ? Regex.IsMatch(v, "^[0-9]+$") ? v : "'" + v + "'" : null;
+            if (value != want) wrong.Add($"{name} = {value}, §14's {row} {want ?? "is no row"}");
+        }
+        Check(wrong.Count == 0 && named.Count >= 17 && named.Distinct(StringComparer.Ordinal).Count() == named.Count && features.Count > 0,
+            $"peerlink scenarios: every §14 number the scripted peer keeps names its row and holds its value, and its other numbers are its own ({named.Count} named; {string.Join("; ", wrong)})");
+        Check(rows.TryGetValue("link.read.min.bytes", out var read) && KitIo.ReadMax.ToString(CultureInfo.InvariantCulture) == read,
+            $"peerlink scenarios: the kit's carriers read §14's link.read.min.bytes whole ({KitIo.ReadMax} / {read})");
     }
 
     /// <summary>Node 22 or later answers on PATH: the peer runs on it.</summary>
@@ -218,16 +348,28 @@ static class PeerLinkScenarios
 
     /// <summary>Stagewatch's core dialling as a connector to Hall A, holding <paramref name="secret"/> (a key, or a code).</summary>
     static CoreConnector Connector(PeerCarrier carrier, string secret, bool code, string kind, string id, int port, PeerKept? kept = null,
-        bool local = false, bool linesOverWs = false)
+        bool local = false, bool linesOverWs = false, Func<double>? jitter = null, long? timed = null)
     {
         var k = code ? PeerLink.CodeK(PeerLink.Canon(secret)!) : PeerLink.KeyK(secret);
-        var kid = code ? "code" : PeerLink.Kid(k);
+        return ConnectorWith(carrier, k, code ? "code" : PeerLink.Kid(k), code ? secret : null, kind, id, port, kept, local, linesOverWs, jitter, timed);
+    }
+
+    /// <summary>
+    /// Stagewatch's core dialling as a connector to Hall A, proving with <paramref name="k"/> under <paramref name="kid"/> (an enrolled
+    /// key's, say); <paramref name="code"/> is the code it answers a level-0 NONCE with, if any. Its j is 0.5 unless
+    /// <paramref name="jitter"/> gives others; <paramref name="timed"/> is the tolerance of the timed commands it schedules.
+    /// </summary>
+    static CoreConnector ConnectorWith(PeerCarrier carrier, byte[] k, string kid, string? code, string kind, string id, int port, PeerKept? kept = null,
+        bool local = false, bool linesOverWs = false, Func<double>? jitter = null, long? timed = null)
+    {
         var settings = new PeerLinkSettings
         {
             Carrier = carrier, Key = kid, Name = "Hall A", Kind = kind, NodeId = id, Address = "127.0.0.1:" + port.ToString(CultureInfo.InvariantCulture),
-            Local = local, ShowNeeds = true, Inst = "11aa22bb",
+            Local = local, ShowNeeds = true, Inst = "11aa22bb", TimedToleranceMs = timed,
         };
-        return new CoreConnector(new PeerLinkConnector(settings, kept, T0, () => 0.5), carrier, k, kid, code ? secret : null, linesOverWs) { Port = port };
+        var c = new CoreConnector(new PeerLinkConnector(settings, kept, T0, jitter ?? (() => 0.5)), carrier, k, kid, code, linesOverWs) { Port = port };
+        Every.Add(c);
+        return c;
     }
 
     static string Kid(string key) => PeerLink.Kid(PeerLink.KeyK(key));
@@ -277,7 +419,7 @@ static class PeerLinkScenarios
             Check(withArgs.ExitCode == 2 && stderr.Contains("takes no arguments", StringComparison.Ordinal),
                 $"peerlink scenarios: the peer takes no arguments, so no key rides argv (exit {withArgs.ExitCode}: {stderr.Trim()})");
         }
-        await using var peer = ScriptedPeer.Start(script);
+        await using var peer = Peer(script);
         var ready = await peer.Wait(e => Ev(e, "ready"));
         Check(ready is { } r && Int(r, "peerlink") == PeerLink.Version, "peerlink scenarios: the peer says it is ready, speaking PeerLink " + PeerLink.Version);
         var open = kit.Files.Write("open.secret", Swk, open: true);
@@ -308,14 +450,73 @@ static class PeerLinkScenarios
         var legacyYes = await peer.Ask(new { @do = "dial", carrier = "line", port = 1, tls = false, node = Main, legacy = "yes" });
         Check(Ev(legacyYes, "error") && Says(legacyYes, "dial: legacy is true or false"),
             $"peerlink scenarios: the peer refuses a legacy that is not a boolean, and dials nothing ({legacyYes.GetRawText()})");
-        var feature = await peer.Ask(new { @do = "listen", end = "f", carrier = "line", tls = "plain", node = Main, can = new[] { "final" } });
-        Check(Ev(feature, "error") && Says(feature, "listen: can final comes with the kit's second half"),
-            "peerlink scenarios: the peer's acceptor lists no feature it does not keep (13.6.6) — final, receipts, stuck, expire and enrol come with the kit's second half");
+        // A verdict names stuckMs with stuck and expireMs with expire, each within its §14 bounds; a feature is named once; a level-0
+        // acceptor gives no verdict, so it lists none (13.6.6).
+        var noStuckMs = await peer.Ask(new { @do = "listen", end = "f1", carrier = "line", tls = "plain", node = Main, can = new[] { "stuck" } });
+        var stuckLong = await peer.Ask(new { @do = "listen", end = "f2", carrier = "line", tls = "plain", node = Main, can = new[] { "stuck" }, stuckMs = 10_001 });
+        var expireAlone = await peer.Ask(new { @do = "listen", end = "f3", carrier = "line", tls = "plain", node = Main, expireMs = 2000 });
+        var twice = await peer.Ask(new { @do = "listen", end = "f4", carrier = "line", tls = "plain", node = Main, can = new[] { "final", "final" } });
+        var levelZero = await peer.Ask(new { @do = "listen", end = "f5", carrier = "line", tls = "plain", node = Main, level = 0, can = new[] { "receipts" } });
+        Check(Says(noStuckMs, "listen: stuckMs") && Says(stuckLong, "listen: stuckMs") && Says(expireAlone, "listen: expireMs") && Says(twice, "listen: can lists")
+              && Says(levelZero, "listen: an acceptor that does not speak LINK"),
+            "peerlink scenarios: the peer's acceptor names stuckMs with stuck and expireMs with expire, within §14's bounds, each feature once, and none at level 0 (13.6.6)");
+        // An attack is a closed set of modes, each of one shape: anything else is refused, never defaulted.
+        var noMode = await peer.Ask(new { @do = "dial", carrier = "line", port = 1, tls = false, node = Main, attack = new { everything = true } });
+        var badShape = await peer.Ask(new { @do = "dial", carrier = "line", port = 1, tls = false, node = Main, attack = new { reads = true } });
+        var noKey = await peer.Ask(new { @do = "dial", carrier = "line", port = 1, tls = false, node = Main, attack = new { role = true } });
+        var badVerdict = await peer.Ask(new { @do = "listen", end = "f6", carrier = "line", tls = "plain", node = Main, attack = new { verdict = "forge" } });
+        Check(Says(noMode, "dial: attack has no mode everything") && Says(badShape, "dial: attack reads does not take true") && Says(noKey, "dial: an attack on LINK names the key file")
+              && Says(badVerdict, "listen: attack verdict does not take"),
+            $"peerlink scenarios: the peer refuses an attack mode it does not have, a mode's value of another shape, and an attack on LINK with no key ({noMode.GetRawText()})");
+        var plainEnd = await peer.Ask(new { @do = "listen", end = "g", carrier = "line", tls = "plain", node = Main });
+        var badSet = await peer.Ask(new { @do = "set", end = "g", clock = 5, answer = "maybe" });
+        var finalWithout = await peer.Ask(new { @do = "set", end = "g", final = "applied" });
+        var revokeNone = await peer.Ask(new { @do = "set", end = "g", revoke = "0123456789abcdef" });
+        Check(Ev(plainEnd, "listening") && Says(badSet, "set: answer is") && Says(finalWithout, "set: final is applied or refused, on an end whose verdict lists final")
+              && Says(revokeNone, "set: revoke names the kid of a key this end holds"),
+            "peerlink scenarios: the peer's set checks every field before it applies any, sends no final its verdict does not list, and revokes only a key it holds");
 
         await Framing(Check, script);
         await OpenNode(Check, script, kit);
         await LocalByAddress(Check, script, kit);
+        await ReplayControl(Check, script, kit);
     }
+
+    /// <summary>
+    /// S8's control: the peer's replay is a true one. Against the peer's own acceptor offering one snonce on every connection — the
+    /// flaw S8 is there to find — a LINK replayed as it was sent, byte for byte, links: so where S8's replay is refused, it is the
+    /// acceptor's fresh snonce that refuses it. A replay names a connection of this peer's that sent its LINK, from its node.
+    /// </summary>
+    static async Task ReplayControl(Action<bool, string> Check, string script, Material kit)
+    {
+        foreach (var leg in new[] { Line, Ws })
+        {
+            var name = "S8's control, " + leg.Label;
+            await using var peer = Peer(script);
+            var port = await Listen(Check, peer, name, With(ListenAs(leg, kit.A, [Key(kit, leg.Secret)]), new { attack = new { snonce = "00112233445566778899aabbccddeeff" } }));
+            var client = leg.Carrier == PeerCarrier.Line ? Main : Patterns;
+            var first = await peer.Ask(new { @do = "dial", carrier = leg.Wire, port, tls = true, node = client, key = Key(kit, leg.Secret), meant = leg.Node });
+            var conn1 = Int(first, "conn") ?? -1;
+            var honest = await peer.Wait(e => Ev(e, "link") && Str(e, "role") == "connector" && Int(e, "conn") == conn1);
+            var again = await peer.Ask(new { @do = "dial", carrier = leg.Wire, port, tls = true, node = client, key = Key(kit, leg.Secret), meant = leg.Node, attack = new { replay = conn1 } });
+            var conn2 = Int(again, "conn") ?? -1;
+            var replayed = await peer.Wait(e => Ev(e, "link") && Str(e, "role") == "connector" && Int(e, "conn") == conn2);
+            Check(honest is { } h && replayed is { } r && Str(r, "lid") == Str(h, "lid") && LinkSent(peer, conn2).SequenceEqual(LinkSent(peer, conn1))
+                  && peer.Events.Count(e => Ev(e, "link") && Str(e, "role") == "acceptor") == 2,
+                $"peerlink scenarios: {name} — at an acceptor that offers its snonce again, a LINK replayed byte for byte links, one lid at both: the replay S8 sends is a true one ({string.Join(" | ", LinkSent(peer, conn2))}) {peer.Faults}");
+            var none = await peer.Ask(new { @do = "dial", carrier = leg.Wire, port, tls = true, node = client, key = Key(kit, leg.Secret), attack = new { replay = 999 } });
+            var other = await peer.Ask(new { @do = "dial", carrier = leg.Wire, port, tls = true, node = new { t = "main", id = "0f0f0f0f0f0f" }, key = Key(kit, leg.Secret), attack = new { replay = conn1 } });
+            Check(Says(none, "dial: replay names a connection this peer dialled that sent its LINK") && Says(other, "dial: a replayed LINK goes as it was sent"),
+                $"peerlink scenarios: {name} — a replay names a connection of the peer's that sent its LINK, and goes from its node ({none.GetRawText()}; {other.GetRawText()})");
+        }
+    }
+
+    /// <summary>One of this machine's IPv4 addresses that is not loopback: a socket to it is not local by 13.1's rule; null when it has none.</summary>
+    static System.Net.IPAddress? Lan()
+        => System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
+            .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(u => u.Address)
+            .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a));
 
     /// <summary>
     /// 13.1 and 13.3.2: whether a keyed <c>ws</c> dial without TLS is local is the socket's remote address, never a name. Dialled at one
@@ -323,14 +524,11 @@ static class PeerLinkScenarios
     /// </summary>
     static async Task LocalByAddress(Action<bool, string> Check, string script, Material kit)
     {
-        var lan = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-            .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
-            .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(u => u.Address)
-            .FirstOrDefault(a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !System.Net.IPAddress.IsLoopback(a));
+        var lan = Lan();
         Check(lan is not null, "peerlink scenarios: this machine has a LAN address that is not loopback, to dial the peer's locality rule at");
         if (lan is null) return;
         await using var server = new RawServer((_, _) => Task.CompletedTask, lan);
-        await using var peer = ScriptedPeer.Start(script);
+        await using var peer = Peer(script);
         var dial = await peer.Ask(new { @do = "dial", carrier = "ws", host = lan.ToString(), port = server.Port, tls = false, node = Main, key = Key(kit, Swk) });
         var conn = Int(dial, "conn") ?? -1;
         var refused = await peer.Wait(e => Ev(e, "refused") && Int(e, "conn") == conn);
@@ -348,7 +546,7 @@ static class PeerLinkScenarios
     static async Task Framing(Action<bool, string> Check, string script)
     {
         {
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, "framing, acceptor", new { @do = "listen", end = "a", carrier = "line", tls = "plain", node = Patterns });
             var heard = new List<string>();
             using (var tcp = await Kit.Connect(port))
@@ -375,7 +573,7 @@ static class PeerLinkScenarios
         {
             await using var server = new RawServer(async (stream, ct) =>
                 await stream.WriteAsync(Encoding.ASCII.GetBytes(new string('B', 270_000) + "TAIL\nSTATE {\"rev\":2}\n"), ct));
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var dial = await peer.Ask(new { @do = "dial", carrier = "line", port = server.Port, tls = false, node = Main });
             var conn = Int(dial, "conn") ?? -1;
             var next = await peer.Wait(x => Ev(x, "read") && Int(x, "conn") == conn && Str(x, "line") == "STATE {\"rev\":2}");
@@ -395,7 +593,7 @@ static class PeerLinkScenarios
                 await stream.WriteAsync(payload.AsMemory(1000), ct);
                 await stream.WriteAsync(RawServer.TextFrame("{\"type\":\"state\",\"seq\":7}"u8), ct);
             });
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var dial = await peer.Ask(new { @do = "dial", carrier = "ws", port = server.Port, tls = false, node = Main });
             var conn = Int(dial, "conn") ?? -1;
             var next = await peer.Wait(x => Ev(x, "read") && Int(x, "conn") == conn);
@@ -411,7 +609,7 @@ static class PeerLinkScenarios
     /// </summary>
     static async Task OpenNode(Action<bool, string> Check, string script, Material kit)
     {
-        await using var peer = ScriptedPeer.Start(script);
+        await using var peer = Peer(script);
         var port = await Listen(Check, peer, "an open node", new { @do = "listen", end = "a", carrier = "line", tls = "plain", node = Patterns });
         await using var c = Connector(PeerCarrier.Line, CodeTyped, true, "patterns", PatternsId, port, local: true);
         await c.Dial(T0);
@@ -434,7 +632,7 @@ static class PeerLinkScenarios
     {
         // line over TLS: the core dials Hall A as Patterns, holding the key Patterns issued it.
         {
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, "S1 line TLS", new
             {
                 @do = "listen", end = "a", carrier = "line", tls = "sniff", cert = kit.A.CertFile, certKey = kit.A.KeyFile, node = Patterns,
@@ -461,7 +659,7 @@ static class PeerLinkScenarios
 
         // line, plain on this machine, a code typed with spaces: the core tries TLS, finds none on offer, and proves on plain.
         {
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, "S1 line plain", new
             {
                 @do = "listen", end = "a", carrier = "line", tls = "plain", node = Patterns, keys = new[] { CodeOf(kit, Code) }, clock = T0 + 25,
@@ -483,7 +681,7 @@ static class PeerLinkScenarios
 
         // line over playmap.lines.v1, TLS only: the core dials Hall A as PlayMap.
         {
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, "S1 playmap.lines.v1", new
             {
                 @do = "listen", end = "a", carrier = "line", transport = "ws", tls = "only", cert = kit.A.CertFile, certKey = kit.A.KeyFile, node = PlayMap,
@@ -504,7 +702,7 @@ static class PeerLinkScenarios
 
         // ws: the core dials Hall A as a Stagewatch's node door, then makes a side call with S.
         {
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, "S1 ws", new
             {
                 @do = "listen", end = "a", carrier = "ws", tls = "sniff", cert = kit.A.CertFile, certKey = kit.A.KeyFile, node = Main, keys = new[] { Key(kit, Swk) },
@@ -534,8 +732,8 @@ static class PeerLinkScenarios
         // ws, the peer connecting: its connector end against the core's parsers, proofs and session check, behind the kit's stand-in
         // acceptor. The acceptor's own half of S1 (a command run and answered, a ping answered with a pong) is the /ws acceptor's: SW22.1a.
         {
-            await using var acceptor = new CoreAcceptor(PeerCarrier.Ws, kit.B, [(PeerLink.KeyK(Swk), Kid(Swk), "key")]);
-            await using var peer = ScriptedPeer.Start(script);
+            await using var acceptor = Stand(PeerCarrier.Ws, kit.B, [(PeerLink.KeyK(Swk), Kid(Swk), "key")]);
+            await using var peer = Peer(script);
             var dial = await peer.Ask(new { @do = "dial", carrier = "ws", port = acceptor.Port, tls = true, node = Patterns, key = Key(kit, Swk), meant = Main });
             var conn = Int(dial, "conn") ?? -1;
             var link = await peer.Wait(e => Ev(e, "link") && Str(e, "role") == "connector");
@@ -550,8 +748,8 @@ static class PeerLinkScenarios
         // line, the peer connecting over TLS with a code: its connector end against the core's line parser and proofs (a line acceptor
         // is no role of Stagewatch's; the stand-in is the kit's).
         {
-            await using var acceptor = new CoreAcceptor(PeerCarrier.Line, kit.B, [(PeerLink.CodeK(PeerLink.Canon(Code)!), "code", "code")]);
-            await using var peer = ScriptedPeer.Start(script);
+            await using var acceptor = Stand(PeerCarrier.Line, kit.B, [(PeerLink.CodeK(PeerLink.Canon(Code)!), "code", "code")]);
+            await using var peer = Peer(script);
             await peer.Ask(new { @do = "dial", carrier = "line", port = acceptor.Port, tls = true, node = Patterns, key = CodeOf(kit, CodeTyped), meant = Main });
             var link = await peer.Wait(e => Ev(e, "link") && Str(e, "role") == "connector");
             Check(link is { } l && acceptor.Entries.Contains("link " + Str(l, "lid")) && Str(l, "verified") == "code" && Str(l, "scope") == "operate",
@@ -572,7 +770,7 @@ static class PeerLinkScenarios
             foreach (var (s, secret, code) in new[] { ("S2", WrongCode, true), ("S3", Stranger, false) })
             {
                 var name = s + " " + leg.Label;
-                await using var peer = ScriptedPeer.Start(script);
+                await using var peer = Peer(script);
                 var port = await Listen(Check, peer, name, ListenAs(leg, kit.A, [CodeOf(kit, Code), Key(kit, leg.Secret)]));
                 await using var c = Connector(PeerCarrier.Line, secret, code, leg.Kind, leg.Id, ClosedPort(), linesOverWs: leg.OverWs);
                 await c.Dial(T0);
@@ -606,7 +804,7 @@ static class PeerLinkScenarios
         var wsVerdicts = new List<string>();
         foreach (var (s, secret, code) in new[] { ("S2", WrongCode, true), ("S3", Stranger, false) })
         {
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, s + " ws", new
             {
                 @do = "listen", end = "a", carrier = "ws", tls = "sniff", cert = kit.A.CertFile, certKey = kit.A.KeyFile, node = Main,
@@ -637,8 +835,8 @@ static class PeerLinkScenarios
         foreach (var (s, secret, code) in new[] { ("S2", WrongCode, true), ("S3", Stranger, false) })
         {
             object held = code ? CodeOf(kit, secret) : Key(kit, secret);
-            await using (var acceptor = new CoreAcceptor(PeerCarrier.Ws, kit.B, [(PeerLink.CodeK(PeerLink.Canon(Code)!), "code", "code"), (PeerLink.KeyK(Swk), Kid(Swk), "key")]))
-            await using (var peer = ScriptedPeer.Start(script))
+            await using (var acceptor = Stand(PeerCarrier.Ws, kit.B, [(PeerLink.CodeK(PeerLink.Canon(Code)!), "code", "code"), (PeerLink.KeyK(Swk), Kid(Swk), "key")]))
+            await using (var peer = Peer(script))
             {
                 var dial = await peer.Ask(new { @do = "dial", carrier = "ws", port = acceptor.Port, tls = true, node = Patterns, key = held, meant = Main });
                 var conn = Int(dial, "conn") ?? -1;
@@ -650,8 +848,8 @@ static class PeerLinkScenarios
                       && True(silent),
                     $"peerlink scenarios: {s} ws, the peer connecting — the core's proof check refuses it; the peer reads the class, words and retry as they came and keeps the socket as a public viewer ({string.Join("; ", acceptor.Entries)}) {peer.Faults}");
             }
-            await using (var acceptor = new CoreAcceptor(PeerCarrier.Line, kit.B, [(PeerLink.CodeK(PeerLink.Canon(Code)!), "code", "code")]))
-            await using (var peer = ScriptedPeer.Start(script))
+            await using (var acceptor = Stand(PeerCarrier.Line, kit.B, [(PeerLink.CodeK(PeerLink.Canon(Code)!), "code", "code")]))
+            await using (var peer = Peer(script))
             {
                 var dial = await peer.Ask(new { @do = "dial", carrier = "line", port = acceptor.Port, tls = true, node = Patterns, key = held, meant = Main });
                 var conn = Int(dial, "conn") ?? -1;
@@ -673,7 +871,7 @@ static class PeerLinkScenarios
         foreach (var rewrite in new[] { false, true })
         {
             var name = $"S4 {leg.Label}{(rewrite ? ", the offer rewritten" : "")}";
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, name, ListenAs(leg, kit.A, [Key(kit, leg.Secret)]));
             await using var relay = rewrite
                 ? new TlsRelay(kit.M, port, "tls:sha256:" + kit.A.Fp, "tls:sha256:" + kit.M.Fp)
@@ -710,7 +908,7 @@ static class PeerLinkScenarios
         foreach (var leg in Legs)
         {
             var name = "S5 " + leg.Label;
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, name, ListenAs(leg, kit.A, [Key(kit, leg.Secret)]));
             var kept = new PeerKept(new PeerPin(leg.Id, kit.A.Fp, PinTrust.Proof), new PeerFloor(true, 1, "mutual"), null, null, leg.Id, leg.Kind);
             await using var c = Connector(leg.Carrier, leg.Secret, false, leg.Kind, leg.Id, port, kept, linesOverWs: leg.OverWs);
@@ -737,7 +935,7 @@ static class PeerLinkScenarios
         foreach (var leg in Legs)
         {
             var name = "S6 " + leg.Label;
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, name, ListenAs(leg, kit.B, [Key(kit, leg.Secret)]));
             var kept = new PeerKept(new PeerPin(leg.Id, kit.A.Fp, PinTrust.Proof), new PeerFloor(true, 1, "mutual"), null, null, leg.Id, leg.Kind);
             await using var c = Connector(leg.Carrier, leg.Secret, false, leg.Kind, leg.Id, port, kept, linesOverWs: leg.OverWs);
@@ -772,7 +970,7 @@ static class PeerLinkScenarios
         foreach (var leg in new[] { Line, LinesV1 })
         {
             var name = "S7 " + leg.Label;
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, name, ListenAs(leg, kit.A, [CodeOf(kit, Code)], level: 0));
             var kept = new PeerKept(new PeerPin(leg.Id, kit.A.Fp, PinTrust.Proof), floor, null, null, leg.Id, leg.Kind);
             await using var c = Connector(PeerCarrier.Line, CodeTyped, true, leg.Kind, leg.Id, port, kept, linesOverWs: leg.OverWs);
@@ -793,7 +991,7 @@ static class PeerLinkScenarios
         foreach (var leg in new[] { Line, LinesV1 })
         {
             var name = "S7 " + leg.Label + ", no TLS";
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, name, ListenAs(leg, kit.A, [CodeOf(kit, Code)], level: 0, tls: "plain"));
             var kept = new PeerKept(new PeerPin(leg.Id, kit.A.Fp, PinTrust.Proof), floor, null, null, leg.Id, leg.Kind);
             await using var c = Connector(PeerCarrier.Line, CodeTyped, true, leg.Kind, leg.Id, port, kept, linesOverWs: leg.OverWs);
@@ -807,7 +1005,7 @@ static class PeerLinkScenarios
 
         // ws: a level-0 acceptor whose first message is a state frame, not link.
         {
-            await using var peer = ScriptedPeer.Start(script);
+            await using var peer = Peer(script);
             var port = await Listen(Check, peer, "S7 ws", ListenAs(Ws, kit.A, [Key(kit, Swk)], level: 0));
             var kept = new PeerKept(new PeerPin(MainId, kit.A.Fp, PinTrust.Proof), floor, null, null, MainId, "main");
             await using var c = Connector(PeerCarrier.Ws, Swk, false, "main", MainId, port, kept);

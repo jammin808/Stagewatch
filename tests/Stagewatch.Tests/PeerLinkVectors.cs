@@ -281,10 +281,14 @@ static class PeerLinkVectors
                 Check(Bool(expect, "ok") == false && m.Ask is null && m.Refused == Str(expect, "class"), $"peerlink vectors: parse {Short(r)} (core: {m.Refused ?? "taken"})");
                 break;
             case "http":
+                // A side call's Authorization against the first ws proof row's live link; `clear` is a call in clear from another
+                // machine, and `ends` the lid whose link the acceptor ends. A row that names no `ends` is a header 13.7.1 does not take.
                 var header = Str(r, "authorization");
-                var c = PeerLink.CheckSession(header, lid => lid == Str(wsProof, "lid") ? Str(wsProof, "session") : null);
-                Check(PeerLink.ParseShowBus(header) is null && c.Status == Int(expect, "status") && c.Relink == Bool(expect, "relink"),
-                    $"peerlink vectors: parse {Short(r)} (core: {c.Status}{(c.Relink ? " relink" : "")})");
+                var c = PeerLink.CheckSession(header, lid => lid == Str(wsProof, "lid") ? Str(wsProof, "session") : null, Bool(r, "clear") == true);
+                var names = expect.TryGetProperty("ends", out var ends);
+                Check((names || PeerLink.ParseShowBus(header) is null) && c.Status == Int(expect, "status") && c.Relink == Bool(expect, "relink")
+                      && c.Ends == (names && ends.ValueKind == JsonValueKind.String ? ends.GetString() : null),
+                    $"peerlink vectors: parse {Short(r)} (core: {c.Status}{(c.Relink ? " relink" : "")}{(c.Ends is { } e ? " ends " + e : "")})");
                 break;
             default:
                 Check(false, "peerlink vectors: a parse row's carrier is line, ws or http: " + Short(r));
@@ -474,7 +478,10 @@ static class PeerLinkVectors
         _ => -1,
     };
 
-    /// <summary>The acceptor's row: commands read on a verified link, each run once at most while the store holds its id (feature receipts).</summary>
+    /// <summary>
+    /// The acceptor's row: commands read on a verified link — run to their end, or still running — each run once at most while the
+    /// store holds its id, and RECEIPTS asks answered from it (feature receipts).
+    /// </summary>
     static void Acceptor(Action<bool, string> Check, JsonElement r, string name)
     {
         var config = r.GetProperty("config");
@@ -494,7 +501,7 @@ static class PeerLinkVectors
                 switch (e[1].GetString())
                 {
                     case "verified": connector = "main:3f9c2a1b7d0e"; break;
-                    case "command" when connector is not null:
+                    case "command" or "running" when connector is not null:
                         var id = Str(e[2], "id")!;
                         var held = keeps ? store.Begin(connector, id, t) : null;
                         if (held is not null)
@@ -503,8 +510,12 @@ static class PeerLinkVectors
                             break;
                         }
                         runs++;
-                        last = "{\"type\":\"receipt\",\"id\":\"" + id + "\",\"ok\":true,\"stage\":\"applied\",\"effect\":\"\"}";
+                        if (e[1].GetString() == "running") break;
+                        last = "{\"ok\":true,\"stage\":\"applied\",\"effect\":\"\"}";
                         if (keeps) store.Keep(connector, id, last, t);
+                        break;
+                    case "ask" when connector is not null && keeps:
+                        last = store.Answer(connector, Strings(e[2], "ids"), "a41f09c2", t);
                         break;
                     default: Check(false, $"{name}: an acceptor event the kit runs ({e[1].GetString()})"); break;
                 }
@@ -546,6 +557,10 @@ static class PeerLinkVectors
               && PeerLink.CheckSession($"ShowBus lid={new string('0', 16)}, s={session}", Of) is { Status: 401, Relink: true }
               && PeerLink.CheckSession(null, Of) is { Status: 401, Relink: true },
             "peerlink core: a side call is taken with its link's S, and a wrong S, a lid with no live link or none at all is 401 relink");
+        Check(PeerLink.CheckSession($"ShowBus lid={lid}, s={session}", Of, inClearFromAnother: true) is { Status: 401, Relink: true, Ends: var ends } && ends == lid
+              && PeerLink.CheckSession($"ShowBus lid={lid}, s={new string('0', 64)}", Of, inClearFromAnother: true) is { Status: 401, Ends: null }
+              && PeerLink.CheckSession($"ShowBus lid={lid}, s={session}", Of) is { Ends: null },
+            "peerlink core: a right S in clear from another machine is 401 relink and its link ended (13.7.1); a wrong one in clear ends nothing — a lid is no secret");
 
         // 13.12.3 beyond the rows.
         Check(PeerLink.ReadLine("OK @s1-11aa22bb final {\"stage\":\"applied\",\"effect\":\"cut\"}") is { Id: "s1-11aa22bb", Reading: { Outcome: PeerOutcome.Applied, Final: true, Words: "cut" } }
@@ -666,10 +681,12 @@ static class PeerLinkVectors
         // 13.12.6's store.
         var store = new PeerReceipts();
         const string conn = "patterns:9f8e7d6c";
-        Check(store.Begin(conn, "s17-11aa22bb", 0) is null && store.Begin(conn, "s17-11aa22bb", 1) is { } running && running.Contains("\"stage\":\"accepted\"", StringComparison.Ordinal)
-              && running.EndsWith(",\"repeat\":true}", StringComparison.Ordinal),
-            "peerlink core: a command whose id is held while it runs is answered accepted, with repeat");
-        store.Keep(conn, "s17-11aa22bb", "{\"type\":\"receipt\",\"id\":\"s17-11aa22bb\",\"ok\":true,\"stage\":\"applied\",\"effect\":\"cut\"}", 2);
+        Check(store.Begin(conn, "s17-11aa22bb", 0) is null && store.Begin(conn, "s17-11aa22bb", 1) == "{\"ok\":true,\"stage\":\"accepted\",\"effect\":\"\",\"repeat\":true}",
+            "peerlink core: a command whose id is held while it runs is answered accepted, with repeat — the receipt's fields alone, which the carrier wraps");
+        using (var doc = JsonDocument.Parse(store.Answer(conn, ["s17-11aa22bb"], "a41f09c2", 1)))
+            Check(Str(doc.RootElement.GetProperty("receipts").GetProperty("s17-11aa22bb"), "stage") == "accepted",
+                "peerlink core: a RECEIPTS ask for an id that still runs is answered accepted, never unknown (13.12.6)");
+        store.Keep(conn, "s17-11aa22bb", "{\"ok\":true,\"stage\":\"applied\",\"effect\":\"cut\"}", 2);
         var answer = store.Answer(conn, ["s17-11aa22bb", "s18-11aa22bb"], "a41f09c2", 3);
         using (var doc = JsonDocument.Parse(answer))
             Check(Str(doc.RootElement, "inst") == "a41f09c2" && doc.RootElement.GetProperty("receipts") is var rs && Str(rs.GetProperty("s17-11aa22bb"), "stage") == "applied"

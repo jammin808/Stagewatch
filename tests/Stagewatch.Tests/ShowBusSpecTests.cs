@@ -55,7 +55,7 @@ static class ShowBusSpecTests
     /// LF, one final LF. Any edit to the body changes it, so an edit is pinned here on purpose; the copies in Patterns,
     /// PlayMap and AGMessage hold the same hash, printed in the header, once 1.3 is final.
     /// </summary>
-    const string BodySha256 = "0e854d4327e10fa9627cca5df8f5ed9a5b3c7097703c2ca1bdc1b12610e7fe5a";
+    const string BodySha256 = "93f043905d48f5159f9f5aa4df40ed8a1dc46c7cf4bac61531880e8926bf69f1";
 
     const string BodyStart = "## 1. Rules every node follows";
     const string ContextHeading = "## 6. Context — what an AI (or the Eye) needs to understand a node";

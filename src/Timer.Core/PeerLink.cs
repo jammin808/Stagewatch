@@ -278,19 +278,27 @@ public static class PeerLink
         return IsHex(lid, lidChars) && IsHex(s, 64) ? (lid, s) : null;
     }
 
-    /// <summary>What an acceptor answers a side call by its session credential: 200, or 401 with <c>relink</c>.</summary>
-    public readonly record struct SessionCheck(int Status, bool Relink, string Words);
+    /// <summary>
+    /// What an acceptor answers a side call by its session credential: 200, or 401 with <c>relink</c>; <see cref="Ends"/> names the lid
+    /// whose link the acceptor ends, its S having crossed the network in clear.
+    /// </summary>
+    public readonly record struct SessionCheck(int Status, bool Relink, string Words, string? Ends = null);
 
     /// <summary>
     /// 13.7.1: a side call's session, checked against the S of the live, verified link its lid names (<paramref name="sessionOf"/>
     /// answers null for a lid with no such link). A header that is not 13.7.1's, a lid with no live link, or a wrong S is
-    /// <c>401</c> with <c>relink</c>: the connector links again.
+    /// <c>401</c> with <c>relink</c>: the connector links again. A right S that came in clear from another machine
+    /// (<paramref name="inClearFromAnother"/>: no TLS, and a remote address that is not loopback) is refused the same way, and its link
+    /// is ended (<see cref="SessionCheck.Ends"/>): anyone on the path read it. A wrong one ends nothing, so no one ends a link by its
+    /// lid, which is not a secret.
     /// </summary>
-    public static SessionCheck CheckSession(string? authorization, Func<string, string?> sessionOf)
+    public static SessionCheck CheckSession(string? authorization, Func<string, string?> sessionOf, bool inClearFromAnother = false)
     {
         if (ParseShowBus(authorization) is not { } a) return new(401, true, "this call carries no session of a live link — link again");
-        if (sessionOf(a.Lid) is not { } s) return new(401, true, "the link ended");
-        return Verify(s, a.S) ? new(200, false, "") : new(401, true, "the link ended");
+        if (sessionOf(a.Lid) is not { } s || !Verify(s, a.S)) return new(401, true, "the link ended");
+        return inClearFromAnother
+            ? new(401, true, "a session credential came in clear from another machine — its link is ended; link again", a.Lid)
+            : new(200, false, "");
     }
 
     // ------------------------------------------------------------------ 13.10, 13.11, 13.15: the pure rules
@@ -647,7 +655,9 @@ public sealed class PeerClock
 /// <summary>
 /// 13.12.6, the acceptor's record of what it ran: per verified connector id, the receipts of its last
 /// <see cref="PeerLink.ReceiptsKept"/> ids for <see cref="PeerLink.ReceiptsKeptMs"/>. A command whose id it holds is never run again.
-/// One writer: the acceptor's lane that reads commands.
+/// A receipt is kept as its fields alone — <c>{"ok":…,"stage":…,"effect":…}</c>, or <c>{"ok":false,"error":…}</c> — which the acceptor
+/// carries on its link: <c>OK @id {…}</c> on <c>line</c>, <c>{"type":"receipt","id":…,…}</c> on <c>ws</c>. One writer: the
+/// acceptor's lane that reads commands.
 /// </summary>
 public sealed class PeerReceipts
 {
@@ -659,16 +669,19 @@ public sealed class PeerReceipts
 
     readonly Dictionary<string, Kept> _by = new(StringComparer.Ordinal);
 
+    /// <summary>What the record answers for an id it holds that still runs: accepted.</summary>
+    public const string Running = "{\"ok\":true,\"stage\":\"accepted\",\"effect\":\"\"}";
+
     /// <summary>
     /// Before running <paramref name="id"/> from <paramref name="connector"/> (<c>t:id</c>): the answer when it holds the id — the
-    /// receipt it had with <c>"repeat":true</c> appended, or an accepted one while it still runs — or null, and then the id is
+    /// receipt it had with <c>"repeat":true</c> appended, or <see cref="Running"/>'s while it still runs — or null, and then the id is
     /// held as running until <see cref="Keep"/>.
     /// </summary>
     public string? Begin(string connector, string id, long now)
     {
         var k = Of(connector, now);
         if (k.ById.TryGetValue(id, out var held))
-            return Repeat(held.Receipt ?? "{\"type\":\"receipt\",\"id\":\"" + JsonEncodedText.Encode(id) + "\",\"ok\":true,\"stage\":\"accepted\",\"effect\":\"\"}");
+            return Repeat(held.Receipt ?? Running);
         k.ById[id] = (now, null);
         k.Order.Enqueue(id);
         while (k.Order.Count > PeerLink.ReceiptsKept) k.ById.Remove(k.Order.Dequeue());
@@ -686,7 +699,8 @@ public sealed class PeerReceipts
 
     /// <summary>
     /// 13.12.6: a <c>RECEIPTS</c> answer for the connector's own ids (at most <see cref="PeerLink.ReceiptsAskMax"/>), each its final
-    /// receipt or <c>"unknown"</c>, with this acceptor's inst.
+    /// receipt, <see cref="Running"/>'s while it still runs, or <c>"unknown"</c> when the record does not hold it, with this
+    /// acceptor's inst.
     /// </summary>
     public string Answer(string connector, IEnumerable<string> ids, string inst, long now)
     {
@@ -698,7 +712,7 @@ public sealed class PeerReceipts
             if (!first) s.Append(',');
             first = false;
             s.Append('"').Append(JsonEncodedText.Encode(id)).Append("\":");
-            s.Append(k.ById.TryGetValue(id, out var held) && held.Receipt is { } r ? r : "\"unknown\"");
+            s.Append(k.ById.TryGetValue(id, out var held) ? held.Receipt ?? Running : "\"unknown\"");
         }
         return s.Append("}}").ToString();
     }
