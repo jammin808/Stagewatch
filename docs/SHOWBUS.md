@@ -1092,6 +1092,9 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
      the socket's standing as a node, and the socket stays a public viewer (§7.1).
    - An acceptor MUST treat an unknown kid exactly like a known one until the proof, and compare in constant time. It refuses both with
      the same words: "the proof did not verify: a wrong key, or another machine between us" (its own journal MAY name the kid).
+   - The connector proves only to the id it meant (13.4.3) and over the certificate it was shown: an answer to LINK whose `bind` is
+     not that certificate gets no proof. A verdict that comes before its proof, or whose proof does not verify, ends the connection
+     with those same words, as a failed dial (13.15.1); nothing of it is taken, pinned or floored.
    - A connection that has not finished LINK within `peerlink.handshake.ms` is closed. An acceptor holds at most
      `peerlink.unpaired.per.address` unfinished connections per address.
 4. **`line`.** Two verbs join the line grammar. Before LINK completes, an acceptor answers only §7.2's list — what finding and pairing
@@ -1130,7 +1133,7 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
    - its `inst` (§2) and `beatMs`;
    - `stuckMs` when it lists `stuck`, `expireMs` when it lists `expire`, `enrolled` when it enrolled.
 7. **An open acceptor** (no code, no keys) answers `ERR @l1 LINK open — this node asks for no key`.
-   - A node id with a floor (13.9.3) is refused, red.
+   - A node id with a floor (13.9.3) is refused (13.16.1).
    - Otherwise the connector links unverified, with the flag `open` (13.16.2). Facts it publishes are followed as in 1.2, and the
      words say so — amber while this connector holds a key for it: "Hall A asks for no key now — anything at its address could
      answer".
@@ -1140,7 +1143,7 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
    - on `ws`: a first message that is not `link`.
 
    Then:
-   - **Floors first.** A node id with a floor (13.9.3) is refused, red; nothing more is sent.
+   - **Floors first.** A node id with a floor (13.9.3) is refused (13.16.1); nothing more is sent.
    - **`line`, the legacy proof.**
      - The connector MAY answer §7's `NONCE` with 1.1's `AUTH-PROOF` (HMAC over the nonce and the HELLO name), and only a `NONCE` of
        exactly 32 lowercase hex.
@@ -1205,7 +1208,7 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
    - A certificate that differs from the hello's `tls` is a note, never a refusal; on a keyed link the proof decides.
 3. **Changed.**
    - A pinned node showing another certificate gets nothing of the connector's — no key, code, proof, S or command — until the operator
-     accepts the new one, typing at least 8 hex of it: CERTIFICATE CHANGED, red.
+     accepts the new one, typing at least 8 hex of it: CERTIFICATE CHANGED, refused (13.16.1).
    - Meanwhile the connector MAY read the public view keyless over that certificate, and MAY probe every `peerlink.cert.probe.ms` to
      show the current fingerprint.
 4. A pin store that cannot be read is said, amber: "pins lost — every node is new here; compare fingerprints". Floors are lost with it.
@@ -1219,7 +1222,7 @@ bind=<tls:sha256:<64 lowercase hex> | plain>
    a fifth PONG word, an `OK @id final …` line, a `repeat` field — whether or not it uses the feature, and ignores what it does not use.
 3. **Floors.**
    - After a verified link, a connector records for that node id what it reached: `{tls, level, proof}`.
-   - A later link to that id that offers less MUST be refused, red: plain where TLS was, LINK refused as an unknown word, a lower
+   - A later link to that id that offers less MUST be refused (13.16.1): plain where TLS was, LINK refused as an unknown word, a lower
      `speaks`, or an `open` answer where a key verified.
    - The words: "<node> used to prove itself with PeerLink 1 over TLS; it now offers less — not linking". The connector keeps only what
      the acceptor shows any reader (§8's public view), where the carrier has one.
@@ -1397,7 +1400,7 @@ The show writer never writes to, reads from or waits on a socket.
      relink (13.7.3) — is held for max(`peerlink.hold.refused.ms`, the acceptor's `retry` or `Retry-After`).
      - The hold is recorded before any further I/O, and persisted with its end in wall time, so it outlasts a restart.
      - The connector proves that key again only when the hold ends, the key changes, or the operator presses *Link again now*.
-     - A `ws` link keeps its public frames meanwhile.
+     - A `ws` link keeps its public frames meanwhile, and proves the key again on a fresh `link=` socket.
    - The acceptor operator's `disconnect` holds `peerlink.hold.disconnect.ms`.
    - An id in conflict (§2) is held while §2's mark stands: a link it has keeps running (13.4.4), and nothing new is dialled to it —
      state `held`, refusal `conflict` — until the mark clears, when the connector dials again at once.
@@ -1419,7 +1422,7 @@ The show writer never writes to, reads from or waits on a socket.
 | `stale` | silent past `link.stale.ms`, up to `link.drop.ms` | △ amber | "Hall A quiet for 8 s" | sent; may end unconfirmed | `?` |
 | `down` | silent past `link.drop.ms`, dropped or unreachable; redialling | ✕ red when the show needs it, else △ amber | "Hall A not answering — dialling again in 2.4 s; nothing is queued" | not-sent | none |
 | `held` | a key refused, or an id in conflict (§2); its hold runs | ✕ red when the show needs it, else △ amber | "Hall A refused this desk's key (revoked) — next try 20:15:05; make a node key on Hall A" | not-sent | public view only |
-| `refused` | CERTIFICATE CHANGED, a floor, another id: a person must act | ✕ red | "CERTIFICATE CHANGED: Hall A now shows ab12 … — nothing sent; accept it on the Nodes page" | not-sent | public view only, where the carrier has one |
+| `refused` | CERTIFICATE CHANGED, a floor, another id: a person must act | ✕ red when the show needs it, else △ amber | "CERTIFICATE CHANGED: Hall A now shows ab12 … — nothing sent; accept it on the Nodes page" | not-sent | public view only, where the carrier has one |
 
    Beside the state is the **show**:
    - `stuck`: the link △ amber "Hall A says its show is stuck"; every value from it ✕ "no time shown"; commands not-sent;
@@ -1438,7 +1441,7 @@ The show writer never writes to, reads from or waits on a socket.
    - `apart`: CLOCKS APART.
    - `unfit` (i): the clock is not fit for timed commands.
    - `oversize`, and `malformed` (i, a count).
-   - A link's light is the worse of its state's and its flags', and red only when the show needs the link.
+   - A link's light is the worse of its state's and its flags', and red only when the show needs the link, a refused one included.
 3. **The link record.** Every reader takes this one record. It is appended at the end of each row that carries a link, and never
    carries a key, code, `K`, S, proof or nonce:
 
@@ -1578,8 +1581,9 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 | `carrier` | `line` or `ws`; every machine row names it |
 | `can` | the features the verdict lists |
 | `key` | the kid, or `code`, of what the connector holds for the node; none when absent |
-| `pin` | `node:<id>`: a certificate pinned for that id by a verified link |
+| `pin` | `node:<id>`: the first `proof` row's certificate (the hex of its `bind`) pinned for that id by a verified link |
 | `floor` | the floor recorded for the node (13.9.3) |
+| `needs` | `true`: the show needs the link (13.1); otherwise it does not |
 
 | event | what happened |
 |---|---|
@@ -1706,11 +1710,13 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 {"case":"machine","name":"line without stuck","config":{"carrier":"line","can":[]},"events":[[0,"verified"],[2000,"pong"]],"expect":[[2000,{"show":"unknown"}]]}
 {"case":"machine","name":"the pin decides","config":{"carrier":"line","pin":"node:9f8e7d6c"},"events":[[0,"hello",{"id":"9f8e7d6c","tls":null}],[0,"dial"]],"expect":[[0,{"dial":"tls","flags":["note"],"state":"connecting"}]]}
 {"case":"machine","name":"a conflict holds until its mark clears","config":{"carrier":"line","pin":"node:9f8e7d6c"},"events":[[0,"verified"],[1000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[3000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"b7c3d9e1"}],[5000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[6000,"closed"],[9000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[13000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[17000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[21000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[25000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[29000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[33000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[37000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[41000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[45000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[49000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[53000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[57000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[61000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}],[65000,"hello",{"id":"9f8e7d6c","tls":null,"inst":"a41f09c2"}]],"expect":[[5000,{"state":"live"}],[6000,{"state":"held","refusal":"conflict","dial":null}],[64999,{"state":"held","dial":null}],[65001,{"dial":"tls"}]]}
-{"case":"machine","name":"floor","config":{"carrier":"line","floor":{"tls":true,"level":1,"proof":"mutual"}},"events":[[0,"answer",{"tls":false}]],"expect":[[0,{"state":"refused","refusal":"floor","sent":[]}]]}
+{"case":"machine","name":"floor","config":{"carrier":"line","floor":{"tls":true,"level":1,"proof":"mutual"}},"events":[[0,"answer",{"tls":false}]],"expect":[[0,{"state":"refused","refusal":"floor","sent":[],"light":"amber"}]]}
 {"case":"machine","name":"floor on a stripped LINK","config":{"carrier":"line","floor":{"tls":false,"level":1,"proof":"mutual"}},"events":[[0,"answer",{"line":"ERR @l1 unknown command 'LINK'"}]],"expect":[[0,{"state":"refused","refusal":"floor","sent":["HELLO","LINK"]}]]}
+{"case":"machine","name":"a refusal the show needs is red","config":{"carrier":"line","needs":true,"floor":{"tls":true,"level":1,"proof":"mutual"}},"events":[[0,"answer",{"tls":false}]],"expect":[[0,{"state":"refused","refusal":"floor","light":"red"}]]}
 {"case":"machine","name":"33rd command","config":{"carrier":"line"},"events":[[0,"verified"],[1,"send",{"count":33}]],"expect":[[1,{"inFlight":32,"outcome":{"33":"not-sent"}}]]}
-{"case":"machine","name":"drop after write, same acceptor","config":{"carrier":"line"},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"a41f09c2"}],[810,"receipts",{"s1-11aa22bb":{"ok":true,"stage":"applied"}}]],"expect":[[200,{"outcome":{"s1-11aa22bb":"unconfirmed"}}],[810,{"outcome":{"s1-11aa22bb":"applied"}}]]}
-{"case":"machine","name":"drop after write, acceptor restarted","config":{"carrier":"line"},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"b7c3d9e1"}],[810,"receipts",{"s1-11aa22bb":"unknown"}]],"expect":[[810,{"outcome":{"s1-11aa22bb":"unconfirmed"},"sent":["RECEIPTS"]}]]}
+{"case":"machine","name":"drop after write, same acceptor","config":{"carrier":"line","can":["receipts"]},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"a41f09c2"}],[810,"receipts",{"s1-11aa22bb":{"ok":true,"stage":"applied"}}]],"expect":[[200,{"outcome":{"s1-11aa22bb":"unconfirmed"}}],[810,{"outcome":{"s1-11aa22bb":"applied"}}]]}
+{"case":"machine","name":"drop after write, acceptor restarted","config":{"carrier":"line","can":["receipts"]},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"b7c3d9e1"}],[810,"receipts",{"s1-11aa22bb":"unknown"}]],"expect":[[810,{"outcome":{"s1-11aa22bb":"unconfirmed"},"sent":["RECEIPTS"]}]]}
+{"case":"machine","name":"drop after write, no receipts feature","config":{"carrier":"line"},"events":[[0,"verified",{"inst":"a41f09c2"}],[100,"written",{"id":"s1-11aa22bb"}],[200,"closed"],[800,"verified",{"inst":"a41f09c2"}]],"expect":[[800,{"outcome":{"s1-11aa22bb":"unconfirmed"},"sent":[]}]]}
 {"case":"machine","name":"repeated id at the acceptor","role":"acceptor","config":{"carrier":"line","can":["receipts"]},"events":[[0,"verified"],[10,"command",{"id":"s1-11aa22bb"}],[20,"command",{"id":"s1-11aa22bb"}]],"expect":[[20,{"runs":1,"answer":{"repeat":true}}]]}
 {"case":"machine","name":"unmatched pong","config":{"carrier":"line"},"events":[[0,"verified"],[0,"ping",{"t1":1000}],[50,"pong",{"t1":999,"t2":1505,"t3":1506}]],"expect":[[50,{"state":"live","samples":0,"counts":{"unmatched":1}}]]}
 {"case":"machine","name":"stuck show refuses commands","config":{"carrier":"ws"},"events":[[0,"verified"],[1000,"frame"],[2000,"beat-stuck"],[2100,"send",{"count":1}]],"expect":[[2100,{"outcome":{"1":"not-sent"}}]]}
@@ -1719,6 +1725,11 @@ carrier it uses, in each role it plays. Its §8 row lists anything it does not k
 {"case":"machine","name":"open after a floor","config":{"carrier":"line","key":"code","floor":{"tls":false,"level":1,"proof":"mutual"}},"events":[[0,"answer",{"line":"ERR @l1 LINK open \u2014 this node asks for no key"}]],"expect":[[0,{"state":"refused","refusal":"floor","follows":false}]]}
 {"case":"machine","name":"a 401 that asks for a relink holds nothing","config":{"carrier":"ws","key":"e63c317763b14546"},"events":[[0,"verified"],[100,"closed"],[150,"side-call",{"http":401,"body":{"ok":false,"error":"the link ended","relink":true}}]],"expect":[[150,{"state":"down","waitMs":[400,600]}]]}
 {"case":"machine","name":"a 401 without a relink holds the key","config":{"carrier":"ws","key":"e63c317763b14546"},"events":[[0,"verified"],[1000,"side-call",{"http":401,"body":{"ok":false,"error":"unknown key"}}]],"expect":[[1000,{"state":"held","refusal":"key","heldUntil":61000}]]}
+{"case":"machine","name":"another id","config":{"carrier":"line","key":"code","pin":"node:9f8e7d6c"},"events":[[0,"answer",{"cert":"03e9b152ca42518c28128f36def699be8aea5eec11bb9d5afc18a314f8c3eb04","line":"OK @l1 LINK 1 patterns 7a7a7a7a 00112233445566778899aabbccddeeff tls:sha256:03e9b152ca42518c28128f36def699be8aea5eec11bb9d5afc18a314f8c3eb04"}]],"expect":[[0,{"state":"refused","refusal":"other-id","sent":["HELLO","LINK"],"credentials":[],"follows":false}]]}
+{"case":"machine","name":"a verdict before the proof","config":{"carrier":"line","key":"code"},"events":[[0,"answer",{"cert":"8e8bc45bb14f9c7413604ef78eb1c42b465437cf700ae04a8f9553ffb0286edc","line":"OK @l1 paired {\"v\":1,\"verified\":\"code\",\"scope\":\"operate\",\"proof\":\"a628a0aa5691349ced0d2e1d8b9b13203b55bbd3d994a9e45925b74fc1369e02\",\"lid\":\"c1bb791379aa366c\",\"level\":1,\"inst\":\"a41f09c2\"}"}]],"expect":[[0,{"state":"down","tls":"none","follows":false,"sent":["HELLO","LINK"],"credentials":[]}]]}
+{"case":"machine","name":"no link within the handshake's time","config":{"carrier":"line"},"events":[[0,"connected"]],"expect":[[10000,{"state":"connecting"}],[10001,{"state":"down","follows":false}]]}
+{"case":"machine","name":"a floor on silence to LINK","config":{"carrier":"line","floor":{"tls":false,"level":1,"proof":"mutual"}},"events":[[0,"connected"]],"expect":[[3000,{"state":"connecting"}],[3001,{"state":"refused","refusal":"floor","sent":["HELLO","LINK"]}]]}
+{"case":"machine","name":"a ws key held proves again at its end","config":{"carrier":"ws","key":"e63c317763b14546"},"events":[[0,"refused",{"class":"refused","retry":0}],[30000,"frame"]],"expect":[[30000,{"state":"held","follows":true,"heldUntil":60000}],[59999,{"dial":null}],[60000,{"dial":"tls"}]]}
 ```
 
 ## 14. The numbers (1.3)

@@ -41,7 +41,8 @@ using Stagewatch.Show;
 /// and what it does not keep yet that a release after 2.19 ends or no unit is scheduled to end — every such row of
 /// <see cref="NotKeptYet"/>, every entry of <see cref="WordsNotKeptYet"/> and <see cref="RulesNotKeptYet"/>, each in its words, and while
 /// 1.3 is a draft nothing else — and the header names what 2.19 brings, each exactly while the code still lacks it.
-/// Parse, pure and machine rows are otherwise checked for shape only: running them is the kit's. Of Stagewatch's own code:
+/// Parse, pure and machine rows are otherwise checked for shape only here: <see cref="PeerLinkVectors"/> runs every row against Stagewatch's
+/// core (src/Timer.Core/PeerLink.cs), and holds the §14 rows that core keeps. Of Stagewatch's own code:
 /// a made key has 13.5.1's shape and its stored hash is K, and its level-0 proof makes every legacy row's proof and refuses
 /// every nonce a row refuses (the tokens a row does not prove are not held here); of the rows of §2, §6, §10, §11 and §12 and those
 /// 1.2's §3–§5 words, the ones its code keeps are held to their values where this suite reaches that code, the ones it does not keep
@@ -54,7 +55,7 @@ static class ShowBusSpecTests
     /// LF, one final LF. Any edit to the body changes it, so an edit is pinned here on purpose; the copies in Patterns,
     /// PlayMap and AGMessage hold the same hash, printed in the header, once 1.3 is final.
     /// </summary>
-    const string BodySha256 = "db77369f6bf069f896c5bcfaac821ecb4df04c8ced217c5046e76156e3520943";
+    const string BodySha256 = "c268d211e2e4cbd50cd8bde377636f8e8bc88ed78c7fb1f880728d77c3bd8854";
 
     const string BodyStart = "## 1. Rules every node follows";
     const string ContextHeading = "## 6. Context — what an AI (or the Eye) needs to understand a node";
@@ -370,7 +371,7 @@ static class ShowBusSpecTests
 
     // ------------------------------------------------------------------ the body and its hash
 
-    static string? Master()
+    internal static string? Master()
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
             if (File.Exists(Path.Combine(dir.FullName, "docs", "SHOWBUS.md")) && File.Exists(Path.Combine(dir.FullName, "Timer.slnf")))
@@ -1090,7 +1091,7 @@ static class ShowBusSpecTests
             "showbus spec: 13.6.4 names a LINK verdict's classes (" + string.Join(", ", classes) + ")");
         Check(refusals.Contains("key") && classes.Except(["refused", "open"]).All(refusals.Contains),
             "showbus spec: every refusing verdict class is a refusal the link record carries, refused as key (" + string.Join(", ", classes.Except(["refused", "open"]).Where(c => !refusals.Contains(c))) + ")");
-        Check(words.Config.SetEquals(["carrier", "can", "key", "pin", "floor"]) && words.Events.Count >= 20 && words.Fields.Count >= 15
+        Check(words.Config.SetEquals(["carrier", "can", "key", "pin", "floor", "needs"]) && words.Events.Count >= 20 && words.Fields.Count >= 15
               && words.Events.Contains("evaluate") && words.Fields.Contains("sent") && words.Fields.Contains("credentials"),
             $"showbus spec: 13.20 defines a machine row's config, events and fields ({words.Config.Count}, {words.Events.Count}, {words.Fields.Count})");
 
@@ -1547,7 +1548,7 @@ static class ShowBusSpecTests
     /// name; each row of
     /// <see cref="NotKeptYet"/> still apart from its code; and every row of those sections in one of these or in
     /// <see cref="Unreached"/> or <see cref="NotStagewatchs"/>. §13's other rows bind a node once it offers LINK (13.20), which
-    /// Stagewatch does not yet: the kit's run of the vectors holds them.
+    /// Stagewatch does not yet: <see cref="PeerLinkVectors"/> holds its PeerLink core, which its links do not run on yet, to them.
     /// </summary>
     static void TodaysCode(Action<bool, string> Check, string s13, List<JsonElement> rows, Numbers n)
     {
