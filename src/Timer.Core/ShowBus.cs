@@ -66,6 +66,7 @@ public sealed record PeerSummary(string Kind, string Id, string Name, string Lig
 public sealed class PeerContexts
 {
     public static readonly TimeSpan KeepFor = TimeSpan.FromSeconds(30);
+    /// <summary>The most peers held, and the most UTF-8 bytes of one context: the store and /api/peers/context refuse a longer one.</summary>
     public const int MaxPeers = 32, MaxBytes = 64 * 1024;
 
     public sealed record Entry(string Kind, string Id, string Name, string Light, string Headline, IReadOnlyList<ContextItem> Items,
@@ -105,7 +106,8 @@ public sealed class PeerContexts
     /// </summary>
     public (int Status, string? Error, NodeProof Proof) Accept(string json, string address, DateTime nowUtc, string? ownId, NodeCredential credential)
     {
-        if (json.Length is 0 or > MaxBytes) return (400, "a context is 1 byte to 64 KB", NodeProof.None);
+        // MaxBytes counts UTF-8 bytes, as the door does; a string longer in chars is over it without counting.
+        if (json.Length is 0 or > MaxBytes || System.Text.Encoding.UTF8.GetByteCount(json) > MaxBytes) return (400, "a context is 1 byte to 64 KB", NodeProof.None);
         if (Parse(json, address, nowUtc) is not { } e) return (400, NotAContext, NodeProof.None);
         if (e.Id == ownId) return (400, "that's this Stagewatch", NodeProof.None);
         // Spoken for only when there is room for it, so a full store binds no key. The room is checked again when it is

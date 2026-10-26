@@ -162,7 +162,8 @@ public sealed class SlidesBeacon : IDisposable
         /// <summary>Show Bus 1.3: 8 lowercase hex, new at every start of the sender's process (one id from two of them is a conflict).</summary>
         [property: JsonPropertyName("inst")] string? Inst = null)
     {
-        /// <summary>The node's web port: "ports.http", or the older "web".</summary>
+        /// <summary>The node's web port: "ports.http", or the older "web". A reader's, never a field of the hello on the wire (§2 names its doors in "ports").</summary>
+        [JsonIgnore]
         public int HttpPort => Ports is not null && Ports.TryGetValue("http", out var p) && p is > 0 and < 65536 ? p : WebPort;
     }
 

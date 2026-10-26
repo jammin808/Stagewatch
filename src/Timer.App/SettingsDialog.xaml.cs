@@ -565,11 +565,11 @@ public partial class SettingsDialog : Window
 
     private string? _crewSecret;
 
-    /// <summary>Listen for Patterns beacons and offer what's heard (host:port) in the host box.</summary>
+    /// <summary>Listen for Patterns' hellos and beacons and offer what's heard (host:port) in the host box; a miss names every port Find listens on.</summary>
     private async void OnFindPatterns(object sender, RoutedEventArgs e)
     {
         PatternsNote.Text = "Listening for Patterns on this network…";
-        var found = await Stagewatch.Integrations.PatternsLink.DiscoverAsync(TimeSpan.FromSeconds(3));
+        var found = await PatternsLink.DiscoverAsync(PatternsLink.FindListen);
         PatternsHost.Items.Clear();
         foreach (var m in found) PatternsHost.Items.Add(m.Address);
         if (found.Count > 0)
@@ -578,7 +578,8 @@ public partial class SettingsDialog : Window
             PatternsPort.Text = found[0].WirePort.ToString();
             PatternsNote.Text = "Found: " + string.Join(", ", found.Select(m => $"{(m.Name.Length > 0 ? m.Name : m.Address)} ({m.Address}:{m.WirePort})"));
         }
-        else PatternsNote.Text = "No Patterns heard. Check its remote control is on, the same network, and that the firewall allows UDP 9700 — or type the address.";
+        else PatternsNote.Text = "No Patterns heard. Check its remote control is on, the same network, and that the firewall allows UDP "
+            + string.Join(" and ", PatternsLink.FindPorts.Select(p => p.ToString(System.Globalization.CultureInfo.InvariantCulture))) + " — or type the address.";
     }
 
     private void OnNewCrewKeys(object sender, RoutedEventArgs e)

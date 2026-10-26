@@ -547,7 +547,7 @@ public sealed class WebServer : IAsyncDisposable
                 // the answer says what the context is held as (verified: key, operator or none).
                 if (req.Method != "POST") { await WriteJsonError(stream, 405, "POST the context", ct); return; }
                 if (Authorize(req, remote, ApiKeyScope.Node) is { } denied) { await WriteDenied(stream, denied, ct); return; }
-                if (req.Body.Length is 0 or > 64 * 1024) { await WriteJsonError(stream, 400, "a context is 1 byte to 64 KB of JSON", ct); return; }
+                if (req.Body.Length is 0 or > PeerContexts.MaxBytes) { await WriteJsonError(stream, 400, "a context is 1 byte to 64 KB of JSON", ct); return; }
                 var json = Encoding.UTF8.GetString(req.Body);
                 if (PeerContexts.Parse(json, "", DateTime.UtcNow) is not { } claimed) { await WriteJsonError(stream, 400, PeerContexts.NotAContext, ct); return; }
                 var credential = CredentialOf(req);

@@ -117,7 +117,8 @@ dotnet run --project src/Timer.App -c Debug
   its own key"). An app posting with the PIN keeps working while no key speaks for its id.
 - **Old keys no longer lock a PC out.** Unknown and revoked keys, and requests with no PIN, aren't counted toward the
   lockout any more; wrong PINs, viewing codes and window addresses still are. The lockout now reads "too many wrong PINs
-  — wait a minute".
+  — wait a minute". *Since 2.19:* wrong viewing codes, window addresses and crew links are counted apart from wrong PINs,
+  each locking a device out of its own kind (REMOTE.md, 2.19).
 - **Show apps that don't name their node yet.** Patterns, PlayMap and AGMessage still dial `/ws?cid=…` until each moves
   to its node link (NODES.md). With a node key in the header they already leave Screens and hear no screen command; with
   a control key, the PIN, a read key or no key they are still browser screens to Stagewatch, so `screen … all` reaches
@@ -185,9 +186,85 @@ connected): look at them in the running app with a show app linked.
   go into Show Bus 1.3 (2.19). Until then REMOTE.md's 2.18 section is the reference, and `tests/e2e/nodes.e2e.cjs` and
   `stall.e2e.cjs` pin the bytes against the rig (`tools/test.sh e2e`; `SW_RIG_ARGS="--node-keys 2" tools/test.sh rig`
   runs a rig with node keys by hand). The interop rows that replay them against the real apps come with the interop
-  lane.
+  lane. *Since then:* Show Bus 1.3 §7 and §7.1 have the words.
 - **The agent brief's doctrine line** still says keys lock a device out; it is the maintainer's to change (keys no
-  longer count, wrong PINs, viewing codes and window addresses do).
+  longer count, wrong PINs, viewing codes and window addresses do). *Since then:* the brief says unknown and revoked keys
+  never count; 2.19 splits the count in two, which its line does not say yet (2.19, below).
+
+## Show Bus 1.3 (2.19) — upgrade notes, the release, and what this release did not do
+
+2.19 carries Show Bus 1.3, final (`docs/SHOWBUS.md`). REMOTE.md's 2.19 section has every change on the wire, `NODES.md` is
+Stagewatch's node page written from the code, and the contract's §8.1 says what 2.19 does not keep of 1.3 yet.
+
+### Upgrade notes
+
+- **The certificate is replaced once.** The first start of 2.19 replaces a certificate an older Stagewatch made (it spanned
+  826 days; 1.3 and Apple devices allow 825). Presenter PCs and apps that pinned the old one say CERTIFICATE CHANGED once, and
+  devices that trusted it warn: compare the first 8 hex with Settings → Remote and accept it on each. Upgrade off show day.
+- **No hello while Remote is set to this PC.** A Stagewatch whose Remote keeps everything on this PC now says no hello at all
+  (Show Bus §2): an app on this PC that found it by its hello links it by its typed address, `127.0.0.1` and the port (9924
+  unless set otherwise), and a presenter PC on this PC types `127.0.0.1`. With other devices allowed, the hello names Companion
+  and OSC only while they are bound to the network too, and no longer carries a stray `HttpPort` field, which no reader read.
+- **A copied install shows itself.** Two Stagewatches with one id (a settings folder copied to a second PC) are amber on every
+  other Stagewatch's Show network, naming both machines, and each says "another machine says it is this Stagewatch". No button
+  gives an install a new id yet: close Stagewatch on one of the two, set `"nodeId"` to `""` in
+  `%APPDATA%\Stagewatch\settings.json`, and start it; it makes a new id, and other apps hear it as a node they have not met.
+- **Wrong passes count apart.** Five wrong viewing codes, window addresses or crew links in a minute lock that device out of
+  view passes only; the PIN and keys still open its operator pages, and a right PIN or key no longer clears that count. The show
+  PC is not exempt: a stale crew tab can turn away that PC's own window sources (vMix, OBS) for up to a minute. A crew link
+  replaced by **New crew links** counts as a wrong one: reopen such pages from their new links.
+- **The context's shape.** `/api/context` and MCP's `get_context` list panic, air and transport commands first, cut long fields
+  with "…", and stay within §14's sizes; one that has to leave something out says what in a grey `context:trimmed` item. A
+  reader that relied on the order of Stagewatch's commands sees a new one.
+
+### The release (the maintainer's, on the PC)
+
+```pwsh
+pwsh tools\smoke.ps1                                           # the PC checks below
+pwsh tools\release.ps1 -Version 2.19.0 -ModuleVersion 2.19.0   # app, module, installer and release date move together
+```
+
+One release per train (the owner's answer for 2.18 and 2.19): 2.18 is released first, on its own last commit, as its section
+above says (and 2.17 before it, if it is released on its own); 2.19 is released from the commit that carries this section. The
+Companion module has no change of its own in 2.19; it takes 2.19.0 with the app. The lane track's commits (the rig's options,
+later the interop lane) need no release of their own. Versions are never edited by hand.
+
+**The PC checks** (`pwsh tools\smoke.ps1`): no smoke check was added for 2.19's desk work, and none of it has been seen in the
+running app. The smoke's shots are the first look, with nothing in them asserted: `panels` (Producer → Show network's hello line
+and the counts line under it), `settings` (Settings → Remote, where the certificate's lines are, its fingerprint in groups of
+four, when the smoke's Stagewatch has one) and `slides-agent` (the agent's target rows). An amber hello, a conflict row and the status line's certificate words need a
+running app on a network: two copies of one install for the conflict, an old certificate for the replacement.
+
+### What this release did not do
+
+- **Not seen on Windows yet.** The Show network's hello line and its amber, the conflict rows and the counts line, the
+  certificate's lines in Settings and on the status line, and the presenter PC window's words compile on Linux; nobody has looked
+  at them in the running app.
+- **Nothing speaks PeerLink yet.** Stagewatch's PeerLink core, the vectors and the scripted peer run in the suite only: `/ws`
+  node links still prove a bearer key or the operator's credential, the Patterns link still pairs by `NONCE` and `AUTH-PROOF`,
+  the hello carries no cap `peerlink`, and PeerLink's wrong proofs (13.5.6) count nowhere. The playout links and `/ws` take
+  LINK in later releases (Show Bus §8.1).
+- **Find still listens on Patterns' beacon.** Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled:
+  the release after that walk row is filled takes it, with Find reading `ports.wire` (today it reads the top-level `wire` a
+  Patterns hello still sends, so a hello that named its wire only in `ports` would not be listed). `NodesDocTests` holds this row
+  here while Find listens on 9700.
+- **No button gives an install a new id** (the upgrade notes say how by hand). The desk's conflict words tell the operator to.
+- **A conflict reaches the desk, the advice and the AI's facts, not the context or Companion.** By §6, an id two machines say has
+  no `peers` row in Stagewatch's context, so other apps reading it and MCP's `get_context` do not list it, and the Companion
+  module reads no peers at all.
+- **Stagewatch dials no link by hello.** §2's "dial 127.0.0.1 first" for a peer heard on this machine is not done: its one link,
+  to Patterns, is a typed address.
+- **As a reader of contexts, Stagewatch keeps 2.18's limits**: a context's first 64 items and 64 commands, a verb cut at 80
+  characters, no links read, and an over-long post closed unanswered rather than refused with 413 (§8.1, with what ends each).
+- **A non-English show fills its context sooner.** The context is written with the default JSON encoder, which writes each
+  character outside ASCII as a six-byte escape, so such a show reaches 64 KiB with about a third of an English show's text. A
+  relaxed encoder waits for every reader's parser to be measured with it.
+- **The presenter PC's choice of certificate has no test of its own**: it needs a TLS Stagewatch on the bench.
+- **LB-1's Windows rows are not run** (below): 1.3 names no carrier that finds apps on one machine with no network.
+- **The interop lane is a track of its own.** The rig's options for it landed (2.18's list, above); the lane that runs the real
+  apps against each other, and CI's job for it, come after.
+- **The agent brief's doctrine line** speaks of one lockout; since 2.19 there are two counts (wrong PINs; wrong view passes). It
+  is the maintainer's to change.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

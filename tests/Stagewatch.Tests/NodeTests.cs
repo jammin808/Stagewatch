@@ -607,6 +607,21 @@ static class NodeTests
         Check(new PeerContexts(nodes).Accept("{\"v\":1,\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\"}}", "", T0, null, NodeCredential.Key("kD"))
                   == (400, PeerContexts.NotAContext, NodeProof.None) && nodes.NodeOf("kD") is null,
               "gate: the store refuses a repeated key with the same words, and binds nothing");
+
+        // The store's size is UTF-8 bytes, as the door's: a context of two-byte characters within MaxBytes characters but one byte
+        // over MaxBytes is refused, and binds nothing; the same context a byte shorter is taken.
+        static string Sized(int bytes)
+        {
+            const string head = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\"},\"headline\":\"", tail = "\"}";
+            var room = bytes - Encoding.UTF8.GetByteCount(head + tail);
+            return head + new string('\u00e9', room / 2) + new string('a', room % 2) + tail;
+        }
+        var fits = Sized(PeerContexts.MaxBytes);
+        var over = Sized(PeerContexts.MaxBytes + 1);
+        Check(Encoding.UTF8.GetByteCount(fits) == PeerContexts.MaxBytes && Encoding.UTF8.GetByteCount(over) == PeerContexts.MaxBytes + 1 && over.Length < PeerContexts.MaxBytes
+              && new PeerContexts(nodes).Accept(over, "", T0, null, NodeCredential.Key("kS")) == (400, "a context is 1 byte to 64 KB", NodeProof.None) && nodes.NodeOf("kS") is null
+              && new PeerContexts(nodes).Accept(fits, "", T0, null, NodeCredential.Operator).Status == 200,
+              $"gate: the store counts a context's UTF-8 bytes: {PeerContexts.MaxBytes} taken, one more refused though its characters are fewer ({over.Length})");
     }
 
     static string LowRisk(NodeRef target, string line) => "low";

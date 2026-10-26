@@ -305,7 +305,7 @@ the room sees) and `new`, `rename`, `loss` and `fade` low.
   and stops trying. Reconnects back off with jitter, so a room of windows doesn't reconnect in one burst.
 - Double-click or `F` on the window toggles full screen; the screen is kept awake.
 
-## 2.18 (next release): show apps on /ws — one key, one node
+## 2.18: show apps on /ws — one key, one node
 
 Patterns, PlayMap and AGMessage follow the timer over `/ws`, as a browser does. Until 2.18 Stagewatch couldn't tell them
 from browsers: they were listed in Screens, `screen identify|reload|go|disconnect all` reached them, any node key could
@@ -499,9 +499,13 @@ Two things change for older desks: a Patterns older than Show Bus 1.1 on another
 neither side holds a token ("pairs only on its own PC — update Patterns"), so its VT countdown stops until it is
 updated; and a wrong or stale token on this PC leaves the link red and unread, even though Patterns trusts this PC.
 
-## 2.19 (the release after 2.18): Show Bus 1.3
+## 2.19: Show Bus 1.3
 
-The rest of 2.19's changes join this section as they land; the certificate's comes first, because an upgrade shows it.
+2.19 carries Show Bus 1.3, final (`docs/SHOWBUS.md`): the contract with §12 Windows, §13 PeerLink and §14 The numbers, its body
+held by the hash its header prints. What changes for whoever reads or drives Stagewatch: its certificate's span (first, because an
+upgrade shows it), wrong passes counted apart from wrong PINs, its hello, and its own context within §14's sizes. The contract's
+§8.1 says what 2.19 does not keep of 1.3 yet, and `NODES.md`, written from the code, is Stagewatch's node page. Nothing on the wire
+speaks PeerLink yet (below).
 
 ### The certificate: 825 days in all, replaced once
 
@@ -573,3 +577,51 @@ its rate, which has its own count per key (600 requests a minute, 429 with `Retr
   bits and a viewing code is what the operator typed, and for those it is what stops a guesser.
 - PeerLink's wrong proofs will count in a table of their own, per address and key (Show Bus 13.5.6), once this Stagewatch's `/ws`
   speaks LINK, in a later release; it does not yet.
+
+### The hello (Show Bus 1.3 §2)
+
+`NODES.md` §2 shows the hello as the code builds it, and its numbers. What changed:
+
+| | Until 2.19 | 2.19 |
+|---|---|---|
+| **Where it goes** | broadcast whenever the web server ran, however it was bound | only while the web server is bound to the network (Settings → Remote → *Allow other devices on the network*): to 255.255.255.255:9928, then a copy to 127.0.0.1, each send on its own. With Remote set to this PC, none: apps on this PC link it at 127.0.0.1 and its port |
+| **What it names** | `proto` 1; `companion` and `osc` whenever they ran; a stray `HttpPort` field | `proto` 3; `inst` (8 hex, new at every start); cap `windows`; only doors other machines can open (`companion` and `osc` only while bound to the network); no `HttpPort` |
+| **Names** | as typed | no control characters, at most 64 characters, the whole hello within 1200 bytes |
+| **What the desk says** | nothing | Producer → Show network's first line: what the last beat did and, when it went nowhere, why. After 3 beats in a row with every send failed, the context's `bus:hello` item is amber ("this Stagewatch's hello can't go out: … — other apps can't find it"); it is amber too while another machine says this Stagewatch's id |
+| **What it hears** | 16 caps, names cut at 60, each id under the address it was last heard from | every kind; at most 128 ids, each forgotten after 60 s unheard; a datagram of at most 2048 bytes; its first 32 caps and 8 doors; names cut at 64. One peer per id, with every address heard within 6 s (at most 4), and the dialled one kept while it is heard |
+| **Two nodes, one id** | one row, whichever spoke last | an `inst` coming back after another within 6 s (A, B, A) marks the id in conflict for 60 s after the last return; a restart is not one. The Show network row is amber, naming both machines and addresses, and so are the advice and the AI's facts; the context lists no `peers` row for that id (§6), and the Companion module reads no peers. Its own id said by another machine makes `bus:hello` amber |
+
+### Stagewatch's own context within §14
+
+`GET /api/context` and MCP's `get_context` (Show Bus §6) stay within §14's numbers:
+
+- **Sizes.** At most 64 KiB as sent (UTF-8), 200 items, 400 links, 20 recent lines, 256 commands and 32 peers. A headline keeps
+  200 characters, a label 80, a state 160 and a recent line 200, each cut with "…"; an item's id keeps 60 and its kind 30, cut with
+  no mark. No cut splits a character in two. An item light that is not one of §6's is sent grey. The context's name is the hello's,
+  by the same rule.
+- **Commands, panic, air and transport first:** `blackout`; `window hold`, `show` and `revoke`; `start / pause`; `next`;
+  `patterns end 10`; `signal go all`; `signal go <dept> <cue>`. The rest follow by what an operator needs most.
+- **Trimming.** A context over a count or 64 KiB is trimmed, each step only until it fits, in §6's order: the oldest recent lines;
+  grey links, then the other links; commands that are not panic, air or transport, from the end; grey items, then green. Only if it
+  still does not fit: amber states, then red ones, cut to 40 characters (Stagewatch's own length; §6 leaves it to the sender); then
+  amber items, red items, and panic, air and transport commands, from the end. A link whose end names an item left out goes too.
+  What was left out is said last, in a grey `context:trimmed` item: "left out: 3 recent, 12 links, 40 commands, 9 items" (its
+  nonzero parts). The context's light is still the worst of every item, those left out among them.
+
+### Show Bus 1.3, its kit and the copies
+
+- **1.3 is final.** `docs/SHOWBUS.md`'s header prints its body's SHA-256 on a line of its own, and names on its Landed line the
+  trees whose copies hold it: Stagewatch alone today. Patterns, PlayMap and AGMessage each take a copy in a release of their own;
+  `tools/showbus-copies.sh` compares the trees the Landed line names (§14.5).
+- **The PeerLink kit** is in this tree: Stagewatch's core (`src/Timer.Core/PeerLink.cs`), every vector in §13's block, and the
+  scripted peer (`tools/showbus/peerlink-peer.mjs`, pinned by §14's `peerlink.peer.sha256`), with which the suite runs §13.20's
+  scenarios. **Nothing on the wire speaks it yet:** `/ws` node links prove a bearer key or the operator's credential as in 2.18,
+  the Patterns link pairs by `NONCE` and `AUTH-PROOF` as before, and the hello carries no cap `peerlink`.
+
+### Wire answers that changed
+
+- The hello: none while Remote is set to this PC; `proto` 3, `inst` and cap `windows`; Companion and OSC named only while bound
+  to the network; no `HttpPort`.
+- The certificate: 825 days in all; one an older Stagewatch made is replaced once, so its fingerprint changes once.
+- Wrong view passes: their own count, with their own words and, for a window page, `429`; a right PIN or key no longer clears it.
+- The context: within §14's sizes, commands in a new order, long fields cut, and `context:trimmed` when something is left out.

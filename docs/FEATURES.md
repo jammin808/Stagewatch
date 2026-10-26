@@ -11,7 +11,7 @@ the end-of-show forecast and curfew trim suggestions (producer assistant), the m
 LTC and the time-server drift check, vMix VT countdowns, speech pace, the full printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
 
-## 2.19 (the release after 2.18): Show Bus 1.3
+## 2.19: Show Bus 1.3
 
 - **The certificate is replaced once.** iPhones, iPads and Macs refuse a certificate valid for more than 825 days, and
   Stagewatch's spanned 826. The first start of 2.19 makes a new one, 825 days in all, and keeps it until it nears its
@@ -21,8 +21,30 @@ The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
   (from this Stagewatch's `/tls` page). The status line and the show log say when and why. The old certificate is
   replaced only once the new one is saved; if something gets in the way, the old one stays and the status line says so.
   Upgrade off show day.
+- **Other apps find Stagewatch only where they can reach it.** Its hello on the show network now names only the doors other
+  machines can open, and with Remote set to this PC it says none at all: apps on this PC link it at `127.0.0.1` and its port.
+  The first line of Producer → Show network says whether other apps can find it ("Said on the network as Hall A") and, when
+  they can't, why ("Not said — Remote is set to this PC; other apps reach it at 127.0.0.1:9924"). If the hello can't go out
+  for three beats in a row, Stagewatch's own context turns amber, so other apps and their AI know why they can't find it.
+- **A copied install is caught.** Two machines sending one Stagewatch's id (a settings folder copied to a second PC) show amber
+  on the Show network, naming both machines and addresses, and each of the two says "another machine says it is this
+  Stagewatch". Give one of them a new id (WHATS_NEXT.md, the 2.19 upgrade notes, says how). Each app is one row however many
+  addresses it is heard from.
+- **Wrong passes count apart from wrong PINs.** Five wrong viewing codes, window addresses or crew links in a minute lock that
+  device out of those only: the operator's pages still open with the PIN there. Five wrong PINs still lock out the PIN and
+  keys, never the windows and crew pages. A right PIN or key no longer wipes the wrong passes, so a key holder can't keep
+  guessing them.
+- **The room's context stays within its size.** What other apps and the AI read of Stagewatch (`/api/context`, MCP) stays
+  within Show Bus 1.3's sizes, with the panic, air and transport commands listed first. A very busy show leaves the oldest
+  and calmest parts out first, keeps every red and amber to the last, and says what it left out.
+- **Show Bus 1.3** (`docs/SHOWBUS.md`) is final: one contract for Stagewatch, Patterns, PlayMap and AGMessage, with windows
+  for peers, PeerLink (one authenticated link between two apps, tested here against its vectors and a scripted peer, but not
+  yet on the wire) and every number in one table. Nothing changes for operators until the other apps take it up in their own
+  releases.
+- Coming from 2.16 or 2.17? 2.18's changes (next section) come with this upgrade too, and WHATS_NEXT.md has the upgrade
+  notes for each.
 
-## 2.18 (next release): show apps aren't screens, and each app has its own key
+## 2.18: show apps aren't screens, and each app has its own key
 
 - **Show apps leave Screens.** Patterns, PlayMap and AGMessage follow the timer too, but they aren't screens. A show app
   on a node key of its own, or one that names itself as a show app and brings the PIN or a control key, is listed only

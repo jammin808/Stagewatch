@@ -2203,6 +2203,7 @@ await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);
 await BusCarrierProbeTests.Run(Check);
 ShowBusSpecTests.Run(Check);
+NodesDocTests.Run(Check);
 await ShowBusCopiesTests.Run(Check);
 PeerLinkVectors.Run(Check);
 await PeerLinkScenarios.Run(Check);

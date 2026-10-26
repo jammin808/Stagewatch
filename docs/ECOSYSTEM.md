@@ -1,17 +1,18 @@
-# The show network: Stagewatch, Patterns, AGMessage — and how it leads
+# The show network: Stagewatch, Patterns, PlayMap, AGMessage — and how it leads
 
-**Short answer: yes.** The three apps already share a stance no competitor combines. Each runs offline on the
-venue's own network, each is built the way real-time games are built, and each keeps AI behind a human's approval.
-What stops them acting as one system today is that they speak three dialects:
+**Short answer: yes.** The apps already share a stance no competitor combines. Each runs offline on the venue's own
+network, each is built the way real-time games are built, and each keeps AI behind a human's approval. This page began
+with three; PlayMap, a media player and projection-mapping node, joined as the fourth. Each speaks its own dialect:
 
 | App | Protocol |
 |---|---|
 | Stagewatch | WebSocket JSON |
 | Patterns | TCP line protocol |
+| PlayMap | TCP line protocol in Patterns' grammar (9941), HTTP and a WebSocket line channel |
 | AGMessage | Socket.io |
 
 Each also has its own discovery and its own auth. Give them one small shared contract and one place where AI and
-people decide together, and they become a show-control platform rather than three good apps.
+people decide together, and they become a show-control platform rather than four good apps.
 
 ## 1. What each node owns (one authority per domain)
 
@@ -19,6 +20,7 @@ people decide together, and they become a show-control platform rather than thre
 |---|---|---|
 | **Stagewatch** | Time: the show clock, running order, cues, curfews, the confidence monitor | Latest-wins snapshots, sequence + heartbeat, LTC/NTP, undo, recovery simulation, copilot with approvals, MCP, scoped API keys |
 | **Patterns** | Picture: what's on air, video playout, outputs, the twin standby | libVLC playout, a TCP wire with pushed `STATE`, a beacon, a twin failover |
+| **PlayMap** | Mapping: media on mapped surfaces, its playback and its outputs | A render node with FFmpeg decode, structured-light scanning, a line wire in Patterns' grammar, a hello and a node link to Stagewatch |
 | **AGMessage** | People: the private channel between the stage and the backroom, documents, decisions | Per-room op log with seq + delta resume, signed identities, role invites, AI drafts |
 | *Micro-apps* | One job each (presenter PC slides, cue lights, …) | Stagewatch's node conventions |
 
@@ -28,17 +30,22 @@ re-time anything themselves.
 
 ## 2. Show Bus v1: the one contract every node speaks
 
-*Now specified exactly in `docs/SHOWBUS.md` (Show Bus 1.1, 2026-10-10) and implemented by Stagewatch 2.15, Patterns
-round 87 and AGMessage 0.3. This section is the original plan.*
+*Now specified exactly in `docs/SHOWBUS.md` (Show Bus 1.3, final 2026-10-26, which names PlayMap as the `playmap` kind).
+Each app carries it in a release of its own: Stagewatch 2.19 carries 1.3; Patterns, PlayMap and AGMessage each take their
+copy of 1.3 in a release of theirs, and until then Patterns and AGMessage keep their copies of 1.2 and PlayMap implements 1.2
+(its `docs/SHOWBUS-NODE.md`). The contract's header names the trees whose copies have landed. Show Bus 1.1 (2026-10-10) was
+first implemented by Stagewatch 2.15, Patterns round 87 and AGMessage 0.3; 1.2 (2026-10-11) by Stagewatch 2.16, Patterns
+round 88 and AGMessage 0.4. This section is the original plan.*
 
 It's small enough to adopt in a day per node, and every piece already exists somewhere in the three apps:
 
 1. **Discovery:** one hello on UDP 9928, `{"t":"<kind>","v":1,"id","name","machine","web","caps":[…]}`, every 2 s.
    - Stagewatch already sends it, and AGMessage now does (`t:"messenger"`).
    - Patterns keeps its own 9700 beacon for twin failover and adds a 9928 hello for the rest of the network.
-2. **Manifest:** `GET /.well-known/show-node.json`. It lists what the node offers (state streams, commands, and the
-   risk class of each command), its versions, and which key scope each route needs. A node that sees another
-   learns what it can do without code changes.
+2. **Manifest** *(superseded: no node serves one)*: `GET /.well-known/show-node.json`. It was to list what the node
+   offers (state streams, commands, and the risk class of each command), its versions, and which key scope each route
+   needs. Show Bus carries each of those elsewhere: what a node offers in its hello's `caps` and `ports` (§2), its commands
+   and their risk in its context (§6), its scopes in 13.5.3 and its node row (§8), its version in its hello's `proto`.
 3. **State:** whole-state frames, latest wins. Each frame carries `seq`, durations rather than wall-clock times, and
    a heartbeat at least every 2 s; `live:false` means "I'm up but my show has stopped". Silence means stale, never
    "fine". Stagewatch and AGMessage already follow this, and Patterns' `STATE` almost does (it needs `seq` and
@@ -137,7 +144,7 @@ proposes into one approval queue.
    - Stagewatch 2.11 reads Patterns' clip and can skip to the last 10 s.
    - AGMessage 0.2 is hardened, has an op log with resume and AI drafts, and links to Stagewatch.
 2. **Next**
-   - Show Bus v1 manifest on all three apps.
+   - ~~Show Bus v1 manifest on all three apps~~ (superseded: Show Bus 1.1 to 1.3 carry what it was for, §2 above).
    - Patterns adds `seq`, fractional seconds, `VIDEO PLAY/PAUSE/SEEK` and a 9928 hello.
    - AGMessage moves to scoped API keys for its own integrations.
 3. **Then**
@@ -152,8 +159,9 @@ proposes into one approval queue.
 
 ## Honest risks
 
-- **Three stacks** (.NET/WPF, .NET/Avalonia, Node). Keep the bus spec and its conformance tests independent of all
-  three, and give each node a tiny adapter.
+- **Three stacks across four apps** (.NET/WPF for Stagewatch, .NET/Avalonia for Patterns and PlayMap, Node for
+  AGMessage). Keep the bus spec and its conformance tests independent of all of them, and give each node a tiny adapter:
+  Show Bus 1.3 does this with vectors in its own text and one scripted peer that every tree runs against itself (§13.20).
 - **Security drift.** Auth is only as strong as the weakest node. Use the same key model and lockouts everywhere,
   and send nothing secret on discovery.
 - **Code signing** is still deferred. SmartScreen warnings will cost trust at venues, so sign before a wider

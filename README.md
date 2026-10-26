@@ -12,8 +12,10 @@ Pro countdown timer and show-calling tool for corporate events. Windows 10/11. P
 - [`docs/LICENSING.md`](docs/LICENSING.md) — trial / tiers / master serial / threat model
 - [`docs/COMPANION.md`](docs/COMPANION.md) — BitFocus Companion module spec
 - [`docs/POWERPOINT.md`](docs/POWERPOINT.md) — installing the PowerPoint add-in
-- [`docs/REMOTE.md`](docs/REMOTE.md) — browser pages, windows Stagewatch controls (`/w/<token>`), show apps on `/ws` (node links, one key per app), HTTP API, WebSocket, OSC, MCP, running order
-- [`docs/NODES.md`](docs/NODES.md) — Stagewatch on the network: discovery, presenter PCs, the line each show app dials, the Patterns link
+- [`docs/REMOTE.md`](docs/REMOTE.md) — browser pages, windows Stagewatch controls (`/w/<token>`), show apps on `/ws` (node links, one key per app), Show Bus 1.3's changes (2.19), HTTP API, WebSocket, OSC, MCP, running order
+- [`docs/NODES.md`](docs/NODES.md) — Stagewatch's node page, written from the code and held to it by the suite: the hello it says and what it hears, presenter PCs, reading and driving it, each show app's link, the Patterns link, its numbers
+- [`docs/SHOWBUS.md`](docs/SHOWBUS.md) — Show Bus 1.3, the contract between Stagewatch, Patterns, PlayMap and AGMessage (this tree holds the master)
+- [`docs/ECOSYSTEM.md`](docs/ECOSYSTEM.md) — why the four apps share one contract, and where it is going
 - [`docs/FEATURES.md`](docs/FEATURES.md) — what's new in 2.0 and how to use it
 
 ## Solution layout

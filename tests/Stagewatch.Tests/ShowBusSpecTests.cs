@@ -2557,7 +2557,13 @@ static class ShowBusSpecTests
     {
         var s2 = Section(body, 2);
         var said = Table(s2, "field").Concat(Regex.Matches(TableRow(s2, "anything else").Cells, "`([a-z]+)`").Select(m => m.Groups[1].Value)).ToHashSet(StringComparer.Ordinal);
-        var sent = typeof(SlidesBeacon.Hello).GetProperties().Select(p => p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name).OfType<string>().ToList();
+        // What goes on the wire, read from hellos the builders make with every field they can fill (every door, a certificate, mcp, an
+        // agent that presents), beside every property the record names for the wire: a property the record does not name is no field.
+        var full = ShowBusHello.Main("a1b2c3d4e5f6", "0a1b2c3d", "Hall A", "FOH-PC", new HelloDoors(9924, true, "sha256:" + new string('0', 64), 9923, true, 9925, true), true, 1).Hello;
+        var agent = ShowBusHello.Agent("pc4be19a2c11", "0a1b2c3d", "Lectern", "LECTERN", true, 1);
+        var sent = typeof(SlidesBeacon.Hello).GetProperties().Select(p => p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name).OfType<string>()
+            .Concat(new[] { full, agent }.OfType<SlidesBeacon.Hello>().SelectMany(h => JsonDocument.Parse(ShowBusHello.Bytes(h)).RootElement.EnumerateObject().Select(x => x.Name)))
+            .Distinct(StringComparer.Ordinal).ToList();
         Check(sent.Count > 0 && sent.All(said.Contains), "showbus spec: Stagewatch's hello sends only §2's fields or ones §2 says a reader ignores ("
             + string.Join(", ", sent.Where(x => !said.Contains(x))) + ")");
 

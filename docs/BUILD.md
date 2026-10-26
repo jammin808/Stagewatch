@@ -63,20 +63,23 @@ tools/test.sh rig             # the headless rig in the foreground: open its pag
 - `tools/Stagewatch.Rig` is the real web server, Companion server and OSC server around a simulated show (timer,
   messages, blackout, a holding image, Next/Previous/GoTo, windows, screen commands, the contexts show apps post and
   their node links); anything else is refused with words. Its first output line is JSON with its ports, its node id and
-  the node keys made in this run (`--port`, `--companion`, `--osc`, `--pin`, `--state`, `--view`, `--node-keys`,
-  `--exit-after`). For the interop lane: `--node-id <id>` keeps one id across restarts; `--journal <file>|-` keeps the
-  show journal as the app does (a file it can't open for appending is refused), and `/report` and `/api/report.csv`
-  answer from it (404 "no report" while its show thread is stalled, as the app's); `--pin-file <file>` takes the PIN
-  from a file's first line (never with `--pin`); `--secrets-out <file>` writes the PIN, the windows' addresses and the
-  keys' secrets to a file of the user's own, so standard output and error carry none (each start rewrites it with that
-  start's secrets, as its ready line would, so a key made on an earlier start isn't in it: read it after each start);
-  `--exit-on-eof` stops it when its input ends. Lines on its standard input: `stall <ms>` stops its show thread that
-  long, as a stuck show (`stalled`, then `running`); `auth` reads the lockout tables, each address in its open minute
-  (`addresses` for wrong PINs, `viewPasses` for wrong window addresses, viewing codes and crew links, so a check that
-  nothing is locked out reads both); `exit` stops it as Ctrl+C does; anything else is refused and a blank line is
-  ignored. It exits 0 when stopped, 2 on an option it can't take, 3 when a server can't listen and 4 when the secrets
-  file can't be written; on 3 and 4 the node keys made in that start aren't kept. `tools/test.sh rig` passes
-  `$SW_RIG_ARGS` on to it (`SW_RIG_ARGS="--node-keys 2"`).
+  the node keys made in this run (`--port`, `--companion`, `--osc`, `--pin`, `--bind`, `--state`, `--view`, `--room`,
+  `--node-keys`, `--exit-after`). For the interop lane: `--node-id <id>` keeps one id across restarts;
+  `--bus PORT [--bus-to ADDRESS:PORT]` puts it on the Show Bus: it hears hellos on that port, joins the nodes it hears
+  into its context as the app does, and says the app's own hello to Show Bus §2's targets on that port, or only to
+  `--bus-to` (nothing while `--bind` is local, as the app; the ready line's `bus` is the port, or 0);
+  `--journal <file>|-` keeps the show journal as the app does (a file it can't open for appending is refused), and
+  `/report` and `/api/report.csv` answer from it (404 "no report" while its show thread is stalled, as the app's);
+  `--pin-file <file>` takes the PIN from a file's first line (never with `--pin`); `--secrets-out <file>` writes the
+  PIN, the windows' addresses and the keys' secrets to a file of the user's own, so standard output and error carry none
+  (each start rewrites it with that start's secrets, as its ready line would, so a key made on an earlier start isn't in
+  it: read it after each start); `--exit-on-eof` stops it when its input ends. Lines on its standard input: `stall <ms>`
+  stops its show thread that long, as a stuck show (`stalled`, then `running`); `auth` reads the lockout tables, each
+  address in its open minute (`addresses` for wrong PINs, `viewPasses` for wrong window addresses, viewing codes and
+  crew links, so a check that nothing is locked out reads both); `exit` stops it as Ctrl+C does; anything else is
+  refused and a blank line is ignored. It exits 0 when stopped, 2 on an option it can't take, 3 when a server can't
+  listen and 4 when the secrets file can't be written; on 3 and 4 the node keys made in that start aren't kept.
+  `tools/test.sh rig` passes `$SW_RIG_ARGS` on to it (`SW_RIG_ARGS="--node-keys 2"`).
 - `tools/BusCarrierProbe` is lab line LB-1, not a test: the build lane builds it and a person runs it
   (`dotnet run --project tools/BusCarrierProbe -c Debug --no-build`). It binds six listeners on UDP 9928 as the apps
   bind theirs (every interface, 127.0.0.1 twice, an adapter's own address), sends to 127.0.0.1, 127.255.255.255 and

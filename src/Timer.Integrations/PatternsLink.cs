@@ -48,6 +48,10 @@ public sealed class PatternsLink : IPlayoutSource
     public const int DefaultPort = 9697;
     public const int BeaconPort = 9700;
     public const int HelloPort = 9928;
+    /// <summary>The UDP ports Find (<see cref="DiscoverAsync"/>) listens on, and the only ones: the show network's hello and Patterns' own beacon.</summary>
+    public static IReadOnlyList<int> FindPorts { get; } = [HelloPort, BeaconPort];
+    /// <summary>How long Settings' Find listens on <see cref="FindPorts"/>.</summary>
+    public static readonly TimeSpan FindListen = TimeSpan.FromSeconds(3);
     public const int MaxLine = 256 * 1024;
     public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(3);
     // Show Bus 1.1 liveness: a ping every 2 s; a link silent for 12 s is dropped and redialled.
@@ -576,8 +580,8 @@ public sealed class PatternsLink : IPlayoutSource
     }
 
     /// <summary>
-    /// Listen for a moment on Patterns' beacon (9700) and the show network's hello (9928): the Patterns machines on this
-    /// network with their wire port.
+    /// Listen for a moment on each of <see cref="FindPorts"/> (the show network's hello and Patterns' beacon): the Patterns
+    /// machines on this network with their wire port.
     /// </summary>
     public static async Task<IReadOnlyList<PatternsMachine>> DiscoverAsync(TimeSpan listen, CancellationToken ct = default)
     {
@@ -602,7 +606,7 @@ public sealed class PatternsLink : IPlayoutSource
             }
             catch (SocketException) { }
         }
-        await Task.WhenAll(ListenOn(BeaconPort), ListenOn(HelloPort));
+        await Task.WhenAll(FindPorts.Select(ListenOn));
         return found.Values.ToList();
     }
 
