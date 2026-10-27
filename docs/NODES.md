@@ -115,9 +115,12 @@ Stagewatch (and every Slides agent) listens on UDP 9928 on every interface, shar
 
 Settings → Integrations → *Patterns video* → **Find** listens for `find.listen.ms` (3 s) on UDP `find.hello.port` (9928) and,
 beside it, on Patterns' own beacon, UDP `find.beacon.port` (9700), and lists each Patterns machine with its wire port: from a
-hello `{"t":"patterns","v":1,…,"wire":9697}` or a beacon `{"patterns":1,…,"wire":9697}`. Hearing none, it names both ports for the
-firewall. It reads the top-level `wire` both send today; a hello that named its wire only as `ports.wire` would not be listed.
-9700 stays in Find until Patterns' own hello on 9928 has been heard on a real network (Patterns' OPEN row L47, a walk);
+hello `{"t":"patterns","v":1,…,"ports":{"wire":9697}}` or a beacon `{"patterns":1,…,"wire":9697}`. Hearing none, it names both
+ports for the firewall. It reads a hello's line wire from `ports.wire`, else from the top-level `wire` the older senders give, and
+keeps a hello's id, `ports.https` and `tls` only where each has §2's shape. Find hears PlayMap's hello (`t` `playmap`, its line
+wire 9941) the same way, for the playout links; the *Patterns video* box is link `patterns`, a Patterns desk's, so it asks Find for
+Patterns machines only, and no other node takes one of the `find.max` (32) places it lists. A datagram that is not UTF-8 text names
+no machine. 9700 stays in Find until Patterns' own hello on 9928 has been heard on a real network (Patterns' OPEN row L47, a walk);
 `WHATS_NEXT.md` names the change that drops it then. Stagewatch never sends on 9700. (The older multi-room beacon on UDP 9927 is
 separate and carries each room's timer summary: `FEATURES.md`.)
 
@@ -253,7 +256,10 @@ Stagewatch reads the clip on air in Patterns over Patterns' own wire, as a playo
   `patterns.redial.max.ms` (5 s). It marks no link stale before it drops, and it never jitters its redial: Show Bus 1.3's
   `link.stale.ms` and `link.redial.first.ms` are not kept yet (§8.1).
 - **Pairing: the token never crosses the network.** The pairing token is stored DPAPI-protected. A desk's `NONCE` is answered with
-  `AUTH-PROOF` (HMAC-SHA256(token, nonce + "Stagewatch")) only when it is exactly 32 lowercase hex, once per connection. A desk that
+  `AUTH-PROOF` (HMAC-SHA256(token, nonce + "Stagewatch")) only when it is exactly 32 lowercase hex, once per connection — the token
+  as Show Bus 13.6.8 keys it: dashes, spaces, tabs, CRs and LFs removed, the rest upper case. A token that still holds a character
+  1.1 desks read apart (another kind of space, a line or paragraph separator, a byte order mark) is never proved: the link stays
+  amber and says 13.6.8's words, "this token holds an invisible character — retype it". A desk that
   sends no NONCE within `patterns.nonce.wait.ms` (1.5 s) asks this connection for none: plain `AUTH <token>` then goes only to a
   Patterns on this PC (a loopback socket), never on a connection that heard a NONCE. Nothing the desk sends (STATE, receipts, clock
   samples, context) is taken before the link pairs (`OK paired`) or is open (a desk that asks for no proof: a Show Bus 1.1 desk, or
@@ -263,7 +269,11 @@ Stagewatch reads the clip on air in Patterns over Patterns' own wire, as a playo
   and from Patterns Round 86 `positionMs`, `lengthMs` (null = not known yet), `paused`, `rate` and `seq`. An unknown length or
   `loops` means no countdown; at a rate other than 1 the countdown is real time. Position counts on locally from a monotonic clock
   between frames; a playing clip with no frame for `patterns.clip.stale.ms` (3 s) is treated as stale and the VT countdown
-  disappears rather than lie. Lines over `patterns.line.bytes` (256 KB) and unreadable frames are dropped and counted.
+  disappears rather than lie. A STATE longer than `patterns.line.bytes` (256 KB) is read in part (Show Bus 13.14): its clip when
+  `video` lies within the first 256 KB, else no countdown, never the last clip kept; the link stays up, amber, with the STATE's size
+  ("STATE 293 KB — over this link's 256 KB"), until a whole STATE comes. Any other line that long is counted and not read. A STATE
+  that is not JSON, or whose names or strings are not whole UTF-8 text, is counted and not read, the link, its light and its last
+  clip as they were; one whose `video` is of another shape (not an object or null) is amber with no countdown.
 - **Show Bus 1.1 desks** get request ids (so a command's answer is a receipt), timed pings (the clock offset, CLOCKS APART past
   `clock.apart.ms`, 2 s) and `CONTEXT` every `patterns.context.every.ms` (5 s), shown on the Show network; older desks get the
   plain lines they know.
@@ -345,9 +355,10 @@ Each number the page names, as Stagewatch's code has it. A name that is a §14 r
 | `peer.forget.ms` | 60000 | an id unheard this long is forgotten |
 | `peer.conflict.clear.ms` | 60000 | a conflict mark clears this long after the last return |
 | `hello.failed.beats` | 3 | beats in a row with every send failed before `bus:hello` is amber |
-| `find.hello.port` | 9928 | Find listens here for Patterns' hello |
+| `find.hello.port` | 9928 | Find listens here for Patterns' and PlayMap's hellos |
 | `find.beacon.port` | 9700 | and here for Patterns' own beacon |
 | `find.listen.ms` | 3000 | how long Find listens |
+| `find.max` | 32 | the most machines one Find lists, of the kinds it asks for |
 | `slides.id.min` | 6 | the fewest characters of a feed's `agent` id, and so of a presenter PC's hello id |
 | `slides.id.max` | 32 | the most |
 | `slides.stale.ms` | 4000 | a presenter PC silent this long counts as gone |
@@ -382,6 +393,6 @@ Each number the page names, as Stagewatch's code has it. A name that is a §14 r
 | `patterns.redial.max.ms` | 5000 | its longest wait before a redial |
 | `patterns.nonce.wait.ms` | 1500 | how long it waits for a NONCE before judging the desk asks for none |
 | `patterns.clip.stale.ms` | 3000 | a playing clip with no frame this long shows no countdown |
-| `patterns.line.bytes` | 262144 | a longer line from the desk is dropped and counted |
+| `patterns.line.bytes` | 262144 | the most of one line from the desk kept: a longer STATE is read in part, any other longer line counted and not read |
 | `patterns.context.every.ms` | 5000 | how often it asks a Show Bus 1.1 desk for its `CONTEXT` |
 | `clock.apart.ms` | 2000 | a Patterns desk's clock further off than this shows CLOCKS APART |

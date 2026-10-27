@@ -178,11 +178,13 @@ static class ShowBusTests
             new Dictionary<string, int> { ["http"] = 3023 }, 1760101234567, "LAPTOP");
         Check(hello.HttpPort == 3023 && SlidesBeacon.ValidToken("patterns", 16) && !SlidesBeacon.ValidToken("bad kind!", 16), "discovery: a messenger's hello, its http port");
 
-        // Patterns pairing: the token never goes on the wire, only a proof of it.
-        var proof = PatternsLink.Proof("ab12-cd34", "a1b2", "Stagewatch");
+        // Patterns pairing: the token never goes on the wire, only a proof of it, and only for a nonce of 32 lowercase hex (13.6.8).
+        const string nonce32 = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+        var proof = PlayoutWire.Proof("ab12-cd34", nonce32);
         using (var h = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes("AB12CD34")))
-            Check(proof == Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes("a1b2Stagewatch"))).ToLowerInvariant() && proof == PatternsLink.Proof(" AB12CD34 ", "a1b2", "Stagewatch"),
-                  "patterns: the pairing proof is HMAC(canonical token, nonce + name), never the token itself");
+            Check(proof == Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes(nonce32 + "Stagewatch"))).ToLowerInvariant() && proof == PlayoutWire.Proof(" AB12CD34 ", nonce32, "Stagewatch")
+                  && PlayoutWire.Proof("ab12-cd34", "a1b2") is null,
+                  "patterns: the pairing proof is HMAC(canonical token, nonce + name), never the token itself, and none for a nonce of another shape");
     }
 
     static async Task Web(Action<bool, string> Check)
@@ -329,7 +331,7 @@ static class ShowBusTests
                     if (line.StartsWith("HELLO ")) { name = line[6..]; continue; }
                     if (line.StartsWith("AUTH-PROOF "))
                     {
-                        paired = line[11..] == PatternsLink.Proof("ab12-cd34", nonce, name);
+                        paired = line[11..] == PlayoutWire.Proof("ab12-cd34", nonce, name);
                         await w.WriteLineAsync(paired ? "OK paired" : "ERR wrong token");
                         continue;
                     }
@@ -371,7 +373,7 @@ static class ShowBusTests
     /// A desk on loopback for one connection, scripted: it greets with its first lines, answers each line it hears with
     /// <c>answer</c>'s lines (none = silence) and says more when the test asks. Every line it heard is kept.
     /// </summary>
-    sealed class ScriptedDesk : IAsyncDisposable
+    internal sealed class ScriptedDesk : IAsyncDisposable
     {
         private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
         private readonly object _gate = new();
@@ -409,6 +411,23 @@ static class ShowBusTests
         public void Say(string line)
         {
             lock (_gate) _writer?.WriteLine(line);
+        }
+
+        /// <summary>A line as bytes that need not be UTF-8 text, then its LF; false when the link is gone and it could not be written.</summary>
+        public bool SayBytes(byte[] line)
+        {
+            lock (_gate)
+            {
+                if (_writer is not { } w) return false;
+                try
+                {
+                    w.BaseStream.Write(line);
+                    w.BaseStream.Write("\n"u8);
+                    w.BaseStream.Flush();
+                    return true;
+                }
+                catch (IOException) { return false; }
+            }
         }
 
         /// <summary>A line the link wrote that carries the token in clear, or plain AUTH of any kind.</summary>
@@ -508,10 +527,10 @@ static class ShowBusTests
                 $"patterns pairing: an upper-case NONCE is not proved ({string.Join(" | ", deskUp.Heard)})"));
             deskUp.Say("NONCE " + nonce);
             r.Add((await Until(() => linkUp.Pairing == PatternsPairing.Paired) && deskUp.Heard.Count(l => l.StartsWith("AUTH", StringComparison.Ordinal)) == 1
-                   && deskUp.Heard.Contains("AUTH-PROOF " + PatternsLink.Proof(token, nonce, "Stagewatch")) && !deskUp.HeardSecret(token),
+                   && deskUp.Heard.Contains("AUTH-PROOF " + PlayoutWire.Proof(token, nonce, "Stagewatch")) && !deskUp.HeardSecret(token),
                 $"patterns pairing: the desk's next NONCE, 32 lowercase hex, gets the one proof and pairs ({linkUp.Status})"));
-            r.Add((PatternsLink.IsProvableNonce(nonce) && !PatternsLink.IsProvableNonce(short31) && !PatternsLink.IsProvableNonce(upper)
-                   && !PatternsLink.IsProvableNonce(nonce + "0") && !PatternsLink.IsProvableNonce(" " + nonce[1..]) && !PatternsLink.IsProvableNonce(nonce[..31] + "g"),
+            r.Add((PlayoutWire.IsProvableNonce(nonce) && !PlayoutWire.IsProvableNonce(short31) && !PlayoutWire.IsProvableNonce(upper)
+                   && !PlayoutWire.IsProvableNonce(nonce + "0") && !PlayoutWire.IsProvableNonce(" " + nonce[1..]) && !PlayoutWire.IsProvableNonce(nonce[..31] + "g"),
                 "patterns pairing: only exactly 32 lowercase hex is a nonce this link proves"));
             return r;
         }
@@ -530,7 +549,7 @@ static class ShowBusTests
             link.Receipt += (line, ok, words) => receipts.Enqueue(line + "|" + words);
             link.Start();
             var paired = await Until(() => link.Pairing == PatternsPairing.Paired);
-            r.Add((paired && desk.Heard.Contains("AUTH-PROOF " + PatternsLink.Proof(token, nonce, "Stagewatch")) && !desk.HeardSecret(token),
+            r.Add((paired && desk.Heard.Contains("AUTH-PROOF " + PlayoutWire.Proof(token, nonce, "Stagewatch")) && !desk.HeardSecret(token),
                 $"patterns pairing: a desk on another PC pairs by proof alone ({link.Status})"));
             r.Add((link.Video is null && link.ClockOffset is null && link.Context is null && receipts.IsEmpty && link.SetAsideBeforePairing >= 5,
                 $"patterns pairing: a STATE, a receipt, a clock sample and a context before OK paired move nothing ({link.SetAsideBeforePairing} set aside; clip {link.Video?.File ?? "none"}, offset {link.ClockOffset})"));
@@ -630,7 +649,7 @@ static class ShowBusTests
             var red = await Until(() => link.Health == LinkHealth.Error);
             await Task.Delay(pastTheWait);
             r.Add((red && link.Health == LinkHealth.Error && link.Status.Contains("wrong token", StringComparison.Ordinal) && link.Pairing == PatternsPairing.None
-                   && desk.Heard.Count(l => l.StartsWith("AUTH", StringComparison.Ordinal)) == 1 && desk.Heard.Contains("AUTH-PROOF " + PatternsLink.Proof("ZZ99YY88", nonce, "Stagewatch")),
+                   && desk.Heard.Count(l => l.StartsWith("AUTH", StringComparison.Ordinal)) == 1 && desk.Heard.Contains("AUTH-PROOF " + PlayoutWire.Proof("ZZ99YY88", nonce, "Stagewatch")),
                 $"patterns pairing: a refused proof turns the link red; the desk's fresh NONCE gets no second proof ({link.Health}: {link.Status}; {desk.Heard.Count(l => l.StartsWith("AUTH", StringComparison.Ordinal))} proof)"));
             r.Add((link.Video is null && link.SetAsideBeforePairing >= 2 && !desk.Heard.Contains("@ctx CONTEXT") && !desk.Heard.Contains("@st STATUS") && !desk.HeardSecret("ZZ99YY88"),
                 $"patterns pairing: nothing a desk that refused the proof says is read, and nothing is asked of it ({link.SetAsideBeforePairing} set aside)"));

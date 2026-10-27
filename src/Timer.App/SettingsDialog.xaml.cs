@@ -566,11 +566,15 @@ public partial class SettingsDialog : Window
 
     private string? _crewSecret;
 
-    /// <summary>Listen for Patterns' hellos and beacons and offer what's heard (host:port) in the host box; a miss names every port Find listens on.</summary>
+    /// <summary>
+    /// Listen for Patterns' hellos and beacons and offer what's heard (host:port) in the host box; a miss names every port Find listens
+    /// on. Find hears PlayMap's hellos too: this box is link patterns, a Patterns desk's, so it asks for Patterns desks only, and no
+    /// other node takes one of the places it lists.
+    /// </summary>
     private async void OnFindPatterns(object sender, RoutedEventArgs e)
     {
         PatternsNote.Text = "Listening for Patterns on this network…";
-        var found = await PatternsLink.DiscoverAsync(PatternsLink.FindListen);
+        var found = await PlayoutWire.DiscoverAsync(PlayoutWire.FindListen, [PlayoutRules.Patterns]);
         PatternsHost.Items.Clear();
         foreach (var m in found) PatternsHost.Items.Add(m.Address);
         if (found.Count > 0)
@@ -580,7 +584,7 @@ public partial class SettingsDialog : Window
             PatternsNote.Text = "Found: " + string.Join(", ", found.Select(m => $"{(m.Name.Length > 0 ? m.Name : m.Address)} ({m.Address}:{m.WirePort})"));
         }
         else PatternsNote.Text = "No Patterns heard. Check its remote control is on, the same network, and that the firewall allows UDP "
-            + string.Join(" and ", PatternsLink.FindPorts.Select(p => p.ToString(System.Globalization.CultureInfo.InvariantCulture))) + " — or type the address.";
+            + string.Join(" and ", PlayoutWire.FindPorts.Select(p => p.ToString(System.Globalization.CultureInfo.InvariantCulture))) + " — or type the address.";
     }
 
     private void OnNewCrewKeys(object sender, RoutedEventArgs e)

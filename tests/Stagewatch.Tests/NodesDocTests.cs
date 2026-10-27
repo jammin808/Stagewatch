@@ -50,7 +50,8 @@ static class NodesDocTests
         ("peer.conflict.clear.ms", () => Ms(SlidesBeacon.ConflictClearsAfter)),
         ("hello.failed.beats", () => ShowBusHello.FailedBeats),
         .. FindRows(),
-        ("find.listen.ms", () => Ms(PatternsLink.FindListen)),
+        ("find.listen.ms", () => Ms(PlayoutWire.FindListen)),
+        ("find.max", () => PlayoutWire.FindMax),
         ("slides.id.min", () => Shortest(SlideFeed.Valid)),
         ("slides.id.max", () => Longest(SlideFeed.Valid)),
         ("slides.stale.ms", () => Ms(RemoteDecks.StaleAfter)),
@@ -86,15 +87,15 @@ static class NodesDocTests
         ("patterns.redial.max.ms", () => PatternsLink.RedialMaxMs),
         ("patterns.nonce.wait.ms", () => Ms(Private<TimeSpan>(typeof(PatternsLink), "NonceWait"))),
         ("patterns.clip.stale.ms", () => Ms(PatternsLink.StaleAfter)),
-        ("patterns.line.bytes", () => PatternsLink.MaxLine),
+        ("patterns.line.bytes", () => PlayoutWire.LineBytes),
         ("patterns.context.every.ms", () => Ms(Private<TimeSpan>(typeof(PatternsLink), "ContextEvery"))),
         ("clock.apart.ms", () => Ms(ClockOffsetEstimator.ApartAfter)),
     ];
 
     /// <summary>A row per port Find listens on, named by what it hears there: the hello, Patterns' beacon, or any other port by its number.</summary>
-    static IEnumerable<(string Name, Func<long> Code)> FindRows() => PatternsLink.FindPorts.Select(port => (
-        port == PatternsLink.HelloPort ? "find.hello.port"
-        : port == PatternsLink.BeaconPort ? "find.beacon.port"
+    static IEnumerable<(string Name, Func<long> Code)> FindRows() => PlayoutWire.FindPorts.Select(port => (
+        port == PlayoutWire.HelloPort ? "find.hello.port"
+        : port == PlayoutWire.BeaconPort ? "find.beacon.port"
         : "find.port." + port.ToString(CultureInfo.InvariantCulture),
         (Func<long>)(() => port)));
 
@@ -258,23 +259,23 @@ static class NodesDocTests
     // ------------------------------------------------------------------ Find and 9700
 
     /// <summary>
-    /// Find listens on <see cref="PatternsLink.FindPorts"/>, the list it binds. While that list holds Patterns' beacon, the page says so
+    /// Find listens on <see cref="PlayoutWire.FindPorts"/>, the list it binds. While that list holds Patterns' beacon, the page says so
     /// with the walk it waits for, and WHATS_NEXT names the change that drops it once that walk is filled; once it does not, the page no
-    /// longer says Find keeps it. Settings' Find listens for <see cref="PatternsLink.FindListen"/>, the table's time, and no other
-    /// (Timer.App is not built beside this suite on every platform, so its source is read).
+    /// longer says Find keeps it. Settings' Find listens for <see cref="PlayoutWire.FindListen"/>, the table's time, and no other, for
+    /// Patterns desks, the kind its box links to (Timer.App is not built beside this suite on every platform, so its source is read).
     /// </summary>
     static void Find(Action<bool, string> Check, string nodes, string next, string? dialog)
     {
         const string Stays = "9700 stays in Find until Patterns' own hello on 9928 has been heard on a real network (Patterns' OPEN row L47, a walk)";
-        var listens = PatternsLink.FindPorts.Contains(PatternsLink.BeaconPort);
+        var listens = PlayoutWire.FindPorts.Contains(PlayoutWire.BeaconPort);
         Check(Flat(nodes).Contains(Stays, StringComparison.Ordinal) == listens,
             listens ? "nodes doc: NODES.md says Find keeps 9700 until Patterns' L47 walk" : "nodes doc: Find no longer listens on 9700, and NODES.md no longer says it stays");
         if (listens)
             Check(Flat(next).Contains("Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled", StringComparison.Ordinal),
                 "nodes doc: WHATS_NEXT names the change that drops 9700 from Find, and the walk it waits for");
         var calls = Regex.Matches(dialog ?? "", @"DiscoverAsync\(((?:[^()]|\([^()]*\))*)\)").Select(m => m.Groups[1].Value.Trim()).ToList();
-        Check(calls.Count > 0 && calls.All(a => a == "PatternsLink.FindListen"),
-            "nodes doc: Settings' Find listens for PatternsLink.FindListen (" + string.Join("; ", calls) + ")");
+        Check(calls.Count > 0 && calls.All(a => a == "PlayoutWire.FindListen, [PlayoutRules.Patterns]"),
+            "nodes doc: Settings' Find listens for PlayoutWire.FindListen, for Patterns desks (" + string.Join("; ", calls) + ")");
     }
 
     // ------------------------------------------------------------------ helpers

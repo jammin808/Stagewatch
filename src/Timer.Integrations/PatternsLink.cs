@@ -2,26 +2,9 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using Stagewatch.Core;
 
 namespace Stagewatch.Integrations;
-
-/// <summary>
-/// The clip Patterns has on air, as its STATE frame reports it. Newer desks (Patterns Round 86+) send milliseconds,
-/// <c>paused</c>, <c>rate</c> and a <c>seq</c> that changes only on jumps; older ones whole seconds. Length 0 = not known yet.
-/// <paramref name="Transport"/>: the desk understands VIDEO PLAY / PAUSE / STOP / SEEK.
-/// </summary>
-public sealed record PatternsVideo(string File, string Tag, double LengthSeconds, double PositionSeconds, bool Playing, bool Ended, bool Loops,
-    bool Paused = false, double Rate = 1, long Seq = -1, bool Transport = false)
-{
-    /// <summary>A countdown only makes sense for a clip with a known length that doesn't loop.</summary>
-    public bool CountsDown => LengthSeconds > 0 && !Loops;
-    public string Title => Tag.Length > 0 && !File.StartsWith(Tag, StringComparison.OrdinalIgnoreCase) ? $"{Tag} {File}".Trim() : File;
-}
-
-/// <summary>A Patterns machine heard on its UDP beacon (port 9700) or the show network's hello (9928).</summary>
-public sealed record PatternsMachine(string Name, string Address, int WirePort, string Kind);
 
 /// <summary>
 /// Where the link's pairing stands on its current connection. Facts — STATE, receipts, clock samples, context — are taken
@@ -33,8 +16,10 @@ public enum PatternsPairing { None, Paired, Open }
 /// <summary>
 /// Patterns (the user's show-control desk) as a playout source, over its TCP line protocol (port 9697):
 /// <c>HELLO Stagewatch</c>, then the pairing (Show Bus §7), then Patterns pushes <c>STATE &lt;json&gt;</c> on every change —
-/// latest-wins, so this reader only ever keeps the newest. The token never leaves this PC in clear: a desk's
-/// <c>NONCE</c> of exactly 32 lowercase hex is answered with <c>AUTH-PROOF</c>; plain <c>AUTH &lt;token&gt;</c> goes only to
+/// latest-wins, so this reader only ever keeps the newest, read by <see cref="PlayoutStateReader"/>: a STATE longer than
+/// <see cref="PlayoutWire.LineBytes"/> is read for the clip on air when it lies within that part, and the link turns amber with
+/// the STATE's size (13.14). The token never leaves this PC in clear: a desk's <c>NONCE</c> of exactly 32 lowercase hex is
+/// answered with <c>AUTH-PROOF</c> (13.6.8, <see cref="PlayoutWire.Proof"/>); plain <c>AUTH &lt;token&gt;</c> goes only to
 /// a socket whose remote address is loopback (the desk on this PC), judged by a local-address seam, never a host name;
 /// any other nonce gets no proof. Nothing the desk says before it pairs is taken. The clip's position counts on locally
 /// between frames from a monotonic clock; a playing clip with no fresh frame for <see cref="StaleAfter"/> is reported
@@ -46,13 +31,6 @@ public enum PatternsPairing { None, Paired, Open }
 public sealed class PatternsLink : IPlayoutSource
 {
     public const int DefaultPort = 9697;
-    public const int BeaconPort = 9700;
-    public const int HelloPort = 9928;
-    /// <summary>The UDP ports Find (<see cref="DiscoverAsync"/>) listens on, and the only ones: the show network's hello and Patterns' own beacon.</summary>
-    public static IReadOnlyList<int> FindPorts { get; } = [HelloPort, BeaconPort];
-    /// <summary>How long Settings' Find listens on <see cref="FindPorts"/>.</summary>
-    public static readonly TimeSpan FindListen = TimeSpan.FromSeconds(3);
-    public const int MaxLine = 256 * 1024;
     public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(3);
     // Show Bus 1.1 liveness: a ping every 2 s; a link silent for 12 s is dropped and redialled.
     public static readonly TimeSpan PingEvery = TimeSpan.FromSeconds(2);
@@ -72,7 +50,7 @@ public sealed class PatternsLink : IPlayoutSource
     private readonly object _writeLock = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
-    private sealed record Reading(PatternsVideo? Video, long AtMs);
+    private sealed record Reading(PlayoutVideo? Video, long AtMs);
     private readonly Latest<Reading> _latest = new();
     private NetworkStream? _stream;
     /// <summary>The current connection's stream once that connection has paired (or is open), else null. Commands are written
@@ -84,6 +62,7 @@ public sealed class PatternsLink : IPlayoutSource
     private volatile string _status = "connecting";
     private long _lastLineMs;
     private int _malformed;
+    private int _oversize;
     private int _setAside;
     private int _nextId;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Action<bool, string>> _pending = new();
@@ -119,6 +98,8 @@ public sealed class PatternsLink : IPlayoutSource
     public bool Connected => _connected;
     /// <summary>STATE frames that couldn't be read (ignored, never fatal).</summary>
     public int Malformed => Volatile.Read(ref _malformed);
+    /// <summary>Lines longer than <see cref="PlayoutWire.LineBytes"/> (13.14's <c>oversize</c>): a STATE read in part, anything else not read.</summary>
+    public int Oversize => Volatile.Read(ref _oversize);
     /// <summary>Where the pairing stands on the current connection (<see cref="PatternsPairing.None"/> while disconnected).</summary>
     public PatternsPairing Pairing => (PatternsPairing)Volatile.Read(ref _pairing);
     /// <summary>STATE frames, receipts, clock samples and contexts the desk sent before it paired: set aside, never taken.</summary>
@@ -136,7 +117,7 @@ public sealed class PatternsLink : IPlayoutSource
     public event Action<string, bool, string>? Receipt;
 
     /// <summary>The clip on air with its position counted on to now, or null (none, or stale).</summary>
-    public PatternsVideo? Video
+    public PlayoutVideo? Video
     {
         get
         {
@@ -292,8 +273,8 @@ public sealed class PatternsLink : IPlayoutSource
     private void ReadLoop(NetworkStream stream, CancellationToken ct)
     {
         var buf = new byte[16 * 1024];
-        var line = new MemoryStream();
-        var discarding = false;
+        var lines = new PlayoutLineReader();
+        PlayoutLineReader.LineRead onLine = HandleLine;
         var lastPing = _clock.ElapsedMilliseconds;
         var connectedAt = lastPing;
         var lastContext = long.MinValue / 2;
@@ -312,21 +293,7 @@ public sealed class PatternsLink : IPlayoutSource
             if (n > 0)
             {
                 Interlocked.Exchange(ref _lastLineMs, now);
-                for (var i = 0; i < n; i++)
-                {
-                    var b = buf[i];
-                    if (b == (byte)'\n')
-                    {
-                        if (!discarding) Handle(Encoding.UTF8.GetString(line.GetBuffer(), 0, (int)line.Length).TrimEnd('\r'));
-                        line.SetLength(0);
-                        discarding = false;
-                    }
-                    else if (!discarding)
-                    {
-                        if (line.Length >= MaxLine) { discarding = true; line.SetLength(0); Interlocked.Increment(ref _malformed); continue; }
-                        line.WriteByte(b);
-                    }
-                }
+                lines.Feed(buf.AsSpan(0, n), onLine);
             }
             if (_probing && now - connectedAt > 3000)
             {
@@ -356,6 +323,25 @@ public sealed class PatternsLink : IPlayoutSource
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// A line off the wire. A STATE goes to <see cref="TakeState(ReadOnlySpan{byte}, long)"/> as it came, whole or in part; a line
+    /// longer than this link reads that is not a STATE is counted and not read, so no receipt, clock sample or context is ever taken
+    /// from part of one.
+    /// </summary>
+    private void HandleLine(ReadOnlySpan<byte> line, long size, bool whole)
+    {
+        if (!whole) Interlocked.Increment(ref _oversize);
+        var json = line.StartsWith("STATE "u8) ? 6 : !whole && line.StartsWith("OK @st "u8) ? 7 : 0;
+        if (json > 0)
+        {
+            // Judged by the pairing as it stood when the line arrived: the greeting STATE comes before the NONCE, never taken.
+            if (Pairing == PatternsPairing.None) { SetAside(); return; }
+            TakeState(line[json..], size - json);
+            return;
+        }
+        if (whole) Handle(Encoding.UTF8.GetString(line));
     }
 
     private void Handle(string line)
@@ -425,19 +411,14 @@ public sealed class PatternsLink : IPlayoutSource
             if (id == "st")
             {
                 // The STATE this link asked for once it paired; a refusal leaves the link waiting for the desk's next push.
-                if (ok && words.StartsWith('{')) TakeState(words);
+                if (ok && words.StartsWith('{')) TakeState(Encoding.UTF8.GetBytes(words), Encoding.UTF8.GetByteCount(words));
                 return;
             }
             if (_pending.TryRemove(id, out var done)) done(ok, words.Length > 200 ? words[..200] : words);
             if (ok) return;
             line = "ERR " + words;
         }
-        if (line.StartsWith("STATE ", StringComparison.Ordinal))
-        {
-            if (!paired) { SetAside(); return; }   // the greeting STATE comes before the NONCE: never taken
-            TakeState(line[6..]);
-        }
-        else if (line.StartsWith("ERR", StringComparison.Ordinal))
+        if (line.StartsWith("ERR", StringComparison.Ordinal))
         {
             var why = line.Length > 4 ? line[4..] : "refused";
             Report(why.Contains("not paired", StringComparison.OrdinalIgnoreCase) || why.Contains("token", StringComparison.OrdinalIgnoreCase)
@@ -447,16 +428,30 @@ public sealed class PatternsLink : IPlayoutSource
 
     private void SetAside() => Interlocked.Increment(ref _setAside);
 
-    /// <summary>A STATE from the paired desk, pushed or asked for: the newest is the reading.</summary>
-    private void TakeState(string json)
+    /// <summary>
+    /// A STATE from the paired desk, pushed or asked for, whole or the first <see cref="PlayoutWire.LineBytes"/> of one
+    /// (<paramref name="size"/> its whole size): the newest is the reading. One read in part is amber with its size; its clip is read
+    /// when its <c>video</c> lies within that part, and otherwise there is none, never the last one kept. A <c>video</c> of a shape
+    /// the reader does not take is amber and gives no clip; a STATE the reader does not read at all is counted, and the reading and the
+    /// link stay as they were.
+    /// </summary>
+    private void TakeState(ReadOnlySpan<byte> json, long size)
     {
-        if (TryParseState(json, out var video))
+        if (PlayoutStateReader.Read(json, size) is not { } state)
         {
-            _latest.Set(new Reading(video, _clock.ElapsedMilliseconds));
-            Report(PairedHealth, (video is null ? $"connected to {_host}:{_port} — no clip on air"
-                : $"{video.Title}" + (video.CountsDown ? $": {TimeSpan.FromSeconds(Math.Max(0, video.LengthSeconds - video.PositionSeconds)):mm\\:ss} left" : video.Loops ? " (looping)" : "")) + OpenNote);
+            Interlocked.Increment(ref _malformed);
+            return;
         }
-        else Interlocked.Increment(ref _malformed);
+        var video = state.Video;
+        _latest.Set(new Reading(video, _clock.ElapsedMilliseconds));
+        var said = (video is null ? $"connected to {_host}:{_port} — no clip on air"
+            : $"{video.Title}" + (video.CountsDown ? $": {TimeSpan.FromSeconds(Math.Max(0, video.LengthSeconds - video.PositionSeconds)):mm\\:ss} left" : video.Loops ? " (looping)" : "")) + OpenNote;
+        var part = state.Whole ? "" : " · " + PlayoutWire.OversizeWords(state.Bytes) + ", read in part";
+        if (state.Unreadable.Contains("video", StringComparer.Ordinal))
+            Report(LinkHealth.Starting, $"connected to {_host}:{_port} — its STATE gives the clip on air in a shape this link does not read, so no countdown" + OpenNote + part);
+        else if (state.Whole) Report(PairedHealth, said);
+        else if (state.HasVideo) Report(LinkHealth.Starting, said + part);
+        else Report(LinkHealth.Starting, PlayoutWire.OversizeWords(state.Bytes) + ": its clip on air lies past the part read — no countdown" + OpenNote);
     }
 
     /// <summary>
@@ -468,7 +463,7 @@ public sealed class PatternsLink : IPlayoutSource
         _nonceHeard = true;
         _bus11 = true;
         if (_proofSent || Pairing != PatternsPairing.None) return;
-        if (!IsProvableNonce(nonce))
+        if (!PlayoutWire.IsProvableNonce(nonce))
         {
             Report(LinkHealth.Starting, $"{_host}:{_port} sent a NONCE that is not 32 lowercase hex — no proof sent; nothing is taken from it until it pairs");
             return;
@@ -478,9 +473,14 @@ public sealed class PatternsLink : IPlayoutSource
             Report(LinkHealth.Starting, $"not paired — {_host}:{_port} asks for its pairing token (Settings → Integrations → Patterns); nothing is taken from it until it pairs");
             return;
         }
+        if (PlayoutWire.Proof(_token, nonce) is not { } proof)
+        {
+            Report(LinkHealth.Starting, $"not paired — {PlayoutWire.TokenProblem(_token)} (Settings → Integrations → Patterns); no proof sent to {_host}:{_port}");
+            return;
+        }
         if (_stream is not { } st) return;
         _proofSent = true;
-        Write(st, "AUTH-PROOF " + Proof(_token, nonce, "Stagewatch"));
+        Write(st, "AUTH-PROOF " + proof);
     }
 
     /// <summary>
@@ -529,107 +529,9 @@ public sealed class PatternsLink : IPlayoutSource
     private string OpenNote => Pairing != PatternsPairing.Open ? ""
         : _token.Length > 0 ? " · asks for no key — the token stays on this PC" : " · asks this link for no key";
 
-    /// <summary>Pure: a nonce this link proves — exactly 32 lowercase hex, as Show Bus 1.1 desks make them.</summary>
-    public static bool IsProvableNonce(string nonce)
-        => nonce.Length == 32 && nonce.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
-
     /// <summary>Pure: the default local-address seam — the socket's remote address is loopback (IPv4-mapped included).</summary>
     public static bool IsLoopbackAddress(IPAddress address)
         => IPAddress.IsLoopback(address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address);
-
-    /// <summary>
-    /// Pure: the pairing proof — HMAC-SHA256(key, nonce + client name), lowercase hex (Show Bus §7). The key is the token as
-    /// Patterns canonicalises it: upper case, without dashes or spaces (so "abcd-efgh" typed either way pairs).
-    /// </summary>
-    public static string Proof(string token, string nonce, string clientName)
-    {
-        var key = new string(token.Where(c => c != '-' && !char.IsWhiteSpace(c)).ToArray()).ToUpperInvariant();
-        using var h = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(key));
-        return Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes(nonce + clientName))).ToLowerInvariant();
-    }
-
-    /// <summary>Pure: a STATE frame's JSON → the clip on air (null when none). False when the frame can't be read.</summary>
-    public static bool TryParseState(string json, out PatternsVideo? video)
-    {
-        video = null;
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
-            if (!doc.RootElement.TryGetProperty("video", out var v) || v.ValueKind != JsonValueKind.Object) return true;
-            string S(string n) => v.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.String ? (p.GetString() ?? "").Trim() : "";
-            double D(string n) => v.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetDouble(out var d) && double.IsFinite(d) ? Math.Max(0, d) : 0;
-            bool B(string n) => v.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.True;
-            var file = S("file");
-            // Round 86+: milliseconds (null length = not known yet), paused, rate, seq. Older desks: whole seconds.
-            var precise = v.TryGetProperty("positionMs", out var pm) && pm.ValueKind == JsonValueKind.Number;
-            var length = D("length");
-            var position = D("position");
-            if (precise)
-            {
-                position = pm.TryGetDouble(out var p0) && double.IsFinite(p0) ? Math.Max(0, p0 / 1000) : position;
-                length = v.TryGetProperty("lengthMs", out var lm) && lm.ValueKind == JsonValueKind.Number && lm.TryGetDouble(out var l0) && double.IsFinite(l0) ? Math.Max(0, l0 / 1000) : 0;
-            }
-            var rate = v.TryGetProperty("rate", out var rt) && rt.ValueKind == JsonValueKind.Number && rt.TryGetDouble(out var r0) && r0 is > 0.05 and < 20 ? r0 : 1;
-            var seq = v.TryGetProperty("seq", out var sq) && sq.ValueKind == JsonValueKind.Number && sq.TryGetInt64(out var s0) ? s0 : -1;
-            video = new PatternsVideo(file.Length > 120 ? file[..120] : file, S("tag") is var t && t.Length <= 30 ? t : "", length, position, B("playing"), B("ended"), B("loops"),
-                Paused: B("paused"), Rate: rate, Seq: seq, Transport: precise);
-            return true;
-        }
-        catch (JsonException) { return false; }
-    }
-
-    /// <summary>
-    /// Listen for a moment on each of <see cref="FindPorts"/> (the show network's hello and Patterns' beacon): the Patterns
-    /// machines on this network with their wire port.
-    /// </summary>
-    public static async Task<IReadOnlyList<PatternsMachine>> DiscoverAsync(TimeSpan listen, CancellationToken ct = default)
-    {
-        var found = new System.Collections.Concurrent.ConcurrentDictionary<string, PatternsMachine>();
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(listen);
-        async Task ListenOn(int port)
-        {
-            try
-            {
-                using var udp = new UdpClient();
-                udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-                udp.Client.Bind(new IPEndPoint(IPAddress.Any, port));
-                while (!timeout.IsCancellationRequested && found.Count < 32)
-                {
-                    UdpReceiveResult r;
-                    try { r = await udp.ReceiveAsync(timeout.Token); }
-                    catch (OperationCanceledException) { break; }
-                    if (r.Buffer.Length > 8192 || ParseBeacon(r.Buffer, r.RemoteEndPoint.Address.ToString()) is not { } m) continue;
-                    found[m.Address + ":" + m.WirePort] = m;
-                }
-            }
-            catch (SocketException) { }
-        }
-        await Task.WhenAll(FindPorts.Select(ListenOn));
-        return found.Values.ToList();
-    }
-
-    /// <summary>Pure: a beacon datagram → the machine, if it's a Patterns beacon with the wire on.</summary>
-    public static PatternsMachine? ParseBeacon(byte[] data, string address)
-    {
-        try
-        {
-            using var doc = JsonDocument.Parse(data);
-            var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object) return null;
-            string S(string n) => root.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() ?? "" : "";
-            // Patterns' own beacon ({"patterns":1,…}) or the show network's hello ({"t":"patterns","v":1,…}).
-            var isBeacon = root.TryGetProperty("patterns", out var proto) && proto.ValueKind == JsonValueKind.Number;
-            var isHello = S("t") == "patterns" && root.TryGetProperty("v", out var hv) && hv.ValueKind == JsonValueKind.Number && hv.GetInt32() == 1;
-            if (!isBeacon && !isHello) return null;
-            var wire = root.TryGetProperty("wire", out var w) && w.TryGetInt32(out var wp) ? wp : 0;
-            if (wire is <= 0 or > 65535) return null;
-            var name = S("machine") is { Length: > 0 } mn ? mn : S("name");
-            return new PatternsMachine(name.Length > 60 ? name[..60] : name, address, wire, isBeacon ? S("kind") : S("role"));
-        }
-        catch (JsonException) { return null; }
-    }
 
     private int _disposed;
 

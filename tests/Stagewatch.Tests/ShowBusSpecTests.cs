@@ -158,7 +158,7 @@ static class ShowBusSpecTests
     [
         "peerlink.version", "peerlink.nonce.bytes", "peerlink.kid.bytes", "peerlink.lid.bytes", "peerlink.can.words", "peerlink.key.bits.min",
         "peerlink.hold.refused.ms", "peerlink.redial.jitter.pct", "peerlink.stable.ms", "link.stale.ms", "link.drop.ms", "link.redial.first.ms",
-        "link.redial.max.ms", "link.inflight.max", "link.read.min.bytes", "clock.window", "clock.apart.ms", "clock.rtt.max.ms", "clock.fresh.ms",
+        "link.redial.max.ms", "link.inflight.max", "link.read.min.bytes", "link.command.bytes", "clock.window", "clock.apart.ms", "clock.rtt.max.ms", "clock.fresh.ms",
         "receipt.final.ms", "request.id.chars", "hello.port", "hello.caps", "hello.cap.chars", "hello.id.min", "hello.id.max", "peers.max",
         "context.bytes", "context.kept.ms", "context.items", "context.links", "context.commands", "context.peers", "context.recent", "context.recent.chars",
         "context.headline.chars", "context.item.id.chars", "context.item.kind.chars", "context.item.label.chars", "context.item.state.chars",
@@ -1558,15 +1558,21 @@ static class ShowBusSpecTests
         Check(alphabet.Length == 32 && Regex.IsMatch(secret, "^" + Regex.Escape(ApiKeys.Prefix) + "[" + alphabet + "]{32}$"), "showbus spec: a swk_ key is 13.5.1's prefix and 32 symbols");
         Check(key.Hash == Hex(Sha(Utf8(secret))), "showbus spec: what Stagewatch stores for a key is 13.5.1's K");
 
-        // 13.6.8: Stagewatch's level-0 proof makes each legacy row's proof, and proves no nonce a row refuses.
+        // 13.6.8: Stagewatch's level-0 proof (PlayoutWire's, its links' one) makes each legacy row's proof, and proves no token and no
+        // nonce a row refuses: for those it sends no proof at all, and says why for the token, in the words 13.6.8 quotes.
+        var invisible = Flat(s13).Contains("\"" + PlayoutWire.InvisibleCharacter + "\"", StringComparison.Ordinal);
         foreach (var r in rows.Where(r => Str(r, "case") == "legacy"))
         {
             var nonce = Str(r, "nonce") ?? "";
             if (Str(r, "proof") is { } proof)
-                Check(PatternsLink.IsProvableNonce(nonce) && PatternsLink.Proof(Str(r, "code") ?? "", nonce, Str(r, "name") ?? "") == proof,
+                Check(PlayoutWire.IsProvableNonce(nonce) && PlayoutWire.Proof(Str(r, "code") ?? "", nonce, Str(r, "name") ?? "") == proof,
                     "showbus spec: Stagewatch's level-0 proof makes the legacy row's proof: " + Short(r));
-            else if (Str(r, "code") is null)
-                Check(!PatternsLink.IsProvableNonce(nonce), "showbus spec: Stagewatch proves no nonce but 32 lowercase hex: " + nonce);
+            else if (Str(r, "code") is { } code)
+                Check(PlayoutWire.IsProvableNonce(nonce) && PlayoutWire.Proof(code, nonce) is null && invisible && PlayoutWire.TokenProblem(code) == PlayoutWire.InvisibleCharacter,
+                    "showbus spec: Stagewatch proves no token 13.6.8 does not, and says why in 13.6.8's quoted words: " + Short(r));
+            else
+                Check(!PlayoutWire.IsProvableNonce(nonce) && PlayoutWire.Proof("k7qm-3xwd p9ra", nonce) is null,
+                    "showbus spec: Stagewatch proves no nonce but 32 lowercase hex: " + nonce);
         }
 
         var kept = new HashSet<string>(StringComparer.Ordinal);
@@ -1579,7 +1585,7 @@ static class ShowBusSpecTests
         Keeps(alphabet.Length == 32 && 32 * Math.Log2(alphabet.Length) >= n.Of("peerlink.key.bits.min"), "a swk_ key holds at least that many random bits", "peerlink.key.bits.min");
 
         // §2: the hello and its reader.
-        Keeps(SlidesBeacon.Port == n.Of("hello.port") && PatternsLink.HelloPort == n.Of("hello.port"), "it says and hears hellos on that port", "hello.port");
+        Keeps(SlidesBeacon.Port == n.Of("hello.port") && PlayoutWire.HelloPort == n.Of("hello.port"), "it says and hears hellos on that port", "hello.port");
         Keeps((long)SlidesBeacon.Every.TotalMilliseconds == n.Of("hello.every.ms"), "it says a hello that often", "hello.every.ms");
         Keeps(SlidesBeacon.ReadBytes == n.Of("hello.read.bytes") && SlidesBeacon.KeptPorts == n.Of("hello.ports") && SlidesBeacon.KindChars == n.Of("hello.kind.chars"),
             "its hello reader takes a datagram that long, keeps that many doors and a kind that long", "hello.read.bytes", "hello.ports", "hello.kind.chars");
@@ -1608,7 +1614,10 @@ static class ShowBusSpecTests
         Keeps(ping >= n.Of("ping.min.ms") && ping <= n.Of("ping.max.ms"), "PatternsLink pings within that span", "ping.min.ms", "ping.max.ms");
         Keeps((long)PatternsLink.DeadAfter.TotalMilliseconds == n.Of("link.drop.ms"), "PatternsLink drops a link silent past it", "link.drop.ms");
         Keeps(PatternsLink.RedialMaxMs == n.Of("link.redial.max.ms"), "PatternsLink waits no longer before a redial", "link.redial.max.ms");
-        Keeps(PatternsLink.MaxLine == n.Of("link.read.min.bytes"), "PatternsLink reads a line that long", "link.read.min.bytes");
+        Keeps(PlayoutWire.LineBytes == n.Of("link.read.min.bytes") && ReadsWhole(n.Of("link.read.min.bytes")),
+            "its playout links read a line that long whole, and a longer one as oversize, in part", "link.read.min.bytes");
+        Keeps(PlayoutWire.CommandBytes == n.Of("link.command.bytes") && BuildsWithin(n.Of("link.command.bytes")),
+            "its playout links build no command line longer, in UTF-8 bytes without its LF, and never one cut short", "link.command.bytes");
         Keeps(ClockOffsetEstimator.Window == n.Of("clock.window") && (long)ClockOffsetEstimator.ApartAfter.TotalMilliseconds == n.Of("clock.apart.ms"),
             "its clock keeps that many samples and is apart past that offset", "clock.window", "clock.apart.ms");
         var rttMax = n.Of("clock.rtt.max.ms");
@@ -1833,6 +1842,33 @@ static class ShowBusSpecTests
     static bool ViewersNeverRechecked()
         => (Method(Source("src/Timer.Remote/WebServer.cs") ?? "", "private void Recheck(WsClient client)") ?? "")
             .Contains("if (link.KeyId is null && link.PinHash is null) return;", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether a playout link builds a command line exactly <paramref name="bytes"/> long in UTF-8 and none a byte longer, for PlayMap
+    /// and Patterns alike: the line is refused, never cut.
+    /// </summary>
+    static bool BuildsWithin(long bytes)
+    {
+        var room = (int)bytes - "@s1 X ".Length;
+        return new[] { PlayoutRules.PlayMap, PlayoutRules.Patterns }.All(kind =>
+            PlayoutWire.Line(kind, "s1", "X", new string('a', room)) is { } line && Encoding.UTF8.GetByteCount(line) == bytes
+            && PlayoutWire.Line(kind, "s1", "X", new string('a', room + 1)) is null);
+    }
+
+    /// <summary>
+    /// Whether a playout link's line reader reads a line of <paramref name="bytes"/> whole, and one a byte longer as oversize, its first
+    /// <paramref name="bytes"/> kept and its whole size counted (13.14).
+    /// </summary>
+    static bool ReadsWhole(long bytes)
+    {
+        var data = new byte[2 * bytes + 3];
+        Array.Fill(data, (byte)'a');
+        data[bytes] = (byte)'\n';
+        data[^1] = (byte)'\n';
+        var lines = new List<(int Kept, long Size, bool Whole)>();
+        new PlayoutLineReader().Feed(data, (line, size, whole) => lines.Add((line.Length, size, whole)));
+        return lines.Count == 2 && lines[0] == ((int)bytes, bytes, true) && lines[1] == ((int)bytes, bytes + 1, false);
+    }
 
     /// <summary>
     /// Whether Stagewatch still marks no key seen in clear (13.6.9): a stored key has no field for it and the server names no such mark.

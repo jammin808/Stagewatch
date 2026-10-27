@@ -270,9 +270,9 @@ running app on a network: two copies of one install for the conflict, an old cer
   the hello carries no cap `peerlink`, and PeerLink's wrong proofs (13.5.6) count nowhere. The playout links and `/ws` take
   LINK in later releases (Show Bus §8.1).
 - **Find still listens on Patterns' beacon.** Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled:
-  the release after that walk row is filled takes it, with Find reading `ports.wire` (today it reads the top-level `wire` a
-  Patterns hello still sends, so a hello that named its wire only in `ports` would not be listed). `NodesDocTests` holds this row
-  here while Find listens on 9700.
+  the release after that walk row is filled takes it. Find already reads a hello's `ports.wire` (else the top-level `wire` older
+  senders give) and hears PlayMap's hello as well as Patterns', so a desk that names its wire only in `ports` is listed; Settings'
+  *Patterns video* box asks Find for Patterns desks only. `NodesDocTests` holds this row here while Find listens on 9700.
 - **No button gives an install a new id** (the upgrade notes say how by hand). The desk's conflict words tell the operator to.
 - **A conflict reaches the desk, the advice and the AI's facts, not the context or Companion.** By §6, an id two machines say has
   no `peers` row in Stagewatch's context, so other apps reading it and MCP's `get_context` do not list it, and the Companion

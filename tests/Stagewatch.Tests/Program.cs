@@ -1250,18 +1250,18 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
 
 // ---------------------------------------------------------------- Patterns video
 {
-    Check(Stagewatch.Integrations.PatternsLink.TryParseState("""{"rev":4,"video":{"file":"sponsor.mp4","tag":"VT","position":62,"length":210,"remaining":148,"playing":true,"ended":false,"loops":false}}""", out var pv)
+    Check(Stagewatch.Integrations.PlayoutStateReader.Read("""{"rev":4,"video":{"file":"sponsor.mp4","tag":"VT","position":62,"length":210,"remaining":148,"playing":true,"ended":false,"loops":false}}""") is { Seq: 4, Video: { } pv }
           && pv is { File: "sponsor.mp4", LengthSeconds: 210, PositionSeconds: 62, Playing: true, CountsDown: true } && pv.Title == "VT sponsor.mp4",
           "patterns: a clip on air with a known length");
-    Check(Stagewatch.Integrations.PatternsLink.TryParseState("""{"video":{"file":"walkin.mp4","position":3,"length":0,"playing":true}}""", out var unknown) && unknown is { CountsDown: false },
+    Check(Stagewatch.Integrations.PlayoutStateReader.Read("""{"video":{"file":"walkin.mp4","position":3,"length":0,"playing":true}}""")?.Video is { CountsDown: false },
           "patterns: length not known yet → no countdown");
-    Check(Stagewatch.Integrations.PatternsLink.TryParseState("""{"video":{"file":"loop.mp4","position":3,"length":30,"playing":true,"loops":true}}""", out var looping) && looping is { CountsDown: false, Loops: true },
+    Check(Stagewatch.Integrations.PlayoutStateReader.Read("""{"video":{"file":"loop.mp4","position":3,"length":30,"playing":true,"loops":true}}""")?.Video is { CountsDown: false, Loops: true },
           "patterns: a looping clip never counts down");
-    Check(Stagewatch.Integrations.PatternsLink.TryParseState("""{"video":null,"live":true}""", out var none) && none is null, "patterns: no clip on air");
-    Check(!Stagewatch.Integrations.PatternsLink.TryParseState("{nope", out _) && Stagewatch.Integrations.PatternsLink.TryParseState("""{"video":{"position":"x","length":1e999}}""", out var odd) && odd is { LengthSeconds: 0 },
+    Check(Stagewatch.Integrations.PlayoutStateReader.Read("""{"video":null,"live":true}""") is { HasVideo: true, Video: null }, "patterns: no clip on air");
+    Check(Stagewatch.Integrations.PlayoutStateReader.Read("{nope") is null && Stagewatch.Integrations.PlayoutStateReader.Read("""{"video":{"position":"x","length":1e999}}""")?.Video is { LengthSeconds: 0 },
           "patterns: malformed frames refused, odd numbers cleaned");
-    Check(Stagewatch.Integrations.PatternsLink.ParseBeacon("""{"patterns":1,"machine":"FOH desk","kind":"desk","wire":9697,"http":9696}"""u8.ToArray(), "10.0.0.5") is { Name: "FOH desk", WirePort: 9697, Address: "10.0.0.5" }
-          && Stagewatch.Integrations.PatternsLink.ParseBeacon("""{"patterns":1,"wire":0}"""u8.ToArray(), "x") is null && Stagewatch.Integrations.PatternsLink.ParseBeacon("""{"room":1}"""u8.ToArray(), "x") is null,
+    Check(Stagewatch.Integrations.PlayoutWire.ParseBeacon("""{"patterns":1,"machine":"FOH desk","kind":"desk","wire":9697,"http":9696}"""u8.ToArray(), "10.0.0.5") is { Name: "FOH desk", WirePort: 9697, Address: "10.0.0.5", Kind: "patterns", Role: "desk", FromHello: false }
+          && Stagewatch.Integrations.PlayoutWire.ParseBeacon("""{"patterns":1,"wire":0}"""u8.ToArray(), "x") is null && Stagewatch.Integrations.PlayoutWire.ParseBeacon("""{"room":1}"""u8.ToArray(), "x") is null,
           "patterns: beacon read (only with the wire on)");
 
     Check(ShowCommandParser.TryParse("patterns", new List<string> { "end" }, out var pe, out _) && pe is { Kind: ShowCommandKind.Patterns, Text: "end", Number: 10 }
@@ -1332,13 +1332,14 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     listener.Stop();
 
     // Round 86 desks: precise milliseconds, paused, rate, seq, and the transport commands.
-    Check(Stagewatch.Integrations.PatternsLink.TryParseState("""{"video":{"file":"reel.mp4","position":62,"length":210,"playing":true,"positionMs":62500,"lengthMs":210250,"remainingMs":147750,"paused":false,"rate":2,"seekable":true,"seq":7}}""", out var precise)
+    Check(Stagewatch.Integrations.PlayoutStateReader.Read("""{"video":{"file":"reel.mp4","position":62,"length":210,"playing":true,"positionMs":62500,"lengthMs":210250,"remainingMs":147750,"paused":false,"rate":2,"seekable":true,"seq":7}}""")?.Video is { } precise
           && precise is { Transport: true, Seq: 7, Rate: 2, Paused: false } && Math.Abs(precise.PositionSeconds - 62.5) < 0.001 && Math.Abs(precise.LengthSeconds - 210.25) < 0.001,
           "patterns: Round 86 STATE read to the millisecond");
-    Check(Stagewatch.Integrations.PatternsLink.TryParseState("""{"video":{"file":"live.mp4","positionMs":4000,"lengthMs":null,"remainingMs":null,"playing":true,"seq":1}}""", out var unk)
+    Check(Stagewatch.Integrations.PlayoutStateReader.Read("""{"video":{"file":"live.mp4","positionMs":4000,"lengthMs":null,"remainingMs":null,"playing":true,"seq":1}}""")?.Video is { } unk
           && unk is { CountsDown: false, Transport: true }, "patterns: lengthMs null = no countdown");
-    Check(Stagewatch.Integrations.PatternsLink.ParseBeacon("""{"t":"patterns","v":1,"id":"ab12","name":"FOH","machine":"FOH desk","web":9696,"wire":9697,"role":"desk","caps":["video.clock","video.seek"],"proto":1}"""u8.ToArray(), "10.0.0.9") is { Name: "FOH desk", WirePort: 9697 }
-          && Stagewatch.Integrations.PatternsLink.ParseBeacon("""{"t":"main","v":1,"wire":9697}"""u8.ToArray(), "x") is null,
+    // A hello whose id is too short to be a Show Bus id is still listed, with no id kept.
+    Check(Stagewatch.Integrations.PlayoutWire.ParseBeacon("""{"t":"patterns","v":1,"id":"ab12","name":"FOH","machine":"FOH desk","web":9696,"wire":9697,"role":"desk","caps":["video.clock","video.seek"],"proto":1}"""u8.ToArray(), "10.0.0.9") is { Name: "FOH desk", WirePort: 9697, Kind: "patterns", Id: "", Role: "desk", FromHello: true }
+          && Stagewatch.Integrations.PlayoutWire.ParseBeacon("""{"t":"main","v":1,"wire":9697}"""u8.ToArray(), "x") is null,
           "patterns: the show network's hello on 9928 is understood");
     foreach (var (pargs, text, n) in new[] { (new[] { "play" }, "play", 0), (new[] { "pause" }, "pause", 0), (new[] { "stop" }, "stop", 0), (new[] { "seek", "1:23" }, "seek", 83), (new[] { "seek", "45" }, "seek", 45) })
         Check(ShowCommandParser.TryParse("patterns", pargs.ToList(), out var pc, out _) && pc.Text == text && (int)pc.Number == n, $"patterns: '{string.Join(' ', pargs)}' parses");
@@ -2192,6 +2193,7 @@ ShowWorkflowTests.Run(Check);
 WindowTests.Run(Check);
 await WindowTests.RunWeb(Check);
 PlayoutTests.Run(Check);
+await PlayoutTests.Link(Check);
 SupervisorTests.Run(Check);
 SupervisorTests.Holding(Check);
 await IntegrationTests.Run(Check);
