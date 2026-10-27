@@ -14,7 +14,7 @@ using Stagewatch.Show;
 //   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321 | --pin-file FILE]
 //       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--node-keys N] [--exit-after SECONDS]
 //       [--bus PORT [--bus-to ADDRESS:PORT]] [--node-id ID] [--journal FILE|-] [--secrets-out FILE] [--exit-on-eof] [--tls FOLDER]
-//       [--playout NAME=HOST:PORT[,patterns|playmap]]…
+//       [--playout NAME=HOST:PORT[,patterns|playmap]]… [--cue ITEM=LINK:LIST:ITEM[:standby][:together]]…
 // The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"node":…,
 // "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file","tls":"sha256:…"|null,
 // "playout":[{"name","kind","address"}]};
@@ -56,6 +56,14 @@ using Stagewatch.Show;
 // marked final), the link's rows go to the journal, its record's light to the context's link:<name> item, the clip it has on air
 // to the frame's playout row (with its link and node), and the links to the config's playoutLinks. Its running order never moves
 // on a clip's end, and it keeps no hold across a restart.
+// --cue ITEM=LINK:LIST:ITEM[:standby][:together] (at most 4 an item, ITEM its 1-based place in the rig's running order, LINK a
+// link's name by Settings' rule, LIST a PlayMap playlist's id or empty for a Patterns cue, ITEM the playlist's item or the cue's
+// id) puts a running-order cue on that item, as the app's running order holds one, run by the app's planner (PlayoutDirector):
+// when the item loads (next, previous or goto) a cue marked standby stands by at the end of that turn of the owner thread unless
+// the item also starts in it — PlayMap's CUE only on a playlist its STATE shows idle, Patterns' CUE STANDBY — and when it first
+// starts (its timer counting) each cue GOes, one per sync group, those marked together at one instant where each link's clock
+// allows (AT on a PlayMap node's clock fit for it, held here for the others), every row in the journal. The rig's lead is the
+// app's default (300 ms).
 // The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo, windows,
 // screen commands (browsers only, never a show app's node link), the contexts show apps post and, with --playout, the playout
 // links; any other command is refused with words (in its receipt and its log), never pretended.
@@ -111,6 +119,29 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
 {
     /// <summary>--playout: the playout links it runs, as Settings would keep them; none by default.</summary>
     public IReadOnlyList<PlayoutLinkSettings> Playout { get; init; } = [];
+
+    /// <summary>--cue: the running-order cues on each item, by its index in the rig's running order; none by default.</summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<PlayoutCue>> Cues { get; init; } = new Dictionary<int, IReadOnlyList<PlayoutCue>>();
+
+    /// <summary>
+    /// One --cue value, ITEM=LINK:LIST:ITEM[:standby][:together], as a running order keeps a cue (<see cref="PlayoutRules.SanitiseCues"/>
+    /// holds it to the same rule): the item's 1-based place among <paramref name="items"/>, and the cue; anything else is refused,
+    /// never guessed.
+    /// </summary>
+    public static (int Item, PlayoutCue Cue) PlayoutCueOption(string value, int items)
+    {
+        const string Takes = "--cue takes ITEM=LINK:LIST:ITEM[:standby][:together] (LIST empty for a Patterns cue)";
+        var eq = value.IndexOf('=');
+        if (eq <= 0 || !int.TryParse(value[..eq], NumberStyles.None, CultureInfo.InvariantCulture, out var item) || item < 1 || item > items)
+            throw new ArgumentException($"{Takes}; ITEM is 1-{items.ToString(CultureInfo.InvariantCulture)}");
+        var parts = value[(eq + 1)..].Split(':');
+        if (parts.Length < 3) throw new ArgumentException(Takes);
+        var flags = parts.Skip(3).ToList();
+        if (flags.Any(f => f is not ("standby" or "together")) || flags.Distinct().Count() != flags.Count) throw new ArgumentException(Takes);
+        var cue = new PlayoutCue { Link = parts[0], List = parts[1], Item = parts[2], Standby = flags.Contains("standby"), Together = flags.Contains("together") };
+        if (PlayoutRules.SanitiseCues([cue]) is not [var kept]) throw new ArgumentException(Takes + "; LINK by a link's name rule, LIST and ITEM ids of 1-64 letters, digits, - or _");
+        return (item - 1, kept);
+    }
 
     /// <summary>
     /// One --playout value, NAME=HOST:PORT[,KIND], as a link Settings keeps: a name by its rule, a host it can dial, a port, and kind
@@ -208,6 +239,10 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                     "--playout" => o.Playout.Count < PlayoutRules.Max && RigOptions.PlayoutLink(Next()) is var link && o.Playout.All(l => l.Name != link.Name)
                         ? o with { Playout = [.. o.Playout, link] }
                         : throw new ArgumentException($"--playout: at most {PlayoutRules.Max.ToString(CultureInfo.InvariantCulture)} links, each named once"),
+                    "--cue" => RigOptions.PlayoutCueOption(Next(), Rig.Items) is var (item, cue)
+                        && (o.Cues.TryGetValue(item, out var had) ? had : []) is var on && on.Count < PlayoutRules.MaxCuesPerItem
+                        ? o with { Cues = new Dictionary<int, IReadOnlyList<PlayoutCue>>(o.Cues) { [item] = [.. on, cue] } }
+                        : throw new ArgumentException($"--cue: at most {PlayoutRules.MaxCuesPerItem.ToString(CultureInfo.InvariantCulture)} cues an item"),
                     _ => throw new ArgumentException($"unknown option {args[i]}"),
                 };
             }
@@ -404,6 +439,16 @@ sealed class Rig : ICompanionBridge, IDisposable
         _director = new PlayoutDirector(_playout, () => _o.Playout, () => true, () => PlayoutRules.DefaultLeadMs,
             (at, mark, row) => Post(() => _journal?.Add(at.UtcDateTime, JournalKind.Playout, mark, row)), line => Log("playout: " + line));
     }
+
+    /// <summary>How many items the rig's running order has: what --cue's ITEM counts in.</summary>
+    public static int Items => Agenda.Length;
+
+    /// <summary>The item at <paramref name="index"/> as the app's running order holds it: its id, title, kind and the cues --cue put on it.</summary>
+    private RundownItem RigItem(int index) => new()
+    {
+        Id = RigRundown.Items[index].Id, Title = Agenda[index].Title, Kind = Agenda[index].Kind, DurationSeconds = Agenda[index].Seconds,
+        Playout = _o.Cues.TryGetValue(index, out var cues) ? cues.Select(c => c.Clone()).ToList() : [],
+    };
 
     public SnapshotHub Snapshots { get; } = new();
     public TimerEngine Engine { get; } = new();
@@ -864,6 +909,10 @@ sealed class Rig : ICompanionBridge, IDisposable
         _item = index;
         var running = Engine.State == TimerState.Running;
         Engine.SetDuration(TimeSpan.FromSeconds(Agenda[index].Seconds));
+        // A load, as the app's: its cues set to stand by do so once this turn of the owner thread is over, unless it starts in the turn.
+        _cuesStarted = false;
+        _director.ItemLoaded(index, RigItem(index));
+        Post(_director.EndOfTurn);
         if (running) Engine.Start();
         return (true, $"item {index + 1}: {Agenda[index].Title}");
     }
@@ -921,9 +970,16 @@ sealed class Rig : ICompanionBridge, IDisposable
     /// once a second, the context. Alive is marked before the frame is published, so a link the frame wakes never reads
     /// the show as stuck.</summary>
     private int _tick;
+    // Whether the item in hand has started in this load (owner thread): its cues GO once, the first time its timer counts.
+    private bool _cuesStarted;
     private void Tick()
     {
         Snapshots.MarkAlive();
+        if (!_cuesStarted && Engine.IsCounting)
+        {
+            _cuesStarted = true;
+            _director.ItemStarted(_item, RigItem(_item));
+        }
         // An acknowledgement nobody gave escalates once, after the app's default 20 s, and is journalled as the app journals it;
         // an answered or cancelled one leaves the board 30 s later.
         var now = DateTime.UtcNow;

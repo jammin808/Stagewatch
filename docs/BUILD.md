@@ -105,6 +105,12 @@ tools/test.sh help            # what each lane does, and the variables a person 
   `playout` and `patterns` lines go through the app's executor, each receipt the peer's own answer with its one follow-up
   on a WebSocket and Companion, and the context, the frame, the config and the journal take the links as the app's do (its
   running order never moves on a clip's end); the ready line's `playout` lists each link's name, kind and address;
+  `--cue ITEM=LINK:LIST:ITEM[:standby][:together]` (up to 4 an item, ITEM its place in the rig's running order, LIST
+  empty for a Patterns cue) puts a running-order cue on an item, run by the app's planner: a cue set to stand by does so
+  at the end of the turn that loaded its item, unless the item started in it (PlayMap's CUE only on an idle playlist),
+  and each cue GOes when its item first starts, one per sync group, those marked together at one instant where each
+  link's clock allows (`AT` on a node's clock fit for it, held on the rig for the others), every row in the journal
+  and its log (`playout: Item 4: …`, as the desk's status line has it);
   `--pin-file <file>` takes the PIN from a file's first line (never with `--pin`); `--secrets-out <file>` writes the
   PIN, the windows' addresses and the keys' secrets to a file of the user's own, so standard output and error carry none
   (each start rewrites it with that start's secrets, as its ready line would, so a key made on an earlier start isn't in

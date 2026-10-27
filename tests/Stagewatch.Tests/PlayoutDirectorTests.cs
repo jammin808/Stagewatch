@@ -16,7 +16,7 @@ using Stagewatch.Show;
 /// </summary>
 static class PlayoutDirectorTests
 {
-    const string Token = "AB12CD34";
+    internal const string Token = "AB12CD34";
     const string Nonce = "00112233445566778899aabbccddeeff";
 
     public static async Task Run(Action<bool, string> Check)
@@ -64,14 +64,15 @@ static class PlayoutDirectorTests
 
     static string Proof(string token) => PlayoutWire.Proof(token, Nonce, PlayoutWire.HelloName)!;
 
-    static string Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
+    static string Now(long offsetMs = 0) => (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + offsetMs).ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// A 1.1 peer as a fake desk plays it: it greets with a NONCE, takes the proof of <see cref="Token"/>, answers the probe, pings,
-    /// STATUS (<paramref name="state"/>), CONTEXT (<paramref name="context"/>), WHOAMI (<paramref name="whoami"/>, none for a
-    /// Patterns desk) and each command <paramref name="commands"/> knows, by its line without its id ("@@" in the answer is the id).
+    /// A 1.1 peer as a fake desk plays it: it greets with a NONCE, takes the proof of <see cref="Token"/>, answers the probe, pings
+    /// (its clock <paramref name="offsetMs"/> ahead of this PC's), STATUS (<paramref name="state"/>), CONTEXT (<paramref name="context"/>),
+    /// WHOAMI (<paramref name="whoami"/>, none for a Patterns desk) and each command <paramref name="commands"/> knows, by its line
+    /// without its id ("@@" in the answer is the id).
     /// </summary>
-    static void Peer(PlayoutLinkTests.FakeDesk desk, Func<string> state, string context, string? whoami, Func<string, string?> commands)
+    internal static void Peer(PlayoutLinkTests.FakeDesk desk, Func<string> state, string context, string? whoami, Func<string, string?> commands, long offsetMs = 0)
     {
         desk.Greeting = () => ["NONCE " + Nonce];
         desk.Answer = l =>
@@ -82,7 +83,7 @@ static class PlayoutDirectorTests
             if (body.StartsWith("PING", StringComparison.Ordinal))
             {
                 var t1 = body.Length > 5 ? body[5..] : Now();
-                return [Ok(tag, "PONG " + t1 + " " + Now() + " " + Now())];
+                return [Ok(tag, "PONG " + t1 + " " + Now(offsetMs) + " " + Now(offsetMs))];
             }
             if (body == "STATUS") return [Ok(tag, state())];
             if (body == "CONTEXT") return [Ok(tag, context)];
@@ -134,8 +135,10 @@ static class PlayoutDirectorTests
               "playout plan: go and cue wait for the peer's kind (its STATE)");
         Check(P(patterns, new(null, null, long.MaxValue, null), "pause") is { Error: null, What: "PAUSE" },
               "playout plan: the clip's transport needs no kind (the link refuses with no clip on air)");
-        Check(P(L("stage-left", "playmap"), new(PlayoutRules.PlayMap, PlayMapState(), 100, null), "go", "show", "it1", together: true) is { Error: { } t } && t.Contains("together isn't carried yet", StringComparison.Ordinal),
-              "playout plan: together is refused, never sent untimed as if it were together");
+        Check(P(L("stage-left", "playmap"), new(PlayoutRules.PlayMap, PlayMapState(), 100, null), "go", "show", "it1", together: true) is { Error: null, Together: true, At: null, What: "GO" }
+              && P(patterns, Pat(null, PatternsContext), "go", item: "c1", together: true) is { Error: null, Together: true, What: "GO" }
+              && P(L("stage-left", "playmap"), new(PlayoutRules.PlayMap, PlayMapState(), 100, null), "go", "show", "it1") is { Together: false },
+              "playout plan: a GO asked together is marked so, never timed by the plan — when it goes is the timing's, from each link's clock");
         Check(P(L("stage-left", "playmap"), new(PlayoutRules.Patterns, PatternsState(null), 100, null), "pause") is { Error: { } m } && m.Contains("answers as Patterns, but its settings say PlayMap", StringComparison.Ordinal),
               "playout plan: a peer that answers as another kind than its settings is sent nothing");
         // PlayMap: a playlist's item, never on a follower, a CUE only on a playlist seen idle a moment ago, a bare GO only with its EXPECT.

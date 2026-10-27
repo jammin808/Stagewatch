@@ -115,18 +115,19 @@ test('the links pair by proof and every reader takes them: ready line, context i
     const mine = (c.items || []).filter((i) => i.id === 'link:stage-left' || i.id === 'link:patterns');
     const verbs = (c.commands || []).map((x) => x.verb);
     return mine.length === 2 && mine.every((i) => i.state.includes('proved at level 0'))
-      && verbs.includes('playout stage-left go <playlist> [<item>]') && verbs.includes('playout patterns go <cue>') && c;
+      && verbs.includes('playout stage-left go <playlist> [<item>] [together]') && verbs.includes('playout patterns go <cue>') && c;
   }, 15000, 'both links paired and their kinds heard, in the context');
   const byId = Object.fromEntries(items.items.map((i) => [i.id, i]));
   assert.deepEqual([byId['link:stage-left'].kind, byId['link:stage-left'].label, byId['link:stage-left'].light], ['playout', 'PlayMap Stage left', 'amber'],
     'a level-0 link is amber in the context: its record is legacy, whatever its own line says');
   assert.deepEqual([byId['link:patterns'].kind, byId['link:patterns'].label, byId['link:patterns'].light], ['playout', 'Patterns', 'amber']);
   const verbs = items.commands.map((c) => c.verb);
-  assert.ok(verbs.includes('playout stage-left go <playlist> [<item>]') && verbs.includes('playout stage-left cue <playlist> <item>'),
-    'the context offers a PlayMap node its playlist verbs: ' + verbs.join(' | '));
-  assert.ok(verbs.includes('playout patterns go <cue>') && !verbs.includes('playout patterns go <playlist> [<item>]'),
+  assert.ok(verbs.includes('playout stage-left go <playlist> [<item>] [together]') && verbs.includes('playout stage-left cue <playlist> <item>'),
+    'the context offers a PlayMap node its playlist verbs, a GO together among them: ' + verbs.join(' | '));
+  assert.ok(verbs.includes('playout patterns go <cue>') && !verbs.some((v) => v.startsWith('playout patterns go <playlist>')),
     'and a Patterns desk its cue verbs, never a playlist\'s');
-  assert.ok(!verbs.some((v) => v.includes('together')), 'no row offers together while a GO at one instant is not carried');
+  assert.deepEqual(verbs.filter((v) => v.includes('together')), ['playout stage-left go <playlist> [<item>] [together]'],
+    'together only on the node\'s GO: a Patterns desk takes no AT');
   await until(async () => JSON.stringify((await rig.context()).peers || []).includes(PLAYMAP_ID), 10000, 'the node\'s own context pulled onto the network');
 
   const config = await until(async () => {

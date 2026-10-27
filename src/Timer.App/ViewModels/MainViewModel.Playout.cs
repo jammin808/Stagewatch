@@ -35,7 +35,18 @@ public sealed partial class MainViewModel
     private PlayoutDirector Director => _director ??= new PlayoutDirector(_playout, () => Settings.Integrations.PlayoutLinks,
         () => FeatureGate.AllowsPlayout(_license.Tier), () => Settings.Integrations.PlayoutLeadMs,
         (at, mark, row) => _ui.BeginInvoke(() => _journal.Add(at.UtcDateTime, JournalKind.Playout, mark, row)),
-        line => _ui.BeginInvoke(() => StatusLine = line));
+        line => _ui.BeginInvoke(() => StatusLine = line), TimeProvider.System, () => ShowClock);
+
+    /// <summary>
+    /// The amber advice before the next item to start (the item loaded and not started, else the one after it): each of its playout
+    /// cues that would be skipped, and why (<see cref="PlayoutDirector.CueAdvice"/>).
+    /// </summary>
+    private IReadOnlyList<Advice> CueAdvice()
+    {
+        var items = Settings.Rundown.Items;
+        var next = !_show.RundownActive || _show.CurrentItem < 0 ? 0 : _show.ItemStarted ? _show.CurrentItem + 1 : _show.CurrentItem;
+        return next >= 0 && next < items.Count ? Director.CueAdvice(items[next], next) : [];
+    }
 
     /// <summary>
     /// The clip feeding the VT countdown (<see cref="PlayoutDirector.PickVt"/>): of the links that may feed it, in Settings' order, the
@@ -167,10 +178,13 @@ public sealed partial class MainViewModel
             // A peer that answers as another kind than its settings name feeds no reader: its status says why, and nothing else of it.
             var state = link.WrongKind is null ? link.Reading?.State : null;
             var who = link.Whoami is { } w ? $"role {w.Role}" + (w.Armed ? ", armed" : "") + (w.MayDrive ? "" : ", lets this PC only read") : "";
-            facts.Add(new PlayoutFact(s.Name, link.Kind ?? "", link.Peer, link.Pairing != PlayoutPairing.None, link.CanSchedule(lead), link.Record.Light, link.Status, who,
+            facts.Add(new PlayoutFact(s.Name, link.Kind ?? "", link.Peer, link.Pairing != PlayoutPairing.None, link.CanSchedule(PlayoutDirector.ToleranceMs(lead)),
+                link.Record.Light, link.Status, who,
                 (state?.Playlists ?? []).Take(AiContext.PlayoutPlaylistsMax).Select(p => new PlayoutPlaylistFact(p.Id, p.Name, p.State,
                     p.ItemId.Length > 0 ? $"{p.ItemId} · {p.ItemLabel}" : "", p.NextId.Length > 0 ? $"{p.NextId} · {p.NextLabel}" : "")).ToList(),
-                state?.Cuestack is { StandbyId.Length: > 0 } c ? $"{c.StandbyId} · {c.StandbyName}" : ""));
+                state?.Cuestack is { StandbyId.Length: > 0 } c ? $"{c.StandbyId} · {c.StandbyName}" : "",
+                link.WrongKind is null ? link.Index?.Lines(AiContext.PlayoutListedMax) ?? [] : [],
+                AiContext.PlayoutCues(Settings.Rundown.Items, s.Name)));
         }
         return facts;
     }

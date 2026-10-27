@@ -124,8 +124,8 @@ public static class ShowContext
             if (!l.Starts) continue;
             if (l.Kind == PlayoutRules.PlayMap)
             {
-                // No [together] until a GO at one instant is carried (Show Bus 13.11.6): a row offers only what the executor sends.
-                rows.Add(($"{on} go <playlist> [<item>]", "high", $"Play a playlist's item on {l.Label} (its next item when none is named)", true));
+                // together: at one instant on the node's clock where that clock is fit for it (Show Bus 13.11.6), else at once and said.
+                rows.Add(($"{on} go <playlist> [<item>] [together]", "high", $"Play a playlist's item on {l.Label} (its next item when none is named); together: at an instant on its clock, where that clock is fit for it", true));
                 rows.Add(($"{on} cue <playlist> <item>", "high", $"Load an item on {l.Label}: its first frame shows on air at once", true));
             }
             else if (l.Kind == PlayoutRules.Patterns)

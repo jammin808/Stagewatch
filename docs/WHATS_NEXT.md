@@ -341,7 +341,37 @@ running app on a network: two copies of one install for the conflict, an old cer
   note and button, the status line's entries and the typed entry compile here and are not walked on Windows (`pwsh
   tools\smoke.ps1`). The plan's "pinned per node id" is read with the contract: a level-0 link pins `first` on sight — which decides
   the transport, never the trust — and a person's pin only by their choice (13.8.2–3), so a pin by first sight never refuses a
-  changed certificate.
+  changed certificate. *Since then (SW20.7):* `together` is carried. A GO asked together goes at an instant the operator's lead
+  (300 ms) ahead on this PC's clock: a PlayMap node gets `AT <unix ms>` on its own clock only when the link's clock is fit for it
+  (Show Bus 13.11.4–6: a sample at most 10 s old, its error within what a round trip as long as the lead gives) and was measured
+  over TLS or on a link to this PC; any other GO of the same start is held here and sent untimed half its round trip before the
+  instant, or at the instant by this PC's clock alone when its clock was measured over plain TCP off this PC (Patterns' 9697 until
+  its Round 97, which the rows say); a member up with no clock sample at all makes nothing together, said, and one whose link is
+  down takes no timing from the others. One GO per PlayMap sync group, a follower's row saying whether its leader's GO was sent;
+  a held GO goes only on the link and connection it was held for, and only while the licence allows. The receipt's effect, the
+  show log and the status line say which — "sent with AT for 20:00:01.250 (± 3 ms)" as it goes, "scheduled for …" only once the
+  node's own answer took it, "held here, to be sent at …", "not timed: … — sent at once" — and a timed GO whose node's STATE shows
+  it started later than its AT by more than half the round trip and 20 ms has a "started late by" row. The running
+  order's cues (a running-order item's `playout`, up to 4) run through `PlayoutDirector`'s planner in the desk and the rig
+  (`--cue`): standby off by default and, when set, sent at the end of the turn that loaded the item unless it started in it (a
+  PlayMap CUE only on an idle playlist); each cue GOes when its item first starts, a Patterns cue by `CUE GO` alone; a cue whose
+  link is missing, off or not running, whose peer answers as another kind or node, or that names what its peer does not list, is
+  amber advice before its item — first in the desk's advice, whether or not its assistant is on — and skipped with a row that
+  reaches the status line too. `INDEX` (PlayMap) and `CUE LIST` (Patterns) are asked once the kind is heard and again when the
+  STATE's revision moves, and a peer answering as another node than its link's feeds none of its list; what they list and the
+  running order's cues reach the copilot's facts, and the context offers `[together]` on a PlayMap node's GO. Left: the desk's
+  cue editor, its pickers from those lists, the running-order row's menus and Help (SW20.11, the maintainer's PC work); the
+  module's playout actions (SW20.12); no real PlayMap or Patterns has run a cue yet (the VT interop rows, SW20.13); "seen" and
+  "started late" are read from the node's STATE, never from its outputs (PlayMap's round-3 observer); a Patterns desk's GO is
+  never timed until its wire offers TLS; `INDEX` and `CUE LIST` answers longer than a line (256 KB) are not read, so such a
+  peer's cues go unchecked and the peer's own refusal is the word; the link's record carries no `unfit` flag, so a clock not fit
+  for a timed GO shows only in the rows of a GO that asked for one; and the believed clock sample is 13.11.3's smallest round trip
+  among the last 8, one a ping each 2 s, so it can be older than `clock.fresh.ms` (10 s) while fresher ones are kept — a timed GO
+  then falls back, said (held, or at once). Pinging every 1.25 s (inside `ping.min.ms`–`ping.max.ms`) would keep the window
+  within 10 s; it is not done without a measure of how often a GO falls back on a real network (the design's "smallest round trip
+  among those at most 10 s old" differs from 13.11.3, which is followed).
+  None of the desk's side (the advice, the turn's end, the show-clock times in the rows) has been walked on Windows (`pwsh
+  tools\smoke.ps1`).
 - **Find still listens on Patterns' beacon.** Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled:
   the release after that walk row is filled takes it. Find already reads a hello's `ports.wire` (else the top-level `wire` older
   senders give) and hears PlayMap's hello as well as Patterns', so a desk that names its wire only in `ports` is listed; Settings'

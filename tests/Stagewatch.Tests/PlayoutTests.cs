@@ -408,10 +408,10 @@ static class PlayoutTests
               "playout grammar: a word with a control character or a line break is refused");
 
         Check(Parse("patterns pause", out _) is { Kind: ShowCommandKind.Patterns, Text: "pause" }, "playout grammar: patterns pause stays the Patterns verb");
-        Check(ShowCommandParser.Help.Contains("playout [link] go <playlist> [item] | ", StringComparison.Ordinal)
+        Check(ShowCommandParser.Help.Contains("playout [link] go <playlist> [item] [together] | ", StringComparison.Ordinal)
               && ShowCommandParser.Help.Contains("playout [link] restart|play|pause|stop", StringComparison.Ordinal)
-              && !ShowCommandParser.Help.Contains("together", StringComparison.Ordinal),
-              "playout grammar: the help names the verb's forms, and no together while the executor carries none");
+              && ShowCommandParser.Help.Split("together").Length == 2,
+              "playout grammar: the help names the verb's forms, together once — on a playlist's GO, which the executor times where a clock allows");
         Check((int)ShowCommandKind.Playout == (int)ShowCommandKind.Window + 1, "playout grammar: ShowCommandKind.Playout appended after Window");
         Check(Enum.GetValues<JournalKind>()[^1] == JournalKind.Playout && (int)JournalKind.Playout == (int)JournalKind.ClockCheck + 1,
               "playout grammar: JournalKind.Playout appended after ClockCheck");
@@ -537,12 +537,14 @@ static class PlayoutTests
 
         var starts = ShowContext.CommandsFor([new PlayoutRow("stage-left", "Stage left", PlayoutRules.PlayMap, Starts: true), new PlayoutRow("patterns", "Patterns", PlayoutRules.Patterns, Starts: true),
                                               new PlayoutRow("odd", "Odd", "", Starts: true)]);
-        Check(starts.Any(c => c.Verb == "playout stage-left go <playlist> [<item>]") && starts.Any(c => c.Verb == "playout stage-left cue <playlist> <item>")
-              && !starts.Any(c => c.Verb.Contains("together", StringComparison.Ordinal))
+        Check(starts.Any(c => c.Verb == "playout stage-left go <playlist> [<item>] [together]") && starts.Any(c => c.Verb == "playout stage-left cue <playlist> <item>")
+              && starts.Count(c => c.Verb.Contains("together", StringComparison.Ordinal)) == 1
               && starts.Any(c => c.Verb == "playout patterns go <cue>") && starts.Any(c => c.Verb == "playout patterns cue <cue>")
               && !starts.Any(c => c.Verb.StartsWith("playout odd go", StringComparison.Ordinal) || c.Verb.StartsWith("playout odd cue", StringComparison.Ordinal))
               && starts.Where(c => c.Verb.StartsWith("playout ", StringComparison.Ordinal)).All(c => c.Risk == "high"),
-              "playout context: a link that can start lists go and cue in its kind's words, none while its kind is not known, and no together the executor refuses");
+              "playout context: a link that can start lists go and cue in its kind's words, none while its kind is not known, together only on a PlayMap node's GO (a Patterns desk takes no AT)");
+        Check(ProposalDesk.RiskFromCommands(starts.Select(c => (c.Verb, c.Risk)).ToList(), "playout stage-left go pl1 it1 together") == "high",
+              "playout context: a proposal of a GO together reads high");
         Check(ProposalDesk.RiskFromCommands(starts.Select(c => (c.Verb, c.Risk)).ToList(), "playout stage-left cue pl1 it1") == "high"
               && ProposalDesk.RiskFromCommands(transport.Select(c => (c.Verb, c.Risk)).ToList(), "playout patterns pause") == "high",
               "playout context: a peer's proposal of a playout line reads high");

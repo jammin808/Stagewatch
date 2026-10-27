@@ -212,13 +212,16 @@ public sealed partial class MainViewModel
 
     private EquatableArray<Advice> BuildAdvice(DateTime now, ScheduleProjection p, TimerTick t, SlideView? slides)
     {
-        if (!Settings.Integrations.Assistant || !FeatureGate.AllowsAssistant(_license.Tier)) return EquatableArray<Advice>.Empty;
+        // The planner's own facts come first and need no assistant, as a refusal needs none: each running-order cue of the next item
+        // that would be skipped (at most four), so nothing below can push them out.
+        var list = new List<Advice>(CueAdvice());
+        if (!Settings.Integrations.Assistant || !FeatureGate.AllowsAssistant(_license.Tier)) return list.Take(8).ToEquatableArray();
         GhostResult? ghost = slides is { Pace: not PaceState.Unknown } s ? new GhostResult(s.GhostDeltaSeconds, s.ProjectedSeconds, s.Pace) : null;
         ScriptPosition? script = _speech is { Listening: true } sp ? sp.Position : null;
         var input = new AdvisorInput(Settings.Rundown.Items, p, _show.RundownActive ? _show.CurrentItem : -1, _engine.IsCounting,
             t.Remaining, _forecast, ghost, script, _signals.All, _qa.Queued, _qa.FitIn(t.Remaining), now, ShowClock,
             Settings.Display.Use12HourClock);
-        var list = new List<Advice>(_ruleAdvisor.Advise(input));
+        list.AddRange(_ruleAdvisor.Advise(input));
         list.AddRange(PeerAdvice());
         if (_cloud is { } cloud)
         {

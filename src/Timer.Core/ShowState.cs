@@ -728,7 +728,7 @@ public static class ShowCommandParser
         "deptnote <item> <department> [text] | roll [on|off|toggle] | rundown <name> | undo | redo | endofshow <HH:MM|clear> | loop <off|n|forever> | " +
         "screen reload [screen] | screen disconnect [screen] | patterns end [seconds] | patterns restart | patterns play | patterns pause | patterns stop | patterns seek <m:ss> | " +
         "playout [link] end [seconds] | playout [link] restart|play|pause|stop | playout [link] seek <m:ss> | " +
-        "playout [link] cue <playlist> <item> | playout [link] cue <cue> | playout [link] go <playlist> [item] | playout [link] go <cue> | " +
+        "playout [link] cue <playlist> <item> | playout [link] cue <cue> | playout [link] go <playlist> [item] [together] | playout [link] go <cue> | " +
         "playout <link> trust <8+ hex of its certificate> (typed on the desk only, beside the fingerprint) | " +
         "screen identify [screen] | screen go <preset|/page> [screen] | screen name <id> <name> | screen save <preset> <screen> | " +
         "window new <name> [page] | window show <window|all> <page|setup|holding|black> | window cue <window|all> <page> | " +

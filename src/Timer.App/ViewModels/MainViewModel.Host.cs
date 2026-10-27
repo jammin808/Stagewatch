@@ -32,10 +32,14 @@ public sealed partial class MainViewModel : IShowHost
             SetMessage(item.Message, MessageUrgency.Info, FlashRate.Off);
         }
         RefreshRundownHighlight();
+        // Its playout cues set to stand by do so once this turn of the show thread is over, unless the item starts in it too.
+        Director.ItemLoaded(index, item);
+        _ui.BeginInvoke(() => Director.EndOfTurn());
     }
 
     void IShowHost.ItemStarted(int index, RundownItem item, bool firstOfShow)
     {
+        Director.ItemStarted(index, item);
         if (firstOfShow) FireTrigger(TriggerEvent.ShowStart, "", item.Title);
         if (FeatureGate.AllowsAlerts(_license.Tier)) PlayChime(ChimeFor("start", Settings.Alerts.OnStart), Settings.Alerts.Device ?? "");
         FireTrigger(TriggerEvent.ItemStart, ItemFilters(index), item.Title);

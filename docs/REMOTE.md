@@ -102,7 +102,7 @@ One grammar is shared by every transport — HTTP, WebSocket, OSC and the Compan
 | `report` | `[html\|csv]` | Save the planned-vs-actual report |
 | `note` | `<text>` | Log a note in the show report |
 | `playout` | `[<link>] end [seconds]` · `[<link>] restart\|play\|pause\|stop` · `[<link>] seek <m:ss>` | The clip on air on a playout link's peer, a Patterns desk or a PlayMap node (Settings → Integrations → Playout links; 2.20): its last seconds (10 unless said), back to its top, play, pause, stop (back to its top, held) or a point. `<link>` is the link's name; with none, the only link switched on, else the link feeding the VT countdown |
-| `playout` | `<link> go <playlist> [item]` · `<link> cue <playlist> <item>` (a PlayMap node) · `<link> go <cue>` · `<link> cue <cue>` (a Patterns desk) | Start a playlist's item (its next one when none is named) or load one, its first frame on air at once; GO a cue (the desk's own standby decides) or stand one by. Never guessed between two links (2.20) |
+| `playout` | `<link> go <playlist> [item] [together]` · `<link> cue <playlist> <item>` (a PlayMap node) · `<link> go <cue>` · `<link> cue <cue>` (a Patterns desk) | Start a playlist's item (its next one when none is named) or load one, its first frame on air at once; GO a cue (the desk's own standby decides) or stand one by. Never guessed between two links (2.20). `together`: at an instant on the node's own clock (`AT`) when that clock is fit for it, else at once — the receipt says which (see *A GO at one instant* below) |
 | `patterns` | `end [seconds]` · `restart\|play\|pause\|stop` · `seek <m:ss>` | As `playout`, on link `patterns`, else the only link |
 | `playout` | `<link> trust <8+ hex of its certificate>` | Refused on every transport, whoever sends it (2.20): trusting a playout link's certificate is a person's choice on the Stagewatch desk, beside its fingerprint (right-click its node on the Show network, or the status line). In the grammar only so that it is refused in words, never as unknown |
 
@@ -307,8 +307,7 @@ and is refused here with why — nothing written to the peer — when it names n
 yet; when the peer answers as another kind than Settings set, or its kind is not yet heard from its STATE (only the
 clip's verbs go then); when a PlayMap `cue` finds its playlist not idle or ended in a STATE at most 3 s old, a `go` with no
 item has no next item to name, or the playlist follows another node's sync group; when a Patterns desk is asked for more
-than one cue by its id; for `together`, which the grammar reads but no help line or context row offers (a timed GO is a later
-release); and when Patterns' own STATE says the clip is a playlist item or a stinger's, whose `pause` or `stop` Patterns
+than one cue by its id; and when Patterns' own STATE says the clip is a playlist item or a stinger's, whose `pause` or `stop` Patterns
 itself refuses — in Patterns' words: `Patterns: 'opener.mp4' is a playlist item — its own clock keeps running, so it is not
 paused (end or seek move it)`. A Patterns desk whose context lists a verb with `ON <key>` is sent the clip's own key with it.
 
@@ -346,6 +345,44 @@ operator's lead and 3 s of the peer's answer — `seen: Main show plays it1 on P
 after the command went shows it (after the peer's answer, when the STATE as it went already showed it: a STATE from before the
 command proves nothing of it), or `not seen in PlayMap Stage left's STATE within 3.3 s: …` when none does. At most 32 effects (`link.inflight.max`) are looked for at once on one link; a command past
 that still goes, and its sender's status line says its effect is not looked for.
+
+### A GO at one instant, and the running order's cues (2.20)
+
+`playout <link> go <playlist> [item] together` asks a PlayMap node to start at one instant, the operator's lead (300 ms unless
+Settings say otherwise, 100–2000) from now: the line carries `AT <unix ms>` on the node's own wall clock — this PC's instant
+plus the link's measured offset — only when that clock is fit for it (Show Bus 13.11.4–6: its believed sample at most 10 s old,
+its error within the error a round trip as long as the lead gives) and was measured over TLS or on a link to this PC. A clock
+measured over a plain link off this PC may be shown and schedules nothing. Otherwise the GO goes at once, untimed, and says
+why. The receipt's `effect` ends with what was done, in the stage it reached: `… · sent with AT for 20:00:01.250 (± 3 ms)`
+while the node has not answered (or never does), `… · scheduled for 20:00:01.250 (± 3 ms)` only once its answer says it took
+the GO (applied or accepted), the node's own words alone when it refuses it, and `… · not timed: <why> — sent at once` for one
+sent untimed. The show log has the same rows: one as it goes, one more once the node took it. A Patterns desk takes no `AT`
+(its wire has no TLS until its Round 97), so its GO asked together goes at once and says so. The clock believed is the sample
+with the smallest round trip among the last 8 (Show Bus 13.11.3), one each 2 s, so it can be older than 10 s while fresher ones
+are kept: a timed GO then falls back and says its clock is not fit.
+
+A running-order item can hold up to four playout cues, each naming its link and a PlayMap playlist's item or a Patterns
+cue, by id. Nothing is sent when an item loads unless a cue is set to stand by (off by default: a PlayMap standby shows the
+item's first frame on air, a Patterns one moves that desk's own standby): then, at the end of the show thread's turn that
+loaded it and only if the item did not start in that turn, a PlayMap `PLAYLIST CUE` (only on a playlist its STATE showed idle
+or ended at most 3 s ago) or a Patterns `CUE STANDBY`. When the item first starts, each cue GOes — a PlayMap `PLAYLIST GO`, a
+Patterns `CUE GO` alone (never STANDBY beside it; its own standby fence decides) — one GO per PlayMap sync group (a
+follower's cue is left to its leader's GO among the item's cues, and refused naming its leader when there is none), and the
+cues marked together at one instant: a node whose clock is fit gets `AT`; any other is held on this PC and sent untimed half
+its round trip before the instant, or at the instant itself by this PC's clock alone when its clock was measured over a plain
+link off this PC; when any of them whose link is up has no clock sample at all, nothing is together and every GO goes at once,
+said; and one whose link is not up is sent nothing, its own row saying why, without taking the others' timing. A follower's cue
+is left to its leader's GO only where that GO's plan passes, and its row says whether the GO was sent. A held GO is sent only on
+the link and connection it was held for and while the licence allows: a drop, a link Settings stopped or replaced, or a lapsed
+licence while it is held leaves it not sent, with a row. A cue whose link this PC lacks, is switched off or not running, whose
+peer answers as another kind or node than its settings name, or that names what its peer does not list (a PlayMap node's
+`INDEX`, a Patterns desk's `CUE LIST`, asked once the link hears the peer's kind and again when its STATE's `project.index` or
+`cuestack.listRev` moves; a peer answering as another node feeds none of it) is amber advice before its item, on the desk
+whether or not its assistant is on, and is skipped at its start with a row. Every row — skipped, not stood by, not sent, sent
+with AT, scheduled for, held, started late — is in the show log against the item, and so in the context's recent lines, and on
+the desk's status line with the item's number; a timed GO whose node's STATE shows it started later than its `AT` by more than
+half the round trip and 20 ms has a row `PlayMap Stage left: Main show started late by 140 ms (AT arrived after its instant)`.
+The cues, and what each peer lists, reach the copilot's facts (`playout_links[].cues`, `listed`, at most 50 each).
 
 An AI's or a peer's approved proposal that went to a playout link (Show Bus §11) is settled by the command's final receipt:
 `done` only once the peer said it applied it; `failed` in the peer's words when it refused or nothing was sent; and one the

@@ -362,6 +362,10 @@ public sealed class PlayoutLink : IPlayoutSource
     // peer's kind is what it said last, never guessed from the port. And PlayMap's WHOAMI answer, on the connection up now.
     private string? _kindSeen;
     private PlayoutWhoami? _whoami;
+    // What the peer lists of itself for running-order cues (its INDEX or CUE LIST), as last read: kept across a redial and asked again
+    // when its STATE's revision moves; dropped when the peer's kind changes. And the connections made, counted.
+    private PlayoutIndex? _index;
+    private int _serials;
 
     // This PC's wall clock less its monotonic one at the last read a pause did not split (13.11.7), and the evaluator's own pauses
     // (13.10.4): when the last line about one went out, and how many came since.
@@ -414,7 +418,7 @@ public sealed class PlayoutLink : IPlayoutSource
     /// </summary>
     private sealed record Published(LinkHealth Health, string Status, PeerLinkState State, PlayoutPairing Pairing, bool Connected,
         PeerLinkRecord Record, PeerClock.Belief? Clock, bool ClockApart, StateRead? Reading, string? Context, string? Kind, string? NodeId,
-        PlayoutWhoami? Whoami, string? ContextNode, PlayoutTrustWait? TrustWait, bool Tls);
+        PlayoutWhoami? Whoami, string? ContextNode, PlayoutTrustWait? TrustWait, bool Tls, PlayoutIndex? Index, int Connection);
 
     /// <summary>
     /// A line for a connection's lane: its text, the request id of the command it is, or a ping whose t1 the lane stamps as it writes it.
@@ -450,6 +454,8 @@ public sealed class PlayoutLink : IPlayoutSource
         /// <summary>Cancelled when the connection ends: the core ended it, a write broke, or the link stops.</summary>
         public readonly CancellationTokenSource End = CancellationTokenSource.CreateLinkedTokenSource(stop);
         public long ConnectedAt;
+        /// <summary>Which of the link's connections this is, counted from 1 as each comes up: a send held for one never goes on another.</summary>
+        public int Serial;
         public PlayoutPairing Pairing;
         /// <summary>A proof, or the token to a desk on this PC, went out on this connection: one per connection, never a second.</summary>
         public bool ProofSent;
@@ -471,6 +477,11 @@ public sealed class PlayoutLink : IPlayoutSource
         /// <summary>The link said why this desk does not pair (an older desk, a NONCE it does not prove, no token): kept while it redials.</summary>
         public bool Advised;
         public long LastPing = long.MinValue / 2, LastContext = long.MinValue / 2, LastWhoami = long.MinValue / 2;
+        /// <summary>When the peer's list (INDEX, CUE LIST) was last asked on this connection, and for which revision ("" for none said).</summary>
+        public long LastList = long.MinValue / 2;
+        public string? ListAskedFor;
+        /// <summary>The peer refused the list's verb on this connection (an older peer): it is not asked again until the link dials again.</summary>
+        public bool ListRefused;
 
         public void Dispose()
         {
@@ -691,6 +702,22 @@ public sealed class PlayoutLink : IPlayoutSource
         lock (_gate) return _m.CanSchedule(Now(), toleranceMs);
     }
 
+    /// <summary>
+    /// 13.11.6's channel: the link's clock is measured where it may time a command — over TLS, or on a local link. A clock measured
+    /// over a plain link off this PC may be shown and never schedules anything: not an <c>AT</c>, and not a send held for its round trip.
+    /// </summary>
+    public bool ClockMayTime => _pub.Tls || _local;
+
+    /// <summary>Which of the link's connections is up now, counted from 1 as each comes up; 0 for none. A send held for one never goes on another.</summary>
+    public int ConnectionSerial => _pub.Connection;
+
+    /// <summary>
+    /// What the peer lists of itself for running-order cues, as last read — a PlayMap node's playlists and items (INDEX), a Patterns
+    /// desk's cues (CUE LIST) — asked once its kind is heard and again when its STATE's revision moves; null until one is read, while
+    /// the peer says another kind than the list was read from, and while it answers as another kind or node than its settings name.
+    /// </summary>
+    public PlayoutIndex? Index => _pub is { } pub && Problem(pub.Reading?.State) is null ? pub.Index : null;
+
     /// <summary>The connection up now runs over TLS: PlayMap's line channel on its <c>https</c> door.</summary>
     public bool OverTls => _pub.Tls;
 
@@ -827,18 +854,22 @@ public sealed class PlayoutLink : IPlayoutSource
     }
 
     /// <summary>
-    /// A PlayMap playlist's <c>PLAYLIST GO &lt;playlist&gt; [&lt;item&gt;] [EXPECT &lt;next&gt;]</c> or <c>PLAYLIST CUE &lt;playlist&gt; &lt;item&gt;</c>,
-    /// each word quoted by PlayMap's line rule where it needs it, with its ticket, or why nothing was sent. Only to a peer heard to be
-    /// PlayMap: a Patterns desk has no playlists of this shape.
+    /// A PlayMap playlist's <c>PLAYLIST GO &lt;playlist&gt; [&lt;item&gt;] [EXPECT &lt;next&gt;] [AT &lt;unix ms&gt;]</c> or
+    /// <c>PLAYLIST CUE &lt;playlist&gt; &lt;item&gt;</c>, each word quoted by PlayMap's line rule where it needs it, with its ticket, or why
+    /// nothing was sent. Only to a peer heard to be PlayMap: a Patterns desk has no playlists of this shape. <paramref name="at"/> is a
+    /// GO's instant on the node's own wall clock, which only a GO carries.
     /// </summary>
-    public PlayoutSent Playlist(string verb, string list, string? item, string? expect, int mark = -1)
+    public PlayoutSent Playlist(string verb, string list, string? item, string? expect, int mark = -1, long? at = null)
     {
         if (Kind != PlayoutRules.PlayMap) return new(null, $"{Peer} isn't heard to be a PlayMap node — no playlist command is sent to it");
+        if (at is <= 0) return new(null, "a GO's AT is a Unix ms on the node's clock");
+        // A GO at an instant names it last, in the node's own clock (13.11.6: only from a clock fit for it, which the asker judged).
+        string[] At(params string[] words) => at is { } ms && verb == "GO" ? [.. words, "AT", ms.ToString(CultureInfo.InvariantCulture)] : words;
         return verb switch
         {
-            "GO" when item is { Length: > 0 } => Send(mark, "PLAYLIST", ["GO", list, item]),
-            "GO" when expect is { Length: > 0 } => Send(mark, "PLAYLIST", ["GO", list, "EXPECT", expect]),
-            "CUE" when item is { Length: > 0 } => Send(mark, "PLAYLIST", ["CUE", list, item]),
+            "GO" when item is { Length: > 0 } => Send(mark, "PLAYLIST", At("GO", list, item)),
+            "GO" when expect is { Length: > 0 } => Send(mark, "PLAYLIST", At("GO", list, "EXPECT", expect)),
+            "CUE" when at is null && item is { Length: > 0 } => Send(mark, "PLAYLIST", ["CUE", list, item]),
             _ => new(null, $"PLAYLIST {verb} isn't one of the playlist verbs a playout link sends (GO with an item or its EXPECT, CUE with an item)"),
         };
     }
@@ -1307,6 +1338,7 @@ public sealed class PlayoutLink : IPlayoutSource
                 return false;
             }
             _conn = conn;
+            conn.Serial = ++_serials;
             conn.ConnectedAt = now.Mono;
             _noDoor = false;
             // 13.11.7: the window empties when the peer's inst changes. A level-0 link never learns the inst, so each connection may be
@@ -1489,6 +1521,16 @@ public sealed class PlayoutLink : IPlayoutSource
                 _whoami = ok ? ReadWhoami(words) : null;
                 return;
             }
+            if (id is ListAskIndex or ListAskCues)
+            {
+                // What the peer lists for running-order cues: kept when it reads as the list of the kind the peer says it is, and only
+                // while the peer answers as the kind and node its settings name (13.4.3: nothing of another node feeds a reader). A
+                // peer that refuses the verb (an older one) is not asked again on this connection.
+                if (!ok) conn.ListRefused = true;
+                else if (Problem(_reading?.State) is null
+                         && (id == ListAskIndex ? PlayoutIndex.ReadIndex(words) : PlayoutIndex.ReadCues(words)) is { } list && list.Kind == _kindSeen) _index = list;
+                return;
+            }
             if (id == "st")
             {
                 // The STATE this link asked for once it paired; a refusal leaves the link waiting for the desk's next push.
@@ -1510,6 +1552,29 @@ public sealed class PlayoutLink : IPlayoutSource
     }
 
     private static long? Ms(string s) => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    /// <summary>The request ids of the link's own asks for the peer's list: a PlayMap node's INDEX, a Patterns desk's CUE LIST.</summary>
+    private const string ListAskIndex = "ix", ListAskCues = "cl";
+
+    /// <summary>
+    /// The ask for the peer's list now, with the revision its STATE names (under the lock), or null: none for a kind not heard, or a
+    /// peer that answers as another kind or node than its settings name; none while the list read is the one the STATE names (or the STATE names none and a list was read); and none for a revision already
+    /// asked on this connection, so a peer whose answer names another revision than its STATE is not asked again and again.
+    /// </summary>
+    private (string Line, string Revision)? ListAsk(Connection conn)
+    {
+        var state = _reading?.State;
+        var (line, revision) = _kindSeen switch
+        {
+            PlayoutRules.PlayMap => ("@" + ListAskIndex + " INDEX", state is { HasProject: true } ? state.ProjectIndex ?? "" : ""),
+            PlayoutRules.Patterns => ("@" + ListAskCues + " CUE LIST", state is { HasCuestack: true } ? state.Cuestack?.ListRev ?? "" : ""),
+            _ => ("", ""),
+        };
+        // A peer that answers as another kind, or as another node, than its settings name is asked nothing more.
+        if (line.Length == 0 || Problem(state) is not null) return null;
+        var needed = _index is not { } read || read.Kind != _kindSeen || (revision.Length > 0 && revision != read.Revision);
+        return needed && conn.ListAskedFor != revision ? (line, revision) : null;
+    }
 
     /// <summary>A context's <c>node.id</c> when it is a Show Bus id, else null: never an exception, whatever the peer sent.</summary>
     private static string? ContextNode(string json)
@@ -1580,9 +1645,13 @@ public sealed class PlayoutLink : IPlayoutSource
         _reading = new StateRead(state, now.Mono, ++_readings);
         // The kind its STATE says (13.4): what the link's commands are written for, and the one a kind set in Settings must match.
         if (state.Kind is { } kind) _kindSeen = kind.Length > 0 ? kind : null;
+        if (_index is { } listed && listed.Kind != _kindSeen) _index = null;
         if (Problem(state) is { } problem)
         {
-            // Amber, both named, nothing sent — and over TLS, the certificate of a node not meant is pinned nothing.
+            // Amber, both named, nothing sent — and over TLS, the certificate of a node not meant is pinned nothing; nor is a list
+            // read before kept for it: it is asked again once the peer answers as the node meant.
+            _index = null;
+            if (_conn is { } asked) asked.ListAskedFor = null;
             Say(LinkHealth.Starting, problem);
             return;
         }
@@ -1802,6 +1871,14 @@ public sealed class PlayoutLink : IPlayoutSource
                     {
                         Write(conn, "@wh WHOAMI");
                         conn.LastWhoami = now.Mono;
+                    }
+                    // What the peer lists for running-order cues, asked once its kind is heard and again when its STATE's revision
+                    // moves — at most once each ContextEvery, once a revision on a connection, never again on one that refused it.
+                    if (conn.Bus11 && !conn.ListRefused && now.Mono - conn.LastList >= ContextEvery.TotalMilliseconds && ListAsk(conn) is { } ask)
+                    {
+                        Write(conn, ask.Line);
+                        conn.LastList = now.Mono;
+                        conn.ListAskedFor = ask.Revision;
                     }
                 }
                 Flush(conn);
@@ -2170,7 +2247,7 @@ public sealed class PlayoutLink : IPlayoutSource
         var node = _reading?.State.Id is { Length: > 0 } stateId ? stateId : _contextNode;
         return new Published(conflict ? LinkHealth.Starting : HealthOf(state, readOnly ? LinkHealth.Starting : _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None,
             _conn is not null, record, _m.Clock.Believed, _m.Clock.Apart, _reading, _context, _kindSeen, node, _whoami, _contextNode, waiting,
-            _conn is { Tls: true });
+            _conn is { Tls: true }, _index, _conn is { } up ? up.Serial : 0);
     }
 
     /// <summary>

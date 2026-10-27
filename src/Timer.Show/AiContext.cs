@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Stagewatch.Core;
@@ -25,10 +26,12 @@ public sealed record IntegrationFact(string Name, string Health, string Status);
 /// A playout link as the copilot sees it, so a line it proposes names a real link and a real playlist: its name, the peer's kind once
 /// heard ("" while not), its peer as people read it, whether it is paired, whether its clock may time a GO (13.11.6), its record's light
 /// and words, what a PlayMap node's WHOAMI says, and its playlists (at most <see cref="AiContext.PlayoutPlaylistsMax"/>, each with the
-/// item on it and the next) or a Patterns desk's standing-by cue. Ids, as the peer gave them; no token, proof or nonce.
+/// item on it and the next) or a Patterns desk's standing-by cue; what the peer lists for running-order cues (<paramref name="Listed"/>:
+/// a node's playlists' items or a desk's cues, at most <see cref="AiContext.PlayoutListedMax"/>), and the running order's cues on the
+/// link (<paramref name="Cues"/>, at most as many). Ids, as the peer gave them; no token, proof or nonce.
 /// </summary>
 public sealed record PlayoutFact(string Name, string Kind, string Peer, bool Paired, bool Timed, string Light, string Words, string Whoami,
-    IReadOnlyList<PlayoutPlaylistFact> Playlists, string Standby);
+    IReadOnlyList<PlayoutPlaylistFact> Playlists, string Standby, IReadOnlyList<string>? Listed = null, IReadOnlyList<string>? Cues = null);
 
 /// <summary>One of a PlayMap node's playlists for the copilot: its id and name, its state, the item on it and the next (id · label).</summary>
 public sealed record PlayoutPlaylistFact(string Id, string Name, string State, string Item, string Next);
@@ -68,6 +71,29 @@ public static class AiContext
 
     /// <summary>The most playlists of one playout link the copilot sees.</summary>
     public const int PlayoutPlaylistsMax = 50;
+
+    /// <summary>The most items or cues a playout link's peer lists, and the most running-order cues on one link, the copilot sees.</summary>
+    public const int PlayoutListedMax = 50;
+
+    /// <summary>
+    /// The running order's cues on the link called <paramref name="link"/>, as the copilot sees them, at most
+    /// <see cref="PlayoutListedMax"/>: the item (number and title), what the cue names (its playlist and item, or its cue) and label,
+    /// and whether it stands by at load or goes together with the item's others.
+    /// </summary>
+    public static IReadOnlyList<string> PlayoutCues(IReadOnlyList<RundownItem> items, string link)
+    {
+        var lines = new List<string>();
+        for (var n = 0; n < items.Count && lines.Count < PlayoutListedMax; n++)
+            foreach (var c in items[n].Playout ?? [])
+            {
+                if (c.Link != link) continue;
+                if (lines.Count == PlayoutListedMax) break;
+                var what = (c.List.Length > 0 ? c.List + " " + c.Item : c.Item) + (c.Label.Length > 0 ? " · " + c.Label : "");
+                var how = (c.Standby ? ", stands by at load" : "") + (c.Together ? ", together" : "");
+                lines.Add($"item {(n + 1).ToString(CultureInfo.InvariantCulture)} ({items[n].Title}): {what}{how}");
+            }
+        return lines;
+    }
 
     /// <summary>The copilot's context: the operator frame, presets and messages, screens, links, history, recent log.</summary>
     public static string Copilot(CopilotFacts f)
@@ -123,6 +149,8 @@ public static class AiContext
                 name = p.Name, kind = p.Kind, peer = p.Peer, paired = p.Paired, timed = p.Timed, light = p.Light, words = p.Words, whoami = p.Whoami,
                 playlists = p.Playlists.Take(PlayoutPlaylistsMax).Select(l => new { id = l.Id, name = l.Name, state = l.State, item = l.Item, next = l.Next }),
                 standby = p.Standby,
+                listed = (p.Listed ?? []).Take(PlayoutListedMax),
+                cues = (p.Cues ?? []).Take(PlayoutListedMax),
             }));
             w.WriteEndObject();
         }

@@ -30,9 +30,22 @@ public static class PlayoutReceipts
         var ticket = step.Ticket!;
         var answered = await Answer(ticket.First, remaining, time).ConfigureAwait(false);
         // No answer yet: whatever comes first later — accepted under load among it — is not final; the follow-up waits for the final one.
-        if (answered is not { } first) return Waiting(id, step.Peer, ticket) with { Final = FinalOf(id, step.Peer, ticket, time, sentAt) };
-        var receipt = Of(id, first, step.Peer, ticket);
+        if (answered is not { } first) return Noted(Waiting(id, step.Peer, ticket), step, null) with { Final = FinalOf(id, step.Peer, ticket, time, sentAt) };
+        var receipt = Noted(Of(id, first, step.Peer, ticket), step, first.Outcome);
         return first.Outcome == PeerOutcome.Accepted ? receipt with { Final = FinalOf(id, step.Peer, ticket, time, sentAt) } : receipt;
+    }
+
+    /// <summary>
+    /// A receipt that is not a refusal, with what this Stagewatch says beside its command after its effect: once the peer's own answer
+    /// says it took it (<paramref name="outcome"/> applied or accepted), <see cref="PlayoutStep.Taken"/> where there is one (a GO sent
+    /// with AT is scheduled only then); otherwise — waiting for that answer, unconfirmed — <see cref="PlayoutStep.Note"/>, which is true
+    /// whatever comes (sent with AT, or not timed and why; its effect not looked for). A refusal keeps the peer's words alone.
+    /// </summary>
+    private static CommandReceipt Noted(CommandReceipt receipt, PlayoutStep step, PeerOutcome? outcome)
+    {
+        if (!receipt.Ok) return receipt;
+        var words = (outcome is PeerOutcome.Applied or PeerOutcome.Accepted) && step.Taken.Length > 0 ? step.Taken : step.Note;
+        return words.Length > 0 ? receipt with { Effect = receipt.Effect + " · " + words } : receipt;
     }
 
     /// <summary>

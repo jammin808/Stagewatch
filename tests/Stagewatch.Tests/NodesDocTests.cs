@@ -85,6 +85,11 @@ static class NodesDocTests
         ("playout.cue.idle.ms", () => PlayoutDirector.IdleFreshMs),
         ("playout.seen.ms", () => PlayoutDirector.WatchMs),
         ("playout.seen.max", () => PlayoutDirector.WatchesMax),
+        ("playout.lead.ms", () => PlayoutRules.DefaultLeadMs),
+        ("playout.late.margin.ms", () => PlayoutDirector.LateMarginMs),
+        ("playout.cues.per.item", () => PlayoutRules.MaxCuesPerItem),
+        ("playout.list.items", () => PlayoutIndex.MaxItems),
+        ("playout.list.cues", () => PlayoutIndex.MaxCues),
         // A playout link is a PlayoutLink on the PeerLink core: its liveness and redial are the core's (Show Bus 13.10.3, 13.15.1).
         ("patterns.wire.port", () => PlayoutLink.DefaultPort),
         ("patterns.ping.ms", () => Ms(PlayoutLink.PingEvery)),

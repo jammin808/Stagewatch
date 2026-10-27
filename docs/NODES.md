@@ -344,7 +344,11 @@ it can be (*TLS to a PlayMap node*, below).
   network (each link's, one per node id, the first link in Settings' order that gives one; a PlayMap node's only when it names the
   id its STATE gives); a PlayMap node is also asked `WHOAMI` every 5 s once its kind is heard, and one that lets
   this PC only read is amber — "… is armed and lets this PC only read — its desk can SHOW SET REMOTE-VIEW-ONLY OFF" — while its
-  commands still go, its own `ERR` the refusal. Older desks get the plain lines they know. The clock starts with no sample on each new
+  commands still go, its own `ERR` the refusal. What a running-order cue may name is asked once the kind is heard — a PlayMap
+  node's `INDEX` (its playlists and their items), a Patterns desk's `CUE LIST` — and again when its STATE's `project.index` or
+  `cuestack.listRev` moves, at most once each 5 s and once a revision on a connection; one that refuses the verb is not asked
+  again on that connection. At most 64 playlists of `playout.list.items` (256) items, or `playout.list.cues` (512) cues, are read;
+  past that the list is cut, and what it does not hold is not known rather than missing. Older desks get the plain lines they know. The clock starts with no sample on each new
   connection (the link never learns the peer's `inst`, so it may be another peer, or the same one restarted), and a step of this
   PC's own wall clock empties it (Show Bus 13.11.7).
 - **Its light** in Settings is the link's own: green once paired and live, amber while stale or pairing or when the peer is told
@@ -359,7 +363,8 @@ it can be (*TLS to a PlayMap node*, below).
     `VIDEO PLAY`, `VIDEO PAUSE`, `VIDEO STOP` (the clip back to its top, held) and `VIDEO SEEK <s>`. A Patterns desk whose context
     lists the verb with `ON <key>` is sent the clip's own key with it (`VIDEO PAUSE ON <key>`), when the key reads back bare;
   - to a PlayMap node: `PLAYLIST GO <playlist> <item>`, `PLAYLIST GO <playlist> EXPECT <its next item>` (`playout <link> go
-    <playlist>`), `PLAYLIST CUE <playlist> <item>`, each word quoted by PlayMap's line rule where it needs it;
+    <playlist>`), either with `AT <unix ms>` last when it goes at an instant on the node's own clock, and `PLAYLIST CUE <playlist>
+    <item>`, each word quoted by PlayMap's line rule where it needs it;
   - to a Patterns desk: `CUE GO <cue id>` and `CUE STANDBY <cue id>`, the id bare, never the two together — its own standby fence
     decides a GO, and a standby moves that desk's own standby.
 
@@ -372,8 +377,40 @@ it can be (*TLS to a PlayMap node*, below).
   playlist of a sync group whose node's STATE says it is the follower ("… follows sync group main (leader …) — GO its leader"); a
   `PLAYLIST CUE`, which puts the item's first frame on air at once, unless the playlist is seen idle or ended in a STATE at most
   `playout.cue.idle.ms` (3 s) old ("not cued — Show is playing on PlayMap Stage left; GO will play it"); a `go <playlist>` whose
-  STATE names no next item; a Patterns cue that is not one bare id; `together`, which needs a clock fit for a GO at one instant on
-  every link (Show Bus 13.11.6) and is not carried yet.
+  STATE names no next item; a Patterns cue that is not one bare id.
+- **A GO at one instant** (`playout <link> go … together`, and the running order's cues marked together): the instant is the
+  operator's lead (`playout.lead.ms`, 300 unless Settings say otherwise) from now on this PC's clock. A PlayMap node whose clock is
+  fit for it (Show Bus 13.11.4–6: its believed sample at most `clock.fresh.ms` (10 s) old, its error within the error a round trip
+  as long as the lead gives) and measured over TLS or on a link to this PC gets `AT` = that instant plus the link's offset, sent at
+  once. Any other GO of the same start is held on this PC and sent untimed half its round trip before the instant — or at the
+  instant itself, by this PC's clock alone, when its clock was measured over a plain link off this PC, which may be shown and
+  schedules nothing (a Patterns desk's 9697 until its Round 97); a lone GO (the one whose link is up) is never held: at its instant
+  when fit, else at once; when any GO of a start whose link is up has no clock sample at all, nothing is together and every GO
+  goes at once; and a GO whose link is not up and paired is sent nothing — its own row says why — and takes no timing from the
+  others. Each says what it did, in its row and its receipt, as an attempt until the node answers: a GO with `AT` is "sent with AT
+  for 20:00:01.250 (± 3 ms)" as it goes, and "scheduled for 20:00:01.250 (± 3 ms)" — a row, and the receipt's words — only once
+  the node's own answer says it took it (applied or accepted); one the node refuses keeps its words alone. A held GO is sent only
+  on the link and connection it was held for, and only while the licence allows: a drop, a link Settings stopped or replaced, or
+  a lapsed licence while it is held leaves it not sent, with a row. The STATE that shows a timed GO's playlist playing says when
+  it started (its `at` less the playlist's `positionMs`): later than the `AT` by more than half the round trip and
+  `playout.late.margin.ms` (20) is a row, "PlayMap Stage left: Main show started late by 140 ms (AT arrived after its instant)".
+  The picture reaching the outputs is not observed. The believed clock sample is the smallest round trip among the last
+  `clock.window` (8), one a ping every `patterns.ping.ms` (2 s), as Show Bus 13.11.3 has it — so it can be up to about 16 s old
+  while fresher samples are kept, and a timed GO then falls back (held, or at once) and says the clock is not fit. The design's
+  "the smallest round trip among the samples at most 10 s old" is not what 13.11.3 says, and the contract is followed.
+- **The running order's cues** (at most `playout.cues.per.item` (4) an item; the desk's editor for them is the maintainer's PC work):
+  each names its link and a PlayMap playlist's item or a Patterns cue, by id. A load sends nothing unless a cue is set to stand by
+  (off by default: a PlayMap standby shows the item's first frame on air, a Patterns one moves that desk's own standby); then, once
+  the show thread's turn that loaded it is over, and only when the item did not start in that turn, PlayMap's `PLAYLIST CUE` (on a
+  playlist seen idle, as above) or Patterns' `CUE STANDBY`. When the item first starts each cue GOes — Patterns by `CUE GO` alone —
+  one GO per sync group (a follower's cue is left to its leader's GO among the item's cues whose plans pass, and its row says
+  whether that GO was sent; with no such leader it is refused naming its leader), those marked together at one instant as above.
+  A cue whose link this PC lacks, is switched off or not running, whose peer answers as another kind or node than its settings
+  name, or that names what its peer does not list, is amber advice before its item — on the desk whether or not its assistant is
+  on, ahead of the assistant's own — and is skipped at its start with a row; a cue the plan refuses is not sent, with a row. Every
+  row is filed against the item and is on the desk's status line too ("Item 4: …"). A peer that answers as another node than the
+  one its link is set to feeds nothing of its list (13.4.3): the list read before is dropped, and asked again once it answers as the
+  node meant. The planner (`PlayoutDirector`) is the desk's and the rig's (`--cue`).
 - **Outcomes** (Show Bus 13.12.3): an answer is applied, accepted (taken, not run yet) or refused with the peer's words. At most 32
   commands wait for answers and the next is not sent, nothing evicted; nothing is queued while the link is not up. A command
   written before the link dropped, or with no answer in 30 s, is unconfirmed — it may have run: look at the peer — never failed; one
@@ -524,6 +561,11 @@ and `hello.failed.beats`, are Stagewatch's own.
 | `playout.cue.idle.ms` | 3000 | a PlayMap playlist is cued only when a STATE this fresh shows it idle or ended |
 | `playout.seen.ms` | 3000 | how long past the lead a command's effect is looked for in its peer's STATE |
 | `playout.seen.max` | 32 | the most commands whose effect is looked for at once on one link (`link.inflight.max`); one past it still goes, its effect not looked for |
+| `playout.lead.ms` | 300 | a GO at one instant is set this far ahead unless Settings say otherwise (100 to 2000) |
+| `playout.late.margin.ms` | 20 | past half its round trip, how much later than its `AT` a timed GO may start before a row says it started late |
+| `playout.cues.per.item` | 4 | the most playout cues on one running-order item |
+| `playout.list.items` | 256 | the most items of one playlist read from a PlayMap node's `INDEX` |
+| `playout.list.cues` | 512 | the most cues read from a Patterns desk's `CUE LIST` |
 | `patterns.wire.port` | 9697 | a Patterns desk's port unless another is set |
 | `patterns.ping.ms` | 2000 | how often a playout link pings, once paired |
 | `link.stale.ms` | 6000 | a playout link silent longer than this is stale: amber, and no countdown |
