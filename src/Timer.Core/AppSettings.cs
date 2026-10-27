@@ -236,6 +236,18 @@ public sealed class TriggerRule
     [JsonPropertyName("target")] public string Target { get; set; } = "";
     /// <summary>OSC address + args; HTTP body; Companion "page/row/column"; Command: a command line.</summary>
     [JsonPropertyName("payload")] public string Payload { get; set; } = "";
+    /// <summary>
+    /// HTTP only: the secret it sends and how (<see cref="TriggerAuthRules"/>), its secret DPAPI-protected; null (left out of the file)
+    /// for none. Only to this PC or a pinned HTTPS server, the address fixed, no redirect followed.
+    /// </summary>
+    [JsonPropertyName("auth")] public TriggerAuth? Auth { get; set; }
+
+    /// <summary>A copy that shares nothing with this rule, its profile included.</summary>
+    public TriggerRule Clone() => new()
+    {
+        Enabled = Enabled, Name = Name, Event = Event, Filter = Filter, Action = Action, Target = Target, Payload = Payload,
+        Auth = Auth is null ? null : new TriggerAuth { Kind = Auth.Kind, SecretProtected = Auth.SecretProtected },
+    };
 }
 
 /// <summary>

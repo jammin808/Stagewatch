@@ -10,7 +10,9 @@ public enum JournalKind
     ShowOpened, ItemLoaded, ItemStart, ItemEnd, Pause, Resume, Nudge, Expired,
     Phase, Message, Signal, Ack, Escalated, Trim, Delay, Question, Note, Preview, Blackout, ClockCheck,
     /// <summary>What a playout link was asked to do and what became of it, and what was seen of its clip.</summary>
-    Playout
+    Playout,
+    /// <summary>What an HTTP trigger with an auth profile sent and what became of it, and a person's trust of its target's certificate; never its secret.</summary>
+    Trigger
 }
 
 /// <summary>

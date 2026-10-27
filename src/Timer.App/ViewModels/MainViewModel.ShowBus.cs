@@ -267,8 +267,8 @@ public sealed partial class MainViewModel
         }
         foreach (var row in PeerRows)
         {
-            // A certificate a playout link to this node waits on a person for: said on its row, with the entry its menu has too, the
-            // button bound to the certificate drawn here. More than one link waiting: the rest are on its right-click menu.
+            // A certificate a playout link or an HTTP trigger to this node waits on a person for: said on its row, with the entry its
+            // menu has too, the button bound to the certificate drawn here. More than one waiting: the rest are on its right-click menu.
             var waits = CertificatesWaitingFor(row);
             var waiting = waits.FirstOrDefault();
             row.TrustWaiting = waiting;

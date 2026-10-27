@@ -915,14 +915,14 @@ public partial class MainWindow : Window, IContextActions
     {
         if (!waiting.Wait.Changed)
         {
-            _vm.TrustPlayoutCertificate(waiting.Link, waiting.Wait.Fingerprint, typed: false);
+            _vm.TrustCertificate(waiting, waiting.Wait.Fingerprint, typed: false);
             return;
         }
         var pinned = waiting.Wait.Pinned.Length > 0 ? $" (the one pinned for it began {Stagewatch.Integrations.PlayoutWire.Short(waiting.Wait.Pinned)} …)" : "";
         var label = $"{waiting.Peer} now shows a certificate that begins {waiting.Short} …, not the one it was pinned with{pinned}. Nothing is sent to it "
                     + $"until you trust this one. Compare it on {waiting.Peer}'s own screen, then type at least {PlayoutRules.TrustHexMin.ToString(System.Globalization.CultureInfo.InvariantCulture)} hex of it:";
         if (Help.Prompt.Ask(this, "Certificate changed", label, "") is { } typed)
-            _vm.TrustPlayoutCertificate(waiting.Link, typed, typed: true);
+            _vm.TrustCertificate(waiting, typed, typed: true);
     }
 
     /// <summary>

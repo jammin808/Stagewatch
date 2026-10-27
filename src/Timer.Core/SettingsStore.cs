@@ -216,6 +216,9 @@ public sealed class SettingsStore : IDisposable
         s.Signals ??= new SignalSettings();
         s.Signals.Departments ??= new List<string>();
         s.Triggers ??= new List<TriggerRule>();
+        s.Triggers.RemoveAll(t => t is null);
+        // A trigger whose auth profile breaks the rules is kept as the file has it and refused as it fires: the load says which.
+        TriggerAuthRules.Note(s.Triggers, notes);
         s.Holding ??= new HoldingSettings();
         s.Panels ??= new PanelLayoutSettings();
         if (s.NodeId is not { Length: 12 } || !s.NodeId.All(char.IsAsciiHexDigitLower))

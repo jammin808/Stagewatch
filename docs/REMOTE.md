@@ -398,6 +398,70 @@ is apart, each link's verbs among the commands, and the context it pulled from i
 id the peer's STATE gives, when it gives one. A peer that answers as another kind than Settings set feeds none of these but
 its `link:<name>` item, which says why: no clip, no verbs, no context.
 
+### HTTP triggers that carry a secret (2.20)
+
+An HTTP trigger (Settings → Triggers) may carry an auth profile — `"auth":{"kind":…,"secret":…}` on its rule in the settings
+file, the secret DPAPI-protected for this Windows user, never in clear — and sends it the way its kind says:
+
+| Kind | Headers | Request id |
+|---|---|---|
+| `playmap` | `X-PlayMap-Token: <secret>` | `X-Request-Id: tr<n>-<inst>` |
+| `patterns` | `X-Patterns-Token: <secret>`, `X-Patterns-Client: Stagewatch` | before the line in the body: `@tr<n>-<inst> CUE GO 12` |
+| `stagewatch` | `X-Stagewatch-Pin: <PIN or key>` | `X-Request-Id: tr<n>-<inst>` |
+| `bearer` | `Authorization: Bearer <secret>` | — |
+
+A profile is made only through the desk's Settings fields for it (the kind, a password box the desk protects, the save-time
+words), which are the maintainer's work on the PC and not run here; the file holds only what the desk protected. A secret typed
+into the file in clear is not one this PC can read: the trigger says so and sends nothing. A secret is printable ASCII, at most
+256 characters — anything else no header carries, and it is refused before anything is dialled.
+
+The secret goes only over a channel that keeps it (Show Bus 13.6.8, 13.8): to this PC — `localhost` or a loopback address, the
+socket's own address checked as it connects, so a name that resolves elsewhere is dialled nowhere — or over `https://` to the
+certificate a person pinned on this desk. Plain `http://` to another machine is refused when the rule is saved and again as it
+fires, and nothing is sent. Over HTTPS the target's certificate is judged by its SHA-256 fingerprint alone, in the handshake:
+
+- **First use.** The certificate shown is pinned `first` — by `addr:<host>:<port>` and, when the hello heard at that host and
+  port names a node, by its node id too — and nothing is sent: `10.0.0.12:9940 showed the certificate 03e9 b152 ca42 518c … —
+  pinned first; nothing sent`. A `first` pin carries no secret, however often the rule fires, until a person compares it on the
+  target's own screen and trusts it with one press (right-click the status line, or the node's Show network row) — the press
+  bound to the whole fingerprint it showed, the trust kept under both keys. A person's pin under either key is the pin: a hello
+  lost, heard again or forged never moves a target off it, and a node heard at a new address keeps its pin there.
+- **Changed.** A certificate other than the one a person pinned is `CERTIFICATE CHANGED`, refused at the handshake with no
+  request written, red, until a person types at least 8 hex of the new one.
+
+The pins are kept in `trigger-pins.json` beside the settings, with the holds below; a file that cannot be read is no pins and no
+holds, said amber (13.8.4) until the next write lands. It keeps at most 128 pins (64 targets by address and node): a first pin
+makes room before any a person made and never takes a person's place.
+
+With a profile, the scheme, host and port are fixed text: a placeholder there is refused at save and at fire. Show text fills the
+path and query alone, each value escaped (`{TITLE}` "Walk in/out" is `Walk%20in%2Fout`). The request goes through no proxy, takes
+no cookie and follows no redirect: a 3xx after the request went reads unconfirmed — "a redirect — not followed; it may have run;
+set its address to where it points" — since a 303 can follow a command that ran. A secret in the query beside a profile is
+refused. A rule with no profile fires as it always did (its whole address filled in, redirects followed): one whose query carries
+a secret (`?pin=`, `token=`, `api_key=`…) gets a warning at save and in its status, naming the parameter, never its value, and
+the PIN's move into a `stagewatch` profile is offered.
+
+A fire has 3 s to reach its target and, once its request may have gone, 5 s for its answer (`receipt.deadline.ms` and 2 s), so
+an `accepted` said at the acceptor's own deadline is read. Every HTTP trigger's answer is read by 13.12.3: `applied`, `refused`
+in the target's words (`{"ok":false,…}` on a 200 among them), `accepted` (a `stage:"accepted"`, or a 2xx that says neither stage
+nor msg — "took it — this node does not say whether it ran"), `unconfirmed` (a 408, a 5xx, an answer cut off after its headers,
+or none in time once the request was written) or `not sent`. Patterns' `/api/cmd` answers CUE GO with its outcome's JSON inside
+`msg` (`{"ok":true,"msg":"OK {\"outcome\":\"Confirm\",…}","id":…}`); 13.12.3's HTTP rows do not name a msg that carries JSON,
+so Stagewatch reads that object by the line rows, as the wire reads `OK @id {…}`: `Confirm` is accepted — "asks for a second GO
+— a person's" — `Requested` accepted, `Done` applied with the cue it ran (`cue 12 'Walk-in'`), never the JSON as words.
+
+A 401 holds that secret for a minute and a 429 for its `Retry-After` (a minute at least, ten at most): not sent to that target
+as that kind again until the hold ends or a new secret is set, so it never teaches its target to lock this PC out. The hold
+names the secret by a keyed hash under a key this process draws and never writes — every rule that resolves to the same secret
+is held with it — and is kept in `trigger-pins.json` with its end in wall time and the tags of the protected forms it covered,
+never a hash of the secret, so a runner the supervisor rebuilds and a restart keep it; a wall clock stepped back never lengthens
+it. The outcome is the triggers' status (Settings → Integrations, diagnostics and the context's `link:triggers`: red while a
+certificate changed or a secret is held, amber while a certificate is pinned first only, the pins were lost, or a rule's last
+fire with a profile was not sent or is unconfirmed — until its next answer), and every fire with a profile is one row in the
+show log, whatever ends it — `Trigger 'GO VT' → 10.0.0.12:9940 (playmap): applied — playing Intro`. The secret is in no status,
+row, log line, frame or context; a target that echoes it back has it masked. A Settings save refuses a rule that breaks these
+rules and keeps every rule's profile.
+
 ## 2.15: Show Bus 1.1 — receipts, context, node keys
 
 The contract between Stagewatch, Patterns, AGMessage and the micro-apps is `docs/SHOWBUS.md`. What Stagewatch serves:

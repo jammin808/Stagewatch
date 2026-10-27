@@ -23,6 +23,11 @@ public sealed partial class MainViewModel
     private LtcInput? _ltcIn;
     private CueLightOutput? _lights;
     private TriggerRunner? _triggers;
+    /// <summary>
+    /// What HTTP triggers keep across a restart and across a runner rebuilt by the supervisor: the certificates their HTTPS targets showed,
+    /// pinned first or by a person, and their held secrets' ends in wall time; never a secret, nor a hash of one.
+    /// </summary>
+    private readonly TriggerPinStore _triggerPins = new(Path.Combine(DataFolder, "trigger-pins.json"));
     private RoomBeacon? _rooms;
     private CloudAdvisor? _cloud;
     private readonly SpokenCues _voices = new();
@@ -57,13 +62,30 @@ public sealed partial class MainViewModel
                 return new CueLightOutput(() => _hub.Latest, sinks.ToArray());
             });
         _supervisor.Reconcile("triggers", $"{pro && Settings.Triggers.Count > 0}", v => _triggers = v,
-            () => new TriggerRunner(() => _store.Snapshot.Triggers, line => _ui.BeginInvoke(() => RunCommandLine(line))));   // its worker reads a snapshot
+            () => new TriggerRunner(() => _store.Snapshot.Triggers, line => _ui.BeginInvoke(() => RunCommandLine(line)), TriggerOptions()));   // its worker reads a snapshot
         _supervisor.Reconcile("rooms", $"{i.Rooms && FeatureGate.AllowsMultiRoom(t)}|{i.RoomsPort}", v => _rooms = v,
             () => new RoomBeacon(i.RoomsPort, BeatFor));
         var key = i.AssistantCloud ? ProtectedKey.Unprotect(i.AssistantKeyProtected) : "";
         _supervisor.Reconcile("cloud", $"{i.Assistant && i.AssistantCloud && FeatureGate.AllowsAssistant(t) && key.Length > 0}|{key.GetHashCode()}", v => _cloud = v,
             () => new CloudAdvisor(key));
     }
+
+    /// <summary>
+    /// What the trigger worker is set to: an auth profile's secret resolved here (DPAPI, this Windows user) as the trigger goes, request
+    /// ids ending with this process's hello inst, its HTTPS targets' pins kept beside the settings, a target's node by the hello heard at
+    /// its host and port, and each authenticated fire's outcome a row in the show log on the show thread — never its secret.
+    /// </summary>
+    private TriggerRunnerOptions TriggerOptions() => new()
+    {
+        Unprotect = ProtectedKey.Unprotect,
+        Inst = _inst,
+        Pins = _triggerPins,
+        NodeAt = (host, port) => Volatile.Read(ref _slidesBeacon)?.Peers() is { } peers ? TriggerPinStore.NodeAt(peers, host, port) : null,
+        Sent = sent =>
+        {
+            if (sent.Authenticated) _ui.BeginInvoke(() => _journal.Add(sent.At.UtcDateTime, JournalKind.Trigger, _show.RundownActive ? _show.CurrentItem : -1, sent.Row));
+        },
+    };
 
     /// <summary>
     /// Each playout link Settings has, started, restarted or retired as its settings change: a link runs while it is switched on and
@@ -197,32 +219,7 @@ public sealed partial class MainViewModel
             // memory alone.
         }
         _playoutKept.Flushed.Wait(TimeSpan.FromSeconds(1));
+        _triggerPins.Flushed.Wait(TimeSpan.FromSeconds(1));
         _ = _journal.DisposeAsync();
-    }
-}
-
-/// <summary>API keys are stored encrypted for this Windows user (DPAPI), never in clear text.</summary>
-public static class ProtectedKey
-{
-    private static readonly byte[] Entropy = "Stagewatch assistant key"u8.ToArray();
-
-    public static string Protect(string key)
-    {
-        if (string.IsNullOrWhiteSpace(key)) return "";
-        var bytes = System.Security.Cryptography.ProtectedData.Protect(System.Text.Encoding.UTF8.GetBytes(key.Trim()), Entropy,
-            System.Security.Cryptography.DataProtectionScope.CurrentUser);
-        return Convert.ToBase64String(bytes);
-    }
-
-    public static string Unprotect(string stored)
-    {
-        if (string.IsNullOrWhiteSpace(stored)) return "";
-        try
-        {
-            var bytes = System.Security.Cryptography.ProtectedData.Unprotect(Convert.FromBase64String(stored), Entropy,
-                System.Security.Cryptography.DataProtectionScope.CurrentUser);
-            return System.Text.Encoding.UTF8.GetString(bytes);
-        }
-        catch (Exception ex) when (ex is FormatException or System.Security.Cryptography.CryptographicException) { return ""; }
     }
 }

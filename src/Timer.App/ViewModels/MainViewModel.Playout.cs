@@ -228,21 +228,53 @@ public sealed partial class MainViewModel
         => Settings.Integrations.PlayoutLinks.Select(s => _playout[s.Name]).OfType<PlayoutLink>();
 
     /// <summary>
-    /// The certificates of the playout links to a Show network row's node that wait for a person on this desk (Show Bus 13.8.2–3): a
-    /// changed one, which nothing sends to until a person types at least 8 hex of it, or one pinned first, which one press beside its
-    /// short form trusts. A link is the row's when the certificate's pin names its id or the link's STATE does.
+    /// The certificates of the playout links and HTTP trigger targets of a Show network row's node that wait for a person on this desk
+    /// (Show Bus 13.8.2–3): a changed one, which nothing sends to until a person types at least 8 hex of it, or one pinned first, which
+    /// one press beside its short form trusts. A link is the row's when the certificate's pin names its id or the link's STATE does; a
+    /// trigger target when the hello heard at its host and port names it.
     /// </summary>
     public IReadOnlyList<CertificateWaiting> CertificatesWaitingFor(PeerRow row)
         => row.NodeId.Length == 0 ? [] : CertificatesWaiting().Where(w => w.Wait.NodeId == row.NodeId || w.NodeId == row.NodeId).ToList();
 
     /// <summary>
-    /// Every playout link's certificate that waits for a person now, in Settings' order: what the status line's right-click offers, so a
-    /// link whose node has no Show network row (its hello not heard, a pin kept without its id) is trusted from the desk all the same.
-    /// Each is drawn once, bound to the fingerprint it shows: a press on it trusts that certificate or nothing.
+    /// Every playout link's certificate that waits for a person now, in Settings' order, then every HTTP trigger target's
+    /// (<see cref="TriggerRunner.CertificatesWaiting"/>): what the status line's right-click offers, so a link whose node has no Show
+    /// network row (its hello not heard, a pin kept without its id) is trusted from the desk all the same. Each is drawn once, bound to
+    /// the fingerprint it shows: a press on it trusts that certificate or nothing.
     /// </summary>
     public IReadOnlyList<CertificateWaiting> CertificatesWaiting()
-        => OrderedLinks().Where(l => l.TrustWaiting is not null)
+    {
+        var list = OrderedLinks().Where(l => l.TrustWaiting is not null)
             .Select(l => new CertificateWaiting(l.LinkName, l.Peer, l.TrustWaiting!, l.NodeId ?? "", l.OverTls)).ToList();
+        if (_triggers is { } triggers)
+            list.AddRange(triggers.CertificatesWaiting().Select(w => new CertificateWaiting("", $"the trigger target {w.Where}",
+                new PlayoutTrustWait(w.Fingerprint, w.Changed, w.Pinned, w.NodeId), w.NodeId ?? "", TriggerKey: w.Key)));
+        return list;
+    }
+
+    /// <summary>
+    /// A person on this desk trusts a certificate the desk drew (<paramref name="waiting"/>): a playout link's
+    /// (<see cref="TrustPlayoutCertificate"/>) or an HTTP trigger target's (<see cref="TrustTriggerCertificate"/>). The row's button, its
+    /// right-click entry and the status line's run this one door.
+    /// </summary>
+    public (bool Trusted, string Words) TrustCertificate(CertificateWaiting waiting, string hex, bool typed)
+        => waiting.TriggerKey is { } key ? TrustTriggerCertificate(key, hex, typed) : TrustPlayoutCertificate(waiting.Link, hex, typed);
+
+    /// <summary>
+    /// A person on this desk trusts an HTTP trigger target's certificate (<see cref="TriggerRunner.Trust"/>, Show Bus 13.8.2–3), from the
+    /// status line's right-click or its node's Show network row, and nowhere else — never a line. After CERTIFICATE CHANGED
+    /// <paramref name="hex"/> is at least 8 hex the person typed; for one pinned first, the whole fingerprint the press was drawn with.
+    /// The status line and the show log say what happened, trusted or not. Show thread.
+    /// </summary>
+    public (bool Trusted, string Words) TrustTriggerCertificate(string key, string hex, bool typed)
+    {
+        if (_triggers is not { } triggers) return (false, StatusLine = "Not trusted: triggers aren't running.");
+        var (trusted, words) = triggers.Trust(key, hex, typed);
+        StatusLine = trusted ? words : "Not trusted: " + words;
+        _journal.Add(DateTime.UtcNow, JournalKind.Trigger, _show.RundownActive ? _show.CurrentItem : -1,
+            $"Trigger target: {(trusted ? "" : "certificate not trusted — ")}{words}");
+        return (trusted, StatusLine);
+    }
 
     /// <summary>
     /// A person on this desk trusts a playout link's certificate (<see cref="PlayoutLink.Trust"/>): from the Show network row's button,
@@ -265,12 +297,13 @@ public sealed partial class MainViewModel
 }
 
 /// <summary>
-/// A playout link's certificate that waits for a person, as the desk offers it: the link, its peer as people read it, the certificate
-/// (<see cref="PlayoutTrustWait"/>) as it was when this was drawn — the press is bound to it — the node the link's STATE names ("" for
-/// none) and whether the link runs over TLS now. <see cref="Label"/> is the entry's words, the same on the row's button, its
-/// right-click menu and the status line's.
+/// A certificate that waits for a person, as the desk offers it: a playout link's — the link, its peer as people read it — or an HTTP
+/// trigger target's (<see cref="TriggerKey"/>, its pin's key, and "" for the link); the certificate (<see cref="PlayoutTrustWait"/>) as
+/// it was when this was drawn — the press is bound to it — the node the link's STATE (or the hello at the target) names ("" for none)
+/// and whether the link runs over TLS now. <see cref="Label"/> is the entry's words, the same on the row's button, its right-click
+/// menu and the status line's.
 /// </summary>
-public sealed record CertificateWaiting(string Link, string Peer, PlayoutTrustWait Wait, string NodeId = "", bool OverTls = false)
+public sealed record CertificateWaiting(string Link, string Peer, PlayoutTrustWait Wait, string NodeId = "", bool OverTls = false, string? TriggerKey = null)
 {
     /// <summary>The certificate's short form, as a person compares it with the node's own screen.</summary>
     public string Short => PlayoutWire.Short(Wait.Fingerprint);

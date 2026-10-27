@@ -446,6 +446,13 @@ When an item starts or ends, the phase changes, overtime starts, a cue is acknow
 blackout toggles — send OSC, an HTTP request, press a Companion button (`page/row/column`) or run a Stagewatch
 command. Placeholders `{ITEM}` `{TITLE}` `{PHASE}` `{REMAINING}` `{DETAIL}` `{ROOM}`.
 
+An HTTP trigger can carry a secret — a PlayMap or Patterns pairing token, a Stagewatch PIN or key, a bearer token — kept
+encrypted for your Windows user and sent only to this PC or over HTTPS to a certificate you trusted on the desk (the first one is
+pinned and nothing is sent until you compare and trust it; a changed one is refused until you type 8 hex of it). Its address is
+fixed (placeholders in the path and query only), it follows no redirect, and its answer — applied, refused, accepted or
+unconfirmed — is its status and a row in the show log, never the secret. A `?pin=` in an address still works, with a warning to
+move it into the rule's secret. See [REMOTE.md](REMOTE.md#http-triggers-that-carry-a-secret-220).
+
 ## Report
 
 Producer tab → **Show report**: planned vs actual for every item, over/under, how long each speaker took to

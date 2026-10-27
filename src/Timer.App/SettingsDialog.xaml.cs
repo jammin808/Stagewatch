@@ -317,8 +317,8 @@ public partial class SettingsDialog : Window
 
         EventColumn.ItemsSource = Enum.GetValues<TriggerEvent>();
         ActionColumn.ItemsSource = Enum.GetValues<Stagewatch.Core.TriggerAction>();
-        foreach (var t in s.Triggers)
-            _triggers.Add(new TriggerRule { Enabled = t.Enabled, Name = t.Name, Event = t.Event, Filter = t.Filter, Action = t.Action, Target = t.Target, Payload = t.Payload });
+        // Each rule whole, its auth profile (and its protected secret) with it: a save never drops one.
+        foreach (var t in s.Triggers) _triggers.Add(t.Clone());
         TriggerGrid.ItemsSource = _triggers;
 
         RefreshIntegrations();
@@ -630,6 +630,17 @@ public partial class SettingsDialog : Window
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
+        // A trigger whose secret would go where it is not kept (plain HTTP to another machine, a placeholder in its host) cannot be
+        // saved: nothing is, and the dialog stays open with why. A secret in an address's query is a warning, said after the save.
+        TriggerGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        var rules = _triggers.Where(t => t.Name.Length > 0 || t.Payload.Length > 0).ToList();
+        var refused = rules.Select(t => TriggerAuthRules.Problem(t) is { } why ? $"{TriggerAuthRules.Named(t)}: {why}" : null).OfType<string>().ToList();
+        if (refused.Count > 0)
+        {
+            MessageBox.Show(this, "Not saved:\n" + string.Join("\n", refused), "Triggers", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        var warned = rules.Select(t => TriggerAuthRules.Warning(t) is { } why ? $"{TriggerAuthRules.Named(t)}: {why}" : null).OfType<string>().ToList();
         _store.Update(s =>
         {
             s.Display.TargetMonitorDeviceName = (MonitorCombo.SelectedItem as ComboBoxItem)?.Tag as string;
@@ -694,6 +705,7 @@ public partial class SettingsDialog : Window
         });
         _store.SaveNow();
         if (_patternsNotSet is { } notSet) MessageBox.Show(this, notSet, "Patterns", MessageBoxButton.OK, MessageBoxImage.Warning);
+        if (warned.Count > 0) MessageBox.Show(this, string.Join("\n", warned), "Triggers", MessageBoxButton.OK, MessageBoxImage.Warning);
         DialogResult = true;
     }
 

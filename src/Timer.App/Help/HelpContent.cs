@@ -677,6 +677,7 @@ public static class HelpContent
                     ("Target", "OSC/Companion `host:port`, or the HTTP URL."),
                     ("Payload", "OSC `/address args`, HTTP body (blank = GET), Companion `page/row/column`, or the command.")),
                 new P("Placeholders: `{ITEM}` `{TITLE}` `{PHASE}` `{REMAINING}` `{DETAIL}` `{ROOM}`. Each trigger fires at most once a second."),
+                new P("**An HTTP trigger with a secret** (a PlayMap or Patterns token, a Stagewatch PIN or key, a bearer token) keeps it encrypted for your Windows user and sends it only to this PC, or over `https://` to a certificate you trusted: the first time, the target's certificate is pinned and nothing is sent — compare its short form with the target's own screen, then right-click the status line and trust it. A changed certificate is refused until you type at least 8 hex of the new one. Its address is fixed (placeholders only in the path or query), it follows no redirect, and its answer — applied, refused, accepted or unconfirmed — is in the status and the show log, never the secret. A secret its target refuses (401) or locks out (429) is held — every trigger with that secret, across a restart — until the hold ends or you set a new one, so the target never learns to lock this PC out. A `?pin=` in an address still works, with a warning to move it into the rule's secret."),
             }, Pro),
 
         // ------------------------------------------------------------------ Reference

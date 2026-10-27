@@ -24,6 +24,13 @@
     <ProjectReference Include="..\..\tools\BusCarrierProbe\BusCarrierProbe.csproj" />
     <!-- The help text is plain data: test it without loading WPF. -->
     <Compile Include="..\..\src\Timer.App\Help\HelpContent.cs" Link="Linked\HelpContent.cs" />
+    <!-- How the desk keeps a secret at rest (DPAPI): the Windows job round-trips it; elsewhere it is named and not run. -->
+    <Compile Include="..\..\src\Timer.App\ProtectedKey.cs" Link="Linked\ProtectedKey.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- DPAPI for the linked ProtectedKey: the desk has it from the Windows desktop framework, the suite from this package. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
   </ItemGroup>
 
 </Project>

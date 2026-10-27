@@ -413,8 +413,10 @@ static class PlayoutTests
               && ShowCommandParser.Help.Split("together").Length == 2,
               "playout grammar: the help names the verb's forms, together once — on a playlist's GO, which the executor times where a clock allows");
         Check((int)ShowCommandKind.Playout == (int)ShowCommandKind.Window + 1, "playout grammar: ShowCommandKind.Playout appended after Window");
-        Check(Enum.GetValues<JournalKind>()[^1] == JournalKind.Playout && (int)JournalKind.Playout == (int)JournalKind.ClockCheck + 1,
-              "playout grammar: JournalKind.Playout appended after ClockCheck");
+        // Each kind appended after the last (old journals keep their numbers): Playout after ClockCheck, then Trigger after it.
+        Check((int)JournalKind.Playout == (int)JournalKind.ClockCheck + 1 && (int)JournalKind.Trigger == (int)JournalKind.Playout + 1
+              && Enum.GetValues<JournalKind>()[^1] == JournalKind.Trigger,
+              "playout grammar: JournalKind.Playout appended after ClockCheck, and JournalKind.Trigger after it");
 
         // Risk: every action is High, decided here, never by a model; the copilot's check reads the line in the one grammar.
         foreach (var line in new[] { "playout pause", "playout stage-left end 10", "playout seek 1:00", "playout cue pl1 it1", "playout go c1", "playout patterns go show intro together" })
