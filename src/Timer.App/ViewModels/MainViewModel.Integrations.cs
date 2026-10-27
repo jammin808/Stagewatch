@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.IO;
+using System.Windows.Threading;
 using Stagewatch.Core;
 using Stagewatch.Integrations;
 
@@ -14,6 +16,8 @@ public sealed partial class MainViewModel
     private PowerPointSensor? _ppt;
     private VmixSource? _vmix;
     private PlayoutLink? _patterns;
+    /// <summary>What each playout link keeps across a restart: a hold and its end (Show Bus 13.15.3); never a token, proof or nonce.</summary>
+    private readonly PlayoutKeptStore _playoutKept = new(Path.Combine(DataFolder, "playout-links.json"));
     private SpeechPacer? _speech;
     private TimeSync? _ntp;
     private LtcOutput? _ltc;
@@ -42,11 +46,25 @@ public sealed partial class MainViewModel
         var patternsOn = pl is { Enabled: true } && pl.Kind != PlayoutRules.PlayMap && FeatureGate.AllowsPlayout(t);
         var (patternsHost, patternsPort) = (pl?.Host ?? "", pl?.Port ?? 0);
         var patternsToken = patternsOn ? ProtectedKey.Unprotect(pl!.TokenProtected) : "";
-        _supervisor.Reconcile("patterns", $"{patternsOn}|{patternsHost}|{patternsPort}|{patternsToken.GetHashCode()}", v => _patterns = v,
+        // A hold the desk's refusal started holds the token it was for (Show Bus 13.15.3): kept with the tag of the token as Settings
+        // stores it, so a restart keeps it and a token changed in Settings is proved again at once. The tag is in the link's signature
+        // (it is no secret): the same token typed again is stored anew, and the link is made again with the tag Settings now holds,
+        // so a hold it starts is kept under the tag the next start looks for.
+        var patternsTag = PlayoutKeptStore.Tag(pl?.TokenProtected);
+        _supervisor.Reconcile("patterns", $"{patternsOn}|{patternsHost}|{patternsPort}|{patternsToken.GetHashCode()}|{patternsTag}", v => _patterns = v,
             () =>
             {
-                // Its request ids end with this process's hello inst (Show Bus 13.12.1), so a link made again never repeats one.
-                var s = new PlayoutLink(new PlayoutLinkOptions { Host = patternsHost, Port = patternsPort, Token = patternsToken, Inst = _inst });
+                // Its request ids end with this process's hello inst (Show Bus 13.12.1), so a link made again never repeats one. It
+                // starts from what it kept, and keeps a hold before it writes or dials again; its time is the desk's clock.
+                var name = PlayoutRules.PatternsName;
+                var time = TimeProvider.System;
+                var s = new PlayoutLink(new PlayoutLinkOptions
+                {
+                    Host = patternsHost, Port = patternsPort, Token = patternsToken, Inst = _inst, Name = name, Time = time,
+                    Kept = _playoutKept.For(name, patternsTag, time.GetUtcNow().ToUnixTimeMilliseconds()),
+                    Keep = kept => _playoutKept.Keep(name, patternsTag, kept, time.GetUtcNow().ToUnixTimeMilliseconds()),
+                });
+                s.Changed += OnPatternsChanged;
                 s.Answered += OnPatternsAnswer;
                 s.Logged += OnPatternsLogged;
                 s.Start();
@@ -141,6 +159,19 @@ public sealed partial class MainViewModel
         // In parallel, with a cap: closing the app never waits on one slow device for long.
         _supervisor.StopAll(TimeSpan.FromSeconds(3), _speech);
         _ppt = null; _vmix = null; _patterns = null; _speech = null; _ntp = null; _ltc = null; _ltcIn = null; _lights = null; _triggers = null; _rooms = null; _cloud = null;
+        // The stopped links posted their last rows to this thread — outcomes their stop settled, "→ off" — and the journal takes them
+        // here, before its file closes (Show Bus 13.12.10): the queue is run up to them, for a second at most. A hold a link kept as it
+        // stopped reaches its file within a second too.
+        try
+        {
+            _ui.Invoke(static () => { }, DispatcherPriority.Background, CancellationToken.None, TimeSpan.FromSeconds(1));
+        }
+        catch (InvalidOperationException)
+        {
+            // The dispatcher is past running its queue (the app is shutting down): rows posted after this point are the journal's in
+            // memory alone.
+        }
+        _playoutKept.Flushed.Wait(TimeSpan.FromSeconds(1));
         _ = _journal.DisposeAsync();
     }
 }

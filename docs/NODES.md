@@ -260,16 +260,23 @@ section is rewritten with the rest of Stagewatch's playout links in the release 
   10 s, so a desk that answers and closes is backed off. A desk at its connection ceiling (`ERR busy …`) is shown in its own words
   and backed off the same way; nothing is sent to it. The link's checks run every 250 ms on a timer of their own; a pause of this
   PC longer than `link.selfgap.ms` (2 s) calls the link down for none of it, and puts one line in the show log (at most one a
-  minute, naming the pauses it folds in). Those checks, like a command, still wait behind a write the socket holds up (at most 10 s,
-  after which the connection ends) until writes move to a lane of their own.
+  minute, naming the pauses it folds in). Each connection writes its lines in order on a lane of its own, so neither those checks
+  nor the desk asking for a command ever waits on the socket; a write that has not finished within `link.write.deadline.max.ms`
+  (10 s) ends the connection, and the link says so.
 - **Pairing: the token never crosses the network.** The pairing token is stored DPAPI-protected. A desk's `NONCE` is answered with
   `AUTH-PROOF` (HMAC-SHA256(token, nonce + "Stagewatch")) only when it is exactly 32 lowercase hex, once per connection — the token
   as Show Bus 13.6.8 keys it: dashes, spaces, tabs, CRs and LFs removed, the rest upper case. A token that still holds a character
   1.1 desks read apart (another kind of space, a line or paragraph separator, a byte order mark) is never proved: the link stays
   amber and says 13.6.8's words, "this token holds an invisible character — retype it". A refused proof (or token) is red, and the
   token is held for a minute (Show Bus 13.15.3): the connection ends and no proof goes again until the hold ends or the token
-  changes, so a wrong token never walks the desk's lockout. The hold is kept in memory only, so far: restarting Stagewatch, or
-  turning the link off and on or changing its address, forgets it. A desk that
+  changes, so a wrong token never walks the desk's lockout. The hold is kept with its end in `playout-links.json` in Stagewatch's
+  data folder: the link holds it in the step that refused the proof, and nothing is proved or dialled before it ends, while a lane
+  of its own writes the file — never the show thread, never under the link's lock — so restarting Stagewatch, turning the link off
+  and on or changing its address keeps it. It is kept for the token it held (beside a tag of the token as Settings stores it,
+  protected, never the token or a hash of it), so a token changed in Settings is proved at once; a hold read back ends within a
+  minute of the start, whatever the file or a wall clock stepped back says, and a word the file holds outside Show Bus 13.16.3's
+  set holds as `key`. The file holds no token, proof or nonce. Words the desk sends back are shown with the token taken out, so
+  a service that echoes a plain `AUTH` line puts no token on the status line or in the show log. A desk that
   sends no NONCE within `patterns.nonce.wait.ms` (1.5 s) asks this connection for none: plain `AUTH <token>` then goes only to a
   Patterns on this PC (a loopback socket), never on a connection that heard a NONCE. Nothing the desk sends (STATE, receipts, clock
   samples, context) is taken before the link pairs (`OK paired`) or is open (a desk that asks for no proof: a Show Bus 1.1 desk, or
@@ -296,8 +303,17 @@ section is rewritten with the rest of Stagewatch's playout links in the release 
   yet.
 - **Outcomes** (Show Bus 13.12.3): an answer is applied, accepted (taken, not run yet) or refused with the desk's words. At most 32
   commands wait for answers and the next is not sent, nothing evicted; nothing is queued while the link is not up. A command
-  written before the link dropped, or with no answer in 30 s, is unconfirmed — it may have run: look at the desk — never failed. A
-  desk older than Show Bus 1.1 echoes no id, so its command is unconfirmed at once.
+  written before the link dropped, or with no answer in 30 s, is unconfirmed — it may have run: look at the desk — never failed; one
+  still on the connection's lane when it dropped, or after 30 s, is not sent — none of it reached the desk, and the lane passes
+  over it, never writing it later. A desk older than Show Bus 1.1 echoes no id, so its command is unconfirmed once written.
+- **The show log** (Show Bus 13.12.10, 13.16.7, 13.19.4), at the link's own time: one row when the outcome of a command that reached
+  the desk first settles (applied, accepted, refused or unconfirmed), filed against the running-order item it was asked for, and
+  one more when an unconfirmed one is answered after all; any other move (accepted, then applied) and a command never written have
+  the status line alone. One row per change of the link's state, its start among them — the peer and its address, from, to, its
+  words and 13.15.1's attempt. A change already said within `log.repeat.summary.ms` (60 s) — a redial going round, a link flapping
+  live and stale, its coming live again — is folded into one summary row that often, naming the last change it folds, never a row
+  per change. The rows reach listeners in the order the link made them, and those that settle as Stagewatch closes reach the
+  journal's file before it closes. No row carries the token, a proof or a nonce.
 - **Commands:** a fixed set, nothing else:
   - `VIDEO END <n>` — Stagewatch `patterns end [seconds]` (default 10) and the *Last 10 s* button.
   - `VIDEO RESTART` — `patterns restart`.
@@ -419,3 +435,5 @@ Each number the page names, as Stagewatch's code has it. A name that is a §14 r
 | `patterns.line.bytes` | 262144 | the most of one line from the desk kept: a longer STATE is read in part, any other longer line counted and not read |
 | `patterns.context.every.ms` | 5000 | how often it asks a Show Bus 1.1 desk for its `CONTEXT` |
 | `clock.apart.ms` | 2000 | a Patterns desk's clock further off than this, less the sample's error, shows CLOCKS APART |
+| `link.write.deadline.max.ms` | 10000 | a Patterns link's write not finished this long ends its connection |
+| `log.repeat.summary.ms` | 60000 | a change of a Patterns link's state already said this recently goes to the show log in one summary row this often |

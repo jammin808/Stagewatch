@@ -106,13 +106,13 @@ static class PeerLinkVectors
         ("peerlink.cert.probe.ms", "13.8.3's MAY probe of a changed certificate: Stagewatch's carriers make none, no dial while refused (PeerLinkScenarios S6); not scheduled"),
         ("peerlink.peer.sha256", "the scripted peer's own hash, not a number the core keeps: PeerLinkScenarios holds the peer to it"),
         ("link.beat.ms", "the /ws acceptor's beat: ShowBusSpecTests holds it against WebServer"),
-        ("link.check.max.ms", "the carrier's timer that runs the evaluator, PlayoutLink.CheckEvery: ShowBusSpecTests holds it; it waits behind a blocked write until SW20.4b's writer lane"),
+        ("link.check.max.ms", "the carrier's timer that runs the evaluator, PlayoutLink.CheckEvery, never behind a write (its writer lane): ShowBusSpecTests holds it"),
         ("link.command.bytes", "the line connector's writer, PlayoutWire.Line, which builds no longer command: ShowBusSpecTests holds it; as a line acceptor's reader it binds none of Stagewatch's (it accepts PeerLinks on /ws alone, whose messages link.ws.in.bytes bounds)"),
         ("link.read.min.bytes", "the carrier's reader, PlayoutWire.LineBytes and PlayoutLineReader: ShowBusSpecTests holds it"),
         ("link.replies.max", "the /ws acceptor's replies per connection: SW22.1c"),
         ("link.sidecall.inflight", "a ws connector's side-call lane: Stagewatch dials line links alone"),
         ("link.sidecall.timeout.ms", "a ws connector's side-call lane: Stagewatch dials line links alone"),
-        ("link.write.deadline.max.ms", "the carrier's write, PlayoutLink.WriteDeadline on its socket: ShowBusSpecTests holds it; its writer lane: SW20.4b"),
+        ("link.write.deadline.max.ms", "the carrier's writer lane, PlayoutLink.WriteDeadline, which its evaluator holds a write to: ShowBusSpecTests holds it"),
         ("link.ws.in.bytes", "the /ws acceptor's reader: ShowBusSpecTests holds it against WebServer"),
         ("ping.min.ms", "the carrier's ping timer: ShowBusSpecTests holds it against PlayoutLink"),
         ("ping.max.ms", "the carrier's ping timer: ShowBusSpecTests holds it against PlayoutLink"),
@@ -123,7 +123,7 @@ static class PeerLinkVectors
         ("report.retry.first.ms", "a target that owes §11's results: Stagewatch is the desk that receives them"),
         ("report.retry.max.ms", "a target that owes §11's results: Stagewatch is the desk that receives them"),
         ("report.retry.for.ms", "a target that owes §11's results: Stagewatch is the desk that receives them"),
-        ("log.repeat.summary.ms", "the carrier's log: SW20.4b"),
+        ("log.repeat.summary.ms", "the carrier's rows for the show log, PlayoutLink.RepeatSummaryEvery: ShowBusSpecTests holds it"),
     ];
 
     /// <summary>The sections §14.4 gives the rows that start so; every other row is §3–§5's or §13's.</summary>
@@ -653,6 +653,35 @@ static class PeerLinkVectors
         plainAccepted.Send(0, "s1-11aa22bb");
         plainAccepted.Answer(5, "s1-11aa22bb", PeerLink.ReadHttp(200, "{\"ok\":true}"));
         Check(plainAccepted.InFlight == 0 && plainAccepted.OutcomeOf("s1-11aa22bb") == PeerOutcome.Accepted, "peerlink core: without feature final, accepted is its last word");
+
+        // A carrier that writes on a lane of its own sends a command queued: it waits, counted in flight, and is queued until the lane
+        // writes it; an answer to it before then answers nothing. Not written by receipt.final.ms, it is not-sent — it did not run —
+        // and is never written after; written, it waits its own 30 s. At a drop, one still queued is not-sent and one written unconfirmed.
+        const string q1 = "s1-11aa22bb", q2 = "s2-11aa22bb";
+        var lane = new PeerLinkConnector(Settings(PeerCarrier.Line, "code"), null, 0);
+        lane.Verified(0);
+        var sent = lane.Send(0, q1, queued: true) is null && lane.Send(0, q2, queued: true) is null;
+        var waits = lane.IsQueued(1, q1) && lane.IsQueued(1, q2) && lane.InFlight == 2;
+        lane.Answer(2, q1, PeerLink.ReadLine("OK @" + q1 + " done")!.Value.Reading);
+        var unanswered = lane.OutcomeOf(q1) is null;
+        lane.Written(5, q2);
+        Check(sent && waits && unanswered && !lane.IsQueued(5, q2) && lane.IsQueued(5, q1) && !lane.IsQueued(5, "s9-11aa22bb"),
+            "peerlink core: a command sent queued waits counted in flight and stays queued until its lane writes it; an answer before then answers nothing; an id it does not know is not queued");
+        var past = lane.IsQueued(PeerLink.ReceiptFinalMs + 1, q1);
+        lane.Written(PeerLink.ReceiptFinalMs + 2, q1);
+        Check(!past && lane.OutcomeOf(q1) == PeerOutcome.NotSent && lane.WordsOf(q1) == "not written in 30 s — it did not run"
+              && !lane.IsQueued(PeerLink.ReceiptFinalMs + 2, q1) && lane.OutcomeOf(q1) == PeerOutcome.NotSent
+              && lane.OutcomeOf(q2) is null && lane.Record(PeerLink.ReceiptFinalMs + 6).Counts.Unconfirmed == 1 && lane.OutcomeOf(q2) == PeerOutcome.Unconfirmed,
+            "peerlink core: a queued command not written by receipt.final.ms is not-sent, \"it did not run\", and a later write leaves it so; the written one waits its own 30 s and is unconfirmed past them");
+        var dropped = new PeerLinkConnector(Settings(PeerCarrier.Line, "code"), null, 0);
+        dropped.Verified(0);
+        dropped.Send(0, q1, queued: true);
+        dropped.Send(0, q2, queued: true);
+        dropped.Written(1, q2);
+        dropped.Closed(2);
+        Check(dropped.OutcomeOf(q1) == PeerOutcome.NotSent && dropped.WordsOf(q1) == "the link dropped before it was written — it did not run; nothing is queued"
+              && dropped.OutcomeOf(q2) == PeerOutcome.Unconfirmed && !dropped.IsQueued(3, q1),
+            "peerlink core: at a drop a command still queued is not-sent, it did not run; one written is unconfirmed (13.15.5)");
 
         // 13.16.3: the record's fields, and their order, are the master's.
         var states = Between(text, "\n### 13.16 ", "\n### ") ?? "";

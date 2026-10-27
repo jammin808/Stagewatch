@@ -9,7 +9,7 @@ using Stagewatch.Show;
 /// Playout links' model and grammar: settings schema 2 and the 2.17 Patterns keys kept as link "patterns"'s mirror, the names a
 /// link may take, running-order cues as files keep them, the <c>playout</c> verb in the one grammar, which link it reaches, its
 /// risk, its rows in the context, its journal kind and the clock's sample times; then the wire's primitives (PlayoutWire,
-/// PlayoutLineReader, PlayoutStateReader) and the Patterns link reading through them. Fields first, words beside them.
+/// PlayoutLineReader, PlayoutStateReader). The link reading through them is PlayoutLinkTests'. Fields first, words beside them.
 /// </summary>
 static class PlayoutTests
 {
@@ -905,78 +905,5 @@ static class PlayoutTests
         Check(PlayoutStateReader.Read(many)?.Playlists is { Count: PlayoutStateReader.MaxPlaylists } lists && lists[0].Name.Length == PlayoutRules.MaxLabelChars && lists[0].Name.EndsWith('…')
               && PlayoutStateReader.Read(bad)?.Playlists is [{ Id: "ok-1", ItemId: "", ItemLabel: "Label" }],
               "playout state: the first 64 playlists kept; an id a line cannot carry drops its playlist or reads as none, never cleaned into another; labels cut and cleaned");
-    }
-
-    /// <summary>
-    /// The Patterns link reading through the primitives, against a desk on this PC: a STATE longer than it reads is read in part — the
-    /// clip when its video lies within the part, none when not — with the link amber and up, the STATE's size said and counted; any other
-    /// line that long is counted and not read; a whole STATE after them is green again. A token 13.6.8 does not prove gets no proof.
-    /// </summary>
-    public static async Task Link(Action<bool, string> Check)
-    {
-        const string token = "AB12CD34";
-        static async Task<bool> Until(Func<bool> cond, int ms = 5000)
-        {
-            var until = DateTime.UtcNow.AddMilliseconds(ms);
-            while (DateTime.UtcNow < until && !cond()) await Task.Delay(25);
-            return cond();
-        }
-        // A desk older than Show Bus 1.1, on this PC: the token as plain AUTH, then whatever the test says.
-        static IEnumerable<string> Older(string l) => l.StartsWith("@hi ", StringComparison.Ordinal) ? ["ERR unknown command: @hi"]
-            : l == "AUTH " + token ? ["OK paired"] : l == "PING" ? ["OK"] : [];
-        static string Clip(string file, int padBefore = 0, int padAfter = 0)
-            => "{" + (padBefore > 0 ? "\"decks\":\"" + new string('x', padBefore) + "\"," : "")
-               + "\"video\":{\"file\":\"" + file + "\",\"positionMs\":1000,\"lengthMs\":60000,\"playing\":true,\"seq\":1}"
-               + (padAfter > 0 ? ",\"history\":\"" + new string('x', padAfter) + "\"" : "") + "}";
-
-        await using (var desk = new ShowBusTests.ScriptedDesk([], Older))
-        {
-            using var link = new PatternsLink("127.0.0.1", desk.Port, token);
-            link.Start();
-            var paired = await Until(() => link.Pairing == PatternsPairing.Paired);
-            var first = Clip("big.mp4", padAfter: 300_000);
-            desk.Say("STATE " + first);
-            var read = await Until(() => link.Video is { File: "big.mp4" });
-            Check(paired && read && link.Oversize == 1 && link.Malformed == 0 && link.Connected && link.Health == LinkHealth.Starting && link.Value is { Title: "big.mp4" }
-                  && link.Status.EndsWith(" · " + PlayoutWire.OversizeWords(Encoding.UTF8.GetByteCount(first)) + ", read in part", StringComparison.Ordinal),
-                  $"playout link: a STATE past 256 KB with its clip first is read in part — the clip followed, the link up and amber with the size ({link.Health}: {link.Status})");
-            var second = Clip("late.mp4", padBefore: 300_000);
-            desk.Say("STATE " + second);
-            var gone = await Until(() => link.Oversize == 2 && link.Video is null);
-            Check(gone && link.Value is null && link.Health == LinkHealth.Starting && link.Connected
-                  && link.Status == PlayoutWire.OversizeWords(Encoding.UTF8.GetByteCount(second)) + ": its clip on air lies past the part read — no countdown",
-                  $"playout link: one whose clip lies past the part read gives no countdown — never the last clip kept ({link.Status})");
-            var before = link.Status;
-            desk.Say("ERR " + new string('x', 300_000));
-            Check(await Until(() => link.Oversize == 3) && link.Status == before && link.Health == LinkHealth.Starting,
-                  $"playout link: any other line past 256 KB is counted and not read ({link.Status})");
-            desk.Say("STATE " + Clip("small.mp4"));
-            Check(await Until(() => link.Video is { File: "small.mp4" }) && link.Health == LinkHealth.Ok && link.Oversize == 3 && link.Status.StartsWith("small.mp4", StringComparison.Ordinal),
-                  $"playout link: the next whole STATE is read and the link is green again ({link.Health}: {link.Status})");
-
-            // A STATE the reader does not read — half a character escaped, or bytes that are not UTF-8 — is counted, and the link, its
-            // light and its words stay as they were: never dropped, never a redial into the same STATE.
-            var green = link.Status;
-            desk.Say("STATE " + Clip("\\ud800x"));
-            var counted = await Until(() => link.Malformed == 1);
-            counted = counted && desk.SayBytes([.. "STATE {\"video\":{\"file\":\""u8, 0xC3, 0x28, .. "\",\"positionMs\":1,\"lengthMs\":2,\"playing\":true}}"u8])
-                      && await Until(() => link.Malformed == 2);
-            Check(counted && link.Connected && link.Health == LinkHealth.Ok && link.Status == green && link.Oversize == 3,
-                  $"playout link: a STATE escaping half a character, or not UTF-8, is counted malformed and the link stays up and green ({link.Malformed}: {link.Health}: {link.Status})");
-            desk.Say("""STATE {"video":"x"}""");
-            Check(await Until(() => link.Status.Contains("in a shape this link does not read", StringComparison.Ordinal)) && link.Health == LinkHealth.Starting
-                  && link.Video is null && link.Value is null && link.Connected && link.Malformed == 2,
-                  $"playout link: a STATE whose video is of another shape is amber with no countdown, never 'no clip on air' ({link.Status})");
-        }
-
-        // A token 13.6.8 does not prove: a NONCE gets no proof, and the link says why.
-        await using (var desk = new ShowBusTests.ScriptedDesk(["NONCE 00112233445566778899aabbccddeeff"], _ => []))
-        {
-            using var link = new PatternsLink("127.0.0.1", desk.Port, "AB12\u00a0CD34");
-            link.Start();
-            var said = await Until(() => link.Status.Contains(PlayoutWire.InvisibleCharacter, StringComparison.Ordinal));
-            Check(said && link.Health == LinkHealth.Starting && link.Pairing == PatternsPairing.None && !desk.Heard.Any(l => l.StartsWith("AUTH", StringComparison.Ordinal)),
-                  $"playout link: a token Show Bus 1.1 desks read apart sends no proof and says so ({link.Status})");
-        }
     }
 }

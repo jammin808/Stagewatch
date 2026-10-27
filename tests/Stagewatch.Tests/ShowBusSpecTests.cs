@@ -1619,9 +1619,12 @@ static class ShowBusSpecTests
             "its playout link's redial is the core's 13.15.1: the first wait round that ×(0.8 + 0.4 j), doubling to the second, never past it with its jitter",
             "link.redial.first.ms", "link.redial.max.ms");
         Keeps(PlayoutLink.CheckEvery.TotalMilliseconds <= n.Of("link.check.max.ms") && PlayoutLink.WriteDeadline.TotalMilliseconds <= n.Of("link.write.deadline.max.ms"),
-            "its playout link runs the core's evaluator at least that often, on a timer of its own, and gives one write no longer than that "
-            + "— the evaluator still waits behind a write the socket holds up, within that deadline, until SW20.4b's writer lane",
+            "its playout link runs the core's evaluator at least that often, on a timer of its own and never behind a write — each connection "
+            + "writes on a lane of its own — and the evaluator ends a connection whose lane has been in one write longer than that",
             "link.check.max.ms", "link.write.deadline.max.ms");
+        Keeps((long)PlayoutLink.RepeatSummaryEvery.TotalMilliseconds == n.Of("log.repeat.summary.ms"),
+            "its playout link gives the show log one row per change of its state, and a change said within that long before is a repeat, "
+            + "folded into one summary row that often (PlayoutLinkTests holds it on an injected clock)", "log.repeat.summary.ms");
         Keeps(PlayoutWire.LineBytes == n.Of("link.read.min.bytes") && ReadsWhole(n.Of("link.read.min.bytes")),
             "its playout links read a line that long whole, and a longer one as oversize, in part", "link.read.min.bytes");
         Keeps(PlayoutWire.CommandBytes == n.Of("link.command.bytes") && BuildsWithin(n.Of("link.command.bytes")),

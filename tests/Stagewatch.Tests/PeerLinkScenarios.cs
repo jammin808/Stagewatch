@@ -28,9 +28,8 @@ using Stagewatch.Core;
 /// </para>
 /// <para>
 /// The carriers of Stagewatch's own links take these scenarios over as they land on the core: PlayoutLink, the desk's link to Patterns,
-/// runs S1, S11, S13 and S14 as the level-0 connector it is today (PeerLinkScenarios.Playout.cs), and the rest as it offers LINK
-/// (SW23.1). The
-/// peer's own rules are held too: no arguments, keys and certificates only from owner-only files, an unknown command, field, attack or
+/// runs S1, S11, S13, S14, S19 and S22 as the level-0 connector it is today (PeerLinkScenarios.Playout.cs), and the rest as it offers
+/// LINK (SW23.1). The peer's own rules are held too: no arguments, keys and certificates only from owner-only files, an unknown command, field, attack or
 /// shape refused, its framing in step past an oversize line or message, an open node's answers, and no key, code, K or S of its own on
 /// its stdout.
 /// </para>

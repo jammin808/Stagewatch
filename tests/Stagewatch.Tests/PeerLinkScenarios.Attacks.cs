@@ -966,7 +966,8 @@ static partial class PeerLinkScenarios
         var leaked = Found(printed, peerOwn);
         Check(Peers.Count >= 50 && printed.Count >= 1000 && peerOwn.Count >= 30 && leaked is null,
             $"peerlink scenarios: S19 — none of {peerOwn.Count} secrets of the peer's own (keys, codes, K, enrolled keys, S) on the stdout of any of the {Peers.Count} scripted peers ({printed.Count} events; {leaked})");
-        // The journal, STATE, context, report and error captures 13.19.5 names are PlayoutLink's readers' (SW20.4b, SW20.5); the core's
-        // record is what each of them takes, and every record it published is held here.
+        // The log, journal, context, report and error captures 13.19.5 names are PlayoutLink's, the connector Stagewatch runs: its own
+        // S19 (PeerLinkScenarios.Playout.cs) captures them as the desk takes them. The core's record, what each reader takes — STATE's
+        // among them once SW20.5 lays it into the frame — is held here for every link the core ran.
     }
 }

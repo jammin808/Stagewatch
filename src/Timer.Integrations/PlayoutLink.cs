@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading.Channels;
 using Stagewatch.Core;
 
 namespace Stagewatch.Integrations;
@@ -46,6 +47,18 @@ public sealed record PlayoutLinkOptions
     /// asks for TLS is never dialled plain: this carrier has no TLS, so such a link is refused with nothing sent.
     /// </summary>
     public PeerKept? Kept { get; init; }
+
+    /// <summary>
+    /// Keeps what the link holds across a restart (13.15.3) each time it changes — a hold the peer's refusal starts, and its end — in
+    /// the step that changed it, before the link's next write or dial. Asked under the link's lock, so it is cheap and never waits on
+    /// a disk: it takes the change at once and writes it on a lane of its own (<see cref="PlayoutKeptStore"/>), its task completing
+    /// false should the write fail. The core's own hold blocks every proof and dial until it ends, so the write has the hold's whole
+    /// length to land. Null keeps nothing. It is given a <see cref="PeerKept"/>, which carries no token, proof or nonce.
+    /// </summary>
+    public Func<PeerKept, Task<bool>>? Keep { get; init; }
+
+    /// <summary>The connection's bytes as the link reads and writes them; null for the socket's own. A test holds a write with it.</summary>
+    public Func<Stream, Stream>? Wrap { get; init; }
 }
 
 /// <summary>
@@ -57,10 +70,24 @@ public enum PlayoutPairing { None, Paired, Open }
 
 /// <summary>
 /// A command's outcome as the link knows it now (13.12.2): its request id, the line it was (without its id), its outcome by 13.12.3's
-/// table and the words that go with it. An outcome only moves forward; each move is said once.
+/// table and the words that go with it, the outcome it moved on from (null for its first), when the link read it, on the link's
+/// clock, and the mark its asker gave it (the desk: the running-order item it was asked for; -1 for none). An outcome only moves
+/// forward; each move is said once.
 /// </summary>
-public readonly record struct PlayoutAnswer(string Id, string Line, PeerOutcome Outcome, string Words)
+public readonly record struct PlayoutAnswer(string Id, string Line, PeerOutcome Outcome, string Words, PeerOutcome? Before = null, DateTimeOffset At = default,
+    int Mark = -1)
 {
+    /// <summary>
+    /// Pure: the show log's row for this outcome (13.12.10), the peer named by <paramref name="label"/> — one when the outcome of a
+    /// command that reached the socket first settles, and one more only when an unconfirmed one is resolved (answered after all); null
+    /// for any other move (accepted → applied or refused, accepted → unconfirmed), which the status line alone says, and for a command
+    /// that never reached the socket.
+    /// </summary>
+    public string? JournalLine(string label) => Outcome == PeerOutcome.NotSent ? null
+        : Before is null ? StatusLine(label)
+        : Before == PeerOutcome.Unconfirmed && Outcome is PeerOutcome.Applied or PeerOutcome.Refused ? StatusLine(label) + " — it was unconfirmed until then"
+        : null;
+
     /// <summary>Pure: the desk's status line for this outcome, the peer named by <paramref name="label"/>.</summary>
     public string StatusLine(string label)
     {
@@ -73,6 +100,30 @@ public readonly record struct PlayoutAnswer(string Id, string Line, PeerOutcome 
             PeerOutcome.Unconfirmed => $"{label}: {Line} unconfirmed — {Words}",
             _ => $"{label}: {Line} not sent — {Words}",
         };
+    }
+}
+
+/// <summary>
+/// A change of a playout link's state (13.16.1), as the show log keeps it (13.16.7, 13.19.4): when, from, to, the link's words for why,
+/// 13.15.1's attempt, the peer's address (host:port) and its node id when the link knows one. <see cref="Folded"/> above 0 is the one
+/// summary that stands for that many changes, each a repeat of a change said within <see cref="PlayoutLink.RepeatSummaryEvery"/>, over
+/// <see cref="FoldedMs"/> — the last of them is the one it names.
+/// </summary>
+public readonly record struct PlayoutLinkChange(DateTimeOffset At, PeerLinkState From, PeerLinkState To, string Reason, int Attempt, int Folded = 0, long FoldedMs = 0,
+    string Address = "", string? NodeId = null)
+{
+    /// <summary>
+    /// Pure: the show log's row for this change, the peer named by <paramref name="label"/> (its kind) with its id when known and its
+    /// address; it carries no token, proof or nonce.
+    /// </summary>
+    public string Line(string label)
+    {
+        var attempt = Attempt.ToString(CultureInfo.InvariantCulture);
+        var peer = label + (NodeId is { Length: > 0 } id ? " " + id : "") + " link" + (Address.Length > 0 ? " (" + Address + ")" : "");
+        if (Folded == 0) return $"{peer}: {From.Word()} → {To.Word()} — {Reason} (attempt {attempt})";
+        var many = Folded == 1 ? "1 more change" : Folded.ToString(CultureInfo.InvariantCulture) + " more changes";
+        return $"{peer}: {many} of state in {(FoldedMs / 1000.0).ToString("0.#", CultureInfo.InvariantCulture)} s, each one said before — "
+            + $"the last {From.Word()} → {To.Word()} — {Reason} (attempt {attempt})";
     }
 }
 
@@ -92,6 +143,14 @@ public readonly record struct PlayoutAnswer(string Id, string Line, PeerOutcome 
 /// <c>STOP</c>, <c>SEEK n</c> — never a raw line, and never a bare <c>STOP</c>, which on Patterns closes every output. One writer:
 /// every step of the core runs under one lock, on its time read inside that lock, and what readers take — the light and words, the
 /// record, the clock, the reading and the context — is one snapshot published after each step; a link that is not live is never green.
+/// Nothing touches the socket under that lock or on a caller's thread: each connection writes its lines in order on a lane of its own,
+/// so the show thread asking for a command and the evaluator never wait on a write; a command still on the lane when its connection
+/// ends is not-sent, one written unconfirmed, one the core settled while it waited there is never written, and a write that has not
+/// finished within <see cref="WriteDeadline"/> ends the connection. A hold the peer's refusal starts is handed with its end to its
+/// keeper (<see cref="PlayoutLinkOptions.Keep"/>) in the step that started it, before the link writes or dials again — the keeper's
+/// own lane puts it on disk, never this link's lock — so a restart keeps it. Each change of the link's state is one row for the show
+/// log (<see cref="Changed"/>), a repeat of one said within <see cref="RepeatSummaryEvery"/> folded into one summary row each that
+/// long, never a row per beat; peer words reach no row with the token in them. Listeners hear the link in the order it spoke.
 /// </summary>
 public sealed class PlayoutLink : IPlayoutSource
 {
@@ -108,8 +167,21 @@ public sealed class PlayoutLink : IPlayoutSource
     public static readonly TimeSpan NonceWait = TimeSpan.FromMilliseconds(1500);
     /// <summary>How long the <c>@hi PING</c> probe waits for its answer before the desk is judged older than Show Bus 1.1.</summary>
     public static readonly TimeSpan ProbeWait = TimeSpan.FromSeconds(3);
-    /// <summary>One write's deadline (§14 <c>link.write.deadline.max.ms</c>): a write stuck longer ends the connection.</summary>
+    /// <summary>
+    /// One write's deadline (§14 <c>link.write.deadline.max.ms</c>), on the link's clock: the evaluator ends a connection whose lane has
+    /// been writing one line longer than this.
+    /// </summary>
     public static readonly TimeSpan WriteDeadline = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// The most lines a connection's lane holds unwritten: at most <c>link.inflight.max</c> commands, the link's own pings and asks
+    /// between two writes, and its greeting. A lane past it ends its connection — a line is never dropped, coalesced or left behind.
+    /// </summary>
+    public const int LaneMax = 64;
+    /// <summary>
+    /// 13.19.4's <c>log.repeat.summary.ms</c>: a change of state said within this long before is a repeat, and repeats go to the show
+    /// log as one summary row this often, never a row each.
+    /// </summary>
+    public static readonly TimeSpan RepeatSummaryEvery = TimeSpan.FromMinutes(1);
     /// <summary>The prefix of the request ids a playout link makes (13.12.1).</summary>
     public const string IdPrefix = "s";
     /// <summary>
@@ -141,11 +213,17 @@ public sealed class PlayoutLink : IPlayoutSource
     private readonly string _label;
     private readonly StrongBox<long> _ids;
     private readonly Lock _gate = new();
+    /// <summary>
+    /// Held while a batch is taken from under <see cref="_gate"/> and raised, so the batches reach listeners in the order they were
+    /// made, whichever threads take them. Never taken under <see cref="_gate"/>.
+    /// </summary>
+    private readonly Lock _telling = new();
     private readonly PeerLinkConnector _m;
     private readonly CancellationTokenSource _stop = new();
     private readonly Dictionary<string, string> _outbound = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Tracked> _tracked = new(StringComparer.Ordinal);
     private readonly List<PlayoutAnswer> _toSay = [];
+    private readonly List<PlayoutLinkChange> _toChange = [];
     private readonly List<string> _toLog = [];
     private Task? _run;
     private ITimer? _tick;
@@ -167,14 +245,27 @@ public sealed class PlayoutLink : IPlayoutSource
     private long _pauseSaidAt = long.MinValue / 2;
     private int _pausesUnsaid;
 
+    // What the link last kept across a restart (13.15.3), and whether keeping it failed and was said.
+    private PeerKept _kept;
+    private bool _keepFailed;
+
+    // The state the show log last heard of (13.16.7), when each change was last said, and the repeats not said apart (13.19.4).
+    private PeerLinkState _logged = PeerLinkState.Off;
+    private readonly Dictionary<(PeerLinkState From, PeerLinkState To), long> _changeSaid = [];
+    private readonly HashSet<(PeerLinkState From, PeerLinkState To)> _repeated = [];
+    private PlayoutLinkChange? _repeatLast;
+    private long? _repeatSince;
+    private int _repeats;
+
     private volatile Published _pub;
     private int _malformed, _oversize, _setAside;
 
-    /// <summary>A command the link wrote, its line without its id and the last outcome it said.</summary>
-    private sealed class Tracked(string line, long order)
+    /// <summary>A command the link wrote, its line without its id, its asker's mark and the last outcome it said.</summary>
+    private sealed class Tracked(string line, long order, int mark)
     {
         public readonly string Line = line;
         public readonly long Order = order;
+        public readonly int Mark = mark;
         public PeerOutcome? Said;
     }
 
@@ -185,11 +276,22 @@ public sealed class PlayoutLink : IPlayoutSource
     private sealed record Published(LinkHealth Health, string Status, PeerLinkState State, PlayoutPairing Pairing, bool Connected,
         PeerLinkRecord Record, PeerClock.Belief? Clock, bool ClockApart, Reading? Reading, string? Context);
 
-    /// <summary>One connection: its socket and what its pairing has seen (under the lock).</summary>
-    private sealed class Connection(TcpClient tcp, NetworkStream stream, bool loopback, CancellationToken stop) : IDisposable
+    /// <summary>
+    /// A line for a connection's lane: its text, the request id of the command it is, or a ping whose t1 the lane stamps as it writes it.
+    /// </summary>
+    private sealed record Outgoing(string? Line, string? Id = null, bool Ping = false);
+
+    /// <summary>One connection: its socket, its writer lane and what its pairing has seen (under the lock).</summary>
+    private sealed class Connection(TcpClient tcp, Stream stream, bool loopback, CancellationToken stop) : IDisposable
     {
         public readonly TcpClient Tcp = tcp;
-        public readonly NetworkStream Stream = stream;
+        public readonly Stream Stream = stream;
+        /// <summary>The lines to write, in the order they were asked for; one lane writes them, outside the link's lock.</summary>
+        public readonly Channel<Outgoing> Lane = Channel.CreateBounded<Outgoing>(new BoundedChannelOptions(LaneMax) { SingleReader = true });
+        /// <summary>The lane writing this connection's lines; null until the connection greets.</summary>
+        public Task? Writer;
+        /// <summary>When the lane began the write it is in (monotonic ms), or null between writes: the evaluator's write deadline.</summary>
+        public long? WritingSince;
         /// <summary>The socket's remote address is this PC, as the seam judged it when it connected.</summary>
         public readonly bool Loopback = loopback;
         /// <summary>Cancelled when the connection ends: the core ended it, a write broke, or the link stops.</summary>
@@ -220,6 +322,7 @@ public sealed class PlayoutLink : IPlayoutSource
         public void Dispose()
         {
             End.Cancel();
+            Lane.Writer.TryComplete();
             Stream.Dispose();
             Tcp.Dispose();
             End.Dispose();
@@ -257,6 +360,7 @@ public sealed class PlayoutLink : IPlayoutSource
         {
             var now = Now();
             _m = new PeerLinkConnector(settings, options.Kept, now, options.Jitter);
+            _kept = _m.Kept;
             _pub = Publish(now);
         }
     }
@@ -292,14 +396,36 @@ public sealed class PlayoutLink : IPlayoutSource
     /// <summary>The peer's context (Show Bus §6 JSON), refreshed every 5 s from a 1.1 desk while paired, or null.</summary>
     public string? Context => _pub is { Pairing: not PlayoutPairing.None } pub ? pub.Context : null;
 
-    /// <summary>A command's outcome came, or moved forward (13.12.2). Raised on the link's own threads, outside its lock.</summary>
+    /// <summary>
+    /// A command's outcome came, or moved forward (13.12.2). Raised outside the link's lock, on its own threads or the asker's, in the
+    /// order the link made them — as are <see cref="Changed"/> and <see cref="Logged"/>, one order for the three.
+    /// </summary>
     public event Action<PlayoutAnswer>? Answered;
 
     /// <summary>
     /// A line for the show's log, raised on the link's own threads outside its lock: the evaluator's own pause (13.10.4) — at most one
-    /// line each <see cref="PauseLineEvery"/>, naming how many pauses it folds in.
+    /// line each <see cref="PauseLineEvery"/>, naming how many pauses it folds in — and a hold that could not be kept across a restart.
     /// </summary>
     public event Action<string>? Logged;
+
+    /// <summary>
+    /// The link's state changed (13.16.7), raised on the link's own threads outside its lock: one for each change, the link's start
+    /// among them (from off), and for repeats one summary each <see cref="RepeatSummaryEvery"/> (13.19.4) — never one per beat.
+    /// </summary>
+    public event Action<PlayoutLinkChange>? Changed;
+
+    /// <summary>What the link keeps across a restart at this moment (13.15.3): its hold and its end, a pin, a floor, its node; no secret.</summary>
+    public PeerKept Kept
+    {
+        get
+        {
+            lock (_gate)
+            {
+                _m.State(Now());
+                return _m.Kept;
+            }
+        }
+    }
 
     /// <summary>
     /// 13.16.3's record at this moment, read from the core under the link's lock with every deadline due by now applied — for a reader
@@ -372,38 +498,42 @@ public sealed class PlayoutLink : IPlayoutSource
             ? new PlayoutState(_label, v.Title, v.LengthSeconds / v.Rate, v.PositionSeconds / v.Rate, v.Playing && !v.Paused)
             : null;
 
-    /// <summary>Jump the clip on air to its last <paramref name="seconds"/>. Null = written, else why not.</summary>
-    public string? EndIn(int seconds)
+    /// <summary>
+    /// Jump the clip on air to its last <paramref name="seconds"/>. Null = on its way (the link's lane writes it), else why not. Each
+    /// command takes its asker's <paramref name="mark"/> (the desk: the running-order item it was asked for), handed back with each of
+    /// its outcomes (<see cref="PlayoutAnswer.Mark"/>).
+    /// </summary>
+    public string? EndIn(int seconds, int mark = -1)
     {
         if (seconds is < 1 or > 3600) return "seconds must be 1-3600";
         if (Video is { } v && !v.CountsDown) return v.Loops ? "the clip on air loops — it has no end to jump to" : $"{_label} doesn't know this clip's length yet";
-        return Send("VIDEO", "END", seconds.ToString(CultureInfo.InvariantCulture));
+        return Send(mark, "VIDEO", "END", seconds.ToString(CultureInfo.InvariantCulture));
     }
 
-    /// <summary>Play the clip on air again from its start. Null = written, else why not.</summary>
-    public string? Restart() => Send("VIDEO", "RESTART");
+    /// <summary>Play the clip on air again from its start. Null = on its way (the link's lane writes it), else why not.</summary>
+    public string? Restart(int mark = -1) => Send(mark, "VIDEO", "RESTART");
 
     /// <summary>Play on / pause / stop (back to the top, held) the clip on air — desks with transport only.</summary>
-    public string? Play() => Transport("PLAY");
-    public string? Pause() => Transport("PAUSE");
-    public string? StopClip() => Transport("STOP");   // VIDEO STOP: the clip only — never the bare STOP that closes outputs
+    public string? Play(int mark = -1) => Transport(mark, "PLAY");
+    public string? Pause(int mark = -1) => Transport(mark, "PAUSE");
+    public string? StopClip(int mark = -1) => Transport(mark, "STOP");   // VIDEO STOP: the clip only — never the bare STOP that closes outputs
 
     /// <summary>Move the clip on air to <paramref name="seconds"/> from its start.</summary>
-    public string? Seek(int seconds)
+    public string? Seek(int seconds, int mark = -1)
     {
         if (seconds is < 0 or > 24 * 3600) return "seek takes 0 to 24 hours";
         if (Video is { LengthSeconds: > 0 } v && seconds > v.LengthSeconds) return $"the clip is only {TimerTick.FormatSeconds((long)v.LengthSeconds)} long";
-        return Transport("SEEK", seconds.ToString(CultureInfo.InvariantCulture));
+        return Transport(mark, "SEEK", seconds.ToString(CultureInfo.InvariantCulture));
     }
 
-    private string? Transport(string what, params string[] more)
+    private string? Transport(int mark, string what, params string[] more)
     {
         if (NotReady() is { } why) return why;   // an unpaired link knows no clip, so it says why it sends nothing
         var video = _pub.Reading?.Video;
         if (video is { Transport: false })
             return $"this {_label} desk is older than Round 86 — it only takes Last 10 s and restart";
         if (video is null) return $"{_label} has no clip on air";
-        return Send("VIDEO", [what, .. more]);
+        return Send(mark, "VIDEO", [what, .. more]);
     }
 
     /// <summary>Null when a command may go out; else why not — no connection, or a peer that has not paired with this link.</summary>
@@ -415,24 +545,26 @@ public sealed class PlayoutLink : IPlayoutSource
     }
 
     /// <summary>
-    /// One command, built here and nowhere else (<see cref="PlayoutWire.Line"/>), written only on a connection that paired: the core
-    /// decides whether it may go (13.12.3's not-sent rows, nothing queued) and reads its answer by its request id. Null once it was
-    /// written, else why it was not. A desk older than Show Bus 1.1 echoes no id, so its command is unconfirmed at once (13.12.3).
+    /// One command, built here and nowhere else (<see cref="PlayoutWire.Line"/>), only for a connection that paired: the core decides
+    /// whether it may go (13.12.3's not-sent rows, nothing queued across a drop) and reads its answer by its request id. Null once it is
+    /// on the connection's lane, which writes it in order — the caller's thread never touches the socket — else why it was not sent.
+    /// Its outcome comes by <see cref="Answered"/>: not-sent should the connection end before the lane wrote it, and once written, a
+    /// desk older than Show Bus 1.1 echoes no id, so it is unconfirmed at once (13.12.3).
     /// </summary>
-    private string? Send(string verb, params string[] words)
+    private string? Send(int mark, string verb, params string[] words)
     {
         if (verb == "STOP" && words.Length == 0) return "refused";   // never: it closes every Patterns output
         if (PlayoutWire.Line(PlayoutRules.Patterns, null, verb, words) is not { } line) return "that command can't be written on this link";
         string? why;
         lock (_gate)
         {
-            why = SendLocked(verb, line);
+            why = SendLocked(verb, line, mark);
         }
         SayAnswers();
         return why;
     }
 
-    private string? SendLocked(string verb, string line)
+    private string? SendLocked(string verb, string line, int mark)
     {
         var now = Now();
         var conn = _conn;
@@ -443,19 +575,17 @@ public sealed class PlayoutLink : IPlayoutSource
         }
         var id = PeerLink.RequestId(IdPrefix, Interlocked.Increment(ref _ids.Value), _o.Inst);
         _outbound[id] = conn.Bus11 ? "@" + id + " " + line : line;
-        if (_m.Send(now, id, verb) == PeerOutcome.NotSent)
+        if (_m.Send(now, id, verb, queued: true) == PeerOutcome.NotSent)
         {
             _outbound.Remove(id);
             var why = _m.WordsOf(id);
             _pub = Publish(now);
             return why;
         }
-        Track(id, line);
+        Track(id, line, mark);
         Flush(conn);
-        // 13.12.3: an acceptor older than 1.1 echoes no id — its command is unconfirmed, sent with no receipt to come.
-        if (!conn.Bus11 && PeerLink.ReadLine("OK") is { Reading: var noReceipt }) _m.Answer(now, id, noReceipt);
         Ended(conn, now);
-        TrackAnswers();
+        TrackAnswers(now);
         _pub = Publish(now);
         return null;
     }
@@ -477,6 +607,7 @@ public sealed class PlayoutLink : IPlayoutSource
                 wait = scheme is not null ? 0 : Math.Max(1, _m.Record(now).NextMs ?? 1000);
                 _pub = Publish(now);
             }
+            SayAnswers();
             if (scheme is null)
             {
                 if (!await Waits(TimeSpan.FromMilliseconds(wait), stop)) break;
@@ -526,15 +657,19 @@ public sealed class PlayoutLink : IPlayoutSource
             }
             return;
         }
-        tcp.Client.SendTimeout = (int)WriteDeadline.TotalMilliseconds;
         var loopback = tcp.Client.RemoteEndPoint is IPEndPoint remote && _o.IsLoopback(remote.Address);
-        var conn = new Connection(tcp, tcp.GetStream(), loopback, stop);
+        Stream stream = tcp.GetStream();
+        var conn = new Connection(tcp, _o.Wrap is { } wrap ? wrap(stream) : stream, loopback, stop);
         if (!Greet(conn, scheme))
         {
             // The core ended the dial at its own deadline before the socket came, or refused it: nothing is said on it.
             conn.Dispose();
             return;
         }
+        // The lane reads its connection's token as the connection starts: the token's source is disposed with the connection, which
+        // can end before the lane's first line.
+        var end = conn.End.Token;
+        conn.Writer = Task.Run(() => WriteLaneAsync(conn, end));
         await ReadAsync(conn);
         lock (_gate)
         {
@@ -542,6 +677,7 @@ public sealed class PlayoutLink : IPlayoutSource
             if (ReferenceEquals(_conn, conn))
             {
                 _conn = null;
+                // The core hears the end once: what the lane wrote is unconfirmed, what it had not is not-sent (13.15.5).
                 var kept = _m.KeepsConnection(now);
                 if (kept) _m.Closed(now);
                 // Why it ended, unless that was said as it ended (a refusal, the evaluator's drop, a busy desk, a broken write) or is an
@@ -556,19 +692,21 @@ public sealed class PlayoutLink : IPlayoutSource
                 _reading = null;
                 _context = null;
                 _outbound.Clear();
-                TrackAnswers();
+                TrackAnswers(now);
                 _pub = Publish(now);
             }
         }
+        // The socket closes under a write the lane is in, so the lane ends with it; nothing it had not written is written after this.
         conn.Dispose();
+        if (conn.Writer is { } writer) await writer;
     }
 
     /// <summary>
     /// The socket is up: the core greets (<c>HELLO Stagewatch</c>; it offers no LINK yet), and the link probes whether the peer speaks
-    /// Show Bus 1.1. This carrier has no TLS, so a dial the core meant as TLS (a pin, a floor, a hello's <c>tls</c>) found none: the
-    /// core refuses a node a proof or a person pinned, or a floor holds to TLS, with nothing sent (13.9.3), and otherwise goes on plain
-    /// (13.3.3) — never a plain socket taken for TLS. False when the core had ended the dial already or refused it, and nothing is said
-    /// on the socket.
+    /// Show Bus 1.1 — both put on the connection's lane, which starts once this returns true. This carrier has no TLS, so a dial the
+    /// core meant as TLS (a pin, a floor, a hello's <c>tls</c>) found none: the core refuses a node a proof or a person pinned, or a
+    /// floor holds to TLS, with nothing sent (13.9.3), and otherwise goes on plain (13.3.3) — never a plain socket taken for TLS. False
+    /// when the core had ended the dial already or refused it, and nothing is said on the socket.
     /// </summary>
     private bool Greet(Connection conn, string scheme)
     {
@@ -640,7 +778,7 @@ public sealed class PlayoutLink : IPlayoutSource
             TakeLine(conn, now, line, size, whole);
             Flush(conn);
             Ended(conn, now);
-            TrackAnswers();
+            TrackAnswers(now);
             _pub = Publish(now);
         }
     }
@@ -781,7 +919,12 @@ public sealed class PlayoutLink : IPlayoutSource
 
     private static long? Ms(string s) => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
 
-    private static string Clip(string words) => words.Length > 160 ? words[..160] : words;
+    /// <summary>Peer words as the link says them: the token taken out first (<see cref="Scrub"/>), so no cut leaves part of it, then at most 160 characters.</summary>
+    private string Clip(string words)
+    {
+        words = Scrub(words);
+        return words.Length > 160 ? words[..160] : words;
+    }
 
     private void SetAside() => Interlocked.Increment(ref _setAside);
 
@@ -903,9 +1046,9 @@ public sealed class PlayoutLink : IPlayoutSource
     // ------------------------------------------------------------------ the evaluator
 
     /// <summary>
-    /// Every <see cref="CheckEvery"/>, on the link's clock: the core's evaluator (13.10.3–4: stale, down, its own gap), the desk's NONCE
-    /// wait and the probe's, the ping that carries the clock exchange and the CONTEXT ask once paired, the commands whose answer is
-    /// overdue, and what every reader takes.
+    /// Every <see cref="CheckEvery"/>, on the link's clock and never behind a write: the core's evaluator (13.10.3–4: stale, down, its
+    /// own gap), the write deadline of the connection's lane, the desk's NONCE wait and the probe's, the ping that carries the clock
+    /// exchange and the CONTEXT ask once paired, the commands whose answer is overdue, and what every reader takes.
     /// </summary>
     private void Tick()
     {
@@ -918,6 +1061,14 @@ public sealed class PlayoutLink : IPlayoutSource
             if (_conn is { } conn && !conn.End.IsCancellationRequested)
             {
                 if (evaluation.Closed) Explain(conn, LinkHealth.Error, $"{_label} stopped answering");
+                if (conn.WritingSince is { } since && now.Mono - since > WriteDeadline.TotalMilliseconds)
+                {
+                    // A write the socket holds up past its deadline ends the connection: what it was writing may have reached the desk.
+                    Explain(conn, LinkHealth.NotFound, $"{_label}: a write to {_host}:{_port} did not finish in "
+                        + WriteDeadline.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s");
+                    conn.Broke = true;
+                    End(conn);
+                }
                 if (conn.Probing && now.Mono - conn.ConnectedAt > ProbeWait.TotalMilliseconds)
                 {
                     conn.Probing = false;   // no answer to the probe: judged as an older desk
@@ -940,7 +1091,7 @@ public sealed class PlayoutLink : IPlayoutSource
                 Flush(conn);
                 Ended(conn, now);
             }
-            TrackAnswers();
+            TrackAnswers(now);
             _pub = Publish(now);
         }
         SayAnswers();
@@ -970,12 +1121,14 @@ public sealed class PlayoutLink : IPlayoutSource
         _pausesUnsaid = 0;
     }
 
-    /// <summary>A ping: its t1 (this PC's wall clock) kept by the core among the last it matches, then written; a desk older than 1.1 gets a bare PING.</summary>
+    /// <summary>
+    /// A ping, on the connection's lane: the lane stamps its t1 (this PC's wall clock) as it writes it, and the core keeps that t1 among
+    /// the last it matches (<see cref="Stamp"/>); a desk older than 1.1 gets a bare PING.
+    /// </summary>
     private void Ping(Connection conn, PeerNow now)
     {
-        _m.Ping(now, now.Wall);
         conn.LastPing = now.Mono;
-        Write(conn, conn.Bus11 ? "PING " + now.Wall.ToString(CultureInfo.InvariantCulture) : "PING");
+        Enqueue(conn, new Outgoing(null, Ping: true));
     }
 
     // ------------------------------------------------------------------ writes
@@ -995,7 +1148,7 @@ public sealed class PlayoutLink : IPlayoutSource
                     Write(conn, "@pa AUTH-PROOF " + proof);
                     break;
                 case ({ }, null) when w.Detail is { } id && _outbound.Remove(id, out var line):
-                    Write(conn, line);
+                    Enqueue(conn, new Outgoing(line, id));
                     break;
                 default:
                     // Nothing else is this link's to write at level 0: it offers no LINK and asks no RECEIPTS.
@@ -1004,20 +1157,109 @@ public sealed class PlayoutLink : IPlayoutSource
         }
     }
 
-    /// <summary>One line on the connection, within the write deadline; a write that breaks ends the connection.</summary>
-    private static void Write(Connection conn, string line)
+    /// <summary>One line for the connection, on its lane (under the lock): the lane writes it after every line asked for before it.</summary>
+    private void Write(Connection conn, string line) => Enqueue(conn, new Outgoing(line));
+
+    /// <summary>
+    /// A line onto the connection's lane, never written here. A lane past <see cref="LaneMax"/> lines ends its connection rather than
+    /// drop one; a connection that ended takes nothing more.
+    /// </summary>
+    private void Enqueue(Connection conn, Outgoing line)
     {
-        if (conn.End.IsCancellationRequested) return;
-        var bytes = Encoding.UTF8.GetBytes(line + "\n");
+        if (conn.End.IsCancellationRequested || conn.Lane.Writer.TryWrite(line)) return;
+        Explain(conn, LinkHealth.NotFound, $"{_label}: {LaneMax.ToString(CultureInfo.InvariantCulture)} lines waited to be written to {_host}:{_port}");
+        conn.Broke = true;
+        End(conn);
+    }
+
+    /// <summary>
+    /// The connection's writer lane: its lines, in the order they were asked for, written outside the link's lock, so neither a caller
+    /// nor the evaluator ever waits on the socket. A command is written once the core has it written (<see cref="Take"/>); a write that
+    /// breaks ends the connection, said as the core hears it; the evaluator ends one that has not finished within its deadline.
+    /// </summary>
+    private async Task WriteLaneAsync(Connection conn, CancellationToken end)
+    {
         try
         {
-            conn.Stream.Write(bytes, 0, bytes.Length);
+            while (await conn.Lane.Reader.WaitToReadAsync(end))
+            {
+                while (conn.Lane.Reader.TryRead(out var line))
+                {
+                    if (Take(conn, line) is not { } bytes) return;
+                    if (bytes.Length == 0) continue;   // a command the core settled while it waited here: never written
+                    try
+                    {
+                        await conn.Stream.WriteAsync(bytes, end);
+                    }
+                    catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException or InvalidOperationException or OperationCanceledException)
+                    {
+                        Broke(conn);
+                        return;
+                    }
+                    lock (_gate) conn.WritingSince = null;
+                }
+            }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException or InvalidOperationException)
+        catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException)
         {
+            // The connection ended while the lane waited: what it had not written is not-sent, said as the connection ends.
+        }
+    }
+
+    /// <summary>
+    /// The lane's next line, as bytes to write now; none (empty) for a command the core no longer holds as queued — it settled while it
+    /// waited here, not-sent with "it did not run", or was let go — which is never written, so those words stay true; or null when its
+    /// connection is no longer the link's (it ended, or the core ended it), and nothing more is written. Under the lock: a command is
+    /// written in the core from here, since a byte of it may reach the desk (a desk older than 1.1 echoes no id, so it is unconfirmed
+    /// at once, 13.12.3); a ping's t1 is this moment's wall clock, kept by the core among the last it matches.
+    /// </summary>
+    private byte[]? Take(Connection conn, Outgoing o)
+    {
+        string? text = null;
+        lock (_gate)
+        {
+            var now = Now();
+            if (!ReferenceEquals(_conn, conn) || conn.End.IsCancellationRequested || !_m.KeepsConnection(now)) return null;
+            if (o.Id is not { } id || _m.IsQueued(now, id))
+            {
+                if (o.Ping)
+                {
+                    _m.Ping(now, now.Wall);
+                    text = conn.Bus11 ? "PING " + now.Wall.ToString(CultureInfo.InvariantCulture) : "PING";
+                }
+                else text = o.Line ?? "";
+                if (o.Id is { } written)
+                {
+                    _m.Written(now, written);
+                    if (!conn.Bus11 && PeerLink.ReadLine("OK") is { Reading: var noReceipt }) _m.Answer(now, written, noReceipt);
+                }
+                conn.WritingSince = now.Mono;
+            }
+            if (o.Id is not null)
+            {
+                TrackAnswers(now);
+                _pub = Publish(now);
+            }
+        }
+        SayAnswers();
+        return text is null ? [] : Encoding.UTF8.GetBytes(text + "\n");
+    }
+
+    /// <summary>A write on the lane broke: the connection ends, and — unless something ended it first and said so — the link says why.</summary>
+    private void Broke(Connection conn)
+    {
+        lock (_gate)
+        {
+            conn.WritingSince = null;
+            if (!ReferenceEquals(_conn, conn) || conn.End.IsCancellationRequested) return;
+            var now = Now();
             conn.Broke = true;
             End(conn);
+            Ended(conn, now);
+            TrackAnswers(now);
+            _pub = Publish(now);
         }
+        SayAnswers();
     }
 
     /// <summary>
@@ -1042,52 +1284,74 @@ public sealed class PlayoutLink : IPlayoutSource
 
     // ------------------------------------------------------------------ outcomes and what readers take
 
-    private void Track(string id, string line)
+    private void Track(string id, string line, int mark)
     {
-        _tracked[id] = new Tracked(line, Interlocked.Read(ref _ids.Value));
+        _tracked[id] = new Tracked(line, Interlocked.Read(ref _ids.Value), mark);
         if (_tracked.Count <= PeerLink.ReceiptsKept) return;
         foreach (var old in _tracked.OrderBy(t => t.Value.Order).Take(_tracked.Count - PeerLink.ReceiptsKept).Select(t => t.Key).ToList())
             _tracked.Remove(old);
     }
 
-    /// <summary>Each written command whose outcome came or moved forward since the last look, to be said once outside the lock.</summary>
-    private void TrackAnswers()
+    /// <summary>
+    /// Each command whose outcome came or moved forward since the last look, to be said once outside the lock, with the outcome it moved
+    /// on from and the moment, on the link's clock.
+    /// </summary>
+    private void TrackAnswers(PeerNow now)
     {
         foreach (var (id, t) in _tracked.ToList())
         {
             var outcome = _m.OutcomeOf(id);
             if (outcome is { } o && o != t.Said)
             {
+                _toSay.Add(new PlayoutAnswer(id, t.Line, o, Scrub(_m.WordsOf(id)), t.Said, DateTimeOffset.FromUnixTimeMilliseconds(now.Wall), t.Mark));
                 t.Said = o;
-                _toSay.Add(new PlayoutAnswer(id, t.Line, o, _m.WordsOf(id)));
             }
             // Applied and refused are final; accepted and unconfirmed can still move, until the core no longer holds the command.
             if (outcome is PeerOutcome.Applied or PeerOutcome.Refused or PeerOutcome.NotSent || !_m.Knows(id)) _tracked.Remove(id);
         }
     }
 
-    /// <summary>What the link has to tell its listeners — outcomes and lines for the log — told outside its lock, in order.</summary>
+    /// <summary>
+    /// What the link has to tell its listeners — changes of its state, outcomes, and lines for the log — told outside its lock, in
+    /// order: a change first, so the show log says the link dropped before the commands it left unconfirmed. One batch at a time, taken
+    /// and told under <see cref="_telling"/>: a batch the reader made is never told after the timer's later one, so no listener hears
+    /// "stale → live" before "live → stale", or an outcome's move before the outcome.
+    /// </summary>
     private void SayAnswers()
     {
-        List<PlayoutAnswer> said;
-        List<string> logged;
-        lock (_gate)
+        lock (_telling)
         {
-            if (_toSay.Count == 0 && _toLog.Count == 0) return;
-            said = [.. _toSay];
-            logged = [.. _toLog];
-            _toSay.Clear();
-            _toLog.Clear();
+            List<PlayoutLinkChange> changed;
+            List<PlayoutAnswer> said;
+            List<string> logged;
+            lock (_gate)
+            {
+                if (_toChange.Count == 0 && _toSay.Count == 0 && _toLog.Count == 0) return;
+                changed = [.. _toChange];
+                said = [.. _toSay];
+                logged = [.. _toLog];
+                _toChange.Clear();
+                _toSay.Clear();
+                _toLog.Clear();
+            }
+            foreach (var c in changed) Changed?.Invoke(c);
+            foreach (var a in said) Answered?.Invoke(a);
+            foreach (var line in logged) Logged?.Invoke(line);
         }
-        foreach (var a in said) Answered?.Invoke(a);
-        foreach (var line in logged) Logged?.Invoke(line);
     }
 
     private void Say(LinkHealth health, string words)
     {
         _saidHealth = health;
-        _said = words;
+        _said = Scrub(words);
     }
+
+    /// <summary>
+    /// Peer words with this link's token taken out (13.19.1, 13.19.3): whatever the peer echoes — a service on the port that answers a
+    /// plain AUTH with the whole line — reaches no status line, row or record with the token in it.
+    /// </summary>
+    private string Scrub(string words)
+        => _token.Length == 0 || !words.Contains(_token, StringComparison.OrdinalIgnoreCase) ? words : words.Replace(_token, "(token)", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Why <paramref name="conn"/> ended, said as it ends: what the link shows while it is down.</summary>
     private void Explain(Connection conn, LinkHealth health, string words)
@@ -1107,7 +1371,9 @@ public sealed class PlayoutLink : IPlayoutSource
     /// What every reader takes now: the core's record and state laid over what the link says — live as its pairing and its readings
     /// say, stale amber with the silence (no countdown), down with what ended it and the redial's wait, held red with why and when it
     /// tries again, refused red in the core's words. A link that is not live is never green (<see cref="HealthOf"/>): should nothing
-    /// have said why it is down, the core's words stand in for the live link's.
+    /// have said why it is down, the core's words stand in for the live link's. The step that changed what the link keeps across a
+    /// restart keeps it here, before the lane writes or the link dials again (13.15.3), and the step that changed its state gives the
+    /// show log its row (13.16.7).
     /// </summary>
     private Published Publish(PeerNow now)
     {
@@ -1126,8 +1392,81 @@ public sealed class PlayoutLink : IPlayoutSource
             _ when live => record.Words,
             _ => _said,
         };
+        KeepIfChanged();
+        if (state != _logged)
+        {
+            Change(now, _logged, state, status, record.Attempt);
+            _logged = state;
+        }
+        if (_repeats > 0 && _repeatSince is { } since && now.Mono - since >= RepeatSummaryEvery.TotalMilliseconds) FoldRepeats(now);
         return new Published(HealthOf(state, _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None, _conn is not null, record,
             _m.Clock.Believed, _m.Clock.Apart, _reading, _context);
+    }
+
+    /// <summary>
+    /// 13.15.3: what the link keeps across a restart, kept when it changed — a hold the peer's refusal started, or one that ended — in
+    /// this step, under the lock, so a later change is never kept before an earlier one; the keeper takes it at once and writes it on a
+    /// lane of its own, never here. Should the write fail, the hold still holds until this Stagewatch stops, and the show log says so
+    /// once.
+    /// </summary>
+    private void KeepIfChanged()
+    {
+        var kept = _m.Kept;
+        if (kept == _kept) return;
+        _kept = kept;
+        if (_o.Keep is not { } keep) return;
+        var landed = keep(kept);
+        if (!_keepFailed) _ = SayIfNotKeptAsync(landed);
+    }
+
+    /// <summary>The keeper's write for a change, heard outside the lock: one that failed is said once in the show log.</summary>
+    private async Task SayIfNotKeptAsync(Task<bool> landed)
+    {
+        if (await landed.ConfigureAwait(ConfigureAwaitOptions.ForceYielding)) return;
+        lock (_gate)
+        {
+            if (_keepFailed) return;
+            _keepFailed = true;
+            _toLog.Add($"{_label} link: its hold could not be kept on this PC — it holds until Stagewatch stops, not across a restart");
+        }
+        SayAnswers();
+    }
+
+    /// <summary>
+    /// A change of the link's state for the show log (13.16.7): its own row, unless the same change — from and to — was said within
+    /// <see cref="RepeatSummaryEvery"/>: a redial going round, a link flapping live and stale or live and down (13.19.4), its coming live
+    /// again among them. Such a repeat is folded into one summary row, said that long after the first repeat or just before the next
+    /// row, so a link that flaps all show writes a few rows a minute, never one per flap; the summary names the last change it folds.
+    /// </summary>
+    private void Change(PeerNow now, PeerLinkState from, PeerLinkState to, string reason, int attempt)
+    {
+        var change = new PlayoutLinkChange(DateTimeOffset.FromUnixTimeMilliseconds(now.Wall), from, to, reason, attempt,
+            Address: _host + ":" + _port.ToString(CultureInfo.InvariantCulture), NodeId: _m.NodeId);
+        if (_changeSaid.TryGetValue((from, to), out var said) && now.Mono - said < RepeatSummaryEvery.TotalMilliseconds)
+        {
+            _repeats++;
+            _repeatSince ??= now.Mono;
+            _repeated.Add((from, to));
+            _repeatLast = change;
+            return;
+        }
+        FoldRepeats(now);
+        _changeSaid[(from, to)] = now.Mono;
+        _toChange.Add(change);
+    }
+
+    /// <summary>The repeats not said apart, as one summary row naming the last of them; each folded change counts as said now.</summary>
+    private void FoldRepeats(PeerNow now)
+    {
+        if (_repeats > 0 && _repeatLast is { } last && _repeatSince is { } since)
+        {
+            _toChange.Add(last with { At = DateTimeOffset.FromUnixTimeMilliseconds(now.Wall), Folded = _repeats, FoldedMs = now.Mono - since });
+            foreach (var pair in _repeated) _changeSaid[pair] = now.Mono;
+        }
+        _repeats = 0;
+        _repeatSince = null;
+        _repeatLast = null;
+        _repeated.Clear();
     }
 
     /// <summary>
@@ -1198,8 +1537,14 @@ public sealed class PlayoutLink : IPlayoutSource
         {
             var now = Now();
             if (_m.KeepsConnection(now)) _m.Closed(now);
-            TrackAnswers();
+            TrackAnswers(now);
             _pub = Publish(now);
+            // The link is stopped (Settings changed or turned it off, or Stagewatch is closing): its last row says so, and what it was.
+            FoldRepeats(now);
+            if (_logged != PeerLinkState.Off)
+                _toChange.Add(new PlayoutLinkChange(DateTimeOffset.FromUnixTimeMilliseconds(now.Wall), _logged, PeerLinkState.Off, "the link was stopped",
+                    _pub.Record.Attempt, Address: _host + ":" + _port.ToString(CultureInfo.InvariantCulture), NodeId: _m.NodeId));
+            _logged = PeerLinkState.Off;
         }
         SayAnswers();
         // Its token source goes only with the loop that reads it: a loop still ending keeps it until the process does.

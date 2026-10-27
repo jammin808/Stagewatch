@@ -67,10 +67,26 @@ public sealed partial class MainViewModel
 
     /// <summary>
     /// A command's outcome as the link read it (link thread; Show Bus 13.12.3): say what Patterns actually did — applied, taken and
-    /// not run yet, refused with its words, or unconfirmed (it may have run: look at its state), never a "done" it did not say.
+    /// not run yet, refused with its words, or unconfirmed (it may have run: look at its state), never a "done" it did not say. The
+    /// show log gets one row when the outcome of a command that reached the socket first settles, and one more when an unconfirmed one
+    /// is resolved (13.12.10), at the link's time and against the running-order item it was asked for (its mark), however far the show
+    /// has moved since; a command that never reached the socket, or any other move, has the status line alone.
     /// </summary>
     private void OnPatternsAnswer(PlayoutAnswer a)
-        => _ui.BeginInvoke(() => StatusLine = a.StatusLine(PlayoutRules.Label(PlayoutRules.PatternsName)));
+        => _ui.BeginInvoke(() =>
+        {
+            var label = PlayoutRules.Label(PlayoutRules.PatternsName);
+            StatusLine = a.StatusLine(label);
+            if (a.JournalLine(label) is { } row)
+                _journal.Add(a.At.UtcDateTime, JournalKind.Playout, a.Mark, row);
+        });
+
+    /// <summary>
+    /// A change of the link's state (link thread; Show Bus 13.16.7): one row in the show log, at the link's time — its repeats folded
+    /// into one summary row a minute (13.19.4), never a row per beat.
+    /// </summary>
+    private void OnPatternsChanged(PlayoutLinkChange c)
+        => _ui.BeginInvoke(() => _journal.Add(c.At.UtcDateTime, JournalKind.Playout, -1, c.Line(PlayoutRules.Label(PlayoutRules.PatternsName))));
 
     /// <summary>A line the link gives the show's log (link thread; Show Bus 13.10.4: its evaluator's own pause), journalled on the owner thread.</summary>
     private void OnPatternsLogged(string line)
@@ -84,20 +100,22 @@ public sealed partial class MainViewModel
             Refuse("Patterns isn't set up — Settings → Integrations → Patterns");
             return;
         }
-        // What was asked, never that it was done: Patterns' own answer comes back on the status line (OnPatternsAnswer).
+        // What was asked, never that it was done: Patterns' own answer comes back on the status line (OnPatternsAnswer), its rows
+        // filed against the item on now, which each command carries as its mark.
+        var item = _show.RundownActive ? _show.CurrentItem : -1;
         var (error, asked) = what switch
         {
-            "restart" => (link.Restart(), "restart the clip"),
-            "play" => (link.Play(), "play the clip"),
-            "pause" => (link.Pause(), "pause the clip"),
-            "stop" => (link.StopClip(), "stop the clip at the top"),
-            "seek" => (link.Seek(n), $"move the clip to {TimerTick.FormatSeconds(n)}"),
-            _ => (link.EndIn(n), $"jump the clip to its last {n} s"),
+            "restart" => (link.Restart(item), "restart the clip"),
+            "play" => (link.Play(item), "play the clip"),
+            "pause" => (link.Pause(item), "pause the clip"),
+            "stop" => (link.StopClip(item), "stop the clip at the top"),
+            "seek" => (link.Seek(n, item), $"move the clip to {TimerTick.FormatSeconds(n)}"),
+            _ => (link.EndIn(n, item), $"jump the clip to its last {n} s"),
         };
         if (error is not null) { Refuse("Patterns: " + error); return; }
-        StatusLine = "Patterns: sent — " + asked + " (waiting for its answer)";
+        // On the link's lane, not yet its answer: the outcome comes back on the status line, and to the show log once it settles.
+        StatusLine = "Patterns: " + asked + " — on its way, waiting for its answer";
         ReceiptHandedOn();   // Patterns confirms (or refuses) it itself
-        _journal.Add(DateTime.UtcNow, JournalKind.Playout, _show.RundownActive ? _show.CurrentItem : -1, "Patterns: sent — " + asked);
     }
 
     /// <summary>

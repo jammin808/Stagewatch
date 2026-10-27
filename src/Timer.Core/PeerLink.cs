@@ -938,10 +938,16 @@ public sealed class PeerLinkConnector
         Up,
     }
 
-    sealed class Command(string id, long writtenAt)
+    sealed class Command(string id, long writtenAt, bool written = true)
     {
         public readonly string Id = id;
-        public readonly long WrittenAt = writtenAt;
+        /// <summary>When it was written, or asked for while it waits on the carrier's writer lane.</summary>
+        public long WrittenAt = writtenAt;
+        /// <summary>
+        /// A byte of it may have reached the acceptor: a drop makes it unconfirmed (13.15.5). One still on the carrier's writer lane
+        /// has reached nothing, and a drop makes it not-sent.
+        /// </summary>
+        public bool Written = written;
         public PeerOutcome? Outcome;
         public string Words = "";
         /// <summary>When it last stopped waiting, in settle order: the oldest settled are the first let go.</summary>
@@ -1300,7 +1306,10 @@ public sealed class PeerLinkConnector
         TakeRefusal(now, cls, retrySeconds);
     }
 
-    /// <summary>The connection ended (or a dial failed): written commands become unconfirmed and the next dial waits 13.15.1's wait.</summary>
+    /// <summary>
+    /// The connection ended (or a dial failed): written commands become unconfirmed, those still on the carrier's lane not-sent, and the
+    /// next dial waits 13.15.1's wait.
+    /// </summary>
     public void Closed(PeerNow now)
     {
         Advance(now);
@@ -1402,9 +1411,12 @@ public sealed class PeerLinkConnector
 
     /// <summary>
     /// A command asked for, under <paramref name="id"/>: written when the link is live or stale, its show is not stuck and fewer than
-    /// <see cref="PeerLink.InflightMax"/> wait (null); otherwise not-sent, with why (13.12.3, 13.12.8). Nothing is queued.
+    /// <see cref="PeerLink.InflightMax"/> wait (null); otherwise not-sent, with why (13.12.3, 13.12.8). Nothing is queued across a
+    /// drop. A carrier that writes on a lane of its own sends it <paramref name="queued"/>: it waits from now, counted among those
+    /// in flight, and is written once the carrier says so (<see cref="Written"/>) — should the connection end first it is not-sent,
+    /// since none of it reached the acceptor; written, it is unconfirmed (13.15.5).
     /// </summary>
-    public PeerOutcome? Send(PeerNow now, string id, string verb = "command")
+    public PeerOutcome? Send(PeerNow now, string id, string verb = "command", bool queued = false)
     {
         Advance(now);
         var state = State(now);
@@ -1421,16 +1433,26 @@ public sealed class PeerLinkConnector
             Settle(c, PeerOutcome.NotSent, why);
             return PeerOutcome.NotSent;
         }
-        _commands[id] = new Command(id, now.Mono);
+        _commands[id] = new Command(id, now.Mono, written: !queued);
         Write(now, verb, null, id);
         return null;
     }
 
-    /// <summary>The command with this id was written: it waits for its answer.</summary>
+    /// <summary>
+    /// The command with this id was written: it waits for its answer from now. One sent queued is written once, when its lane writes
+    /// it; one already settled — not-sent once its connection ended — stays as it is.
+    /// </summary>
     public void Written(PeerNow now, string id)
     {
         Advance(now);
-        _commands[id] = new Command(id, now.Mono);
+        if (!_commands.TryGetValue(id, out var c))
+        {
+            _commands[id] = new Command(id, now.Mono);
+            return;
+        }
+        if (c.Written || c.Outcome is not null) return;
+        c.Written = true;
+        c.WrittenAt = now.Mono;
     }
 
     /// <summary>
@@ -1440,7 +1462,8 @@ public sealed class PeerLinkConnector
     public void Answer(PeerNow now, string id, PeerReading reading)
     {
         Advance(now);
-        if (!_commands.TryGetValue(id, out var c)) return;
+        // Nothing of a command still on the carrier's lane reached the acceptor: an answer to its id answers nothing of this link's.
+        if (!_commands.TryGetValue(id, out var c) || !c.Written) return;
         if (reading.Repeat) _replayed++;
         if (reading.LateMs is not null) _late++;
         Forward(c, reading);
@@ -1621,6 +1644,16 @@ public sealed class PeerLinkConnector
 
     /// <summary>Whether the connector still knows the command with this id: every command in flight, and the last settled ones.</summary>
     public bool Knows(string id) => _commands.ContainsKey(id);
+
+    /// <summary>
+    /// Whether the command with this id waits on the carrier's writer lane: sent queued, not written and not settled. Only such a
+    /// command may be written: one settled not-sent ("it did not run"), or no longer known, is never written after.
+    /// </summary>
+    public bool IsQueued(PeerNow now, string id)
+    {
+        Advance(now);
+        return _commands.TryGetValue(id, out var c) && !c.Written && c.Outcome is null;
+    }
 
     /// <summary>A command's words: why it was not sent, what its answer said.</summary>
     public string WordsOf(string id) => _commands.TryGetValue(id, out var c) ? c.Words : "";
@@ -1804,7 +1837,8 @@ public sealed class PeerLinkConnector
         }
         if (_phase == Phase.Up && _keyless && _reproveAt != long.MinValue && now.Mono >= _reproveAt) Relink(At(_reproveAt));
         foreach (var c in _commands.Values.Where(c => InFlightNow(c) && now.Mono - c.WrittenAt > PeerLink.ReceiptFinalMs).ToList())
-            Settle(c, PeerOutcome.Unconfirmed, "no answer in " + (PeerLink.ReceiptFinalMs / 1000).ToString(Inv) + " s — it may have run");
+            if (c.Written) Settle(c, PeerOutcome.Unconfirmed, "no answer in " + (PeerLink.ReceiptFinalMs / 1000).ToString(Inv) + " s — it may have run");
+            else Settle(c, PeerOutcome.NotSent, "not written in " + (PeerLink.ReceiptFinalMs / 1000).ToString(Inv) + " s — it did not run");
     }
 
     /// <summary>A connection comes up on the dial's scheme, the one its schedule would dial when no dial was seen.</summary>
@@ -2070,14 +2104,16 @@ public sealed class PeerLinkConnector
     }
 
     /// <summary>
-    /// The connection ends: written commands become unconfirmed (13.15.5) and nothing of it is kept. A failed dial waits 13.15.1's
+    /// The connection ends: written commands become unconfirmed and those still on the carrier's lane not-sent (13.15.5), and nothing
+    /// of it is kept. A failed dial waits 13.15.1's
     /// wait; an end the connector chose to dial again from dials at once; a refusal dials nothing until a person acts.
     /// </summary>
     void Close(PeerNow now, bool failed)
     {
         if (_phase == Phase.Idle) return;
         foreach (var c in _commands.Values.Where(InFlightNow).ToList())
-            Settle(c, PeerOutcome.Unconfirmed, "the link dropped before " + _s.Name + " answered");
+            if (c.Written) Settle(c, PeerOutcome.Unconfirmed, "the link dropped before " + _s.Name + " answered");
+            else Settle(c, PeerOutcome.NotSent, "the link dropped before it was written — it did not run; nothing is queued");
         _phase = Phase.Idle;
         _phaseAt = now.Mono;
         _everClosed = true;

@@ -93,6 +93,8 @@ static class NodesDocTests
         ("patterns.line.bytes", () => PlayoutWire.LineBytes),
         ("patterns.context.every.ms", () => Ms(PlayoutLink.ContextEvery)),
         ("clock.apart.ms", () => PeerLink.ClockApartMs),
+        ("link.write.deadline.max.ms", () => Ms(PlayoutLink.WriteDeadline)),
+        ("log.repeat.summary.ms", () => Ms(PlayoutLink.RepeatSummaryEvery)),
     ];
 
     /// <summary>A row per port Find listens on, named by what it hears there: the hello, Patterns' beacon, or any other port by its number.</summary>

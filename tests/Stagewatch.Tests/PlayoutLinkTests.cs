@@ -17,7 +17,12 @@ using Stagewatch.Integrations;
 /// by a link that paired and stayed up 10 s; a link not live never green; no plain socket taken for TLS; the clock emptied by a wall
 /// step and on each connection; one log line for the evaluator's own pause; a busy desk's words. The core's rules run on the injected
 /// clock of <see cref="LinkClock"/>, as does every check of a reading; the pairing rules that wait out the desk's NONCE or the probe run
-/// on the system's. The scripted peer's level-0 scenarios against it are PeerLinkScenarios.Playout.cs.
+/// on the system's. Then the link's own: each connection writes on a lane of its own, so no caller and not the evaluator waits on a
+/// write, a command still on the lane at a drop is not-sent, and one the core settled not-sent while it waited there is never written;
+/// a refused proof's hold is kept with its end, so a restart — a store read back from its file — keeps it, for the token it was for
+/// (<see cref="PlayoutKeptStore"/>, which writes on a lane of its own); and the show log's rows — one per change of state with the
+/// peer's address, repeats (a flapping link's among them) folded into a summary a minute, one per command's outcome as it first settles
+/// and one more as an unconfirmed one is resolved. The scripted peer's level-0 scenarios against it are PeerLinkScenarios.Playout.cs.
 /// </summary>
 static class PlayoutLinkTests
 {
@@ -42,6 +47,12 @@ static class PlayoutLinkTests
         await SelfGap(Check);
         await Busy(Check);
         Words(Check);
+        await WriterLane(Check);
+        await LaneSettled(Check);
+        await Holds(Check);
+        await KeptStore(Check);
+        await Journal(Check);
+        await Flapping(Check);
     }
 
     // ------------------------------------------------------------------ helpers
@@ -297,6 +308,61 @@ static class PlayoutLinkTests
             }
             await _accepting.WaitAsync(TimeSpan.FromSeconds(3)).ContinueWith(_ => { }, TaskScheduler.Default);
             _stop.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A connection's bytes passed through, but for a write whose line <see cref="HoldWhen"/> picks: the link's lane is held in it — as a
+    /// socket whose desk stopped reading holds a write — until the test lets it go (<see cref="Release"/>) or the link ends the
+    /// connection, and none of it reaches the desk before then.
+    /// </summary>
+    internal sealed class HeldStream(Stream inner) : Stream
+    {
+        TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int _held;
+        public volatile Func<string, bool>? HoldWhen;
+        public volatile bool Holding;
+
+        /// <summary>How many writes it has held so far.</summary>
+        public int Held => Volatile.Read(ref _held);
+
+        /// <summary>The write it holds goes on to the desk; the next write <see cref="HoldWhen"/> picks is held again.</summary>
+        public void Release()
+        {
+            var release = Interlocked.Exchange(ref _release, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+            Holding = false;
+            release.TrySetResult();
+        }
+
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => false;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) => inner.ReadAsync(buffer, offset, count, cancellationToken);
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => inner.ReadAsync(buffer, cancellationToken);
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (HoldWhen is { } hold && hold(Encoding.UTF8.GetString(buffer.Span)))
+            {
+                var release = Volatile.Read(ref _release);
+                Holding = true;
+                Interlocked.Increment(ref _held);
+                await release.Task.WaitAsync(cancellationToken);
+            }
+            await inner.WriteAsync(buffer, cancellationToken);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) inner.Dispose();
+            base.Dispose(disposing);
         }
     }
 
@@ -1160,5 +1226,440 @@ static class PlayoutLinkTests
               && Said(PeerOutcome.Accepted, "") == "Patterns took VIDEO END 10 and has not run it yet"
               && Said(PeerOutcome.NotSent, "32 commands are waiting on Patterns's answers") == "Patterns: VIDEO END 10 not sent — 32 commands are waiting on Patterns's answers",
               "playout words: the status line says the outcome the link read — applied, refused with the desk's words, unconfirmed, taken, not sent — never done on faith");
+
+        // 13.12.10: a row when the outcome first settles, one more only when an unconfirmed one is resolved; none for a command never written.
+        var accepted = new PlayoutAnswer("s1-5e6f7a8b", "CUE GO", PeerOutcome.Accepted, "requested");
+        var thenApplied = accepted with { Outcome = PeerOutcome.Applied, Words = "cut", Before = PeerOutcome.Accepted };
+        var unconfirmed = new PlayoutAnswer("s2-5e6f7a8b", "VIDEO RESTART", PeerOutcome.Unconfirmed, "no answer in 30 s — it may have run");
+        var resolved = unconfirmed with { Outcome = PeerOutcome.Applied, Words = "restarted", Before = PeerOutcome.Unconfirmed };
+        var acceptedRows = new[] { accepted, thenApplied }.Select(a => a.JournalLine("Patterns")).OfType<string>().ToList();
+        var unconfirmedRows = new[] { unconfirmed, resolved }.Select(a => a.JournalLine("Patterns")).OfType<string>().ToList();
+        Check(acceptedRows.SequenceEqual(["Patterns took CUE GO and has not run it yet (requested)"])
+              && unconfirmedRows.SequenceEqual(["Patterns: VIDEO RESTART unconfirmed — no answer in 30 s — it may have run",
+                  "Patterns did it: VIDEO RESTART (restarted) — it was unconfirmed until then"])
+              && (accepted with { Outcome = PeerOutcome.Unconfirmed, Before = PeerOutcome.Accepted }).JournalLine("Patterns") is null
+              && (unconfirmed with { Outcome = PeerOutcome.NotSent, Before = null }).JournalLine("Patterns") is null,
+              $"playout words: the show log's rows — accepted then applied is one row, the status line saying the rest; unconfirmed then applied is two; a command never written none ({string.Join(" | ", acceptedRows.Concat(unconfirmedRows))})");
+    }
+
+    // ------------------------------------------------------------------ the writer lane, holds kept, the show log
+
+    /// <summary>
+    /// The writer lane: no caller and not the evaluator waits on a write. While the socket holds one write up, a command asked for comes
+    /// back at once, queued behind it; the evaluator runs on, and its published state moves to stale on the desk's silence; past
+    /// <see cref="PlayoutLink.WriteDeadline"/> of the held write, on the link's clock, it ends the connection and says why. The command
+    /// being written is unconfirmed — a byte of it may have reached the desk — with a row for the show log; the one queued behind it is
+    /// not-sent, since none of it did, with none; neither is sent again once the link is back.
+    /// </summary>
+    static async Task WriterLane(Action<bool, string> Check)
+    {
+        var clock = new LinkClock(1_700_000_000_000);
+        await using var desk = new FakeDesk();
+        Desk11(desk, Token, () => 0, _ => null);
+        var streams = new ConcurrentQueue<HeldStream>();
+        using var link = new PlayoutLink(new PlayoutLinkOptions
+        {
+            Host = "127.0.0.1", Port = desk.Port, Token = Token, Inst = NewInst(), Time = clock, Jitter = () => 0.5,
+            Wrap = s =>
+            {
+                var held = new HeldStream(s);
+                streams.Enqueue(held);
+                return held;
+            },
+        });
+        var answers = new ConcurrentQueue<PlayoutAnswer>();
+        link.Answered += answers.Enqueue;
+        link.Start();
+        var paired = await Paired(link);
+        var stream = streams.Last();
+        stream.HoldWhen = line => line.Contains(" VIDEO RESTART", StringComparison.Ordinal);
+        var first = link.Restart();
+        var holding = await Until(() => stream.Holding);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var second = link.EndIn(10);
+        var record = link.RecordNow();
+        var asked = watch.ElapsedMilliseconds;
+        var inFlight = link.InFlight;
+        for (var t = 0; t < 25; t++) clock.Advance(250);   // 6.25 s on the link's clock: each step runs the evaluator once
+        var stale = link.State;
+        Check(paired && holding && first is null && second is null && asked < 1000 && record.State == "live" && inFlight == 2 && stale == PeerLinkState.Stale
+              && link.Connected,
+              $"playout lane: with a write held, a command asked for comes back at once ({asked} ms), queued behind it, and the evaluator runs on — the desk's silence makes the link stale ({stale}, {inFlight} in flight)");
+        for (var t = 0; t < 16; t++) clock.Advance(250);   // 10.25 s since the held write began
+        var ended = await Until(() => !link.Connected && answers.Count == 2);
+        var restart = answers.FirstOrDefault(a => a.Line == "VIDEO RESTART");
+        var end = answers.FirstOrDefault(a => a.Line == "VIDEO END 10");
+        Check(ended && restart is { Outcome: PeerOutcome.Unconfirmed, Words: "the link dropped before Patterns answered" }
+              && end is { Outcome: PeerOutcome.NotSent, Words: "the link dropped before it was written — it did not run; nothing is queued" }
+              && restart.JournalLine("Patterns") == restart.StatusLine("Patterns") && end.JournalLine("Patterns") is null
+              && link.Status.StartsWith($"Patterns: a write to 127.0.0.1:{desk.Port} did not finish in 10 s — dialling again in", StringComparison.Ordinal)
+              && link.State == PeerLinkState.Down,
+              $"playout lane: past the write deadline the evaluator ends the connection and says why; the command being written is unconfirmed, the one behind it not-sent, and only the first has a row for the show log ({restart}; {end}; {link.Status})");
+        clock.Advance(PeerLink.RedialWait(0, 0.5));
+        var back = await Paired(link);
+        await Task.Delay(200);
+        Check(back && !desk.Heard.Any(l => l.Contains(" VIDEO ", StringComparison.Ordinal)),
+              $"playout lane: once the link is back, neither command is sent again — nothing is queued across a drop ({string.Join(" | ", desk.Heard)})");
+    }
+
+    /// <summary>
+    /// A command the core settled while it waited on the lane is never written: four commands each hold the lane in a write of 8 s on
+    /// the link's clock — under the write deadline — while the desk keeps the link live, so the fifth, asked for with them, waits on the
+    /// lane past 30 s. The core settles it not-sent ("it did not run"), and when the lane reaches it, it is passed over: the desk never
+    /// hears it, its outcome stays not-sent with no row for the show log, and the lane writes on.
+    /// </summary>
+    static async Task LaneSettled(Action<bool, string> Check)
+    {
+        var clock = new LinkClock(1_700_000_000_000);
+        await using var desk = new FakeDesk();
+        Desk11(desk, Token, () => 0, _ => null);   // it answers no command
+        var streams = new ConcurrentQueue<HeldStream>();
+        var inst = NewInst();
+        using var link = new PlayoutLink(new PlayoutLinkOptions
+        {
+            Host = "127.0.0.1", Port = desk.Port, Token = Token, Inst = inst, Time = clock, Jitter = () => 0.5,
+            Wrap = s =>
+            {
+                var held = new HeldStream(s);
+                streams.Enqueue(held);
+                return held;
+            },
+        });
+        var answers = new ConcurrentQueue<PlayoutAnswer>();
+        link.Answered += answers.Enqueue;
+        link.Start();
+        var paired = await Paired(link);
+        var stream = streams.Last();
+        stream.HoldWhen = line => line.Contains(" VIDEO RESTART", StringComparison.Ordinal);
+        var asked = new List<string?>();
+        for (var i = 0; i < 4; i++) asked.Add(link.Restart());
+        asked.Add(link.EndIn(10));   // asked last: on the lane behind the four
+        var fifth = PeerLink.RequestId(PlayoutLink.IdPrefix, 5, inst);
+        var holds = 0;
+        var live = true;
+        var pings = 0;
+        for (var n = 1; n <= 4; n++)
+        {
+            if (!await Until(() => stream.Held == n)) break;
+            for (var t = 1; t <= 32; t++)
+            {
+                clock.Advance(250);
+                if (t % 8 != 0) continue;
+                desk.Say(State("pushed.mp4"));   // the desk is heard every 2 s, though the lane holds the link's pings
+                live &= await Until(() => link.RecordNow().HeardMs == 0, 1000);
+            }
+            holds++;
+            // The pings the desk heard before the last write is let go: those the lane holds behind the fifth command come after.
+            if (n == 4) pings = desk.Heard.Count(l => l.StartsWith("PING ", StringComparison.Ordinal));
+            stream.Release();
+        }
+        var settled = link.OutcomeOf(fifth);
+        var wroteOn = await Until(() => desk.Heard.Count(l => l.StartsWith("PING ", StringComparison.Ordinal)) > pings);
+        await Task.Delay(200);
+        var told = answers.Where(a => a.Id == fifth).ToList();
+        Check(paired && asked.All(a => a is null) && holds == 4 && live && link.State == PeerLinkState.Live && settled == PeerOutcome.NotSent && wroteOn
+              && desk.Heard.Count(l => l.EndsWith(" VIDEO RESTART", StringComparison.Ordinal)) == 4 && !desk.Heard.Any(l => l.Contains(" VIDEO END ", StringComparison.Ordinal))
+              && told is [{ Outcome: PeerOutcome.NotSent, Words: "not written in 30 s — it did not run", Line: "VIDEO END 10" }] && told[0].JournalLine("Patterns") is null
+              && link.OutcomeOf(fifth) == PeerOutcome.NotSent,
+              $"playout lane: a command the core settled not-sent while the lane held it past 30 s — it did not run — is passed over, never written: the desk never hears it, its outcome stays not-sent with no row, and the lane writes on ({string.Join(" | ", told)}; {holds} holds; {string.Join(" | ", desk.Heard.Where(l => l.Contains("VIDEO", StringComparison.Ordinal)))})");
+    }
+
+    /// <summary>
+    /// 13.15.3's hold, kept: a refused proof holds the token a minute, kept with its end — the store takes it in the step that refused
+    /// it, and its lane puts it on disk; a link made again from a store read back from that file — a restart — is held for what is left
+    /// of the minute and dials nothing until it ends; the hold's end is kept too, and the desk's next refusal holds again. A token changed
+    /// in Settings is proved at once: the hold was for the token it held.
+    /// </summary>
+    static async Task Holds(Action<bool, string> Check)
+    {
+        var clock = new LinkClock(1_700_000_000_000);
+        await using var desk = new FakeDesk();
+        Desk11(desk, Token, () => 0, _ => null);   // it pairs Token's proof and refuses any other: "wrong token"
+        using var file = Scratch.File("kept", ".json");
+        var first = PlayoutKeptStore.Tag("the token as Settings stores it");
+        var kept = new ConcurrentQueue<PeerKept>();
+        // Each run reads the file afresh, as the desk's store does when Stagewatch starts.
+        PlayoutLink Make(PlayoutKeptStore store, string token, string tag) => new(new PlayoutLinkOptions
+        {
+            Host = "127.0.0.1", Port = desk.Port, Token = token, Inst = NewInst(), Time = clock, Jitter = () => 0.5,
+            Kept = store.For(PlayoutRules.PatternsName, tag, clock.WallMs),
+            Keep = k =>
+            {
+                kept.Enqueue(k);
+                return store.Keep(PlayoutRules.PatternsName, tag, k, clock.WallMs);
+            },
+        });
+        var start = clock.WallMs;
+        var run1 = new PlayoutKeptStore(file.Path);
+        using (var link = Make(run1, "ZZ99YY88", first))
+        {
+            link.Start();
+            var held = await Until(() => link.State == PeerLinkState.Held && kept.Count == 1);
+            var landed = await run1.Flushed;
+            var onDisk = PlayoutKeptStore.Parse(File.Exists(file.Path) ? File.ReadAllText(file.Path) : null);
+            var k1 = kept.TryPeek(out var k) ? k : null;
+            Check(held && landed && k1 is { HeldUntilWall: { } until, HeldRefusal: "key", Pin: null, Floor: null } && until == start + PeerLink.HoldRefusedMs
+                  && onDisk.TryGetValue(PlayoutRules.PatternsName, out var entry) && entry.Kept == k1 && entry.Tag == first && desk.Taken == 1
+                  && link.Health == LinkHealth.Error && link.Status.Contains("wrong token — the token is held; next try in 60 s", StringComparison.Ordinal),
+                  $"playout holds: a refused proof holds the token a minute, kept with its end in the step that refused it and on disk by the store's lane ({k1}; {link.Status})");
+        }
+        clock.Advance(20_000);
+        var taken = desk.Taken;
+        var run2 = new PlayoutKeptStore(file.Path);   // a restart: the file read back
+        using (var again = Make(run2, "ZZ99YY88", first))
+        {
+            again.Start();
+            await Task.Delay(200);
+            var rec = again.RecordNow();
+            var still = again.State == PeerLinkState.Held && again.Health == LinkHealth.Error && rec is { NextMs: 40_000, Refusal: "key" } && desk.Taken == taken;
+            clock.Advance(40_000 - 1);
+            await Task.Delay(200);
+            var notYet = desk.Taken == taken && again.State == PeerLinkState.Held;
+            clock.Advance(1);
+            var redialled = await Until(() => desk.Taken == taken + 1 && kept.Count == 3);
+            var list = kept.ToList();
+            var landed = await run2.Flushed;
+            Check(still && notYet && redialled && landed && list[1].HeldUntilWall is null && list[2].HeldUntilWall == clock.WallMs + PeerLink.HoldRefusedMs,
+                  $"playout holds: a restart keeps the hold — held for what is left of the minute, no dial until it ends; its end is kept, and the desk's next refusal holds again ({rec.ToJson()}; {string.Join(" | ", list)})");
+        }
+        var run3 = new PlayoutKeptStore(file.Path);
+        using (var changed = Make(run3, Token, PlayoutKeptStore.Tag("the new token as Settings stores it")))
+        {
+            changed.Start();
+            var paired = await Paired(changed);
+            Check(paired && desk.Taken == taken + 2 && run3.For(PlayoutRules.PatternsName, first, clock.WallMs)?.HeldUntilWall is not null,
+                  "playout holds: a token changed in Settings is proved at once — the kept hold, read back after a restart, is the old token's, and stays its");
+        }
+    }
+
+    /// <summary>
+    /// The store of what playout links keep: a whole entry back as it was written; a hold only for the token it was for, while the pin,
+    /// floor and node stay; a restored hold ends within <see cref="PlayoutKeptStore.HoldMaxMs"/>, whatever the file says; a keep is the
+    /// store's at once and on disk by its lane, latest wins; nothing kept removes the entry; a file or a field it cannot read is dropped,
+    /// never guessed — a refusal outside 13.16.3's set holds as key, a kind outside the hello's is none; a full store makes room by the
+    /// entry kept longest ago; a file it cannot write is said; and the token, or the form Settings stores it in, is in no file.
+    /// </summary>
+    static async Task KeptStore(Action<bool, string> Check)
+    {
+        var fp = string.Concat(Enumerable.Repeat("0a", 32));
+        var full = new PeerKept(new PeerPin("9f8e7d6c", fp, PinTrust.Person), new PeerFloor(true, 1, "mutual"), 1_700_000_060_000, "locked", "9f8e7d6c", "patterns");
+        const string blob = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAA";
+        var tag = PlayoutKeptStore.Tag(blob);
+        var links = new Dictionary<string, PlayoutKeptStore.Entry>
+        {
+            ["patterns"] = new(tag, full, 5),
+            ["stage-left"] = new("", new PeerKept(null, null, 1_700_000_060_000, "key"), 6),
+        };
+        var json = PlayoutKeptStore.ToJson(links);
+        var back = PlayoutKeptStore.Parse(json);
+        Check(back.Count == 2 && back["patterns"] == links["patterns"] && back["stage-left"] == links["stage-left"],
+              "playout kept: each link's entry comes back as it was written — hold, refusal, pin, floor, node and the token's tag");
+        Check(Regex.IsMatch(tag, "^[0-9a-f]{16}$") && tag != PlayoutKeptStore.Tag(blob + "x") && PlayoutKeptStore.Tag("") == "" && PlayoutKeptStore.Tag(null) == ""
+              && !json.Contains(blob, StringComparison.Ordinal) && !json.Contains(blob[..12], StringComparison.Ordinal),
+              "playout kept: a token's tag is 16 hex of the form Settings stores it in, another for another, and that form is in no file");
+
+        const long now = 1_700_000_000_000;
+        using (var file = Scratch.File("kept", ".json"))
+        {
+            var store = new PlayoutKeptStore(file.Path);
+            var keeping = store.Keep("patterns", tag, full, 5);
+            var at = store.For("patterns", tag, now);   // the store's at once, whether or not its lane has written it yet
+            var wrote = await keeping;
+            var reread = new PlayoutKeptStore(file.Path);
+            var other = reread.For("patterns", PlayoutKeptStore.Tag("another"), now);
+            Check(at == full && wrote && reread.For("patterns", tag, now) == full && other == full with { HeldUntilWall = null, HeldRefusal = null }
+                  && reread.For("nobody", tag, now) is null,
+                  "playout kept: a keep is the store's at once and on disk by its lane; read back after a restart, a link's hold is its own only for the token it was for; its pin, floor and node are kept whatever the token");
+            var far = full with { HeldUntilWall = now + 365L * 24 * 3600 * 1000 };
+            await reread.Keep("patterns", tag, far, 6);
+            var capped = new PlayoutKeptStore(file.Path).For("patterns", tag, now);
+            Check(capped is { HeldUntilWall: { } until } && until == now + PlayoutKeptStore.HoldMaxMs && PlayoutKeptStore.HoldMaxMs == PeerLink.HoldRefusedMs
+                  && capped == far with { HeldUntilWall = now + PlayoutKeptStore.HoldMaxMs },
+                  $"playout kept: a hold the file says ends a year on — a damaged file, a wall clock stepped back — ends within peerlink.hold.refused.ms of the restart, the longest hold a level-0 link starts ({capped})");
+            var latest = Enumerable.Range(0, 20).Select(i => reread.Keep("patterns", tag, full with { HeldUntilWall = now + i }, 7 + i)).ToList();
+            var all = await Task.WhenAll(latest);
+            var last = PlayoutKeptStore.Parse(File.ReadAllText(file.Path));
+            Check(all.All(x => x) && last["patterns"].Kept.HeldUntilWall == now + 19,
+                  "playout kept: keeps made faster than the lane writes are written whole, the latest winning, each told it landed");
+            var cleared = await reread.Keep("patterns", tag, new PeerKept(null, null, null, null), 30);
+            Check(cleared && reread.Links.Count == 0 && File.Exists(file.Path) && PlayoutKeptStore.Parse(File.ReadAllText(file.Path)).Count == 0,
+                  "playout kept: a link that keeps nothing more leaves the file");
+        }
+
+        const string bad = """
+            {"v":1,"links":{"Bad Name":{"heldUntil":5},"stage-left":{"tag":"XYZ","heldUntil":5,"refusal":"Key!","pin":{"fingerprint":"ab","trust":"person"},
+             "floor":{"tls":true,"level":2,"proof":"mutual"},"node":"a b"},"empty":{"tag":""},"patterns":{"heldUntil":"5","pin":{"fingerprint":"%FP%","trust":"nobody"}},
+             "stage-right":{"heldUntil":7,"refusal":"forgiven","kind":"robot","node":"9f8e7d6c","floor":{"tls":false,"level":0,"proof":"trusted"}},
+             "booth":{"heldUntil":8,"refusal":"locked","kind":"playmap"}}}
+            """;
+        var parsed = PlayoutKeptStore.Parse(bad.Replace("%FP%", fp, StringComparison.Ordinal));
+        Check(parsed.Count == 3 && parsed["stage-left"] is { Tag: "", Kept: { HeldUntilWall: 5, HeldRefusal: "key", Pin: null, Floor: null, NodeId: null, NodeKind: null } }
+              && parsed["stage-right"] is { Kept: { HeldUntilWall: 7, HeldRefusal: "key", NodeId: "9f8e7d6c", NodeKind: null, Floor: null } }
+              && parsed["booth"] is { Kept: { HeldUntilWall: 8, HeldRefusal: "locked", NodeKind: "playmap" } }
+              && PlayoutKeptStore.Parse("not json").Count == 0 && PlayoutKeptStore.Parse("{\"v\":2,\"links\":{\"patterns\":{\"heldUntil\":5}}}").Count == 0
+              && PlayoutKeptStore.Parse(null).Count == 0 && PlayoutKeptStore.Parse("[1]").Count == 0,
+              $"playout kept: a file or a field it cannot read is dropped, never guessed — a bad name, tag, pin, floor or node; a refusal outside 13.16.3's set holds as key, a kind outside the hello's is none; an entry keeping nothing; another version ({string.Join(", ", parsed.Keys)})");
+
+        var room = new PlayoutKeptStore(null);
+        var hold = new PeerKept(null, null, 1_700_000_060_000, "key");
+        for (var i = 0; i < PlayoutKeptStore.MaxEntries; i++) await room.Keep("l" + i.ToString(CultureInfo.InvariantCulture), "", hold, 100 + i);
+        await room.Keep("l3", "", hold, 500);
+        await room.Keep("new", "", hold, 600);
+        Check(room.Links.Count == PlayoutKeptStore.MaxEntries && !room.Links.ContainsKey("l0") && room.Links.ContainsKey("l3") && room.Links.ContainsKey("new"),
+              "playout kept: a full store makes room for a new link by the entry kept longest ago");
+
+        using var folder = Scratch.Folder("kept");
+        var unwritable = new PlayoutKeptStore(folder.Path);
+        Check(unwritable.Links.Count == 0 && !await unwritable.Keep("patterns", tag, full, 5) && !await unwritable.Flushed,
+              "playout kept: a file it cannot read is no holds, and one it cannot write is said (false), never thrown");
+    }
+
+    /// <summary>
+    /// The show log's rows (13.16.7, 13.19.4, 13.12.10): one per change of the link's state — the peer and its address, from, to, why,
+    /// attempt — its start among them; a change said within the minute before is a repeat, folded into one summary row a minute — a
+    /// redial going round, the link coming live again — never a row each. An outcome's row comes when it first settles, and one more
+    /// when an unconfirmed one is resolved, at the link's time. No row carries the token.
+    /// </summary>
+    static async Task Journal(Action<bool, string> Check)
+    {
+        var clock = new LinkClock(1_700_000_000_000);
+        await using var desk = new FakeDesk();
+        Desk11(desk, Token, () => 0, _ => null);   // it answers no command
+        var inst = NewInst();
+        using var link = Link(desk.Port, Token, time: clock, inst: inst, jitter: () => 0.5);
+        var rows = new ConcurrentQueue<PlayoutLinkChange>();
+        var answers = new ConcurrentQueue<PlayoutAnswer>();
+        link.Changed += rows.Enqueue;
+        link.Answered += answers.Enqueue;
+        link.Start();
+        var peer = $"Patterns link (127.0.0.1:{desk.Port.ToString(CultureInfo.InvariantCulture)})";
+        var paired = await Paired(link) && await Until(() => rows.Count == 2);
+        var start = rows.ToList();
+        Check(paired && start is [{ From: PeerLinkState.Off, To: PeerLinkState.Connecting, Folded: 0 }, { From: PeerLinkState.Connecting, To: PeerLinkState.Live, Attempt: 0 }]
+              && start[0].Line("Patterns").StartsWith(peer + ": off → connecting — ", StringComparison.Ordinal)
+              && start[1].Line("Patterns").StartsWith(peer + ": connecting → live — paired with 127.0.0.1:", StringComparison.Ordinal)
+              && start[1].Line("Patterns").EndsWith(" (attempt 0)", StringComparison.Ordinal) && start[1].At.ToUnixTimeMilliseconds() == clock.WallMs,
+              $"playout log: the link's start and its pairing are a row each, at the link's time — the peer and its address, from, to, its words and the attempt ({string.Join(" | ", start.Select(r => r.Line("Patterns")))})");
+
+        // A drop and the link back within the minute: the drop and the redial are new changes, a row each; the link coming live again
+        // was said a moment before, so it is a repeat — folded into the summary a minute after it, never a row of its own.
+        desk.Drop();
+        var dropped = await Until(() => !link.Connected && clock.OneShotWaiting);
+        clock.Advance(link.RecordNow().NextMs ?? 0);
+        var again = await Paired(link) && await Until(() => rows.Count == 4);
+        await Task.Delay(100);
+        var quick = rows.Skip(2).ToList();
+        Check(dropped && again && rows.Count == 4 && quick.Select(r => (r.From, r.To, r.Folded)).SequenceEqual([(PeerLinkState.Live, PeerLinkState.Down, 0), (PeerLinkState.Down, PeerLinkState.Connecting, 0)])
+              && link.State == PeerLinkState.Live
+              && quick[0].Line("Patterns") == peer + ": live → down — Patterns closed the connection — dialling again in 0.5 s (attempt 1)",
+              $"playout log: a drop and the redial are a row each, the peer's address in each; the link live again, said a moment before, is no row of its own ({string.Join(" | ", quick.Select(r => r.Line("Patterns")))})");
+        await Live(clock, link, 62_000);
+        var folded = await Until(() => rows.Count == 5);
+        var summary = rows.Last();
+        Check(folded && summary is { Folded: 1, From: PeerLinkState.Connecting, To: PeerLinkState.Live } && summary.FoldedMs >= PlayoutLink.RepeatSummaryEvery.TotalMilliseconds
+              && summary.Line("Patterns").StartsWith(peer + ": 1 more change of state in ", StringComparison.Ordinal)
+              && summary.Line("Patterns").Contains(", each one said before — the last connecting → live — paired with 127.0.0.1:", StringComparison.Ordinal),
+              $"playout log: the repeat is said in the minute's summary, which names the last change it folds ({summary.Line("Patterns")})");
+
+        // An outcome's rows: unconfirmed with no answer in 30 s, then the desk's late answer resolves it.
+        link.Restart();
+        var id = PeerLink.RequestId(PlayoutLink.IdPrefix, 1, inst);
+        await Until(() => desk.Heard.Any(l => l.StartsWith("@" + id + " ", StringComparison.Ordinal)));
+        await Live(clock, link, 30_000);
+        clock.Advance(1);
+        clock.Advance(PlayoutLink.CheckEvery.Ticks / TimeSpan.TicksPerMillisecond);
+        var unconfirmed = await Until(() => answers.Count == 1);
+        desk.Say("OK @" + id + " restarted late");
+        var moved = await Until(() => answers.Count == 2);
+        var said = answers.ToList();
+        Check(unconfirmed && moved && said[0] is { Outcome: PeerOutcome.Unconfirmed, Before: null } && said[0].JournalLine("Patterns") == said[0].StatusLine("Patterns")
+              && said[1] is { Outcome: PeerOutcome.Applied, Before: PeerOutcome.Unconfirmed, Words: "restarted late" }
+              && said[1].JournalLine("Patterns") == "Patterns did it: VIDEO RESTART (restarted late) — it was unconfirmed until then"
+              && said[1].At.ToUnixTimeMilliseconds() == clock.WallMs && rows.Count == 5,
+              $"playout log: an outcome's row when it first settles and one more when an unconfirmed one is resolved ({string.Join(" | ", said.Select(a => a.JournalLine("Patterns")))})");
+
+        // The desk drops the link and closes each connection: a row for each new change, the repeats folded, a summary a minute.
+        var mark = rows.Count;
+        desk.Closing = true;
+        desk.Drop();
+        var down = await Until(() => !link.Connected && link.State == PeerLinkState.Down && clock.OneShotWaiting);
+        var dials = 0;
+        var went = 0L;
+        while (went < PlayoutLink.RepeatSummaryEvery.TotalMilliseconds + 10_000 && down)
+        {
+            var wait = link.RecordNow().NextMs ?? 0;
+            var attempt = link.RecordNow().Attempt;
+            clock.Advance(wait);
+            went += wait;
+            dials++;
+            down = await Until(() => link.RecordNow().Attempt == attempt + 1 && clock.OneShotWaiting);
+        }
+        var cycling = rows.Skip(mark).ToList();
+        desk.Closing = false;
+        clock.Advance(link.RecordNow().NextMs ?? 0);
+        var back = await Paired(link) && await Until(() => rows.Last().To == PeerLinkState.Live);
+        var after = rows.Skip(mark).ToList();
+        var summaries = after.Where(r => r.Folded > 0).ToList();
+        var changes = after.Sum(r => r.Folded > 0 ? r.Folded : 1);
+        Check(down && back && dials >= 10 && cycling.Take(3).Select(r => (r.From, r.To)).SequenceEqual([(PeerLinkState.Live, PeerLinkState.Down), (PeerLinkState.Down, PeerLinkState.Connecting), (PeerLinkState.Connecting, PeerLinkState.Down)])
+              && summaries.Count >= 1 && summaries[0].FoldedMs >= PlayoutLink.RepeatSummaryEvery.TotalMilliseconds
+              && summaries[0].Line("Patterns").StartsWith(peer + ": ", StringComparison.Ordinal) && summaries[0].Line("Patterns").Contains(" more changes of state in ", StringComparison.Ordinal)
+              && after.Count <= 3 + 3 + 2 && after.Count < dials && changes == 1 + 2 * dials + 2 && after[^1] is { From: PeerLinkState.Connecting, To: PeerLinkState.Live, Folded: 0 },
+              $"playout log: a redial going round is a row for each new change and one summary a minute — {after.Count} rows for {changes} changes over {dials} dials — and the link coming live, not said within the minute, is said at once ({string.Join(" | ", after.Select(r => r.Line("Patterns")))})");
+        Check(rows.Concat(after).All(r => !r.Line("Patterns").Contains(Token, StringComparison.Ordinal)) && said.All(a => a.JournalLine("Patterns")?.Contains(Token, StringComparison.Ordinal) != true),
+              "playout log: no row carries the token");
+    }
+
+    /// <summary>
+    /// 13.19.4 on a flapping link: a desk whose show stalls every few seconds takes the link live → stale → live ten times. The first
+    /// of each change is a row; a repeat of a change said within the minute is folded into a summary a minute, and a change last said
+    /// longer ago is said again — so twenty changes over a minute or more are a handful of rows, never a row or two per flap; the last
+    /// names the link live again.
+    /// </summary>
+    static async Task Flapping(Action<bool, string> Check)
+    {
+        var clock = new LinkClock(1_700_000_000_000);
+        await using var desk = new FakeDesk();
+        long? offset = 0;
+        Desk11(desk, Token, () => offset, _ => null);
+        using var link = Link(desk.Port, Token, time: clock, inst: NewInst(), jitter: () => 0.5);
+        var rows = new ConcurrentQueue<PlayoutLinkChange>();
+        link.Changed += rows.Enqueue;
+        link.Start();
+        var paired = await Paired(link) && await Until(() => rows.Count == 2);
+        var flaps = 0;
+        var went = 0L;
+        int Pings() => desk.Heard.Count(l => l.StartsWith("PING ", StringComparison.Ordinal));
+        for (var n = 0; n < 10; n++)
+        {
+            offset = null;   // the desk's show stalls: it answers no ping
+            var stale = false;
+            for (var t = 0; t < 60 && !stale; t++)
+            {
+                clock.Advance(250);
+                went += 250;
+                stale = link.State == PeerLinkState.Stale;
+            }
+            offset = 0;      // and runs again: the next ping the desk hears is answered, and the clock waits for its pong
+            var pings = Pings();
+            var live = false;
+            for (var t = 0; t < 16 && !live; t++)
+            {
+                clock.Advance(250);
+                went += 250;
+                if (await Until(() => Pings() > pings, 50)) live = await Until(() => link.State == PeerLinkState.Live, 3000);
+            }
+            if (stale && live) flaps++;
+        }
+        await Live(clock, link, 62_000);   // a quiet minute: the last summary is said
+        var said = rows.Skip(2).ToList();
+        var own = said.Where(r => r.Folded == 0).ToList();
+        var summaries = said.Where(r => r.Folded > 0).ToList();
+        var changes = said.Sum(r => r.Folded > 0 ? r.Folded : 1);
+        // At least twenty changes: a pong the machine is slow to hand over can add a flap of its own, which only adds to the fold.
+        Check(paired && flaps == 10 && went >= PlayoutLink.RepeatSummaryEvery.TotalMilliseconds && changes >= 20 && said.Count * 3 <= changes
+              && own.Take(2).Select(r => (r.From, r.To)).SequenceEqual([(PeerLinkState.Live, PeerLinkState.Stale), (PeerLinkState.Stale, PeerLinkState.Live)])
+              && summaries.Count >= 1 && said.Count <= 6 && said[^1] is { From: PeerLinkState.Stale, To: PeerLinkState.Live },
+              $"playout log: a link flapping live and stale ten times is {said.Count} rows for {changes} changes over {(went / 1000).ToString(CultureInfo.InvariantCulture)} s — the first of each change and a summary a minute ({string.Join(" | ", said.Select(r => r.Line("Patterns")))})");
     }
 }

@@ -3,10 +3,11 @@ using System.Globalization;
 using System.Text.Json;
 using Stagewatch.Core;
 using Stagewatch.Integrations;
+using Stagewatch.Show;
 
 /// <summary>
-/// The PeerLink kit's scenarios S1, S11, S13 and S14 (Show Bus 13.20) against PlayoutLink, the desk's link to Patterns, as it is on the
-/// core today: a level-0 connector (13.6.8) that offers no LINK. The scripted peer is a level-0 acceptor with Patterns 88.1's grammar —
+/// The PeerLink kit's scenarios S1, S11, S13, S14, S19 and S22 (Show Bus 13.20) against PlayoutLink, the desk's link to Patterns, as it
+/// is on the core today: a level-0 connector (13.6.8) that offers no LINK. The scripted peer is a level-0 acceptor with Patterns 88.1's grammar —
 /// it greets with STATE, then a NONCE of 32 lowercase hex, answers LINK <c>unknown command</c>, takes <c>AUTH-PROOF</c> for the code it
 /// holds, and offers no feature — on a real socket, and PlayoutLink runs on the injected clock of
 /// <see cref="PlayoutLinkTests.LinkClock"/>, its wall time starting at <see cref="T0"/>. What 13.20 asks of a level-1 link (LINK's
@@ -21,6 +22,9 @@ static partial class PeerLinkScenarios
     /// <summary>Every status line and record PlayoutLink published in these scenarios, and each command's words.</summary>
     static readonly ConcurrentQueue<string> PlayoutSaid = new();
 
+    /// <summary>Every row PlayoutLink gave the show log in these scenarios — its changes of state, its outcomes, its lines — as the desk journals them.</summary>
+    static readonly ConcurrentQueue<string> PlayoutRows = new();
+
     /// <summary>An inst of its own, so each scenario's request ids count from 1 in the process's counter.</summary>
     static string FreshInst() => Guid.NewGuid().ToString("N")[..8];
 
@@ -29,9 +33,18 @@ static partial class PeerLinkScenarios
     /// desk on another machine when <paramref name="local"/> is false (the seam answers false for loopback).
     /// </summary>
     static PlayoutLink PlayoutTo(int port, PlayoutLinkTests.LinkClock clock, string inst, bool local = true, Func<double>? jitter = null)
+        => Playout(PlayoutLinkTests.Link(port, CodeTyped, local ? null : PlayoutLinkTests.Remote, clock, inst, jitter ?? (() => 0.5)));
+
+    /// <summary><paramref name="link"/>, kept for the canary look, with everything it says to its listeners captured as the desk takes it.</summary>
+    static PlayoutLink Playout(PlayoutLink link)
     {
-        var link = PlayoutLinkTests.Link(port, CodeTyped, local ? null : PlayoutLinkTests.Remote, clock, inst, jitter ?? (() => 0.5));
-        link.Answered += a => PlayoutSaid.Enqueue(a.StatusLine(link.Name));
+        link.Answered += a =>
+        {
+            PlayoutSaid.Enqueue(a.StatusLine(link.Name));
+            if (a.JournalLine(link.Name) is { } row) PlayoutRows.Enqueue(row);
+        };
+        link.Changed += c => PlayoutRows.Enqueue(c.Line(link.Name));
+        link.Logged += PlayoutRows.Enqueue;
         PlayoutLinks.Add(link);
         return link;
     }
@@ -81,7 +94,8 @@ static partial class PeerLinkScenarios
         await PlayoutS11(Check, script, kit);
         await PlayoutS13(Check, script, kit);
         await PlayoutS14(Check, script, kit);
-        PlayoutCanaries(Check);
+        await PlayoutS22(Check, script, kit);
+        await PlayoutS19(Check, script, kit);
     }
 
     // ------------------------------------------------------------------ S1 at level 0
@@ -387,23 +401,163 @@ static partial class PeerLinkScenarios
             $"peerlink scenarios: {Name} — 32 commands wait, the 33rd is not sent ({thirtyThird}); with no answer each waits through receipt.final.ms and is unconfirmed past it, the link live ({rec.ToJson()})");
     }
 
-    // ------------------------------------------------------------------ 13.19.5 on what PlayoutLink published
+    // ------------------------------------------------------------------ S22 at level 0
 
     /// <summary>
-    /// Every status line, record and command's words PlayoutLink published in these scenarios, against the code they held — as typed,
-    /// canonical, and its K — and every NONCE the peer sent and AUTH-PROOF the link answered it with: none of them is in any.
+    /// S22 on PlayoutLink: a level-0 acceptor with Patterns 88.1's real grammar — STATE, then NONCE. Off this machine: legacy and amber,
+    /// one AUTH-PROOF for its 32-hex NONCE, never plain AUTH, the greeting STATE set aside and counted and no clip read from it until OK
+    /// paired. A NONCE that is not 32 lowercase hex — capitals, or 31 digits — on this machine or off it, is never proved: no AUTH-PROOF,
+    /// no AUTH (a desk that sent a NONCE is never sent the token, even on this PC), nothing taken, the link amber saying why; and with no
+    /// pairing within peerlink.handshake.ms the link ends the connection.
     /// </summary>
-    static void PlayoutCanaries(Action<bool, string> Check)
+    static async Task PlayoutS22(Action<bool, string> Check, string script, Material kit)
     {
+        const string Name = "S22 PlayoutLink";
+        {
+            await using var peer = Peer(script);
+            var port = await Listen(Check, peer, Name, ListenAs(Line, kit.A, [CodeOf(kit, Code)], level: 0, tls: "plain"));
+            var clock = new PlayoutLinkTests.LinkClock(T0);
+            using var link = PlayoutTo(port, clock, FreshInst(), local: false);
+            link.Start();
+            var up = await PlayoutUp(link);
+            var conn = await PairedOn(peer);
+            var read = peer.ReadOn(conn);
+            var rec = Seen(link);
+            Check(up && rec is { State: "live", Proof: "legacy", Level: 0, Light: "amber", Tls: "none" } && rec.Flags.Contains("legacy") && rec.Flags.Contains("plain")
+                  && link.SetAsideBeforePairing >= 1 && rec.Counts.Malformed >= 1
+                  && read.Count(l => l.StartsWith("@pa AUTH-PROOF ", StringComparison.Ordinal)) == 1
+                  && !read.Any(l => l.StartsWith("AUTH ", StringComparison.Ordinal) || l.Contains(" AUTH ", StringComparison.Ordinal)),
+                $"peerlink scenarios: {Name} off this machine — Patterns 88.1's grammar (STATE, then NONCE): legacy, amber; one AUTH-PROOF for its 32-hex NONCE, never plain AUTH; the STATE before OK paired set aside and counted ({rec.ToJson()}; {string.Join(" | ", read)}) {peer.Faults}");
+        }
+        foreach (var local in new[] { true, false })
+        foreach (var nonce in new[] { "3F9A0C5E7B2D4F6A8C1E3B5D7F9A0C2E", "3f9a0c5e7b2d4f6a8c1e3b5d7f9a0c2" })
+        {
+            var name = $"{Name}, a NONCE of {nonce.Length.ToString(CultureInfo.InvariantCulture)} characters{(nonce.Any(char.IsUpper) ? " in capitals" : "")} {(local ? "on this machine" : "off it")}";
+            await using var peer = Peer(script);
+            var port = await Listen(Check, peer, name, With(ListenAs(Line, kit.A, [CodeOf(kit, Code)], level: 0, tls: "plain"), new { attack = new { nonce } }));
+            var clock = new PlayoutLinkTests.LinkClock(T0);
+            using var link = PlayoutTo(port, clock, FreshInst(), local);
+            link.Start();
+            var said = await PlayoutLinkTests.Until(() => link.Status.Contains("is not 32 lowercase hex", StringComparison.Ordinal));
+            // Past the link's wait for the NONCE and its probe, on its own clock: still nothing proved, nothing sent in clear.
+            await Step(clock, 4000);
+            var rec = Seen(link);
+            var waited = (link.Pairing, link.Health, link.Video, rec.State);
+            // No pairing within peerlink.handshake.ms: the link ends the connection.
+            await Step(clock, PeerLink.HandshakeMs - 4000 + PlayoutLink.CheckEvery.Ticks / TimeSpan.TicksPerMillisecond);
+            var ended = await PlayoutLinkTests.Until(() => !link.Connected);
+            await Settle(peer);
+            var all = peer.AllRead();
+            Check(said && waited == (PlayoutPairing.None, LinkHealth.Starting, null, "connecting") && ended && Seen(link).State == "down"
+                  && link.SetAsideBeforePairing >= 1 && all.Any(l => l == "HELLO Stagewatch") && !all.Any(l => l.Contains("AUTH", StringComparison.Ordinal))
+                  && !peer.Events.Any(e => Ev(e, "paired")),
+                $"peerlink scenarios: {name} — never proved: no AUTH-PROOF, no AUTH, nothing taken, amber saying why; no link within peerlink.handshake.ms ({rec.ToJson()}; {string.Join(" | ", all)}) {peer.Faults}");
+        }
+    }
+
+    // ------------------------------------------------------------------ S19 at level 0, and 13.19.5 on what PlayoutLink published
+
+    /// <summary>
+    /// S19 on PlayoutLink: canary secrets. One more link pairs, runs commands and drops; one holds a code the peer refuses, so its hold is
+    /// kept on disk; and one meets a service on this PC that answers its plain AUTH by echoing the whole line, code and all. Everything the
+    /// scenarios' links published or said is captured as the desk takes it — their status lines, records and command words, the show
+    /// log's rows (each change of state, each outcome, each line), a show journal written to a file from those rows, the context
+    /// Stagewatch would build from the link's light and words and that journal, the report built from it, the holds' file, and every
+    /// refusal a command came back with — and none of it carries the code (as typed, canonical, or its K), a NONCE the peer sent or an
+    /// AUTH-PROOF the link answered it with: the echoed code is taken out of the peer's words before the link says them. STATE:
+    /// Stagewatch's frame carries the clip and its times, not the link's words or record, until the record reaches its readers (SW20.5);
+    /// the record is held here.
+    /// </summary>
+    static async Task PlayoutS19(Action<bool, string> Check, string script, Material kit)
+    {
+        const string Name = "S19 PlayoutLink";
+        var refused = new List<string>();
+        using var keptFile = Scratch.File("kept", ".json");
+        var store = new PlayoutKeptStore(keptFile.Path);
+        {
+            await using var peer = Peer(script);
+            var port = await Listen(Check, peer, Name, ListenAs(Line, kit.A, [CodeOf(kit, Code)], level: 0, tls: "plain"));
+            var clock = new PlayoutLinkTests.LinkClock(T0);
+            var inst = FreshInst();
+            using var link = PlayoutTo(port, clock, inst);
+            link.Start();
+            var up = await PlayoutUp(link);
+            link.Restart();
+            await Set(peer, new { answer = "refused" });
+            link.EndIn(10);
+            await PlayoutLinkTests.Until(() => link.OutcomeOf(PlayoutId(2, inst)) == PeerOutcome.Refused);
+            await Set(peer, new { answer = "drop" });
+            link.Restart();
+            await PlayoutLinkTests.Until(() => !link.Connected);
+            refused.Add(link.Restart() ?? "");
+            refused.Add(link.Seek(30) ?? "");
+            Seen(link);
+            Check(up && refused.All(r => r.Length > 0), $"peerlink scenarios: {Name} — a link paired, ran commands and dropped; what it refused said why ({string.Join(" | ", refused)}) {peer.Faults}");
+        }
+        {
+            // A code the peer refuses: the proof is wrong, the code held a minute, and the hold kept on disk.
+            await using var peer = Peer(script);
+            var port = await Listen(Check, peer, Name + ", refused", ListenAs(Line, kit.A, [CodeOf(kit, Code)], level: 0, tls: "plain"));
+            var clock = new PlayoutLinkTests.LinkClock(T0);
+            var tag = PlayoutKeptStore.Tag("a protected form of the wrong code");
+            using var link = Playout(new PlayoutLink(new PlayoutLinkOptions
+            {
+                Host = "127.0.0.1", Port = port, Token = WrongCode, Inst = FreshInst(), Time = clock, Jitter = () => 0.5,
+                Kept = store.For(PlayoutRules.PatternsName, tag, clock.WallMs),
+                Keep = k => store.Keep(PlayoutRules.PatternsName, tag, k, clock.WallMs),
+            }));
+            link.Start();
+            var held = await PlayoutLinkTests.Until(() => link.State == PeerLinkState.Held);
+            refused.Add(link.Restart() ?? "");
+            var rec = Seen(link);
+            var landed = await store.Flushed;
+            Check(held && landed && rec is { State: "held", Refusal: "key" } && store.For(PlayoutRules.PatternsName, tag, clock.WallMs)?.HeldUntilWall == T0 + PeerLink.HoldRefusedMs,
+                $"peerlink scenarios: {Name}, refused — a wrong code is held a minute and the hold kept on disk ({rec.ToJson()}) {peer.Faults}");
+        }
+        {
+            // A service on this PC at the link's port that answers a plain AUTH with the whole line: the code comes back in its words.
+            await using var echo = new PlayoutLinkTests.FakeDesk();
+            echo.Answer = l => l.StartsWith("AUTH ", StringComparison.Ordinal) ? ["ERR unknown command: " + l] : [];
+            var clock = new PlayoutLinkTests.LinkClock(T0);
+            using var link = PlayoutTo(echo.Port, clock, FreshInst());
+            link.Start();
+            await PlayoutLinkTests.Until(() => link.Connected);
+            await Step(clock, PlayoutLink.NonceWait.Ticks / TimeSpan.TicksPerMillisecond + PlayoutLink.CheckEvery.Ticks / TimeSpan.TicksPerMillisecond);
+            var echoed = await PlayoutLinkTests.Until(() => echo.Heard.Any(l => l.StartsWith("AUTH ", StringComparison.Ordinal)) && link.State == PeerLinkState.Held);
+            var rec = Seen(link);
+            Check(echoed && link.Status.Contains("Patterns: unknown command: AUTH (token)", StringComparison.Ordinal) && rec.State == "held",
+                $"peerlink scenarios: {Name}, echoed — a service that echoes the plain AUTH it was sent is refused in its own words, the code taken out of them ({link.Status})");
+        }
+
         var made = Peers.SelectMany(p => p.Events)
             .Select(e => Str(e, "line") ?? "")
             .Select(l => l.StartsWith("NONCE ", StringComparison.Ordinal) ? l[6..] : l.StartsWith("@pa AUTH-PROOF ", StringComparison.Ordinal) ? l[15..] : "")
             .Where(x => x.Length >= 32);
-        var canaries = Canaries(Code, CodeTyped).Concat(made).Distinct(StringComparer.Ordinal).ToList();
+        var canaries = Canaries(Code, CodeTyped, WrongCode).Concat(made).Distinct(StringComparer.Ordinal).ToList();
         foreach (var link in PlayoutLinks) Seen(link);
-        var said = PlayoutSaid.ToList();
-        var found = Found(said, canaries);
-        Check(PlayoutLinks.Count >= 8 && said.Count >= 40 && canaries.Count >= 10 && found is null,
-            $"peerlink scenarios: PlayoutLink — none of {canaries.Count} canaries (the code, its K, the NONCEs and the AUTH-PROOFs) in any of the {said.Count} status lines, records and command words it published across {PlayoutLinks.Count} links ({found})");
+        var rows = PlayoutRows.ToList();
+
+        // The show journal the desk writes from those rows, the context it builds from the link's light, words and that journal, and the
+        // report built from it.
+        var now = DateTime.UtcNow;
+        using var journalFile = Scratch.File("journal", ".jsonl");
+        var journal = new ShowJournal(journalFile.Path);
+        foreach (var row in rows) journal.Add(now, JournalKind.Playout, -1, row);
+        await journal.DisposeAsync();
+        var written = File.Exists(journalFile.Path) ? File.ReadAllText(journalFile.Path) : "";
+        var items = PlayoutLinks.Select(l => new ContextItem("link:patterns", "playout", l.Name,
+            l.Health switch { LinkHealth.Ok => Light.Green, LinkHealth.Starting => Light.Amber, _ => Light.Red }, l.Status)).ToList();
+        var context = ShowContext.Build(new ContextInput("abc123abc123", "Hall A", now, new ShowSnapshot { Title = "Keynote" }, false, items,
+            Array.Empty<PeerSummary>(), journal.Entries, ShowClock.For("UTC"), 0));
+        var report = ShowReport.Build("Show", new Rundown(), journal.Entries, null, ShowClock.For("UTC"), now).ToHtml(ShowClock.For("UTC"));
+        await store.Flushed;
+        var kept = File.Exists(keptFile.Path) ? File.ReadAllText(keptFile.Path) : "";
+
+        var captured = PlayoutSaid.Concat(rows).Concat(refused).Append(written).Append(context).Append(report).Append(kept).ToList();
+        var found = Found(captured, canaries);
+        Check(PlayoutLinks.Count >= 10 && rows.Count >= 20 && canaries.Count >= 12 && written.Length > 0 && context.Contains("link:patterns", StringComparison.Ordinal)
+              && kept.Contains("\"heldUntil\"", StringComparison.Ordinal) && found is null,
+            $"peerlink scenarios: S19 PlayoutLink — none of {canaries.Count} canaries (the codes, their K, the NONCEs and the AUTH-PROOFs) in any of the {captured.Count} "
+            + $"status lines, records, command words, show-log rows, the journal file, the context, the report, the holds' file and the refusals {PlayoutLinks.Count} links published ({found})");
     }
 }

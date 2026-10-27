@@ -265,10 +265,26 @@ running app on a network: two copies of one install for the conflict, an old cer
 - **Not seen on Windows yet.** The Show network's hello line and its amber, the conflict rows and the counts line, the
   certificate's lines in Settings and on the status line, and the presenter PC window's words compile on Linux; nobody has looked
   at them in the running app.
-- **Nothing speaks PeerLink yet.** Stagewatch's PeerLink core, the vectors and the scripted peer run in the suite only: `/ws`
-  node links still prove a bearer key or the operator's credential, the Patterns link still pairs by `NONCE` and `AUTH-PROOF`,
-  the hello carries no cap `peerlink`, and PeerLink's wrong proofs (13.5.6) count nowhere. The playout links and `/ws` take
-  LINK in later releases (Show Bus §8.1).
+- **Nothing speaks PeerLink yet.** Stagewatch's PeerLink core, the vectors and the scripted peer run in the suite only: `/ws` node
+  links still prove a bearer key or the operator's credential, the Patterns link still pairs by `NONCE` and `AUTH-PROOF`, the
+  hello carries no cap `peerlink`, and PeerLink's wrong proofs (13.5.6) count nowhere. The playout links and `/ws` take LINK in
+  later releases (Show Bus §8.1). *Since then (SW20.4a, SW20.4b):* the Patterns link runs on the PeerLink core as a level-0
+  connector (it still offers no LINK, SW23.1): request ids with the process's `inst`, 32 commands in flight, 13.12.3's outcomes,
+  matched pongs, the jittered redial; each connection writes on a lane of its own, so the show thread and the link's checks never
+  wait on the socket, and a command still on the lane when the link drops, or after 30 s, is not sent and never written; a refused
+  proof's hold is kept with its end in `playout-links.json` beside the settings, for the token it held — the link holds it at once
+  and a lane of the file's own writes it, off the show thread — so a restart keeps it (for a minute at most) and a token changed
+  in Settings ends it (an older Stagewatch ignores the file); and the show log has a row when a command's outcome first settles,
+  filed against the item it was asked for, one more when an unconfirmed one is answered after all, and one per change of the
+  link's state with the desk's address, repeats — a redial going round, a flapping link — folded into a summary row a minute.
+  `PatternsLink` is gone. SW20.4b closes nothing of G48: its Stagewatch half — the link's record in the Eye, the AI's context and
+  the copilot's facts; the refusals by a clip's role and key, pausable and stoppable; the kind profiles (patterns, playmap) and
+  the local refusals they carry (a sync follower); and the asks after pairing (`WHOAMI`, and `CONTEXT` at once) — is SW20.5's, and
+  `INDEX` and `CUE LIST`, which give running-order cues their ids, SW20.7's. Left: *Link again now* (13.16.6), which would end a
+  hold before its minute, is on no surface yet — the desk's buttons and menus are SW20.11's; the link's record, not yet its own
+  light and words, reaches the Show network, the context's `link:patterns`, the AI's facts and Companion with SW20.5; the desk's
+  new status and log words, and its close that runs its queue up to the links' last rows, compile here and are not walked on
+  Windows (`pwsh tools\smoke.ps1`).
 - **Find still listens on Patterns' beacon.** Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled:
   the release after that walk row is filled takes it. Find already reads a hello's `ports.wire` (else the top-level `wire` older
   senders give) and hears PlayMap's hello as well as Patterns', so a desk that names its wire only in `ports` is listed; Settings'
