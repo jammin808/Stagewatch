@@ -24,12 +24,37 @@ static class PlayoutGateTests
     public static async Task Run(Action<bool, string> Check)
     {
         Table(Check);
+        Proposals(Check);
         Addresses(Check);
         Settings(Check);
         await Osc(Check);
         await Companion(Check);
         await Web(Check);
         await WebThisPc(Check);
+    }
+
+    /// <summary>
+    /// Show Bus §11: a line only a person on this desk runs (trusting a certificate) is never a proposal aimed at it — refused (400) as it
+    /// is proposed, nothing queued and no key spoken for, so the approval desk never shows one it could not run; any other line, and
+    /// the same words aimed at another node (its own grammar), is proposed as before.
+    /// </summary>
+    static void Proposals(Action<bool, string> Check)
+    {
+        const string Desk = "abc123abc123";
+        var nodes = new NodeBindings();
+        var desk = new ProposalDesk(() => Desk, nodes);
+        string? Never(NodeRef target, string line) => target.Id == Desk ? PlayoutGate.NeverProposed(line.Split(' ', StringSplitOptions.RemoveEmptyEntries)) : null;
+        string Body(string target, string line) => "{\"from\":{\"t\":\"playmap\",\"id\":\"pm5e6f7a\"},\"target\":" + target + ",\"line\":\"" + line + "\"}";
+        var trust = desk.Submit(Body("""{"t":"main"}""", "playout stage-left trust 03e9 b152"), NodeCredential.Key("kP"), (_, _) => "high", DateTime.UnixEpoch, Never);
+        Check(trust is (null, { } why, false) && why == $"{PlayoutRules.TrustDeskOnly} ({PlayoutRules.TrustWhere}), never a proposal"
+              && desk.All().Count == 0 && nodes.NodeOf("kP") is null,
+              $"playout gate: playout trust proposed to this desk is refused as it comes — nothing queued, no key spoken for ({trust.Error})");
+        var go = desk.Submit(Body("""{"t":"main"}""", "playout stage-left go show intro"), NodeCredential.Key("kP"), (_, _) => "high", DateTime.UnixEpoch, Never);
+        var elsewhere = desk.Submit(Body("""{"t":"patterns","id":"pat1"}""", "playout stage-left trust 03e9b152"), NodeCredential.Key("kP"), (_, _) => "high", DateTime.UnixEpoch, Never);
+        Check(go.Proposal is { State: SharedProposalState.Pending } && elsewhere.Proposal is { State: SharedProposalState.Pending } && desk.All().Count == 2
+              && PlayoutGate.NeverProposed(["playout", "stage-left", "go", "show"]) is null && PlayoutGate.NeverProposed([]) is null
+              && PlayoutGate.NeverProposed(["nonsense"]) is null,
+              "playout gate: any other line to this desk, and a line aimed at another node in its own grammar, is proposed as before");
     }
 
     static void Table(Action<bool, string> Check)
@@ -67,6 +92,19 @@ static class PlayoutGateTests
                 Check(Page(true, true, none) is null && Page(false, true, none) is null, $"playout gate: {name} — another site's page with a credential passes");
             }
             else Check(Page(true, false, none) is null, $"playout gate: {name} has no pages, so a page's mark is not its business");
+        }
+        // Trusting a certificate is a person's choice on the desk (Show Bus 13.8.3): no door takes the line from anyone — this PC, a listed
+        // address, a credential, a page of this site — and it says so in its door's words.
+        Check(PlayoutGate.DeskOnly(ShowCommandKind.PlayoutTrust) && Enum.GetValues<ShowCommandKind>().Count(PlayoutGate.DeskOnly) == 1
+              && !PlayoutGate.Drives(ShowCommandKind.PlayoutTrust), "playout gate: trusting a certificate is the one desk-only line, and no line of the air's");
+        foreach (var door in Doors)
+        {
+            var words = PlayoutGate.DeskOnlyWords(door);
+            var every = new[] { new CommandSender(IPAddress.Loopback, true, true), new CommandSender(IPAddress.Loopback, true, false), new CommandSender(Lan, false, true) }
+                .All(sender => PlayoutGate.Check(ShowCommandKind.PlayoutTrust, door, sender, listed) == words);
+            Check(every && words.StartsWith(PlayoutRules.TrustDeskOnly, StringComparison.Ordinal) && words.Contains(PlayoutRules.TrustWhere, StringComparison.Ordinal)
+                  && words.EndsWith("whoever sends it", StringComparison.Ordinal),
+                  $"playout gate: {door} — playout trust is refused from this PC, a listed address and with a credential, naming where a person does it ({words})");
         }
         Check(PlayoutGate.OtherSiteWords(ShowCommandKind.Patterns, CommandDoor.Http)
               == "patterns from another site's web page over HTTP needs a control key while no PIN is set"
@@ -510,6 +548,20 @@ static class PlayoutGateTests
               "this pc: an agent's playout line where nobody approves is an error, never read as queued, and nothing runs");
         var direct = await Mcp("nudge 30");
         Check((bool?)direct["isError"] == false && Count(ShowCommandKind.Nudge) == 1, "this pc: any other agent line runs directly on such a surface, as before");
+        // A certificate is trusted by a person on the desk, never by a line: refused on a socket and to an agent this PC runs, and
+        // neither is a proposal.
+        using (var ws = new ClientWebSocket())
+        {
+            await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?role=control"), CancellationToken.None);
+            await Send(ws, """{"cmd":"playout","args":["stage-left","trust","03e9b152"],"id":"x3"}""");
+            var receipt = await Next(ws, "\"type\":\"receipt\"");
+            Check(receipt is not null && JsonNode.Parse(receipt) is { } rr && (bool?)rr["ok"] == false
+                  && (string?)rr["error"] == PlayoutGate.DeskOnlyWords(CommandDoor.WebSocket) && Count(ShowCommandKind.PlayoutTrust) == 0,
+                  "this pc: playout trust on a control socket a program here opened is refused in words, and nothing runs");
+        }
+        var trust = await Mcp("playout stage-left trust 03e9 b152");
+        Check((bool?)trust["isError"] == true && Text(trust) == "Refused: " + PlayoutGate.DeskOnlyWords(CommandDoor.Mcp) && Count(ShowCommandKind.PlayoutTrust) == 0,
+              $"this pc: an agent's playout trust is refused at the door, never a proposal ({Text(trust)})");
         var fromPage = await Mcp("patterns pause", origin: "http://evil.example");
         Check((bool?)fromPage["isError"] == true && Text(fromPage) == "Refused: " + PlayoutGate.OtherSiteWords(ShowCommandKind.Patterns, CommandDoor.Mcp)
               && Count(ShowCommandKind.Patterns) == 3,

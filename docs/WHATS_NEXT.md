@@ -307,7 +307,7 @@ running app on a network: two copies of one install for the conflict, an old cer
   rig takes `--playout` (`tests/e2e/playout.e2e.cjs`, against fake PlayMap and Patterns peers). Not done: Patterns' `pausable`,
   `stoppable` and `ON <key>` land in its Round 94 (P93.2, P93.3), so today every pause or stop of a real Patterns playlist item is
   refused here and no real desk is sent `ON <key>`; `together` is refused with words, and no help line or context row offers it
-  (the timed GO, with `INDEX` and `CUE LIST`, is SW20.7's); a link set to `wss` is not started (SW20.6); an AI's playout line is still a desk proposal, not re-targeted to
+  (the timed GO, with `INDEX` and `CUE LIST`, is SW20.7's); a link set to `wss` was not started (SW20.6 starts it, below); an AI's playout line is still a desk proposal, not re-targeted to
   the peer's own approvals (that needs `proposal.collect.ms`, SW21.2); the module's playout actions are SW20.12's, and it sends
   its Patterns lines with no id, so it reads no receipt; neither Patterns nor PlayMap sends a follow-up today, so a real peer's
   accepted answer gets its `final` only if that peer answers the id again (the e2e fakes do). Show Bus §8.1's frozen row still
@@ -316,7 +316,32 @@ running app on a network: two copies of one install for the conflict, an old cer
   that id — the 2.19 rule for link patterns, kept for every link by choice (§11 counts a table read over the desk's own link) and
   bounded as above; the peer proves nothing at level 0, so it rests on the typed address until a LINK verdict replaces it. The
   desk's side — its status and show-log words for several links, the *Last 10 s* button on the link feeding the VT, the clip's
-  end moving the running order — compiles here and is not walked on Windows (`pwsh tools\smoke.ps1`).
+  end moving the running order — compiles here and is not walked on Windows (`pwsh tools\smoke.ps1`). *Since then (SW20.6):* a
+  playout link reaches a PlayMap node over TLS — `playmap.lines.v1` on the `https` door its hello names, a line a message — when
+  its transport is `auto` (or always, when `wss`; never, when `tcp`). The hello is the node's by id, else a PlayMap node heard at
+  the link's host (its address, its own name, or an address the host name resolves to), never one older than 6 s; one under §2's
+  conflict mark holds the link (13.4.4). Its certificate is judged by fingerprint alone and, at level 0, pinned `first` for the
+  node id its STATE gives (Show Bus 13.8.2); a person trusts it by one press beside its short form — on the Show network row of its
+  node (button and right-click) or the status line's right-click — the press bound to the certificate it showed. Any pin, `first`
+  included, decides the transport (13.4.2: the pin alone decides): the link is never dialled plain again — it dials the door a fresh
+  hello names, else the door kept beside the pin, else nothing, amber, and says so. A pin a person made refuses a changed
+  certificate: CERTIFICATE CHANGED, red, no HTTP request, line or proof until a person compares the new one on the node's own
+  screen and types at least 8 hex of it into an entry never filled in. A STATE naming another node than the one set is amber, sent
+  nothing and pinned nothing. Pins are kept per node id once one is set, and with none set, per the address the link dials (a move
+  to another address starts without one). `playout <link> trust <hex>` is a parser verb with its help line and High risk only so
+  that OSC, Companion, HTTP, WebSocket and MCP refuse it in words, whoever sends it, as the desk's and the rig's executors do; it is
+  never among the context's commands, never a plan's step, and refused when proposed to this desk. A `429` at the door holds the
+  token as a lockout (its `Retry-After` when longer than the minute); PlayMap's `ERR … wrong token` (and `… — closed` then `4401`),
+  or a `4401` alone, holds it as a wrong token, one proof; an upgrade without `playmap.lines.v1` is sent nothing; a paired plain
+  link off this PC moves to TLS between commands once its node's hello names the door. Left: Settings has no box for a link's
+  `transport` or `node` yet (SW20.11), so they come from the settings file, and nothing on the desk forgets a pin yet — a node that
+  turned its TLS off for good is dialled at its kept door and never plain, until the settings file sets the link to another node
+  (or, with none set, another address); no interop row dials PlayMap's TLS door yet
+  (the suite plays the node in process, its ERR-then-4401 and `Retry-After` legs as PlayMap's code reads); the Show network row's
+  note and button, the status line's entries and the typed entry compile here and are not walked on Windows (`pwsh
+  tools\smoke.ps1`). The plan's "pinned per node id" is read with the contract: a level-0 link pins `first` on sight — which decides
+  the transport, never the trust — and a person's pin only by their choice (13.8.2–3), so a pin by first sight never refuses a
+  changed certificate.
 - **Find still listens on Patterns' beacon.** Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled:
   the release after that walk row is filled takes it. Find already reads a hello's `ports.wire` (else the top-level `wire` older
   senders give) and hears PlayMap's hello as well as Patterns', so a desk that names its wire only in `ports` is listed; Settings'

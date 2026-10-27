@@ -28,7 +28,7 @@ public sealed partial class MainViewModel
     /// </summary>
     public (int Status, string Json) SubmitProposal(string body, NodeCredential credential)
     {
-        var (p, error, forbidden) = Desk.Submit(body, credential, RiskFor, DateTime.UtcNow);
+        var (p, error, forbidden) = Desk.Submit(body, credential, RiskFor, DateTime.UtcNow, NeverProposed);
         return p is null ? (forbidden ? 403 : 400, Json(new { ok = false, error })) : (201, Json(new { ok = true, id = p.Id, state = p.StateName, risk = p.Risk }));
     }
 
@@ -85,6 +85,10 @@ public sealed partial class MainViewModel
     }
 
     private static List<string> McpTokens(string line) => Stagewatch.Remote.McpEndpoint.Tokenize(line);
+
+    /// <summary>Why a line is never a proposal for this desk (a desk-only line: trusting a certificate), or null; another node's lines are its own.</summary>
+    private string? NeverProposed(NodeRef target, string line)
+        => target.Id == _store.Snapshot.NodeId ? PlayoutGate.NeverProposed(McpTokens(line)) : null;
 
     /// <summary>Show thread: mirror a shared proposal into the Copilot list (new, decided, done…).</summary>
     private void OnSharedProposal(SharedProposal p)

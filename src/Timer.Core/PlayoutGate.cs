@@ -34,20 +34,52 @@ public static class PlayoutGate
     /// <summary>Where the operator lists them, as every refusal names it.</summary>
     public const string SettingWords = "Settings → Remote → May drive playout";
 
-    /// <summary>A command that drives another node's air: the lines this gate decides.</summary>
+    /// <summary>A command that drives another node's air: the lines this gate decides by their sender.</summary>
     public static bool Drives(ShowCommandKind kind) => kind is ShowCommandKind.Playout or ShowCommandKind.Patterns;
+
+    /// <summary>
+    /// A command no door takes from anyone, credential or not: trusting a playout link's certificate is a person's choice on this
+    /// desk, beside its fingerprint (Show Bus 13.8.2–3), so a line of it is refused at every door, as its executors refuse one too.
+    /// </summary>
+    public static bool DeskOnly(ShowCommandKind kind) => kind == ShowCommandKind.PlayoutTrust;
+
+    /// <summary>The refusal of a desk-only line that came in by <paramref name="door"/>.</summary>
+    public static string DeskOnlyWords(CommandDoor door)
+    {
+        var from = door switch
+        {
+            CommandDoor.Osc => "OSC",
+            CommandDoor.Companion => "Companion TCP",
+            CommandDoor.Mcp => "MCP",
+            CommandDoor.WebSocket => "a WebSocket",
+            _ => "HTTP",
+        };
+        return $"{PlayoutRules.TrustDeskOnly} ({PlayoutRules.TrustWhere}) — refused from {from}, whoever sends it";
+    }
+
+    /// <summary>
+    /// Why a line aimed at this Stagewatch is never a proposal (Show Bus §11), or null: a desk-only line — trusting a playout link's
+    /// certificate — is a person's choice on this desk beside its fingerprint, so it is refused when it is proposed, never queued for
+    /// an approval that could not run it. <paramref name="tokens"/> is the line as the desk splits it (its verb first).
+    /// </summary>
+    public static string? NeverProposed(IReadOnlyList<string> tokens)
+        => tokens.Count > 0 && ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out _) && DeskOnly(cmd.Kind)
+            ? $"{PlayoutRules.TrustDeskOnly} ({PlayoutRules.TrustWhere}), never a proposal"
+            : null;
 
     /// <summary>A sender on this PC: a loopback address, an IPv4-mapped one included.</summary>
     public static bool IsLoopback(IPAddress address) => IPAddress.IsLoopback(Plain(address));
 
     /// <summary>
-    /// Null when <paramref name="sender"/> may send a <paramref name="kind"/> line by <paramref name="door"/>; else why not. A line that
-    /// drives no other node's air always passes. A credential counts only on a door that carries one: OSC and Companion TCP pass
+    /// Null when <paramref name="sender"/> may send a <paramref name="kind"/> line by <paramref name="door"/>; else why not. A desk-only
+    /// line (<see cref="DeskOnly"/>) never passes, whoever sends it; any other line that drives no other node's air always passes. A
+    /// credential counts only on a door that carries one: OSC and Companion TCP pass
     /// only this PC and the listed addresses, whatever the server says. On a door that carries one, a page of another site passes
     /// only with it.
     /// </summary>
     public static string? Check(ShowCommandKind kind, CommandDoor door, CommandSender sender, IReadOnlyList<IPAddress> from)
     {
+        if (DeskOnly(kind)) return DeskOnlyWords(door);
         if (!Drives(kind)) return null;
         var carries = door is CommandDoor.Http or CommandDoor.WebSocket or CommandDoor.Mcp;
         if (sender.Credentialed && carries) return null;

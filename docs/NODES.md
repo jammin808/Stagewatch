@@ -251,7 +251,8 @@ Stagewatch reads the clip on air in Patterns desks and PlayMap nodes over their 
 drives them. Each link Settings → Integrations names — at most `playout.links` (8), each by a name such as `stage-left`; the 2.17
 *Patterns video* box is link `patterns` — runs on its own on Stagewatch's PeerLink core (Show Bus §13) at level 0: it keeps §13's
 rules a connector keeps on its own, and offers no LINK yet. A link runs while it is switched on and the licence (Production) runs
-playout links; one set to dial `wss` only waits for that carrier and is never dialled plain.
+playout links; its transport (`auto`, `tcp` or `wss`) says how it reaches its peer, and a PlayMap node is reached over TLS where
+it can be (*TLS to a PlayMap node*, below).
 
 - **Connect:** TCP at the link's address and port — `patterns.wire.port` (9697) unless another is set; a PlayMap node's line wire is
   9941 (*Patterns video*'s Find, §2, fills a Patterns desk's). Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe
@@ -265,11 +266,47 @@ playout links; one set to dial `wss` only waits for that carrier and is never di
   it, and puts one line in the show log (at most one a minute, naming the pauses it folds in). Each connection writes its lines in
   order on a lane of its own, so neither those checks nor the desk asking for a command ever waits on the socket; a write that has
   not finished within `link.write.deadline.max.ms` (10 s) ends the connection, and the link says so.
+- **TLS to a PlayMap node:** where the node's hello (§2) names its `https` door beside its certificate (`tls`), a link set to `auto`
+  dials `wss://<host>:<https>/ws` asking for `playmap.lines.v1` — the same lines, one text message each — through no proxy; `wss`
+  dials TLS only, `tcp` the line wire only. The hello it reads is the node's by the id Settings set (`node`), else a PlayMap node
+  heard at the link's host — at an address its hello came from, by its own host or machine name, or at an address the host name
+  resolves to (resolved off the link's threads, again every 30 s) — heard within 6 s; a hello only names a door to try (Show Bus
+  13.4.2), never a pin. A hello under §2's conflict mark — two running machines say the id — holds the link while the mark stands:
+  nothing new is dialled, amber, "two machines say they are …" (13.4.4); a link already up keeps running. The certificate is judged
+  by its fingerprint alone (13.8.1: SHA-256 of its DER), never a name, chain or authority, in the handshake; a TLS connection whose
+  certificate the link did not judge is ended with nothing sent. At level 0 nothing proves the node, so the one it pairs over is
+  pinned `first` for the id its STATE gives — kept to compare, not trust (13.8.2). Pinned `first` or by a person, the link is never
+  dialled plain (13.4.2: the pin alone decides): it dials the door a fresh hello names, else the door its certificate last answered
+  at, kept beside the pin (`playout-links.json`), so a lost, late or forged hello never sends it to the line wire; with neither it
+  dials nothing, amber, "… is pinned, so it is never dialled plain, and no hello names its TLS door now, and none is kept beside its
+  pin — nothing sent". A node whose STATE names another id than the one Settings set is amber with both ids named, sent nothing, read
+  for nothing, and its certificate is pinned nothing (13.4.3). Pins are kept per node id once Settings set one: a link set to
+  another node starts without the old node's pin, and a link new under its name — or one whose own entry keeps none — finds its
+  node's. With no node set, a pin is the one kept at the address the link dials: moved to another address it starts with none (the
+  node there may be another), and a link renamed at the same address finds it. A person trusts a certificate on the desk only — the
+  Show network row of its node has a button and a right-click entry, *Trust …'s certificate 03e9 b152 … (compared on its screen)*,
+  and the status line's right-click lists every link's waiting certificate, a node with no row among them — one press, bound to the
+  certificate it showed: should another be pinned `first` in its place before the press, the press trusts nothing. From then on a
+  changed certificate is refused. A pinned node that shows another certificate is CERTIFICATE CHANGED, red: the handshake ends there
+  — no HTTP request, line or proof goes to it — until a person compares the new one on the node's own screen and types at least 8
+  hex of it (the short form, spaces and either case taken) into the entry the row's button or a right-click opens, which is never
+  filled in; the new pin is handed to the keeper in that step, before the link dials again — held at once, written on the keeper's
+  own lane, a write that fails said once in the show log — and the show log has a row for each try, trusted or not. `playout <link>
+  trust <hex>` is in the grammar so that every door refuses it in words — OSC, Companion, HTTP, a WebSocket and MCP, from this PC or
+  with a credential — and the desk's and the rig's executors refuse it too: it is High risk, never among the context's commands,
+  never a step of a plan, and refused (400) when another app proposes it to this desk, so the approval desk never shows it. A `429`
+  at the door is a lockout: red, the token held (a minute, or the `Retry-After` when longer), nothing sent. A wrong proof is held
+  like any refused proof: PlayMap answers `ERR … wrong token` (or `… — closed` and then closes `4401`), and a close `4401` alone is
+  read the same way — red, held once, one proof. An upgrade that does not take `playmap.lines.v1` is no line channel, and nothing is
+  sent on it. A paired link on the line wire to a node off this PC moves to TLS when its hello names the door, between commands,
+  never with one waiting for its answer. Plain `AUTH` never goes on the TLS line channel (PlayMap takes proofs only there). A clock
+  measured over TLS may time a command, as one on this PC may (13.11.6).
 - **Kind:** the peer's kind is what its STATE says — a whole STATE with no `t` is a Patterns desk, `"t":"playmap"` a PlayMap node —
   and Settings may set it. A peer that answers as another kind than the one set is amber with both kinds named, and sent nothing; one
-  that names a kind Stagewatch does not speak to is sent nothing either. Neither feeds any reader but its own light: no clip for the
-  VT, the frame or a clip's end, no verbs among the context's commands, no playlists in the AI's facts and no context on the Show
-  network or for a proposal's risk, until its kind is set again. Until a STATE is heard, `go` and `cue` are refused ("its kind
+  that names a kind Stagewatch does not speak to is sent nothing either, nor is one whose STATE names another node id than the one
+  Settings set (`node`), both ids named (Show Bus 13.4.3). None of them feeds any reader but its own light: no clip for the VT, the
+  frame or a clip's end, no verbs among the context's commands, no playlists in the AI's facts and no context on the Show network
+  or for a proposal's risk, until its kind (or node) is set again. Until a STATE is heard, `go` and `cue` are refused ("its kind
   is not known yet — no STATE heard"); the clip's transport needs no kind.
 - **Pairing: the token never crosses the network.** The pairing token is stored DPAPI-protected. A peer's `NONCE` is answered with
   `AUTH-PROOF` (HMAC-SHA256(token, nonce + "Stagewatch")) only when it is exactly 32 lowercase hex, once per connection — the token
@@ -406,8 +443,10 @@ From Stagewatch's side; PlayMap's own `docs/SHOWBUS-NODE.md` is its reference.
   and `sync`, its clock exchange — and shown on the Show network as PlayMap (Show Bus §14's kind row).
 - **Follows the timer** as a node link (§4's table), with `detail=1`, its node key in the header; posts its context to
   `POST /api/peers/context` and collects approved proposals aimed at its id, as AGMessage does.
-- **A playout link to it** (§5): its line wire (9941) at level 0, paired by proof over plain TCP — PlayMap's TLS door (`wss`,
-  `playmap.lines.v1`) is not dialled yet, and a link set to `wss` only is never dialled plain. Heard to be PlayMap by its STATE's
+- **A playout link to it** (§5) at level 0, paired by proof: over TLS (`playmap.lines.v1` on its `https` door) where its hello
+  names that door, its certificate pinned `first` and trusted by a person on the desk, else its line wire (9941) until its
+  certificate is pinned; never plain once pinned, first or by a person, and CERTIFICATE CHANGED once a person pinned it until a
+  person types 8 hex of a new one. Heard to be PlayMap by its STATE's
   `t`, it is driven in PlayMap's own verbs (`PLAYLIST GO`, `PLAYLIST CUE`, the clip's `VIDEO` transport), asked `WHOAMI`, and its
   playlists, sync group and id read from its STATE; its context joins the Show network by its node id.
 

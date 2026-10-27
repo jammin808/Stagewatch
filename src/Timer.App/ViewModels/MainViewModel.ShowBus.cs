@@ -31,6 +31,15 @@ public sealed partial class PeerRow : ObservableObject
     [ObservableProperty] private string _markTip = ShowNetwork.MarkWords("");
     /// <summary>The node key that speaks for it, while it is verified by that key; "" otherwise. What "Revoke its key…" revokes.</summary>
     [ObservableProperty] private string _keyId = "";
+    /// <summary>
+    /// A playout link's certificate of this node that waits for a person (CERTIFICATE CHANGED, or pinned first only), in words; ""
+    /// when none does. <see cref="TrustLabel"/> is the row's button for it, the same entry as its right-click menu's, and
+    /// <see cref="TrustWaiting"/> the certificate both were drawn from: the button trusts that one or nothing, never one looked up
+    /// again when it is pressed.
+    /// </summary>
+    [ObservableProperty] private string _certNote = "";
+    [ObservableProperty] private string _trustLabel = "";
+    public CertificateWaiting? TrustWaiting { get; set; }
     /// <summary>Its node id, or "" for a row listed under a key that names no node id. What "Copy node id" copies.</summary>
     public string NodeId => NodeBindings.ValidId(Id) ? Id : "";
     /// <summary>Refused here and not heard (or no longer heard): the row is the desk's own, grey, and never reaches the context.</summary>
@@ -258,6 +267,13 @@ public sealed partial class MainViewModel
         }
         foreach (var row in PeerRows)
         {
+            // A certificate a playout link to this node waits on a person for: said on its row, with the entry its menu has too, the
+            // button bound to the certificate drawn here. More than one link waiting: the rest are on its right-click menu.
+            var waits = CertificatesWaitingFor(row);
+            var waiting = waits.FirstOrDefault();
+            row.TrustWaiting = waiting;
+            row.CertNote = waiting is null ? "" : waiting.Note + (waits.Count > 1 ? $" · {(waits.Count - 1).ToString(System.Globalization.CultureInfo.InvariantCulture)} more on its right-click menu" : "");
+            row.TrustLabel = waiting?.Label ?? "";
             if (!refused.TryGetValue(row.Id, out var r)) { row.KeyNote = ""; row.MakeKeyLabel = ""; continue; }
             var holder = _nodes.KeyOf(r.Id);
             var ownKey = holder is not null && holder != r.KeyId;

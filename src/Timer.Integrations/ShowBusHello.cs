@@ -385,7 +385,11 @@ public sealed class HelloHearing
                 if (heard.Count == 0) heard.Add(e.Dial);
                 var tls = fresh.Where(a => a.Value.Tls is not null).ToDictionary(a => a.Key, a => a.Value.Tls!, StringComparer.OrdinalIgnoreCase);
                 if (e.Conflict is not null && now - e.ConflictMs > _clearMs) e.Conflict = null;
-                list.Add(new SlidesBeacon.Peer(e.Hello, e.Dial, (now - e.SeenMs) / 1000.0) { Addresses = heard, Conflict = e.Conflict, HeardTls = tls });
+                list.Add(new SlidesBeacon.Peer(e.Hello, e.Dial, (now - e.SeenMs) / 1000.0)
+                {
+                    Addresses = heard, Conflict = e.Conflict, HeardTls = tls,
+                    ConflictLeftMs = e.Conflict is null ? 0 : Math.Max(1, _clearMs - (now - e.ConflictMs)),
+                });
             }
         }
         return list.OrderBy(p => p.Hello.Kind, StringComparer.Ordinal).ThenBy(p => p.Hello.Name, StringComparer.OrdinalIgnoreCase)

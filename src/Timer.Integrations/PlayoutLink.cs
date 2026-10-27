@@ -1,8 +1,11 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -50,8 +53,8 @@ public sealed record PlayoutLinkOptions
     public Func<double>? Jitter { get; init; }
 
     /// <summary>
-    /// What the link starts from (13.15.3): a pin, a floor, and a hold with its end in wall time; null for none. A pin or a floor that
-    /// asks for TLS is never dialled plain: this carrier has no TLS, so such a link is refused with nothing sent.
+    /// What the link starts from (13.15.3): a pin, a floor, and a hold with its end in wall time; null for none. A pin a person or a
+    /// proof made, or a floor that asks for TLS, is never dialled plain: with no TLS door heard such a link dials nothing and says so.
     /// </summary>
     public PeerKept? Kept { get; init; }
 
@@ -66,6 +69,37 @@ public sealed record PlayoutLinkOptions
 
     /// <summary>The connection's bytes as the link reads and writes them; null for the socket's own. A test holds a write with it.</summary>
     public Func<Stream, Stream>? Wrap { get; init; }
+
+    /// <summary>
+    /// How the link reaches its peer, as Settings set it: <see cref="PlayoutRules.Auto"/> dials a PlayMap node over TLS
+    /// (<c>playmap.lines.v1</c> on its <c>https</c> door) where the node's hello names that door, and its line wire plain where it
+    /// names none, until its certificate is pinned; <see cref="PlayoutRules.Tcp"/> the line wire alone; <see cref="PlayoutRules.Wss"/>
+    /// TLS alone. Once a pin or a floor asks for TLS, nothing is dialled plain, whatever this says.
+    /// </summary>
+    public string Transport { get; init; } = PlayoutRules.Auto;
+
+    /// <summary>The Show Bus id of the node this link is for (Settings' <c>node</c>; null or "" while none is chosen): its pin's id.</summary>
+    public string? NodeId { get; init; }
+
+    /// <summary>
+    /// The hello the show network heard for this link's node (§2): by its id when one is set, else at the link's address. Asked as
+    /// the link dials and on its checks, on the link's own threads, outside its lock; null hears none. A hello only raises the link's
+    /// guard (13.4.2): a TLS door to try, never a pin, never plain. One under §2's conflict mark holds the node: no new dial (13.4.4).
+    /// </summary>
+    public Func<PlayoutHeard?>? Hello { get; init; }
+
+    /// <summary>
+    /// The TLS door kept beside the pin from an earlier run (0 for none): where the pinned node's certificate last answered. A pinned
+    /// link dials it while no fresh hello names a door (13.4.2: the pin alone decides, so a lost, late or forged hello never makes it
+    /// plain).
+    /// </summary>
+    public int Door { get; init; }
+
+    /// <summary>
+    /// Keeps the TLS door beside the pin each time it changes, in the step that changed it, after <see cref="Keep"/> kept the pin. Asked
+    /// under the link's lock, so it is cheap and never waits on a disk (<see cref="PlayoutKeptStore.KeepDoor"/>). Null keeps none.
+    /// </summary>
+    public Action<int>? KeepDoor { get; init; }
 }
 
 /// <summary>
@@ -152,6 +186,15 @@ public sealed record PlayoutTicket(string Id, string Line, Task<PlayoutAnswer> F
 public readonly record struct PlayoutSent(PlayoutTicket? Ticket, string? Error);
 
 /// <summary>
+/// A certificate of a playout link's peer that waits for a person on this desk (Show Bus 13.8.2–3): its fingerprint (64 hex), and
+/// whether it is a changed one — CERTIFICATE CHANGED, nothing sent until a person types at least
+/// <see cref="PlayoutRules.TrustHexMin"/> hex of it, never filled in for them — or the one pinned first, for comparison only, which a
+/// person trusts with one press beside its short form. <see cref="Pinned"/> is the pin a changed one would replace (64 hex), else "";
+/// <see cref="NodeId"/> the node the pin is for, when known. It carries no secret: a fingerprint is public.
+/// </summary>
+public sealed record PlayoutTrustWait(string Fingerprint, bool Changed, string Pinned, string? NodeId);
+
+/// <summary>
 /// A PlayMap node's answer to <c>WHOAMI</c>: whether it holds this link paired, its role for it and whether its show is armed, and the
 /// verbs it may run now (null = every one, PlayMap's <c>"*"</c>). <see cref="MayDrive"/>: a playlist's GO or a clip's transport is
 /// among them.
@@ -169,8 +212,15 @@ public sealed record PlayoutWhoami(bool Paired, string Role, bool Armed, IReadOn
 public sealed record PlayoutReading(PlayoutPeerState State, long AgeMs, long Number = 0);
 
 /// <summary>
-/// A playout peer — a Patterns desk, or a PlayMap node's line wire — over its TCP line protocol, as a level-0 connector of Show Bus
-/// 1.3 §13 on Stagewatch's PeerLink core: <see cref="PeerLinkConnector"/> decides — the dial and its jittered redial, liveness
+/// A playout peer — a Patterns desk, or a PlayMap node's line wire — over its TCP line protocol, or a PlayMap node's over TLS
+/// (<c>playmap.lines.v1</c> on its <c>https</c> door, a line a message), as a level-0 connector of Show Bus 1.3 §13 on Stagewatch's
+/// PeerLink core. TLS is dialled where the node's hello names that door (a hello only raises the guard, 13.4.2), or always when Settings
+/// say <c>wss</c>; its certificate is checked by fingerprint alone, pinned only <c>first</c> once the link pairs over it (13.8.2: at
+/// level 0 nothing proves the node), and pinned for its node id only when a person on this desk trusts it (<see cref="Trust"/>). Once
+/// a person's pin (or a floor) asks for TLS, the link is never dialled plain: with no TLS door heard it says so and dials nothing. A
+/// pinned node showing another certificate is CERTIFICATE CHANGED and sent nothing — no HTTP request, line or proof — until a person
+/// types at least 8 hex of the new one (13.8.3). A 429 at the door is a lockout and holds the token; a close 4401 is a wrong token and
+/// holds it. <see cref="PeerLinkConnector"/> decides — the dial and its jittered redial, liveness
 /// (live, stale past <c>link.stale.ms</c>, down past <c>link.drop.ms</c>) with its own self-gap, each command's outcome by 13.12.3,
 /// the matched pongs its clock takes, holds — and this class carries it over a socket. It offers no LINK yet: it greets with
 /// <c>HELLO Stagewatch</c> and pairs by §7's level-0 rules (13.6.8): a NONCE of exactly 32 lowercase hex is answered with
@@ -209,6 +259,8 @@ public sealed class PlayoutLink : IPlayoutSource
     public static readonly TimeSpan CheckEvery = TimeSpan.FromMilliseconds(250);
     /// <summary>How often a Show Bus 1.1 desk is asked for its context.</summary>
     public static readonly TimeSpan ContextEvery = TimeSpan.FromSeconds(5);
+    /// <summary>How often a running link asks the show network for its node's hello: as often as a hello comes (§2).</summary>
+    public static readonly TimeSpan HelloEvery = SlidesBeacon.Every;
     /// <summary>How long to wait for a desk's NONCE before judging it asks for none (desks older than Show Bus 1.1 never send one).</summary>
     public static readonly TimeSpan NonceWait = TimeSpan.FromMilliseconds(1500);
     /// <summary>How long the <c>@hi PING</c> probe waits for its answer before the desk is judged older than Show Bus 1.1.</summary>
@@ -259,6 +311,9 @@ public sealed class PlayoutLink : IPlayoutSource
     private readonly string _label;
     private readonly string _name;
     private readonly string _setKind;
+    private readonly string _transport;
+    /// <summary>The host Settings name is this PC by its address (13.1's local): its link may stay on the plain line wire.</summary>
+    private readonly bool _local;
     private readonly StrongBox<long> _ids;
     private readonly Lock _gate = new();
     /// <summary>
@@ -318,6 +373,20 @@ public sealed class PlayoutLink : IPlayoutSource
     private PeerKept _kept;
     private bool _keepFailed;
 
+    // The TLS dial out now, counted (under the lock): a certificate shown to an older one, whose deadline ended it, takes nothing. The
+    // TLS door the last hello named for the node, and when the hello was last asked (monotonic ms). Whether the link's last dial
+    // made none, for want of a TLS door it may take: its words then say it looks again, not that it dials.
+    private int _attempt;
+    private long _helloAskedAt = long.MinValue / 2;
+    private bool _noDoor;
+    // The TLS dial whose certificate the core judged and took (under the lock): a TLS connection from any other is never taken up.
+    private int _certFor;
+    // The TLS door kept beside the pin — where its certificate last answered once the link paired — and the one last handed to the
+    // keeper (under the lock).
+    private int _door, _keptDoor;
+    /// <summary>The node Settings set this link to (a valid id), or null: a STATE naming another is sent nothing (13.4.3).</summary>
+    private readonly string? _meant;
+
     // The state the show log last heard of (13.16.7), when each change was last said, and the repeats not said apart (13.19.4).
     private PeerLinkState _logged = PeerLinkState.Off;
     private readonly Dictionary<(PeerLinkState From, PeerLinkState To), long> _changeSaid = [];
@@ -345,18 +414,31 @@ public sealed class PlayoutLink : IPlayoutSource
     /// </summary>
     private sealed record Published(LinkHealth Health, string Status, PeerLinkState State, PlayoutPairing Pairing, bool Connected,
         PeerLinkRecord Record, PeerClock.Belief? Clock, bool ClockApart, StateRead? Reading, string? Context, string? Kind, string? NodeId,
-        PlayoutWhoami? Whoami, string? ContextNode);
+        PlayoutWhoami? Whoami, string? ContextNode, PlayoutTrustWait? TrustWait, bool Tls);
 
     /// <summary>
     /// A line for a connection's lane: its text, the request id of the command it is, or a ping whose t1 the lane stamps as it writes it.
     /// </summary>
     private sealed record Outgoing(string? Line, string? Id = null, bool Ping = false);
 
-    /// <summary>One connection: its socket, its writer lane and what its pairing has seen (under the lock).</summary>
-    private sealed class Connection(TcpClient tcp, Stream stream, bool loopback, CancellationToken stop) : IDisposable
+    /// <summary>
+    /// One connection: its socket (a TCP client, or the line channel over TLS), its writer lane and what its pairing has seen (under
+    /// the lock). <see cref="Lines"/> is the TLS line channel's, whose close code the link reads as it ends; null on TCP.
+    /// </summary>
+    private sealed class Connection(IDisposable socket, Stream stream, bool loopback, CancellationToken stop, PlayoutLinesStream? lines = null, int door = 0,
+        int attempt = 0) : IDisposable
     {
-        public readonly TcpClient Tcp = tcp;
+        public readonly IDisposable Socket = socket;
         public readonly Stream Stream = stream;
+        /// <summary>The line channel over TLS (<c>playmap.lines.v1</c>), or null for the TCP line wire.</summary>
+        public readonly PlayoutLinesStream? Lines = lines;
+        /// <summary>The TLS door it was dialled at (0 on TCP).</summary>
+        public readonly int Door = door;
+        /// <summary>The TLS dial it came from (0 on TCP): its certificate was judged by the core only when that dial's step ran.</summary>
+        public readonly int Attempt = attempt;
+        public bool Tls => Lines is not null;
+        /// <summary>Its certificate was looked at for a <c>first</c> pin, at its first whole STATE once it paired.</summary>
+        public bool PinLooked;
         /// <summary>The lines to write, in the order they were asked for; one lane writes them, outside the link's lock.</summary>
         public readonly Channel<Outgoing> Lane = Channel.CreateBounded<Outgoing>(new BoundedChannelOptions(LaneMax) { SingleReader = true });
         /// <summary>The lane writing this connection's lines; null until the connection greets.</summary>
@@ -395,7 +477,7 @@ public sealed class PlayoutLink : IPlayoutSource
             End.Cancel();
             Lane.Writer.TryComplete();
             Stream.Dispose();
-            Tcp.Dispose();
+            Socket.Dispose();
             End.Dispose();
         }
     }
@@ -411,23 +493,31 @@ public sealed class PlayoutLink : IPlayoutSource
         _name = options.Name;
         _label = PlayoutRules.Label(options.Name);
         _setKind = options.Kind is PlayoutRules.Patterns or PlayoutRules.PlayMap ? options.Kind : PlayoutRules.Auto;
+        // A transport word this link does not know is the strictest, as Settings reads one: TLS alone, never plain.
+        _transport = options.Transport is PlayoutRules.Auto or PlayoutRules.Tcp ? options.Transport : PlayoutRules.Wss;
         // An id this link would make is checked now, so an inst of another shape fails here and not at the first command.
         _ = PeerLink.RequestId(IdPrefix, 1, options.Inst);
         _ids = Counters.GetOrAdd(IdPrefix + "-" + options.Inst, _ => new StrongBox<long>());
         _said = $"connecting to {_host}:{_port}";
+        _meant = options.NodeId is { Length: > 0 } meant && ShowBusHello.ValidId(meant) ? meant : null;
+        _door = _keptDoor = options.Door is > 0 and < 65536 ? options.Door : 0;
         var settings = new PeerLinkSettings
         {
             Carrier = PeerCarrier.Line,
             Name = _label,
+            // The node the operator chose: its pin is kept for that id, and a hello for another id raises nothing here.
+            NodeId = _meant,
+            Kind = _setKind == PlayoutRules.Auto ? null : _setKind,
             Address = _host + ":" + _port.ToString(CultureInfo.InvariantCulture),
             // The token is held as 13.6.8's code: proved only by the legacy proof, and only one 1.1 desks key alike.
             Key = PlayoutWire.TokenProblem(_token) is null ? "code" : null,
-            Local = IsLocal(_host, options.IsLoopback),
+            Local = _local = IsLocal(_host, options.IsLoopback),
             ShowNeeds = true,
             IdPrefix = IdPrefix,
             Inst = options.Inst,
             OffersLink = false,
-            TriesTls = false,
+            // A link set to wss dials TLS every time; otherwise TLS when a hello names the node's door, or a pin or floor asks.
+            TriesTls = _transport == PlayoutRules.Wss,
         };
         lock (_gate)
         {
@@ -471,9 +561,10 @@ public sealed class PlayoutLink : IPlayoutSource
 
     /// <summary>
     /// Why nothing goes to the peer and nothing of it feeds a reader now: its STATE says another kind than the one its settings name,
-    /// or a kind this Stagewatch does not speak — in words; null while it says none or the right one.
+    /// a kind this Stagewatch does not speak, or another node than the one its settings name (13.4.3) — in words; null while it says
+    /// none or the right one.
     /// </summary>
-    public string? WrongKind => KindProblem(_pub.Reading?.State.Kind);
+    public string? WrongKind => Problem(_pub.Reading?.State);
 
     /// <summary>
     /// The peer's context as the show network and a proposal's risk may take it for the node it names (Show Bus §6, §11: a context read
@@ -486,7 +577,7 @@ public sealed class PlayoutLink : IPlayoutSource
         get
         {
             var pub = _pub;
-            if (pub.Pairing == PlayoutPairing.None || pub.Context is null || KindProblem(pub.Reading?.State.Kind) is not null) return null;
+            if (pub.Pairing == PlayoutPairing.None || pub.Context is null || Problem(pub.Reading?.State) is not null) return null;
             return pub.Reading?.State.Id is { Length: > 0 } stateId && pub.ContextNode != stateId ? null : pub.Context;
         }
     }
@@ -593,11 +684,63 @@ public sealed class PlayoutLink : IPlayoutSource
 
     /// <summary>
     /// 13.11.6: whether a command timed within <paramref name="toleranceMs"/> may use the link's clock now — fit for that tolerance and
-    /// measured on a local link (this link has no TLS yet); a clock measured over a plain link off this PC never schedules.
+    /// measured on a local link or over TLS; a clock measured over a plain link off this PC never schedules.
     /// </summary>
     public bool CanSchedule(long toleranceMs)
     {
         lock (_gate) return _m.CanSchedule(Now(), toleranceMs);
+    }
+
+    /// <summary>The connection up now runs over TLS: PlayMap's line channel on its <c>https</c> door.</summary>
+    public bool OverTls => _pub.Tls;
+
+    /// <summary>
+    /// The certificate that waits for a person on this desk now (Show Bus 13.8.2–3), or null: a changed one (CERTIFICATE CHANGED,
+    /// nothing sent until a person types at least <see cref="PlayoutRules.TrustHexMin"/> hex of it), or the one pinned first for
+    /// comparison, which one press beside its short form trusts. What the desk offers beside the fingerprint; never a line's to run.
+    /// </summary>
+    public PlayoutTrustWait? TrustWaiting => _pub.TrustWait;
+
+    /// <summary>
+    /// A person on this desk trusts this link's certificate (Show Bus 13.8.2–3), from the desk's own entry beside its fingerprint and
+    /// nowhere else — never a line from the wire, a deck, a trigger or an assistant, which every door and executor refuse. After
+    /// CERTIFICATE CHANGED, <paramref name="hex"/> is what the person typed (<paramref name="typed"/>: an entry that was never filled
+    /// in for them): at least <see cref="PlayoutRules.TrustHexMin"/> hex the certificate shown now starts with, which is then pinned
+    /// for the node and the link dials again; a press that typed nothing trusts no changed certificate. For a certificate pinned first,
+    /// it is that certificate's whole fingerprint (64 hex) as the press was shown it — the press is bound to it, so one pinned in its
+    /// place since the words were drawn is never trusted by it. The new pin is handed to the keeper in this step, before the link dials
+    /// again: the keeper holds it at once and writes its file on a lane of its own, and a write that fails is said once in the show
+    /// log. Whether it trusted, and the words for the desk; nothing changes when it did not. Any thread.
+    /// </summary>
+    public (bool Trusted, string Words) Trust(string hex, bool typed)
+    {
+        var given = PlayoutRules.TrustHex(hex);
+        (bool, string) result;
+        lock (_gate)
+        {
+            var now = Now();
+            var waiting = TrustWait(now);
+            if (waiting is null)
+                result = (false, $"no certificate of {Peer} waits for trust now — nothing changed");
+            else if (waiting.Changed && !typed)
+                result = (false, $"{Peer}'s certificate changed: type at least {PlayoutRules.TrustHexMin.ToString(CultureInfo.InvariantCulture)} hex of the new one, compared on its own screen — nothing trusted");
+            else if (given is null)
+                result = (false, $"type {PlayoutRules.TrustHexMin.ToString(CultureInfo.InvariantCulture)} to 64 hex of {Peer}'s certificate, as its fingerprint shows it — nothing trusted");
+            else if (!waiting.Fingerprint.StartsWith(given, StringComparison.Ordinal))
+                result = (false, $"{PlayoutWire.Short(given)} … is not how the certificate {Peer} shows starts ({PlayoutWire.Short(waiting.Fingerprint)} …) — compare it on its own screen; nothing trusted");
+            else if (!waiting.Changed && given.Length != 64)
+                result = (false, $"a certificate pinned first is trusted by the press beside its short form, bound to its whole fingerprint — nothing trusted");
+            else if (waiting.Changed ? _m.AcceptCertificate(given) : _m.TrustFirst(given))
+            {
+                _noDoor = false;
+                result = (true, $"{Peer}'s certificate {PlayoutWire.Short(waiting.Fingerprint)} … trusted by a person on this desk"
+                    + (waiting.Changed ? " in place of the one pinned before — the link dials it again" : " — from now on a changed one is refused, and it is never dialled plain"));
+            }
+            else result = (false, $"{Peer}'s certificate changed as it was trusted — compare it again; nothing trusted");
+            _pub = Publish(now);
+        }
+        SayAnswers();
+        return result;
     }
 
     public void Start()
@@ -617,7 +760,7 @@ public sealed class PlayoutLink : IPlayoutSource
         {
             var pub = _pub;
             if (pub.Reading is not { Video: { } v } r || pub.Pairing == PlayoutPairing.None || pub.State != PeerLinkState.Live) return null;
-            if (KindProblem(r.State.Kind) is not null) return null;
+            if (Problem(r.State) is not null) return null;
             var age = (MonoMs() - r.AtMs) / 1000.0;
             if (v.Playing && age > StaleAfter.TotalSeconds) return null;   // fail safe: an old countdown is worse than none
             if (!v.Playing || v.Paused || !v.CountsDown) return v;
@@ -739,7 +882,7 @@ public sealed class PlayoutLink : IPlayoutSource
     private PlayoutSent Send(int mark, string verb, string[] words)
     {
         if (verb == "STOP" && words.Length == 0) return new(null, "refused");   // never: it closes every Patterns output
-        if (KindProblem(_pub.Reading?.State.Kind) is { } wrongKind) return new(null, wrongKind);
+        if (Problem(_pub.Reading?.State) is { } wrongKind) return new(null, wrongKind);
         var kind = Kind ?? _setKind;
         if (PlayoutWire.Line(kind, null, verb, words) is not { } line) return new(null, "that command can't be written on this link");
         PlayoutSent sent;
@@ -786,9 +929,12 @@ public sealed class PlayoutLink : IPlayoutSource
         {
             long wait;
             string? scheme;
+            // The node's hello as the dial is made: a TLS door it names is tried first (13.4.2).
+            var heard = Heard();
             lock (_gate)
             {
                 var now = Now();
+                Hear(now, heard);
                 // The core's own wait: 13.15.1's redial, a hold, or none at all (a dial now). A link the core dials nothing for (a
                 // refusal a person must act on) looks again each second.
                 scheme = _m.Dial(now);
@@ -822,10 +968,34 @@ public sealed class PlayoutLink : IPlayoutSource
 
     /// <summary>
     /// One dial on the scheme the core meant, the connection it makes, and its end: whatever ends it, the core hears it once, and the
-    /// link says why — never a light that was the live link's.
+    /// link says why — never a light that was the live link's. A TLS dial goes to the node's line channel over TLS where a fresh hello
+    /// names its door, else where a pinned node's certificate last answered (the door kept beside its pin: 13.4.2, the pin alone
+    /// decides); where neither does, a link that may not go plain (set to wss, or any pin or a floor that asks for TLS) dials nothing
+    /// and says so, and any other goes on the line wire, where the core takes it plain (13.3.3).
     /// </summary>
     private async Task ConnectionAsync(string scheme, CancellationToken stop)
     {
+        if (scheme == "tls")
+        {
+            var heard = Heard();
+            int? door;
+            string? notPlain = null;
+            lock (_gate)
+            {
+                door = DoorOf(heard) ?? KeptDoor();
+                if (door is null) notPlain = NotPlain();
+            }
+            if (door is { } d)
+            {
+                await WssAsync(d, stop);
+                return;
+            }
+            if (notPlain is not null)
+            {
+                NoDoor(notPlain);
+                return;
+            }
+        }
         var tcp = new TcpClient { NoDelay = true };
         try
         {
@@ -840,6 +1010,7 @@ public sealed class PlayoutLink : IPlayoutSource
             {
                 var now = Now();
                 if (_m.KeepsConnection(now)) _m.Closed(now);
+                _noDoor = false;
                 if (!stop.IsCancellationRequested) Say(LinkHealth.NotFound, $"{_label} not reachable at {_host}:{_port}");
                 _pub = Publish(now);
             }
@@ -847,7 +1018,202 @@ public sealed class PlayoutLink : IPlayoutSource
         }
         var loopback = tcp.Client.RemoteEndPoint is IPEndPoint remote && _o.IsLoopback(remote.Address);
         Stream stream = tcp.GetStream();
-        var conn = new Connection(tcp, _o.Wrap is { } wrap ? wrap(stream) : stream, loopback, stop);
+        await RunConnectionAsync(new Connection(tcp, _o.Wrap is { } wrap ? wrap(stream) : stream, loopback, stop), scheme, stop);
+    }
+
+    /// <summary>
+    /// The TLS dial: <c>wss://&lt;host&gt;:&lt;door&gt;/ws</c>, asking for <c>playmap.lines.v1</c>, through no proxy and following no redirect.
+    /// The certificate is the core's to judge in the handshake (<see cref="CertificateShown"/>): one a person pinned that it does not
+    /// match ends the dial there, so no HTTP request, line or proof goes to it. A 429 at the door is a lockout: the token is held. An
+    /// answer that does not take the subprotocol is no PlayMap line channel, and nothing is sent on it.
+    /// </summary>
+    private async Task WssAsync(int door, CancellationToken stop)
+    {
+        int attempt;
+        lock (_gate)
+        {
+            attempt = ++_attempt;
+            _noDoor = false;
+        }
+        var ws = new ClientWebSocket();
+        ws.Options.Proxy = null;
+        ws.Options.AddSubProtocol(PlayoutWire.LinesProtocol);
+        ws.Options.CollectHttpResponseDetails = true;
+        ws.Options.RemoteCertificateValidationCallback = (_, cert, _, _) => CertificateShown(attempt, cert);
+        var host = IPAddress.TryParse(_host, out var ip) && ip.AddressFamily == AddressFamily.InterNetworkV6 ? "[" + _host + "]" : _host;
+        var where = _host + ":" + door.ToString(CultureInfo.InvariantCulture);
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(PeerLink.ConnectTimeoutMs), _time);
+            using var either = CancellationTokenSource.CreateLinkedTokenSource(stop, deadline.Token);
+            await ws.ConnectAsync(new Uri("wss://" + host + ":" + door.ToString(CultureInfo.InvariantCulture) + "/ws"), either.Token);
+        }
+        catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or IOException or HttpRequestException
+                                       or System.Security.Authentication.AuthenticationException or ArgumentException or UriFormatException)
+        {
+            var status = (int)ws.HttpStatusCode;
+            var retry = RetryAfter(ws.HttpResponseHeaders);
+            ws.Dispose();
+            lock (_gate)
+            {
+                var now = Now();
+                // What the core asked to write for a connection that never came (its greeting) goes nowhere: the next one greets anew.
+                _ = _m.Drain();
+                if (_m.State(now) == PeerLinkState.Refused)
+                {
+                    // CERTIFICATE CHANGED at the handshake: nothing of this link's went past it, and its words are the refusal's.
+                }
+                else if (status == 429)
+                {
+                    Say(LinkHealth.Error, $"{Peer} has locked this PC out after wrong tokens (429 at {where}) — nothing sent");
+                    _m.Refused(now, "locked", retry);
+                }
+                else
+                {
+                    if (_m.KeepsConnection(now)) _m.Closed(now);
+                    if (!stop.IsCancellationRequested)
+                        Say(LinkHealth.NotFound, status switch
+                        {
+                            403 => $"{Peer} refused this link's line channel at {where} (403) — its own log says why; nothing sent",
+                            > 0 => $"{Peer} answered {status.ToString(CultureInfo.InvariantCulture)} at {where}, not its line channel — nothing sent",
+                            _ => $"{_label} not reachable over TLS at {where}",
+                        });
+                }
+                _pub = Publish(now);
+            }
+            SayAnswers();
+            return;
+        }
+        if (ws.SubProtocol != PlayoutWire.LinesProtocol)
+        {
+            ws.Abort();
+            ws.Dispose();
+            lock (_gate)
+            {
+                var now = Now();
+                _ = _m.Drain();
+                if (_m.KeepsConnection(now)) _m.Closed(now);
+                Say(LinkHealth.Error, $"{where}/ws did not take {PlayoutWire.LinesProtocol} — no PlayMap line channel there; nothing sent");
+                _pub = Publish(now);
+            }
+            SayAnswers();
+            return;
+        }
+        // Plain AUTH never goes on the line channel (the node takes proofs only there), so it is no loopback socket for it.
+        var lines = new PlayoutLinesStream(ws);
+        await RunConnectionAsync(new Connection(lines, _o.Wrap is { } wrap ? wrap(lines) : lines, false, stop, lines, door, attempt), "tls", stop);
+    }
+
+    /// <summary>A 429's <c>Retry-After</c> in seconds (0 for none, or one that is not a number of seconds).</summary>
+    private static int RetryAfter(IReadOnlyDictionary<string, IEnumerable<string>>? headers)
+        => headers is not null && headers.TryGetValue("Retry-After", out var values) && values.FirstOrDefault() is { } v
+           && int.TryParse(v.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var s) ? s : 0;
+
+    /// <summary>
+    /// 13.8: the certificate the TLS handshake shows, judged by the core by its fingerprint alone (never a name, chain or authority):
+    /// a pin a person or a proof made that it does not match is CERTIFICATE CHANGED, and the handshake ends here with nothing of the
+    /// link's sent. Only the dial out now is judged: a handshake its deadline already ended, or one of a stopped link, is refused.
+    /// </summary>
+    private bool CertificateShown(int attempt, X509Certificate? cert)
+    {
+        if (cert is null) return false;
+        var fingerprint = PlayoutWire.Fingerprint(cert.GetRawCertData());
+        bool ok;
+        lock (_gate)
+        {
+            var now = Now();
+            if (attempt != _attempt || !_m.KeepsConnection(now)) return false;
+            _m.Certificate(now, fingerprint);
+            ok = _m.KeepsConnection(now);
+            if (ok) _certFor = attempt;
+            _pub = Publish(now);
+        }
+        SayAnswers();
+        return ok;
+    }
+
+    /// <summary>
+    /// The hello the show network heard for this link's node, as a link that may dial TLS takes it: a PlayMap node's, for a link not
+    /// set to tcp nor set to (or heard to be) a Patterns desk; else null. Asked outside the link's lock.
+    /// </summary>
+    private PlayoutHeard? Heard()
+    {
+        if (_o.Hello is not { } hello || _transport == PlayoutRules.Tcp || _setKind == PlayoutRules.Patterns || Volatile.Read(ref _kindSeen) == PlayoutRules.Patterns)
+            return null;
+        return hello() is { Kind: PlayoutRules.PlayMap } heard ? heard : null;
+    }
+
+    /// <summary>The TLS door a hello names for the node, or null: none heard, or one this link may not take.</summary>
+    private static int? DoorOf(PlayoutHeard? heard) => heard?.TlsDoor;
+
+    /// <summary>
+    /// The door kept beside the pin (under the lock), or null: none kept, no pin, or a link that dials no TLS (set to tcp, or to — or
+    /// heard to be — a Patterns desk). Where a pinned node's certificate last answered, dialled while no fresh hello names a door.
+    /// </summary>
+    private int? KeptDoor()
+        => _door > 0 && _m.Kept.Pin is not null && _transport != PlayoutRules.Tcp && _setKind != PlayoutRules.Patterns && _kindSeen != PlayoutRules.Patterns
+            ? _door : null;
+
+    /// <summary>
+    /// A PlayMap node's hello for this link, told to the core (under the lock): it may raise the guard — try TLS first — and never
+    /// lowers it; a pinned node's hello naming another certificate is a note, never a refusal (13.4.2). One under §2's conflict mark
+    /// holds the node while the mark stands — no new dial, a link up keeps running (13.4.4) — and nothing it says is taken.
+    /// </summary>
+    private void Hear(PeerNow now, PlayoutHeard? heard)
+    {
+        if (heard is null || !ShowBusHello.ValidId(heard.Id)) return;
+        if (heard.ConflictLeftMs > 0)
+        {
+            _m.Marked(now, heard.Id, heard.ConflictLeftMs);
+            return;
+        }
+        _m.Hello(now, heard.Id, PlayoutWire.IsFingerprint(heard.Tls) ? heard.Tls : null, heard.Inst, heard.Address);
+    }
+
+    /// <summary>
+    /// Why this link may not go plain where no TLS door is heard or kept (under the lock), or null when it may: it is set to wss, or a
+    /// pin — any, a <c>first</c> one among them — or a floor asks for TLS (13.4.2: for an id with a pin the pin alone decides, and a
+    /// hello never lowers the guard, so a pinned node is never dialled plain, whatever its hello says or does not say). A <c>first</c>
+    /// pin decides only the transport: a changed certificate under it is a note, never a refusal (13.8.2).
+    /// </summary>
+    private string? NotPlain()
+    {
+        var kept = _m.Kept;
+        var pinned = kept.Pin is not null || kept.Floor is { Tls: true };
+        if (!pinned && _transport != PlayoutRules.Wss) return null;
+        var why = pinned ? $"{Peer}'s certificate is pinned" : $"{_label} is set to dial wss only";
+        var door = _transport == PlayoutRules.Tcp
+            ? "its transport is set to tcp — set it to auto or wss (Settings → Integrations)"
+            : _setKind == PlayoutRules.Patterns || _kindSeen == PlayoutRules.Patterns
+                ? "a Patterns desk offers no TLS on its line wire"
+                : "no hello names its TLS door now, and none is kept beside its pin";
+        return $"{why}, so it is never dialled plain, and {door} — nothing sent";
+    }
+
+    /// <summary>
+    /// A TLS dial with no door to take, by a link that may not go plain: nothing is dialled. The core hears a failed dial, so the link
+    /// looks again on 13.15.1's wait, and says why it dials nothing (amber, never red: nothing refused it).
+    /// </summary>
+    private void NoDoor(string why)
+    {
+        lock (_gate)
+        {
+            var now = Now();
+            if (_m.KeepsConnection(now)) _m.Closed(now);
+            _noDoor = true;
+            Say(LinkHealth.Starting, why);
+            _pub = Publish(now);
+        }
+        SayAnswers();
+    }
+
+    /// <summary>
+    /// A connection that came, greeted and run to its end: its lane writes, its lines are read, and whatever ends it the core hears
+    /// once. A TLS line channel the node closed with 4401 (wrong proofs, or an address its wrong tokens locked out) holds the token, as
+    /// a refused proof does.
+    /// </summary>
+    private async Task RunConnectionAsync(Connection conn, string scheme, CancellationToken stop)
+    {
         if (!Greet(conn, scheme))
         {
             // The core ended the dial at its own deadline before the socket came, or refused it: nothing is said on it.
@@ -867,12 +1233,23 @@ public sealed class PlayoutLink : IPlayoutSource
                 _conn = null;
                 // The core hears the end once: what the lane wrote is unconfirmed, what it had not is not-sent (13.15.5).
                 var kept = _m.KeepsConnection(now);
-                if (kept) _m.Closed(now);
+                var closed = conn.Lines?.CloseCode;
+                if (kept && closed == PlayoutWire.WrongProofsClose)
+                {
+                    var words = conn.Lines!.CloseWords;
+                    Explain(conn, LinkHealth.Error, $"{Peer} closed the link: wrong token ({PlayoutWire.WrongProofsClose.ToString(CultureInfo.InvariantCulture)}"
+                        + (words.Length > 0 ? ": " + Clip(words) : "") + ")");
+                    _m.Refused(now, "refused", 0);
+                }
+                else if (kept) _m.Closed(now);
                 // Why it ended, unless that was said as it ended (a refusal, the evaluator's drop, a busy desk, a broken write) or is an
                 // error the desk said on it. A desk that does not pair keeps the words that say why while the link redials.
                 if (!stop.IsCancellationRequested && !conn.EndExplained && _saidHealth is not LinkHealth.Error)
                 {
-                    if (kept) Say(LinkHealth.NotFound, $"{_label} closed the connection");
+                    if (kept && closed is { } code && code != 1000)
+                        Say(LinkHealth.NotFound, $"{_label} closed the line channel ({code.ToString(CultureInfo.InvariantCulture)}"
+                            + (conn.Lines!.CloseWords.Length > 0 ? ": " + Clip(conn.Lines.CloseWords) : "") + ")");
+                    else if (kept) Say(LinkHealth.NotFound, $"{_label} closed the connection");
                     else if (conn.Pairing != PlayoutPairing.None) Say(LinkHealth.NotFound, $"the link to {_host}:{_port} ended");
                     else if (!conn.Advised)
                         Say(LinkHealth.NotFound, $"{_host}:{_port} did not pair within {(PeerLink.HandshakeMs / 1000).ToString(CultureInfo.InvariantCulture)} s");
@@ -893,10 +1270,12 @@ public sealed class PlayoutLink : IPlayoutSource
 
     /// <summary>
     /// The socket is up: the core greets (<c>HELLO Stagewatch</c>; it offers no LINK yet), and the link probes whether the peer speaks
-    /// Show Bus 1.1 — both put on the connection's lane, which starts once this returns true. This carrier has no TLS, so a dial the
-    /// core meant as TLS (a pin, a floor, a hello's <c>tls</c>) found none: the core refuses a node a proof or a person pinned, or a
-    /// floor holds to TLS, with nothing sent (13.9.3), and otherwise goes on plain (13.3.3) — never a plain socket taken for TLS. False
-    /// when the core had ended the dial already or refused it, and nothing is said on the socket.
+    /// Show Bus 1.1 — both put on the connection's lane, which starts once this returns true. On the TLS line channel the handshake's
+    /// certificate already brought the link up — and one whose certificate the core did not judge for this dial is ended with nothing
+    /// sent, red, never taken up unchecked. On the line wire, which has no TLS, a dial the core meant as TLS found none: the core
+    /// refuses a node a proof or a person pinned, or a floor holds to TLS, with nothing sent (13.9.3), and otherwise goes on plain
+    /// (13.3.3) — never a plain socket taken for TLS. False when the core had ended the dial already or refused it, and nothing is said
+    /// on the socket.
     /// </summary>
     private bool Greet(Connection conn, string scheme)
     {
@@ -908,7 +1287,19 @@ public sealed class PlayoutLink : IPlayoutSource
                 _pub = Publish(now);
                 return false;
             }
-            if (scheme == "tls") _m.NoTls(now);
+            if (conn.Tls)
+            {
+                // The certificate's step brought it up, over TLS. A TLS connection whose certificate the core never judged for this
+                // dial (its step did not run, or ran for another) is never taken up unpinned: it ends here, and nothing is sent on it.
+                if (conn.Attempt != _certFor || _m.CertificateShown is null)
+                {
+                    _m.Closed(now);
+                    Say(LinkHealth.Error, $"{_label}'s TLS at {_host}:{conn.Door.ToString(CultureInfo.InvariantCulture)} came up with no certificate this link checked — nothing sent");
+                    _pub = Publish(now);
+                    return false;
+                }
+            }
+            else if (scheme == "tls") _m.NoTls(now);
             else _m.Connected(now);
             if (!_m.KeepsConnection(now))
             {
@@ -917,10 +1308,11 @@ public sealed class PlayoutLink : IPlayoutSource
             }
             _conn = conn;
             conn.ConnectedAt = now.Mono;
+            _noDoor = false;
             // 13.11.7: the window empties when the peer's inst changes. A level-0 link never learns the inst, so each connection may be
             // another desk at the address, or the same one restarted: its clock starts with no sample.
             _m.Clock.Clear();
-            Say(LinkHealth.Starting, $"connected to {_host}:{_port} — pairing");
+            Say(LinkHealth.Starting, $"connected to {(conn.Tls ? _host + ":" + conn.Door.ToString(CultureInfo.InvariantCulture) + " over TLS" : _host + ":" + _port.ToString(CultureInfo.InvariantCulture))} — pairing");
             Flush(conn);
             // The desk sends NONCE on connect and this link proves it holds the token without sending it. A desk that trusts this
             // connection (on this PC, or open) sends none: ask whether it speaks Show Bus 1.1.
@@ -1188,11 +1580,13 @@ public sealed class PlayoutLink : IPlayoutSource
         _reading = new StateRead(state, now.Mono, ++_readings);
         // The kind its STATE says (13.4): what the link's commands are written for, and the one a kind set in Settings must match.
         if (state.Kind is { } kind) _kindSeen = kind.Length > 0 ? kind : null;
-        if (KindProblem(state.Kind) is { } problem)
+        if (Problem(state) is { } problem)
         {
+            // Amber, both named, nothing sent — and over TLS, the certificate of a node not meant is pinned nothing.
             Say(LinkHealth.Starting, problem);
             return;
         }
+        if (state.Whole) PinFirst(now, state.Id);
         var said = (video is null ? $"connected to {_host}:{_port} — no clip on air"
             : $"{video.Title}" + (video.CountsDown ? $": {TimeSpan.FromSeconds(Math.Max(0, video.LengthSeconds - video.PositionSeconds)):mm\\:ss} left" : video.Loops ? " (looping)" : "")) + OpenNote;
         var part = state.Whole ? "" : " · " + PlayoutWire.OversizeWords(state.Bytes) + ", read in part";
@@ -1201,6 +1595,22 @@ public sealed class PlayoutLink : IPlayoutSource
         else if (state.Whole) Say(PairedHealth, said);
         else if (state.HasVideo) Say(LinkHealth.Starting, said + part);
         else Say(LinkHealth.Starting, PlayoutWire.OversizeWords(state.Bytes) + ": its clip on air lies past the part read — no countdown" + OpenNote);
+    }
+
+    /// <summary>
+    /// 13.8.2 on the TLS line channel, at its first whole STATE once the link paired: the certificate it runs over is pinned
+    /// <c>first</c> for the node that STATE names — kept for comparison, never trust, since at level 0 nothing proves the node; a node
+    /// other than the one Settings chose never gets here (<see cref="NodeProblem"/>). Once pinned, by this step or a person, the door it
+    /// answered at is kept beside the pin and dialled while no fresh hello names one, so the link never goes plain for want of a
+    /// hello (13.4.2). A person makes the pin theirs (<see cref="Trust"/>); from then on a changed certificate is refused.
+    /// </summary>
+    private void PinFirst(PeerNow now, string? stateId)
+    {
+        if (_conn is not { Tls: true, PinLooked: false } conn || conn.Pairing == PlayoutPairing.None) return;
+        conn.PinLooked = true;
+        var id = stateId is { Length: > 0 } s && ShowBusHello.ValidId(s) ? s : null;
+        _m.PinShown(now, id);
+        if (_m.Kept.Pin is not null && conn.Door > 0) _door = conn.Door;
     }
 
     /// <summary>
@@ -1242,7 +1652,8 @@ public sealed class PlayoutLink : IPlayoutSource
     private void NoNonce(Connection conn, PeerNow now)
     {
         if (conn.NonceHeard || conn.ProofSent || conn.Pairing != PlayoutPairing.None) return;
-        if (_token.Length > 0 && conn.Loopback)
+        // Plain AUTH goes only on the line wire to this PC: the TLS line channel takes proofs alone, and its socket is never loopback here.
+        if (_token.Length > 0 && conn.Loopback && !conn.Tls)
         {
             conn.ProofSent = conn.PlainAuth = true;
             Write(conn, "AUTH " + _token);
@@ -1291,6 +1702,20 @@ public sealed class PlayoutLink : IPlayoutSource
         _m.Refused(now, "refused", 0);
     }
 
+    /// <summary>Null when the peer's STATE names a kind and a node this link may command; else why not, in words (the kind's first).</summary>
+    private string? Problem(PlayoutPeerState? state) => KindProblem(state?.Kind) ?? NodeProblem(state?.Id);
+
+    /// <summary>
+    /// Null when the node the peer's STATE names is the one Settings set this link to, or either names none; else why not, in words,
+    /// both ids named — 13.4.3: an acceptor that answers as another id than the one meant is followed in nothing, so nothing is sent
+    /// to it, nothing of it feeds a reader, and its certificate is pinned nothing, until Settings name its node again.
+    /// </summary>
+    private string? NodeProblem(string? stateId)
+    {
+        if (_meant is null || stateId is not { Length: > 0 } id || id == _meant) return null;
+        return $"{_label} at {_host}:{_port} answers as node {Clip(id)}, not node {_meant} this link is set to — nothing is sent to it until its node is set again (Settings → Integrations)";
+    }
+
     /// <summary>
     /// Null when the peer's kind is one this link may command: its STATE named none yet, or the kind Settings set (or any of the two
     /// Stagewatch speaks, when Settings leaves it to the peer); else why not, in words — nothing is sent to a peer that answers as
@@ -1321,14 +1746,30 @@ public sealed class PlayoutLink : IPlayoutSource
     private void Tick()
     {
         if (Volatile.Read(ref _disposed) != 0) return;
+        // The node's hello, asked as often as hellos come (outside the lock: the show network's table is its own).
+        PlayoutHeard? heard = null;
+        var asked = _o.Hello is not null && MonoMs() - Interlocked.Read(ref _helloAskedAt) >= HelloEvery.TotalMilliseconds;
+        if (asked)
+        {
+            Interlocked.Exchange(ref _helloAskedAt, MonoMs());
+            heard = Heard();
+        }
         lock (_gate)
         {
             var now = Now();
             var evaluation = _m.Evaluate(now);
             if (evaluation is { PingedAll: true, GapMs: { } gap }) Paused(now, gap);
+            if (asked) Hear(now, heard);
             if (_conn is { } conn && !conn.End.IsCancellationRequested)
             {
                 if (evaluation.Closed) Explain(conn, LinkHealth.Error, $"{_label} stopped answering");
+                // 13.4.2: a hello that names the node's TLS door raises the guard. A paired link on the line wire, off this PC, moves to
+                // TLS at once — between commands, never with one waiting for its answer, so none is left unconfirmed by the move.
+                if (asked && !conn.Tls && !_local && conn.Pairing != PlayoutPairing.None && DoorOf(heard) is not null && _m.InFlight == 0)
+                {
+                    Explain(conn, LinkHealth.Starting, $"{Peer}'s hello names its TLS door now — the link moves to TLS");
+                    End(conn);
+                }
                 if (conn.WritingSince is { } since && now.Mono - since > WriteDeadline.TotalMilliseconds)
                 {
                     // A write the socket holds up past its deadline ends the connection: what it was writing may have reached the desk.
@@ -1703,14 +2144,18 @@ public sealed class PlayoutLink : IPlayoutSource
         // A PlayMap node that lets this link only read (armed and remote-view-only) is amber with what its desk can do: the link stays
         // up and its commands still go, and the node's own ERR refuses them in its words.
         var readOnly = live && _whoami is { MayDrive: false };
+        var waiting = TrustWait(now);
+        // §2's conflict mark holds the link — no new dial — and is amber, as the core's light says (13.16.5); a held token is red.
+        var conflict = state == PeerLinkState.Held && _m.Refusal(now) == "conflict";
         var status = state switch
         {
-            PeerLinkState.Live when readOnly => _said + $" · {Peer} is armed and lets this PC only read — its desk can SHOW SET REMOTE-VIEW-ONLY OFF",
-            PeerLinkState.Live => _said,
+            PeerLinkState.Live when readOnly => _said + TlsNote(waiting) + $" · {Peer} is armed and lets this PC only read — its desk can SHOW SET REMOTE-VIEW-ONLY OFF",
+            PeerLinkState.Live => _said + TlsNote(waiting),
             PeerLinkState.Stale => $"{_label} at {_host}:{_port} quiet for {Seconds(record.HeardMs)} — no countdown until it is heard again",
             PeerLinkState.Down when live => record.Words,
-            PeerLinkState.Down => _said + " — dialling again in " + Seconds(record.NextMs),
-            PeerLinkState.Held when _saidHealth == LinkHealth.Error => _said + " — the token is held; next try in " + Seconds(record.NextMs),
+            PeerLinkState.Down => _said + (_noDoor ? " — looking again in " : " — dialling again in ") + Seconds(record.NextMs),
+            PeerLinkState.Held when _saidHealth == LinkHealth.Error && !conflict => _said + " — the token is held; next try in " + Seconds(record.NextMs),
+            PeerLinkState.Refused when waiting is { Changed: true } changed => ChangedWords(changed),
             PeerLinkState.Held or PeerLinkState.Refused => record.Words,
             _ when live => record.Words,
             _ => _said,
@@ -1723,8 +2168,44 @@ public sealed class PlayoutLink : IPlayoutSource
         }
         if (_repeats > 0 && _repeatSince is { } since && now.Mono - since >= RepeatSummaryEvery.TotalMilliseconds) FoldRepeats(now);
         var node = _reading?.State.Id is { Length: > 0 } stateId ? stateId : _contextNode;
-        return new Published(HealthOf(state, readOnly ? LinkHealth.Starting : _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None,
-            _conn is not null, record, _m.Clock.Believed, _m.Clock.Apart, _reading, _context, _kindSeen, node, _whoami, _contextNode);
+        return new Published(conflict ? LinkHealth.Starting : HealthOf(state, readOnly ? LinkHealth.Starting : _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None,
+            _conn is not null, record, _m.Clock.Believed, _m.Clock.Apart, _reading, _context, _kindSeen, node, _whoami, _contextNode, waiting,
+            _conn is { Tls: true });
+    }
+
+    /// <summary>
+    /// The certificate that waits for a person now (under the lock), or null: after CERTIFICATE CHANGED the one shown, beside the pin
+    /// it would replace; else a pin made <c>first</c> (13.8.2), which only a person makes theirs. Never a guess: a changed one is named
+    /// only while the core refuses the link for it, and only by what the handshake showed.
+    /// </summary>
+    private PlayoutTrustWait? TrustWait(PeerNow now)
+    {
+        var pin = _m.Kept.Pin;
+        if (_m.State(now) == PeerLinkState.Refused && _m.Refusal(now) == "certificate" && _m.CertificateShown is { } shown)
+            return new PlayoutTrustWait(shown, true, pin?.Fingerprint ?? "", _m.NodeId);
+        return pin is { Trust: PinTrust.First } first ? new PlayoutTrustWait(first.Fingerprint, false, "", first.NodeId ?? _m.NodeId) : null;
+    }
+
+    /// <summary>
+    /// 13.8.3's words for a changed certificate: the one shown now and the one pinned, each by its short form, nothing sent, and where a
+    /// person types at least <see cref="PlayoutRules.TrustHexMin"/> hex of the new one — compared on the node's own screen, never here.
+    /// </summary>
+    private string ChangedWords(PlayoutTrustWait changed)
+        => $"CERTIFICATE CHANGED: {Peer} now shows {PlayoutWire.Short(changed.Fingerprint)} …"
+           + (changed.Pinned.Length > 0 ? $", not the certificate pinned for it ({PlayoutWire.Short(changed.Pinned)} …)" : "")
+           + $" — nothing sent; compare it on {_label}'s own screen, then type at least {PlayoutRules.TrustHexMin.ToString(CultureInfo.InvariantCulture)} hex of it on this desk ({PlayoutRules.TrustWhere})";
+
+    /// <summary>
+    /// What a live link over TLS adds to its words: the certificate it runs over, pinned by a person, or pinned first only — a pin kept
+    /// for comparison, which proves nothing until a person compares it on the node's own screen and trusts it. Nothing on the line wire.
+    /// </summary>
+    private string TlsNote(PlayoutTrustWait? waiting)
+    {
+        if (_conn is not { Tls: true }) return "";
+        var shown = _m.CertificateShown;
+        if (waiting is { Changed: false } first && first.Fingerprint == shown)
+            return $" · over TLS, its certificate {PlayoutWire.Short(first.Fingerprint)} … pinned first only — compare it on its own screen and trust it ({PlayoutRules.TrustWhere})";
+        return _m.Kept.Pin is { Trust: not PinTrust.First } pin && pin.Fingerprint == shown ? " · over TLS, its certificate pinned" : " · over TLS";
     }
 
     /// <summary>
@@ -1736,11 +2217,20 @@ public sealed class PlayoutLink : IPlayoutSource
     private void KeepIfChanged()
     {
         var kept = _m.Kept;
-        if (kept == _kept) return;
-        _kept = kept;
-        if (_o.Keep is not { } keep) return;
-        var landed = keep(kept);
-        if (!_keepFailed) _ = SayIfNotKeptAsync(landed);
+        if (kept != _kept)
+        {
+            _kept = kept;
+            if (_o.Keep is { } keep)
+            {
+                var landed = keep(kept);
+                if (!_keepFailed) _ = SayIfNotKeptAsync(landed);
+            }
+        }
+        // The door beside the pin, after the pin it is kept with; none once there is no pin.
+        var door = kept.Pin is null ? 0 : _door;
+        if (door == _keptDoor) return;
+        _keptDoor = door;
+        _o.KeepDoor?.Invoke(door);
     }
 
     /// <summary>The keeper's write for a change, heard outside the lock: one that failed is said once in the show log.</summary>

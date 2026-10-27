@@ -799,6 +799,9 @@ public partial class MainWindow : Window, IContextActions
 
             case "status":
                 yield return I("Copy", () => CopyText(_vm.StatusLine), _vm.StatusLine.Length > 0);
+                // Every playout link's certificate that waits for a person, whether or not its node has a Show network row: the same
+                // entries, bound to the certificate each shows now.
+                foreach (var waiting in _vm.CertificatesWaiting()) yield return I(waiting.Label, () => TrustCertificate(waiting));
                 break;
 
             case "show-network" when element.DataContext is PeerRow peer:
@@ -807,6 +810,8 @@ public partial class MainWindow : Window, IContextActions
                 if (peer.MakeKeyLabel.Length > 0) yield return I(peer.MakeKeyLabel, () => _vm.MakeKeyForPeerCommand.Execute(peer));
                 yield return I("Let a key speak for this node…", () => LetKeySpeakFor(peer), peer.NodeId.Length > 0);
                 yield return I("Revoke its key…", () => RevokePeerKey(peer), peer.KeyId.Length > 0);
+                // A playout link's certificate of this node that waits for a person: the row's button and these run the same code.
+                foreach (var waiting in _vm.CertificatesWaitingFor(peer)) yield return I(waiting.Label, () => TrustCertificate(waiting));
                 break;
 
             case "show-hello":
@@ -889,6 +894,35 @@ public partial class MainWindow : Window, IContextActions
                 "its context and proposals are refused, and its link on /ws keeps only the public frame until it has a key again.",
                 "Show network", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;
         _vm.RevokeApiKey(key.Id);
+    }
+
+    /// <summary>
+    /// The Show network row's trust button: the certificate its words and label were drawn from (<see cref="PeerRow.TrustWaiting"/>),
+    /// never one looked up again at the press — a certificate pinned in its place since is not trusted by it.
+    /// </summary>
+    private void OnTrustCertificate(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is PeerRow { TrustWaiting: { } waiting })
+            TrustCertificate(waiting);
+    }
+
+    /// <summary>
+    /// A person trusts a playout link's certificate (Show Bus 13.8.2–3). One pinned first is one press, the press bound to the
+    /// fingerprint it showed. A changed one opens an entry that is never filled in: the person compares the certificate on the node's
+    /// own screen and types at least 8 hex of it, the short form beside the box; nothing else trusts it, and no pad, line or assistant can.
+    /// </summary>
+    private void TrustCertificate(CertificateWaiting waiting)
+    {
+        if (!waiting.Wait.Changed)
+        {
+            _vm.TrustPlayoutCertificate(waiting.Link, waiting.Wait.Fingerprint, typed: false);
+            return;
+        }
+        var pinned = waiting.Wait.Pinned.Length > 0 ? $" (the one pinned for it began {Stagewatch.Integrations.PlayoutWire.Short(waiting.Wait.Pinned)} …)" : "";
+        var label = $"{waiting.Peer} now shows a certificate that begins {waiting.Short} …, not the one it was pinned with{pinned}. Nothing is sent to it "
+                    + $"until you trust this one. Compare it on {waiting.Peer}'s own screen, then type at least {PlayoutRules.TrustHexMin.ToString(System.Globalization.CultureInfo.InvariantCulture)} hex of it:";
+        if (Help.Prompt.Ask(this, "Certificate changed", label, "") is { } typed)
+            _vm.TrustPlayoutCertificate(waiting.Link, typed, typed: true);
     }
 
     /// <summary>

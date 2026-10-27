@@ -65,10 +65,14 @@ public sealed class ProposalDesk
 
     /// <summary>
     /// A proposal from the network, sent with <paramref name="credential"/>, which must speak for the proposal's
-    /// <c>from</c>. <paramref name="risk"/> says how risky a line is for its target (the target's own word). Returns the
-    /// proposal, or why not; <c>Forbidden</c> when the credential may not speak for that node (an HTTP 403).
+    /// <c>from</c>. <paramref name="risk"/> says how risky a line is for its target (the target's own word);
+    /// <paramref name="never"/>, why a line is never a proposal for its target (a line only a person on that desk runs, such as
+    /// trusting a certificate), or null — such a line is refused (400) before anything is queued or any key is spoken for, so the
+    /// approval desk never shows a proposal that could not run. Returns the proposal, or why not; <c>Forbidden</c> when the
+    /// credential may not speak for that node (an HTTP 403).
     /// </summary>
-    public (SharedProposal? Proposal, string? Error, bool Forbidden) Submit(string json, NodeCredential credential, Func<NodeRef, string, string> risk, DateTime nowUtc)
+    public (SharedProposal? Proposal, string? Error, bool Forbidden) Submit(string json, NodeCredential credential, Func<NodeRef, string, string> risk, DateTime nowUtc,
+        Func<NodeRef, string, string?>? never = null)
     {
         if (Root(json) is not { } root) return (null, NotAProposal, false);
         var from = Ref(root["from"]);
@@ -82,6 +86,7 @@ public sealed class ProposalDesk
         if (toDesk) target = target with { Id = deskId };
         else if (target.Id.Length == 0) return (null, "target.id is required for another node", false);
         if (from.Id == deskId) return (null, "that's this Stagewatch — its own proposals are made at its desk", true);
+        if (never?.Invoke(target, line) is { } notProposed) return (null, notProposed, false);
         // Spoken for only once the proposal is whole and there is room for it, so a malformed proposal or a full desk binds
         // no key. The room is checked again when it is queued: two proposals racing for the last place can leave the
         // loser's key bound to the node it named, which is that key's own first proven use.

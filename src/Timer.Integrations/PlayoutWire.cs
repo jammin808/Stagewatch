@@ -32,6 +32,127 @@ public sealed record PlayoutPeer(string Name, string Address, int WirePort, stri
 }
 
 /// <summary>
+/// The hello a running link takes from the show network for its node (Show Bus §2): its id and kind, its <c>ports.https</c> (0 for
+/// none), the certificate it names beside that door (<c>sha256:</c> and 64 hex, or null), its <c>inst</c> and where it was heard. A
+/// hello only raises a link's guard (13.4.2): it names a TLS door to try, never a pin, and never lets a pinned link go plain.
+/// <see cref="ConflictLeftMs"/> is how long §2's conflict mark on its id stands from now (0 for none): two running nodes say the id,
+/// so the link holds its node while the mark stands (13.4.4), and nothing the hello says is taken — it names no door.
+/// </summary>
+public sealed record PlayoutHeard(string Id, string Kind, int HttpsPort, string? Tls, string? Inst, string Address, long ConflictLeftMs = 0)
+{
+    /// <summary>A door the link may dial TLS at: a PlayMap node's <c>https</c> port beside a certificate its hello names, never one under a conflict mark.</summary>
+    public int? TlsDoor => ConflictLeftMs <= 0 && Kind == PlayoutRules.PlayMap && HttpsPort is > 0 and < 65536 && PlayoutWire.IsFingerprint(Tls) ? HttpsPort : null;
+}
+
+/// <summary>
+/// Which hello on the show network is a playout link's node's (Show Bus §2, 13.4.2), pure: by the node id Settings set, else a PlayMap
+/// node heard at the link's host — at an address a hello came from, by its own host or machine name, or at an address the host names
+/// (<paramref name="hostAddresses"/>, the host resolved) — and heard within <see cref="SlidesBeacon.StaleAfter"/>. Its <c>https</c>
+/// door, and the certificate the hello heard at the link's host (or one of its addresses) named, else its last hello's. A node two
+/// running machines say is given with its mark and nothing else of its hello (<see cref="PlayoutHeard.ConflictLeftMs"/>). Null when
+/// none is heard.
+/// </summary>
+public static class PlayoutHellos
+{
+    public static PlayoutHeard? Choose(IEnumerable<SlidesBeacon.Peer> peers, string? node, string host, IReadOnlyCollection<string>? hostAddresses = null)
+    {
+        var at = hostAddresses ?? [];
+        var fresh = peers.Where(p => p.AgeSeconds <= SlidesBeacon.StaleAfter.TotalSeconds);
+        var peer = node is { Length: > 0 }
+            ? fresh.FirstOrDefault(p => p.Hello.Id == node)
+            : fresh.FirstOrDefault(p => p.Hello.Kind == PlayoutRules.PlayMap && (p.HeardAt(host) || at.Any(p.HeardAt)));
+        if (peer is null) return null;
+        if (peer.Conflict is not null)
+            return new PlayoutHeard(peer.Hello.Id, peer.Hello.Kind, 0, null, null, peer.Address, Math.Max(1, peer.ConflictLeftMs));
+        var https = peer.Hello.Ports is { } ports && ports.TryGetValue("https", out var door) ? door : 0;
+        var tls = peer.TlsAt(host) ?? at.Select(peer.TlsAt).FirstOrDefault(t => t is not null) ?? peer.Hello.Tls;
+        return new PlayoutHeard(peer.Hello.Id, peer.Hello.Kind, https, tls, peer.Hello.Inst, peer.Address);
+    }
+}
+
+/// <summary>
+/// A playout link's hello source on the show network's table (<see cref="PlayoutHellos.Choose"/>), asked on the link's own threads:
+/// it never waits. A link set to a host name (not an address, and no node id to go by) has that name resolved off those threads — at
+/// its first ask and again <see cref="ResolveEvery"/> after the last answer — and each ask matches the addresses the last answer gave;
+/// until one comes, or when it fails, the name alone is matched (a hello's own host or machine name).
+/// </summary>
+public sealed class PlayoutHelloSource
+{
+    /// <summary>How long a host name's addresses are taken before it is resolved again.</summary>
+    public static readonly TimeSpan ResolveEvery = TimeSpan.FromSeconds(30);
+
+    private readonly Func<IReadOnlyList<SlidesBeacon.Peer>?> _peers;
+    private readonly string _node;
+    private readonly string _host;
+    private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolve;
+    private readonly TimeProvider _time;
+    private readonly bool _resolves;
+    private readonly Lock _gate = new();
+    private IReadOnlyCollection<string> _addresses = [];
+    private Task? _resolving;
+    private long _resolvedAt;
+    private bool _everResolved;
+
+    /// <param name="peers">The show network's table now; null while it hears nothing.</param>
+    /// <param name="node">The node id Settings set ("" for none).</param>
+    /// <param name="host">The link's host, as Settings name it.</param>
+    /// <param name="resolve">Resolves a host name (tests inject one); the system's resolver by default.</param>
+    /// <param name="time">The clock its re-resolving counts on.</param>
+    public PlayoutHelloSource(Func<IReadOnlyList<SlidesBeacon.Peer>?> peers, string? node, string host,
+        Func<string, CancellationToken, Task<IPAddress[]>>? resolve = null, TimeProvider? time = null)
+    {
+        _peers = peers;
+        _node = node ?? "";
+        _host = (host ?? "").Trim();
+        _resolve = resolve ?? Dns.GetHostAddressesAsync;
+        _time = time ?? TimeProvider.System;
+        _resolves = _node.Length == 0 && _host.Length > 0 && !IPAddress.TryParse(_host, out _);
+    }
+
+    /// <summary>The hello of the link's node now, or null. Never waits.</summary>
+    public PlayoutHeard? Heard()
+    {
+        if (_peers() is not { } peers) return null;
+        return PlayoutHellos.Choose(peers, _node, _host, Addresses());
+    }
+
+    /// <summary>The addresses the host name last resolved to (none for an address, a node id, or before an answer); starts a resolve when one is due.</summary>
+    private IReadOnlyCollection<string> Addresses()
+    {
+        if (!_resolves) return [];
+        lock (_gate)
+        {
+            var due = _resolving is null && (!_everResolved || _time.GetElapsedTime(_resolvedAt) >= ResolveEvery);
+            // Off the asker's thread and outside this lock: the answer is taken under it once the lock is free.
+            if (due) _resolving = Task.Run(ResolveAsync);
+            return _addresses;
+        }
+    }
+
+    private async Task ResolveAsync()
+    {
+        IReadOnlyCollection<string> found = [];
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5), _time);
+            var addresses = await _resolve(_host, deadline.Token).ConfigureAwait(false);
+            found = addresses.Select(a => (a.IsIPv4MappedToIPv6 ? a.MapToIPv4() : a).ToString()).Distinct(StringComparer.Ordinal).ToList();
+        }
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or OperationCanceledException or ArgumentException)
+        {
+            found = [];   // a name that does not resolve now is matched by itself alone, and asked again later
+        }
+        lock (_gate)
+        {
+            _addresses = found;
+            _resolvedAt = _time.GetTimestamp();
+            _everResolved = true;
+            _resolving = null;
+        }
+    }
+}
+
+/// <summary>
 /// The primitives every playout link's line wire is made of, pure but for <see cref="DiscoverAsync"/>: Find, which hears Patterns'
 /// and PlayMap's hellos and Patterns' beacon; the level-0 proof (13.6.8, the core's own); a word and a command line as the peer's
 /// wire reads them; and the bound a link reads a line within (13.14), with the words that say a STATE was longer.
@@ -70,6 +191,22 @@ public static class PlayoutWire
 
     /// <summary>The name a link says in <c>HELLO</c>, and the one its level-0 proof is made over.</summary>
     public const string HelloName = "Stagewatch";
+
+    /// <summary>PlayMap's line wire over a WebSocket on its <c>https</c> door (Show Bus 13.3.1): <c>wss://&lt;node&gt;:&lt;https&gt;/ws</c>, a line a message.</summary>
+    public const string LinesProtocol = "playmap.lines.v1";
+
+    /// <summary>The close a PlayMap line channel ends with after wrong proofs, or for an address its wrong tokens locked out.</summary>
+    public const int WrongProofsClose = 4401;
+
+    /// <summary>
+    /// Pure: a certificate's fingerprint as Show Bus 13.8.1 compares it — 64 lowercase hex of SHA-256 over its DER, no <c>sha256:</c> —
+    /// by that and nothing else: never a name, a chain or an authority.
+    /// </summary>
+    public static string Fingerprint(byte[] der) => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(der));
+
+    /// <summary>A fingerprint as the desk shows it beside a choice (its first 16 hex in fours: "03e9 b152 ca42 518c"): a person compares it.</summary>
+    public static string Short(string fingerprint)
+        => string.Join(' ', Enumerable.Range(0, 4).Where(i => fingerprint.Length >= (i + 1) * 4).Select(i => fingerprint.Substring(i * 4, 4)));
 
     // ------------------------------------------------------------------ Find
 
@@ -328,5 +465,121 @@ public sealed class PlayoutLineReader
             _size = 0;
             data = data[(lf + 1)..];
         }
+    }
+}
+
+/// <summary>
+/// A line wire's bytes over PlayMap's <c>playmap.lines.v1</c> (Show Bus 13.3.1): one text message a line, each way. Read as a socket's
+/// bytes are read — a message's text and an LF at its end, so the link's line reader takes it as it takes TCP, its bound and its
+/// part-read STATE alike; an empty message is no line. Written a line a message, without its LF: the link's lane writes whole lines,
+/// one write each, and is its only writer. A binary message is no line: the read fails and the connection ends. The peer's close
+/// ends the reads (0), its code and words kept for the link to read (<see cref="CloseCode"/>); a channel cut without its close is an
+/// <see cref="IOException"/> on the read or the write, as a broken socket is. Disposing it aborts the socket.
+/// </summary>
+public sealed class PlayoutLinesStream(System.Net.WebSockets.WebSocket ws) : Stream
+{
+    private bool _lfOwed, _inMessage;
+    private byte _last;
+
+    /// <summary>The close code the peer ended the channel with (4401: wrong proofs, or an address locked out), or null.</summary>
+    public int? CloseCode => ws.CloseStatus is { } status ? (int)status : null;
+
+    /// <summary>The words of the peer's close, or "".</summary>
+    public string CloseWords => ws.CloseStatusDescription ?? "";
+
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+    {
+        if (buffer.Length == 0) return 0;
+        if (_lfOwed)
+        {
+            _lfOwed = false;
+            buffer.Span[0] = (byte)'\n';
+            return 1;
+        }
+        while (true)
+        {
+            System.Net.WebSockets.ValueWebSocketReceiveResult r;
+            try
+            {
+                r = await ws.ReceiveAsync(buffer, ct).ConfigureAwait(false);
+            }
+            catch (System.Net.WebSockets.WebSocketException ex)
+            {
+                // A channel cut without its close is a stream that broke: the reader's IOException, as on the line wire.
+                throw new IOException("the line channel broke: " + ex.Message, ex);
+            }
+            if (r.MessageType == System.Net.WebSockets.WebSocketMessageType.Close) return 0;
+            if (r.MessageType == System.Net.WebSockets.WebSocketMessageType.Binary) throw new IOException("a binary message on the line channel — lines are text");
+            if (r.Count > 0)
+            {
+                _inMessage = true;
+                _last = buffer.Span[r.Count - 1];
+            }
+            if (!r.EndOfMessage)
+            {
+                if (r.Count > 0) return r.Count;
+                continue;
+            }
+            // The message is a line: it ends with an LF here unless it carried its own; an empty one is none.
+            var had = _inMessage;
+            _inMessage = false;
+            if (!had || _last == (byte)'\n')
+            {
+                if (r.Count > 0) return r.Count;
+                continue;
+            }
+            if (r.Count > 0)
+            {
+                _lfOwed = true;
+                return r.Count;
+            }
+            buffer.Span[0] = (byte)'\n';
+            return 1;
+        }
+    }
+
+    public override async ValueTask WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken ct = default)
+    {
+        while (bytes.Length > 0)
+        {
+            var lf = bytes.Span.IndexOf((byte)'\n');
+            var line = lf < 0 ? bytes : bytes[..lf];
+            bytes = lf < 0 ? ReadOnlyMemory<byte>.Empty : bytes[(lf + 1)..];
+            if (line.Length == 0) continue;
+            try
+            {
+                await ws.SendAsync(line, System.Net.WebSockets.WebSocketMessageType.Text, endOfMessage: true, ct).ConfigureAwait(false);
+            }
+            catch (System.Net.WebSockets.WebSocketException ex)
+            {
+                throw new IOException("the line channel broke: " + ex.Message, ex);
+            }
+        }
+    }
+
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) => ReadAsync(buffer.AsMemory(offset, count), ct).AsTask();
+
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken ct) => WriteAsync(buffer.AsMemory(offset, count), ct).AsTask();
+
+    public override bool CanRead => true;
+    public override bool CanWrite => true;
+    public override bool CanSeek => false;
+    public override long Length => throw new NotSupportedException();
+    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+    public override void Flush() { }
+    public override Task FlushAsync(CancellationToken ct) => Task.CompletedTask;
+    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("the line channel is read asynchronously");
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException("the line channel is written asynchronously");
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            ws.Abort();
+            ws.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }

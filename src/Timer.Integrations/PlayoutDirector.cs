@@ -60,18 +60,25 @@ public sealed class PlayoutLinks
     /// <summary>
     /// The link a playout link's settings start, made and started: its token proved (never sent in clear off this PC), its request ids
     /// ending with this process's hello <paramref name="inst"/>, its time <paramref name="time"/>, and what it kept across a restart in
-    /// <paramref name="kept"/> under the tag of its token as Settings stores it (13.15.3) — a hold before it writes or dials again — and
-    /// <paramref name="wire"/>'s listeners on it before it starts.
+    /// <paramref name="kept"/> under the tag of its token as Settings stores it (13.15.3) — a hold before it writes or dials again, and
+    /// the pin of the node Settings set it to (or, with none set, the one kept at its address) with the TLS door kept beside that pin —
+    /// its transport as Settings set it, the hello the show network hears for its node (<paramref name="hello"/>, null for none: the
+    /// TLS door it may dial, 13.4.2), and <paramref name="wire"/>'s listeners on it before it starts.
     /// </summary>
     public static PlayoutLink Make(PlayoutLinkSettings s, string token, string inst, TimeProvider time, PlayoutKeptStore? kept, string tag,
-        Action<PlayoutLink>? wire = null)
+        Action<PlayoutLink>? wire = null, Func<PlayoutHeard?>? hello = null)
     {
         var name = s.Name;
+        // The address it dials, as the pin it starts from is kept beside: with no node set, a pin is the one kept at this address.
+        var address = s.Host.Trim() + ":" + s.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var link = new PlayoutLink(new PlayoutLinkOptions
         {
             Host = s.Host, Port = s.Port, Token = token, Inst = inst, Name = name, Kind = s.Kind, Time = time,
-            Kept = kept?.For(name, tag, time.GetUtcNow().ToUnixTimeMilliseconds()),
-            Keep = kept is null ? null : k => kept.Keep(name, tag, k, time.GetUtcNow().ToUnixTimeMilliseconds()),
+            Transport = s.Transport, NodeId = s.Node, Hello = hello,
+            Kept = kept?.For(name, tag, time.GetUtcNow().ToUnixTimeMilliseconds(), s.Node, address),
+            Keep = kept is null ? null : k => kept.Keep(name, tag, k, time.GetUtcNow().ToUnixTimeMilliseconds(), address),
+            Door = kept?.DoorFor(name, s.Node, address) ?? 0,
+            KeepDoor = kept is null ? null : d => kept.KeepDoor(name, d, time.GetUtcNow().ToUnixTimeMilliseconds()),
         });
         // Its listeners hear it from its first change of state on: wired before it starts.
         wire?.Invoke(link);

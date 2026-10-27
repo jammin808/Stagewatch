@@ -412,8 +412,7 @@ static class PlayoutTests
               && ShowCommandParser.Help.Contains("playout [link] restart|play|pause|stop", StringComparison.Ordinal)
               && !ShowCommandParser.Help.Contains("together", StringComparison.Ordinal),
               "playout grammar: the help names the verb's forms, and no together while the executor carries none");
-        Check(Enum.GetValues<ShowCommandKind>()[^1] == ShowCommandKind.Playout && (int)ShowCommandKind.Playout == (int)ShowCommandKind.Window + 1,
-              "playout grammar: ShowCommandKind.Playout appended after Window");
+        Check((int)ShowCommandKind.Playout == (int)ShowCommandKind.Window + 1, "playout grammar: ShowCommandKind.Playout appended after Window");
         Check(Enum.GetValues<JournalKind>()[^1] == JournalKind.Playout && (int)JournalKind.Playout == (int)JournalKind.ClockCheck + 1,
               "playout grammar: JournalKind.Playout appended after ClockCheck");
 
@@ -422,6 +421,52 @@ static class PlayoutTests
             Check(Copilot.Check(line) is { Kind: ShowCommandKind.Playout } c && Copilot.Classify(c) == CopilotRisk.High, $"playout grammar: {line} is high risk");
         Check(Copilot.ParsePlan("""{"reply":"ok","question":"","steps":[{"command":"playout stage-left go show intro","why":"start the VT"}]}""").Steps is [{ Risk: CopilotRisk.High }],
               "playout grammar: a copilot step that drives playout is never pre-ticked");
+        Trust(Check);
+    }
+
+    /// <summary>
+    /// <c>playout &lt;link&gt; trust &lt;hex&gt;</c> (Show Bus 13.8.3): a kind appended last with its parser verb and help line, High risk,
+    /// never among the verbs a peer or an AI may propose, never a step of a plan — and refused at every door and by the executors,
+    /// since only a person on the desk trusts a certificate, beside its fingerprint (PlayoutGateTests holds the doors).
+    /// </summary>
+    static void Trust(Action<bool, string> Check)
+    {
+        Check(Enum.GetValues<ShowCommandKind>()[^1] == ShowCommandKind.PlayoutTrust && (int)ShowCommandKind.PlayoutTrust == (int)ShowCommandKind.Playout + 1,
+              "playout trust: ShowCommandKind.PlayoutTrust appended after Playout");
+        Check(Parse("playout stage-left trust 03E9 b152", out _) is { Kind: ShowCommandKind.PlayoutTrust } t
+              && t.Get<PlayoutTrustArgs>() == new PlayoutTrustArgs("stage-left", "03e9b152")
+              && Parse("playout stage-left trust sha256:" + new string('a', 64), out _)?.Get<PlayoutTrustArgs>() is { Hex.Length: 64 },
+              "playout trust: names its link and reads the hex as typed — the short form's spaces, either case, sha256: left off");
+        foreach (var (line, words) in new[]
+        {
+            ("playout trust 03e9b152", "playout trust names its link"),
+            ("playout stage-left trust", "8 to 64 hex digits"),
+            ("playout stage-left trust 03e9b15", "8 to 64 hex digits"),
+            ("playout stage-left trust 03e9b15g", "8 to 64 hex digits"),
+            ("playout stage-left trust " + new string('a', 65), "8 to 64 hex digits"),
+        })
+            Check(Parse(line, out var error) is null && error.Contains(words, StringComparison.Ordinal),
+                  $"playout trust: \"{(line.Length > 40 ? line[..40] + "…" : line)}\" is refused with words ({error})");
+        Check(PlayoutRules.NameProblem("trust") is { } named && named.Contains("one of its commands", StringComparison.Ordinal)
+              && Parse("playout trust pause", out _) is null,
+              "playout trust: no link is called trust, so the word never reads as a link's name");
+        Check(ShowCommandParser.Help.Contains("playout <link> trust <8+ hex of its certificate> (typed on the desk only, beside the fingerprint)", StringComparison.Ordinal),
+              "playout trust: the help names the verb and where it is typed");
+        Check(Copilot.Check("playout stage-left trust 03e9b152") is { Kind: ShowCommandKind.PlayoutTrust } risky && Copilot.Classify(risky) == CopilotRisk.High,
+              "playout trust: high risk, decided here, never by a model");
+        var plan = Copilot.ParsePlan("""{"reply":"ok","question":"","steps":[{"command":"playout stage-left trust 03e9b152","why":"the certificate changed"},{"command":"next","why":"go on"}]}""");
+        Check(plan.Steps is [{ Command: "next" }] && plan.Dropped is [{ } dropped] && dropped.Contains(PlayoutRules.TrustDeskOnly, StringComparison.Ordinal),
+              $"playout trust: never a step of a plan — dropped, saying why ({string.Join(" | ", plan.Dropped)})");
+        var rows = new[] { new PlayoutRow("stage-left", "Stage left", PlayoutRules.PlayMap, Starts: true) };
+        Check(!ShowContext.Commands.Any(c => c.Verb.Contains("trust", StringComparison.OrdinalIgnoreCase))
+              && !ShowContext.CommandsFor(rows).Any(c => c.Verb.Contains("trust", StringComparison.OrdinalIgnoreCase)),
+              "playout trust: never among the verbs the context offers a peer or an AI");
+        Check(PlayoutRules.TrustLineWords.StartsWith(PlayoutRules.TrustDeskOnly, StringComparison.Ordinal) && PlayoutRules.TrustLineWords.EndsWith("never a line's — not run", StringComparison.Ordinal)
+              && PlayoutRules.TrustLineWords.Contains(PlayoutRules.TrustWhere, StringComparison.Ordinal),
+              "playout trust: an executor's refusal says it is a person's choice on the desk, and where");
+        Check(PlayoutRules.TrustHex(" 03E9 B152 ") == "03e9b152" && PlayoutRules.TrustHex("sha256:03e9b152") == "03e9b152" && PlayoutRules.TrustHex("03e9b15") is null
+              && PlayoutRules.TrustHex(null) is null && PlayoutRules.TrustHex("03e9-b152") is null,
+              "playout trust: the hex as compared — at least 8, spaces dropped, nothing but hex");
     }
 
     static void Targets(Action<bool, string> Check)

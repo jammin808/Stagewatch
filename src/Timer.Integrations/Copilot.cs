@@ -190,8 +190,10 @@ public sealed class Copilot
                     var why = Str(s, "why", 300);
                     if (command.Length == 0) continue;
                     if (steps.Count >= MaxSteps) { dropped.Add(command + " (too many steps)"); continue; }
-                    if (Check(command) is { } cmd) steps.Add(new CopilotStep(command, why, Classify(cmd)));
-                    else dropped.Add(command);
+                    if (Check(command) is not { } cmd) dropped.Add(command);
+                    // A line only a person on the desk may run (trusting a certificate) is never a step, whatever the model says.
+                    else if (PlayoutGate.DeskOnly(cmd.Kind)) dropped.Add(command + " (" + PlayoutRules.TrustDeskOnly + ")");
+                    else steps.Add(new CopilotStep(command, why, Classify(cmd)));
                 }
             }
             return new CopilotPlan(reply, steps, dropped, question.Length > 0 ? question : null);
@@ -225,6 +227,8 @@ public sealed class Copilot
             // Every playout action is High: what it does is on another node's air, which nothing here can see (a PlayMap cue shows
             // its first frame at once, a Patterns cue moves that desk's own standby).
             ShowCommandKind.Playout => CopilotRisk.High,
+            // Trusting a certificate decides who may answer as a peer from then on: never pre-ticked, and refused from every line anyway.
+            ShowCommandKind.PlayoutTrust => CopilotRisk.High,
             ShowCommandKind.Screen when text.StartsWith("save", StringComparison.Ordinal) => CopilotRisk.Low,
             ShowCommandKind.Screen when text.StartsWith("name", StringComparison.Ordinal) => CopilotRisk.Low,
             // A window's name, its link-loss choice and its fade change nothing on screen now; everything else does.

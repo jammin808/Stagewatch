@@ -151,7 +151,9 @@ public sealed partial class MainViewModel
     {
         p.Reply = plan.Reply;
         p.Question = plan.Question ?? "";
-        p.Dropped = plan.Dropped.Count == 0 ? "" : "Not proposed (not a valid Stagewatch command): " + string.Join(" · ", plan.Dropped);
+        // Each dropped line carries its own reason in brackets where it has one (too many steps, a person's choice on the desk); the
+        // rest are not Stagewatch commands at all.
+        p.Dropped = plan.Dropped.Count == 0 ? "" : "Not proposed (not a valid Stagewatch command, or not one a plan may hold): " + string.Join(" · ", plan.Dropped);
         foreach (var s in plan.Steps) p.Steps.Add(new CopilotStepItem(s));
         p.State = ProposalState.Pending;
         p.RaisePending();

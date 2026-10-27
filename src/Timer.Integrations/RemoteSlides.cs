@@ -181,6 +181,9 @@ public sealed class SlidesBeacon : IDisposable
         public IReadOnlyList<string> Addresses { get; init; } = Array.Empty<string>();
         public HelloConflict? Conflict { get; init; }
 
+        /// <summary>How long the conflict mark stands from now, in ms, while there is one (at least 1); 0 with none.</summary>
+        public long ConflictLeftMs { get; init; }
+
         /// <summary>By address heard within <see cref="StaleAfter"/>: the <c>tls</c> its own last hello named (addresses whose hello named none are absent).</summary>
         public IReadOnlyDictionary<string, string> HeardTls { get; init; } = new Dictionary<string, string>();
 

@@ -104,6 +104,7 @@ One grammar is shared by every transport — HTTP, WebSocket, OSC and the Compan
 | `playout` | `[<link>] end [seconds]` · `[<link>] restart\|play\|pause\|stop` · `[<link>] seek <m:ss>` | The clip on air on a playout link's peer, a Patterns desk or a PlayMap node (Settings → Integrations → Playout links; 2.20): its last seconds (10 unless said), back to its top, play, pause, stop (back to its top, held) or a point. `<link>` is the link's name; with none, the only link switched on, else the link feeding the VT countdown |
 | `playout` | `<link> go <playlist> [item]` · `<link> cue <playlist> <item>` (a PlayMap node) · `<link> go <cue>` · `<link> cue <cue>` (a Patterns desk) | Start a playlist's item (its next one when none is named) or load one, its first frame on air at once; GO a cue (the desk's own standby decides) or stand one by. Never guessed between two links (2.20) |
 | `patterns` | `end [seconds]` · `restart\|play\|pause\|stop` · `seek <m:ss>` | As `playout`, on link `patterns`, else the only link |
+| `playout` | `<link> trust <8+ hex of its certificate>` | Refused on every transport, whoever sends it (2.20): trusting a playout link's certificate is a person's choice on the Stagewatch desk, beside its fingerprint (right-click its node on the Show network, or the status line). In the grammar only so that it is refused in words, never as unknown |
 
 ### HTTP
 
@@ -194,6 +195,13 @@ playout from another machine over OSC needs its address in Settings → Remote �
 ERROR @c1 patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive playout (Companion TCP carries no PIN)
 403 {"ok":false,"error":"playout from another machine over HTTP needs a control key while no PIN is set, or its address in Settings → Remote → May drive playout"}
 403 {"ok":false,"error":"patterns from another site's web page over HTTP needs a control key while no PIN is set"}
+```
+
+`playout <link> trust <hex>` is refused at every door, from this PC, a listed address or with the PIN or a key alike — a
+certificate is trusted by a person on the desk, beside its fingerprint, never by a line — and MCP never makes it a proposal:
+
+```
+trusting a playout link's certificate is a person's choice on the Stagewatch desk, beside its fingerprint (right-click its node on the Show network, or the status line) — refused from MCP, whoever sends it
 ```
 
 With a request id the refusal is a refused receipt under that id (HTTP 403, a WebSocket `receipt`, Companion `ERROR @id`).
@@ -616,7 +624,13 @@ Stagewatch's own link to a Patterns desk (TCP 9697, Settings → Integrations �
   — the token stays on this PC").
 
 In 2.20 every playout link keeps these rules, a PlayMap node's line wire (TCP 9941) among them: Settings → Integrations →
-Playout links names up to 8, each with its own address and token.
+Playout links names up to 8, each with its own address and token. A link to a PlayMap node whose hello names its `https` door
+goes over TLS (`wss://…/ws`, subprotocol `playmap.lines.v1`, a line a message), where it proves the token the same way and
+never sends plain `AUTH`; its certificate is checked by fingerprint, pinned first and trusted by a person on the desk. Once
+pinned the link is never dialled plain — it dials the door a hello names, else the one kept beside the pin — and once a person
+trusted it a changed certificate is CERTIFICATE CHANGED until a person types at least 8 hex of the new one (`NODES.md` §5). A
+`429` at that door and a wrong proof (PlayMap's `ERR`, or its close `4401`) hold the token like any refused proof. A
+`playout <link> trust` line proposed to this desk (`POST /api/proposals`) is refused, 400, and never queued.
 
 Two things change for older desks: a Patterns older than Show Bus 1.1 on another PC is no longer followed, even when
 neither side holds a token ("pairs only on its own PC — update Patterns"), so its VT countdown stops until it is

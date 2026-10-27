@@ -740,6 +740,12 @@
                                                     <Button Content="{Binding MakeKeyLabel}" HorizontalAlignment="Left" FontSize="12" Padding="8,2" MinHeight="0" MinWidth="0" Margin="0,4,0,0"
                                                             Command="{Binding DataContext.MakeKeyForPeerCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                             Visibility="{Binding MakeKeyLabel, Converter={StaticResource NonEmptyToVis}}" />
+                                                    <!-- A playout link's certificate of this node waits for a person: why, and the entry its right-click menu has too. A changed
+                                                         one opens an empty box for at least 8 hex typed from the node's own screen; one pinned first is one press. -->
+                                                    <TextBlock Text="{Binding CertNote}" FontSize="12" Foreground="{StaticResource NeonAmberBrush}" TextWrapping="Wrap"
+                                                               Visibility="{Binding CertNote, Converter={StaticResource NonEmptyToVis}}" />
+                                                    <Button Content="{Binding TrustLabel}" HorizontalAlignment="Left" FontSize="12" Padding="8,2" MinHeight="0" MinWidth="0" Margin="0,4,0,0"
+                                                            Click="OnTrustCertificate" Visibility="{Binding TrustLabel, Converter={StaticResource NonEmptyToVis}}" />
                                                 </StackPanel>
                                             </Grid>
                                         </DataTemplate>

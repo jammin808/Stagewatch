@@ -141,7 +141,9 @@ public sealed class McpEndpoint
                 if (tokens.Count == 0) return Text("Empty command.", isError: true);
                 if (!ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out var error))
                     return Text("Rejected: " + error + ". Grammar: " + ShowCommandParser.Help, isError: true);
-                // Another node's air: the sender must be one that may send such a line at all, and then a person decides, always.
+                // Another node's air: the sender must be one that may send such a line at all, and then a person decides, always. A
+                // desk-only line (a person trusting a certificate) is refused here whoever sends it, and is never a proposal either.
+                if (PlayoutGate.DeskOnly(cmd.Kind)) return Text("Refused: " + (gate(cmd.Kind) ?? PlayoutGate.DeskOnlyWords(CommandDoor.Mcp)), isError: true);
                 var drives = PlayoutGate.Drives(cmd.Kind);
                 if (drives && gate(cmd.Kind) is { } refused) return Text("Refused: " + refused, isError: true);
                 // Human in the loop: by default an agent proposes and the operator decides.

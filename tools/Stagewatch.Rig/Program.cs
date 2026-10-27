@@ -830,6 +830,8 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.Screen => ScreenDirector.Run(c.Get<ScreenArgs>(), _web, PeerName, RenameScreen, SaveScreenPreset, ResolveScreenTarget),
             ShowCommandKind.Playout => Handed(_director.Playout(c.Get<PlayoutArgs>(), c.Number, _item, VtLink())),
             ShowCommandKind.Patterns => Handed(_director.Patterns(c.Text ?? "end", (int)c.Number, _item, VtLink())),
+            // A person's choice beside the fingerprint on the desk: never a line's, here as in the app.
+            ShowCommandKind.PlayoutTrust => (false, PlayoutRules.TrustLineWords),
             _ => (false, $"the rig doesn't simulate {c.Kind.ToString().ToLowerInvariant()} (the app does)"),
         };
         if (result.Ok) { CommandRecorded?.Invoke(c.Kind.ToString().ToLowerInvariant()); Tick(); }

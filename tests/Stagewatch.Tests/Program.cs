@@ -2097,6 +2097,7 @@ WindowTests.Run(Check);
 await WindowTests.RunWeb(Check);
 PlayoutTests.Run(Check);
 await PlayoutLinkTests.Run(Check);
+await PlayoutTlsTests.Run(Check);
 await PlayoutDirectorTests.Run(Check);
 SupervisorTests.Run(Check);
 SupervisorTests.Holding(Check);

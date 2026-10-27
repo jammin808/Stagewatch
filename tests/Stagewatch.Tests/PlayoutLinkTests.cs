@@ -1091,9 +1091,11 @@ static class PlayoutLinkTests
     }
 
     /// <summary>
-    /// This carrier has no TLS, so a dial the core means as TLS finds none (13.3.3, 13.9.3): a node a person pinned is refused with
-    /// nothing sent — never a plain socket taken for TLS — and one pinned only on first sight goes on plain, flagged plain off this PC, its
-    /// clock never scheduling a timed command.
+    /// A pinned node is dialled over TLS alone (13.4.2: for an id with a pin, the pin alone decides): its TLS carrier is the
+    /// <c>playmap.lines.v1</c> channel on the door a hello names or the one kept beside its pin, and with neither — none here — the link
+    /// dials nothing at all, amber, and says so, whether a person pinned it or it was pinned only on first sight. The line wire is
+    /// never dialled for it, so nothing is sent on a plain socket (the plain flag on a link off this PC is held where a link has no
+    /// pin, <see cref="PeerLinkScenarios"/>).
     /// </summary>
     static async Task Scheme(Action<bool, string> Check)
     {
@@ -1108,24 +1110,22 @@ static class PlayoutLinkTests
             Desk11(desk, Token, () => 0, _ => null);
             using var link = Pinned(desk.Port, PinTrust.Person, new LinkClock(1_700_000_000_000));
             link.Start();
-            var refused = await Until(() => link.State == PeerLinkState.Refused && desk.Taken == 1);
-            await Task.Delay(100);
-            Check(refused && desk.Heard.IsEmpty && !link.Connected && link.Health == LinkHealth.Error && link.Record is { State: "refused", Refusal: "floor" }
-                  && link.Pairing == PlayoutPairing.None,
-                  $"playout scheme: a node a person pinned is never dialled plain — the link finds no TLS and is refused with nothing sent ({link.Health}: {link.Status}; {link.Record.ToJson()})");
+            var said = await Until(() => link.Status.Contains("never dialled plain", StringComparison.Ordinal));
+            await Task.Delay(300);
+            Check(said && desk.Taken == 0 && desk.Heard.IsEmpty && !link.Connected && link.Health == LinkHealth.Starting && link.State != PeerLinkState.Refused
+                  && link.Pairing == PlayoutPairing.None && link.Status.Contains("no hello names its TLS door now", StringComparison.Ordinal),
+                  $"playout scheme: a node a person pinned is never dialled plain — with no TLS door heard the link dials nothing, amber, and says so ({link.Health}: {link.Status}; {link.Record.ToJson()})");
         }
         {
-            var clock = new LinkClock(1_700_000_000_000);
             await using var desk = new FakeDesk();
             Desk11(desk, Token, () => 0, _ => null);
-            using var link = Pinned(desk.Port, PinTrust.First, clock);
+            using var link = Pinned(desk.Port, PinTrust.First, new LinkClock(1_700_000_000_000));
             link.Start();
-            var paired = await Paired(link);
-            await Live(clock, link, 2000);
-            var rec = link.RecordNow();
-            Check(paired && desk.Heard.Contains("HELLO Stagewatch") && rec is { State: "live", Tls: "none" } && rec.Flags.Contains("plain") && rec.Samples == 1
-                  && !link.CanSchedule(6),
-                  $"playout scheme: a pin seen first goes on plain when no TLS is on offer — flagged plain off this PC, its clock shown and never scheduling ({rec.ToJson()})");
+            var said = await Until(() => link.Status.Contains("never dialled plain", StringComparison.Ordinal));
+            await Task.Delay(300);
+            Check(said && desk.Taken == 0 && desk.Heard.IsEmpty && !link.Connected && link.Health == LinkHealth.Starting && link.State != PeerLinkState.Refused
+                  && link.Kept.Pin is { Trust: PinTrust.First } && link.Status.Contains("none is kept beside its pin", StringComparison.Ordinal),
+                  $"playout scheme: a pin seen first decides the transport too — no TLS door heard or kept, nothing is dialled, amber, and it says so ({link.Health}: {link.Status})");
         }
     }
 

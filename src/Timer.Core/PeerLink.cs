@@ -1410,6 +1410,20 @@ public sealed class PeerLinkConnector
     }
 
     /// <summary>
+    /// §2's conflict mark on this link's node as the show network's table holds it (13.4.4, 13.15.3): two running nodes say the id,
+    /// and the table's mark stands <paramref name="leftMs"/> more. The link is held as the core's own mark holds it — no new dial while
+    /// it stands, a link up keeps running — until the table's mark would clear; a mark already longer is kept. Another id's is nothing.
+    /// </summary>
+    public void Marked(PeerNow now, string id, long leftMs)
+    {
+        Advance(now);
+        if (NodeId is { } mine && mine != id) return;
+        if (leftMs <= 0) return;
+        if (_markUntil <= now.Mono) _markAt = now.Mono;
+        _markUntil = Math.Max(_markUntil, now.Mono + Math.Min(leftMs, PeerLink.ConflictClearMs));
+    }
+
+    /// <summary>
     /// A command asked for, under <paramref name="id"/>: written when the link is live or stale, its show is not stuck and fewer than
     /// <see cref="PeerLink.InflightMax"/> wait (null); otherwise not-sent, with why (13.12.3, 13.12.8). Nothing is queued across a
     /// drop. A carrier that writes on a lane of its own sends it <paramref name="queued"/>: it waits from now, counted among those
@@ -1540,6 +1554,37 @@ public sealed class PeerLinkConnector
     {
         if (_pin is { Trust: PinTrust.First } p) _pin = p with { Trust = PinTrust.Person };
     }
+
+    /// <summary>
+    /// The operator's <i>Trust certificate</i> for the certificate a person was shown (64 hex): pinned by a person only while the
+    /// <c>first</c> pin is that certificate, so one that changed since the words were drawn is never trusted in its place. False,
+    /// and nothing changed, otherwise.
+    /// </summary>
+    public bool TrustFirst(string fingerprint)
+    {
+        if (_pin is not { Trust: PinTrust.First } p || p.Fingerprint != fingerprint) return false;
+        _pin = p with { Trust = PinTrust.Person };
+        return true;
+    }
+
+    /// <summary>
+    /// 13.8.2 on a level-0 <c>line</c> link over TLS: its acceptor proves nothing, so the certificate its connection shows is pinned
+    /// only <c>first</c> — kept for comparison, never trust — for <paramref name="nodeId"/> (the id its own facts name, else the
+    /// link's), once its pairing settled and its first frame came. A pin a proof or a person made stands (a certificate other than
+    /// it was refused at the handshake); a <c>first</c> pin of another certificate gives way to this one, as a public view's does.
+    /// True when it pinned.
+    /// </summary>
+    public bool PinShown(PeerNow now, string? nodeId)
+    {
+        Advance(now);
+        if (_phase != Phase.Up || !_tls || !_legacy || _s.Carrier != PeerCarrier.Line || _cert is not { } seen) return false;
+        if (_pin is { Trust: not PinTrust.First } || _pin is { Fingerprint: var pinned } && pinned == seen) return false;
+        _pin = new PeerPin(nodeId ?? NodeId, seen, PinTrust.First);
+        return true;
+    }
+
+    /// <summary>The certificate (64 hex) the last TLS connection showed, kept after it ends; null before any.</summary>
+    public string? CertificateShown => _cert;
 
     /// <summary>
     /// The operator's <i>Accept certificate</i> after CERTIFICATE CHANGED, typing at least 8 hex of the certificate shown now (13.8.3),

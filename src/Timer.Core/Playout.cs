@@ -64,6 +64,13 @@ public sealed class PlayoutCue
 public sealed record PlayoutArgs(string Link, string Action, string List, string Item, bool Together) : ShowArgs;
 
 /// <summary>
+/// <c>playout &lt;link&gt; trust &lt;hex&gt;</c>: the link whose certificate a person trusts, and the hex they gave of it — 8 to 64 lowercase
+/// hex (<see cref="PlayoutRules.TrustHex"/>). Only this desk's own entry beside the fingerprint runs it; a line of it is refused
+/// wherever it comes from (<see cref="PlayoutRules.TrustLineWords"/>).
+/// </summary>
+public sealed record PlayoutTrustArgs(string Link, string Hex) : ShowArgs;
+
+/// <summary>
 /// The rules of playout links, pure: their names; their settings as loaded and saved (schema 2, the 2.17 Patterns keys written as
 /// link "patterns"'s mirror); the running-order cues; which link a playout command reaches and what this Stagewatch does with it;
 /// and the words a refusal uses. Every reader of the links and cues takes them through here.
@@ -103,12 +110,49 @@ public static class PlayoutRules
 
     public static bool IsAction(string? word) => word is not null && Actions.Contains(word.ToLowerInvariant());
 
+    /// <summary>
+    /// The word after a link's name that trusts its certificate: <c>playout stage-left trust 03e9b152</c>. No action of the clip's,
+    /// and no link is named it, so it reads apart from both.
+    /// </summary>
+    public const string TrustWord = "trust";
+
+    /// <summary>The fewest hex of a certificate a person types to trust it after CERTIFICATE CHANGED (Show Bus 13.8.3).</summary>
+    public const int TrustHexMin = 8;
+
+    /// <summary>
+    /// What every surface but this desk's own entry hears, and the rest of the refusal names where the line came from: trusting a
+    /// link's certificate is a person's choice beside its fingerprint, never a line's — not the wire's, a deck's, a trigger's or an
+    /// assistant's.
+    /// </summary>
+    public const string TrustDeskOnly = "trusting a playout link's certificate is a person's choice on the Stagewatch desk, beside its fingerprint";
+
+    /// <summary>
+    /// Where on the desk the choice is made, as every refusal of a line says it: the node's Show network row, or the status line's
+    /// right-click, which lists every link's certificate that waits — a node with no row (its hello not heard) among them.
+    /// </summary>
+    public const string TrustWhere = "right-click its node on the Show network, or the status line";
+
+    /// <summary>The refusal of a <c>playout … trust</c> line that reached the show thread (a trigger, an approved proposal): never run.</summary>
+    public static string TrustLineWords => TrustDeskOnly + " (" + TrustWhere + "), never a line's — not run";
+
+    /// <summary>
+    /// The hex a person gave of a certificate, as it is compared, or null: <c>sha256:</c> left off, spaces dropped, either case, and
+    /// <see cref="TrustHexMin"/> to 64 hex digits — the short form a desk shows ("03e9 b152") typed as it reads.
+    /// </summary>
+    public static string? TrustHex(string? typed)
+    {
+        var t = (typed ?? "").Trim();
+        if (t.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) t = t[7..];
+        var hex = new string(t.Where(c => !char.IsWhiteSpace(c)).Select(char.ToLowerInvariant).ToArray());
+        return hex.Length is >= TrustHexMin and <= 64 && hex.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f') ? hex : null;
+    }
+
     /// <summary>Null when <paramref name="name"/> may name a link; else why not, in words.</summary>
     public static string? NameProblem(string? name)
     {
         if (name is not { Length: > 0 and <= MaxNameChars } || !IsNameStart(name[0]) || !name.All(c => IsNameStart(c) || c == '-'))
             return $"a playout link is named with 1 to {MaxNameChars.ToString(CultureInfo.InvariantCulture)} of a-z, 0-9 and -, starting with a letter or digit (stage-left)";
-        if (IsAction(name)) return $"a playout link can't be called {name}: that is one of its commands";
+        if (IsAction(name) || name == TrustWord) return $"a playout link can't be called {name}: that is one of its commands";
         if (Reserved.Contains(name)) return $"a playout link can't be called {name}: another integration has that name";
         return null;
 

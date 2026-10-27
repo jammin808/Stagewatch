@@ -66,13 +66,14 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>
-    /// Each playout link Settings has, started, restarted or retired as its settings change: a link runs while it is switched on, the
-    /// licence runs playout links, and its transport is one this Stagewatch carries (TCP: a link set to <c>wss</c> waits for that
-    /// carrier and is never dialled plain). Its request ids end with this process's hello inst (Show Bus 13.12.1), so a link made again
-    /// never repeats one; it starts from what it kept across a restart and keeps a hold before it writes or dials again (13.15.3), the
-    /// hold kept with the tag of the token as Settings stores it, so a token changed in Settings is proved at once — the tag is in the
-    /// signature (it is no secret), so the same token typed again remakes the link with the tag Settings now holds. A link no longer in
-    /// Settings is retired by its name. Its listeners are the director's, wired before it starts.
+    /// Each playout link Settings has, started, restarted or retired as its settings change: a link runs while it is switched on and
+    /// the licence runs playout links, on the transport Settings set (<c>auto</c>: a PlayMap node over TLS where its hello names that
+    /// door; <c>tcp</c>; <c>wss</c>: TLS alone, never dialled plain), for the node Settings set — its certificate's pin is kept for
+    /// that id. Its request ids end with this process's hello inst (Show Bus 13.12.1), so a link made again never repeats one; it starts
+    /// from what it kept across a restart and keeps a hold before it writes or dials again (13.15.3), the hold kept with the tag of the
+    /// token as Settings stores it, so a token changed in Settings is proved at once — the tag is in the signature (it is no secret), so
+    /// the same token typed again remakes the link with the tag Settings now holds. A link no longer in Settings is retired by its name.
+    /// Its listeners are the director's, wired before it starts.
     /// </summary>
     private void ReconcilePlayout(IntegrationSettings i, bool licensed)
     {
@@ -81,23 +82,32 @@ public sealed partial class MainViewModel
         {
             var link = s.Clone();
             names.Add(link.Name);
-            var on = link.Enabled && licensed && link.Transport != PlayoutRules.Wss;
+            var on = link.Enabled && licensed;
             var token = on ? ProtectedKey.Unprotect(link.TokenProtected) : "";
             var tag = PlayoutKeptStore.Tag(link.TokenProtected);
-            _supervisor.Reconcile("playout:" + link.Name, $"{on}|{link.Kind}|{link.Host}|{link.Port}|{token.GetHashCode()}|{tag}", v => _playout.Set(link.Name, v),
-                () => PlayoutLinks.Make(link, token, _inst, TimeProvider.System, _playoutKept, tag, Director.Wire));
+            _supervisor.Reconcile("playout:" + link.Name, $"{on}|{link.Kind}|{link.Host}|{link.Port}|{link.Transport}|{link.Node}|{token.GetHashCode()}|{tag}",
+                v => _playout.Set(link.Name, v),
+                () => PlayoutLinks.Make(link, token, _inst, TimeProvider.System, _playoutKept, tag, Director.Wire, PlayoutHello(link)));
         }
         foreach (var gone in _playoutNames.Where(n => !names.Contains(n)))
             _supervisor.Reconcile<PlayoutLink>("playout:" + gone, "False", v => _playout.Set(gone, v), () => throw new InvalidOperationException("a retired link is never made"));
         _playoutNames = names;
     }
 
+    /// <summary>
+    /// The hello the show network hears for a playout link's node (Show Bus §2), asked on the link's own threads and never waiting
+    /// (<see cref="PlayoutHelloSource"/>, <see cref="PlayoutHellos.Choose"/>): the node Settings set by its id, else a PlayMap node heard
+    /// at the link's host — its name resolved off those threads — within <see cref="SlidesBeacon.StaleAfter"/>; one two running nodes
+    /// say comes with its conflict mark and holds the link (13.4.4). Its <c>https</c> door is one to try TLS at, never a pin (13.4.2).
+    /// </summary>
+    private Func<PlayoutHeard?> PlayoutHello(PlayoutLinkSettings s)
+        => new PlayoutHelloSource(() => Volatile.Read(ref _slidesBeacon)?.Peers(), s.Node, s.Host).Heard;
+
     /// <summary>Why a playout link Settings has is not running, in words, or null when it runs.</summary>
     private string? PlayoutNotRunning(PlayoutLinkSettings s)
     {
         if (!s.Enabled) return "off";
         if (!FeatureGate.AllowsPlayout(_license.Tier)) return FeatureGate.Needs(FeatureTier.Production);
-        if (s.Transport == PlayoutRules.Wss) return "set to dial wss only — this Stagewatch carries playout links over TCP, and never dials one set to wss plain";
         return _playout[s.Name] is null ? "starting" : null;
     }
 

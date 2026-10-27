@@ -397,7 +397,12 @@ public enum ShowCommandKind
     /// A playout link's clip or cues (<see cref="PlayoutArgs"/>). Text = link \u0001 action \u0001 list \u0001 item \u0001 "together"
     /// or ""; Number = the seconds of end (before the clip's end) and seek (into it).
     /// </summary>
-    Playout
+    Playout,
+    /// <summary>
+    /// A person trusts a playout link's certificate (<see cref="PlayoutTrustArgs"/>): Text = link \u0001 hex. A line of it is refused at
+    /// every door and by every executor; only the desk's own entry beside the fingerprint trusts one (Show Bus 13.8.2–3).
+    /// </summary>
+    PlayoutTrust
 }
 
 /// <summary>
@@ -460,6 +465,7 @@ public abstract record ShowArgs
             ShowCommandKind.Ack => new AckArgs(bar[0], bar.Length > 1 && bar[1].Length > 0 ? bar[1] : "seen"),
             ShowCommandKind.Window => new WindowArgs(At(0), At(1), At(2)),
             ShowCommandKind.Playout => new PlayoutArgs(At(0), At(1), At(2), At(3), At(4) == "together"),
+            ShowCommandKind.PlayoutTrust => new PlayoutTrustArgs(At(0), At(1)),
             _ => null,
         };
     }
@@ -723,6 +729,7 @@ public static class ShowCommandParser
         "screen reload [screen] | screen disconnect [screen] | patterns end [seconds] | patterns restart | patterns play | patterns pause | patterns stop | patterns seek <m:ss> | " +
         "playout [link] end [seconds] | playout [link] restart|play|pause|stop | playout [link] seek <m:ss> | " +
         "playout [link] cue <playlist> <item> | playout [link] cue <cue> | playout [link] go <playlist> [item] | playout [link] go <cue> | " +
+        "playout <link> trust <8+ hex of its certificate> (typed on the desk only, beside the fingerprint) | " +
         "screen identify [screen] | screen go <preset|/page> [screen] | screen name <id> <name> | screen save <preset> <screen> | " +
         "window new <name> [page] | window show <window|all> <page|setup|holding|black> | window cue <window|all> <page> | " +
         "window hold <window|all> [toggle|text <words>|image <n|name|off>] | window release <window|all> | window identify|reload <window|all> | " +
@@ -1208,11 +1215,20 @@ public static class ShowCommandParser
         const string Takes = "playout takes end, restart, play, pause, stop, seek, cue or go";
         var words = args.Select(a => a.Trim()).Where(a => a.Length > 0).ToList();
         var link = "";
-        if (words.Count > 0 && !PlayoutRules.IsAction(words[0]))
+        if (words.Count > 0 && !PlayoutRules.IsAction(words[0]) && !words[0].Equals(PlayoutRules.TrustWord, StringComparison.OrdinalIgnoreCase))
         {
             link = words[0].ToLowerInvariant();
             if (PlayoutRules.NameProblem(link) is { } why) throw new FormatException(Takes + ", after a link's name: " + why);
             words.RemoveAt(0);
+        }
+        if (words.Count > 0 && words[0].Equals(PlayoutRules.TrustWord, StringComparison.OrdinalIgnoreCase))
+        {
+            // A certificate is a link's own: trust names its link, and the hex a person typed of it, spaces and all ("03e9 b152").
+            if (link.Length == 0) throw new FormatException("playout trust names its link: playout stage-left trust <hex of its certificate>");
+            if (PlayoutRules.TrustHex(string.Join("", words.Skip(1))) is not { } hex)
+                throw new FormatException($"playout trust takes {PlayoutRules.TrustHexMin.ToString(CultureInfo.InvariantCulture)} to 64 hex digits of the certificate, as its fingerprint shows them");
+            cmd = new ShowCommand(ShowCommandKind.PlayoutTrust, Text: ShowArgs.Pack(link, hex));
+            return true;
         }
         if (words.Count == 0 || !PlayoutRules.IsAction(words[0])) throw new FormatException(Takes);
         var action = words[0].ToLowerInvariant();

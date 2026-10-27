@@ -212,4 +212,64 @@ public sealed partial class MainViewModel
     /// <summary>The playout links running now, in Settings' order: the first that gives a node id speaks for it.</summary>
     private IEnumerable<PlayoutLink> OrderedLinks()
         => Settings.Integrations.PlayoutLinks.Select(s => _playout[s.Name]).OfType<PlayoutLink>();
+
+    /// <summary>
+    /// The certificates of the playout links to a Show network row's node that wait for a person on this desk (Show Bus 13.8.2–3): a
+    /// changed one, which nothing sends to until a person types at least 8 hex of it, or one pinned first, which one press beside its
+    /// short form trusts. A link is the row's when the certificate's pin names its id or the link's STATE does.
+    /// </summary>
+    public IReadOnlyList<CertificateWaiting> CertificatesWaitingFor(PeerRow row)
+        => row.NodeId.Length == 0 ? [] : CertificatesWaiting().Where(w => w.Wait.NodeId == row.NodeId || w.NodeId == row.NodeId).ToList();
+
+    /// <summary>
+    /// Every playout link's certificate that waits for a person now, in Settings' order: what the status line's right-click offers, so a
+    /// link whose node has no Show network row (its hello not heard, a pin kept without its id) is trusted from the desk all the same.
+    /// Each is drawn once, bound to the fingerprint it shows: a press on it trusts that certificate or nothing.
+    /// </summary>
+    public IReadOnlyList<CertificateWaiting> CertificatesWaiting()
+        => OrderedLinks().Where(l => l.TrustWaiting is not null)
+            .Select(l => new CertificateWaiting(l.LinkName, l.Peer, l.TrustWaiting!, l.NodeId ?? "", l.OverTls)).ToList();
+
+    /// <summary>
+    /// A person on this desk trusts a playout link's certificate (<see cref="PlayoutLink.Trust"/>): from the Show network row's button,
+    /// its right-click entry or the status line's, beside the fingerprint, and nowhere else — never a line, so never a deck, a trigger,
+    /// the wire or the assistant. After CERTIFICATE CHANGED <paramref name="hex"/> is what the person typed into an entry left empty for
+    /// them (<paramref name="typed"/>), at least 8 hex of the new certificate; for one pinned first, the whole fingerprint the press was
+    /// drawn with — so a certificate pinned in its place since is never trusted by it. The status line and the show log say what
+    /// happened, trusted or not, and never as a recorded command. Show thread.
+    /// </summary>
+    public (bool Trusted, string Words) TrustPlayoutCertificate(string linkName, string hex, bool typed)
+    {
+        if (_playout[linkName] is not { } link)
+            return (false, StatusLine = $"Not trusted: the playout link {PlayoutRules.Label(linkName)} isn't running.");
+        var (trusted, words) = link.Trust(hex, typed);
+        StatusLine = trusted ? words : "Not trusted: " + words;
+        _journal.Add(DateTime.UtcNow, JournalKind.Playout, _show.RundownActive ? _show.CurrentItem : -1,
+            $"{link.Peer} link: {(trusted ? "" : "certificate not trusted — ")}{words}");
+        return (trusted, StatusLine);
+    }
+}
+
+/// <summary>
+/// A playout link's certificate that waits for a person, as the desk offers it: the link, its peer as people read it, the certificate
+/// (<see cref="PlayoutTrustWait"/>) as it was when this was drawn — the press is bound to it — the node the link's STATE names ("" for
+/// none) and whether the link runs over TLS now. <see cref="Label"/> is the entry's words, the same on the row's button, its
+/// right-click menu and the status line's.
+/// </summary>
+public sealed record CertificateWaiting(string Link, string Peer, PlayoutTrustWait Wait, string NodeId = "", bool OverTls = false)
+{
+    /// <summary>The certificate's short form, as a person compares it with the node's own screen.</summary>
+    public string Short => PlayoutWire.Short(Wait.Fingerprint);
+
+    public string Label => Wait.Changed
+        ? $"Trust {Peer}'s new certificate {Short} … (type it)…"
+        : $"Trust {Peer}'s certificate {Short} … (compared on its screen)";
+
+    /// <summary>
+    /// Why it waits, in words, as the row shows it: CERTIFICATE CHANGED and nothing sent; or a certificate pinned first only — said to
+    /// run over TLS only while the link does.
+    /// </summary>
+    public string Note => Wait.Changed
+        ? $"CERTIFICATE CHANGED on {Peer}: it now shows {Short} … — nothing is sent to it until you compare it on its own screen and type at least {PlayoutRules.TrustHexMin.ToString(System.Globalization.CultureInfo.InvariantCulture)} hex of it"
+        : $"{Peer}'s certificate is pinned first only ({Short} …){(OverTls ? " and the link runs over TLS with it" : "")} — compare it on its own screen, then trust it";
 }

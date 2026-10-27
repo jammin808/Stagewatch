@@ -859,6 +859,9 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
                 PatternsVideoCommand(c.Text ?? "end", (int)c.Number);
                 break;
             case ShowCommandKind.Playout: PlayoutCommand(c); break;
+            // Trusting a certificate is a person's choice on this desk, beside its fingerprint (TrustPlayoutCertificate): a line of it,
+            // from any door or this desk's own triggers, is refused here as at every door.
+            case ShowCommandKind.PlayoutTrust: Refuse(PlayoutRules.TrustLineWords); break;
             case ShowCommandKind.Loop: _show.SetLoop((int)c.Number); break;
             case ShowCommandKind.Ltc:
             {
