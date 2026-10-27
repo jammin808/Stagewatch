@@ -104,6 +104,26 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>The certificate's fingerprint ("sha256:…"), or null without one.</summary>
     public string? Fingerprint => Certificate is { } c ? TlsPins.Fingerprint(c.RawData) : null;
+
+    /// <summary>
+    /// The local-address seam of the playout gate (<see cref="PlayoutGate"/>): whether a sender is this PC (loopback, an IPv4-mapped one
+    /// included). Fixed when the server is made; a test plays a sender on another machine from loopback with it. Nothing else here
+    /// reads it.
+    /// </summary>
+    public Func<IPAddress, bool> IsThisPc { get; init; } = PlayoutGate.IsLoopback;
+
+    /// <summary>
+    /// The playout gate's sender for a web request (HTTP, the /ws upgrade, MCP): this PC only from a loopback address under a Host that
+    /// names this server there (<see cref="PlayoutGate.NamesThisPc"/>: a rebound name or a forwarder's port is another machine's), and a
+    /// page of another site said by the browser's own headers (<see cref="PlayoutGate.OtherSite"/>), which proves nothing.
+    /// </summary>
+    private CommandSender WebSender(HttpRequest req, IPAddress remote, bool proved)
+    {
+        var host = req.Headers.GetValueOrDefault("host");
+        var thisPc = IsThisPc(remote) && PlayoutGate.NamesThisPc(host, Port);
+        var otherSite = PlayoutGate.OtherSite(req.Headers.GetValueOrDefault("origin"), host, req.Headers.GetValueOrDefault("sec-fetch-site"));
+        return new CommandSender(remote, thisPc, proved, otherSite);
+    }
     public int Port { get; private set; }
 
     /// <summary>The door as <see cref="Start"/> bound it, published whole once the listener runs; null while it does not.</summary>
@@ -1015,13 +1035,14 @@ public sealed class WebServer : IAsyncDisposable
         // Acknowledging a cue and asking a question need no PIN (speaker tablets, audience phones). A node key (another
         // show app) may put a message on the stage and nothing else.
         var authorized = false;
+        var proved = false;
         if (!ShowCommandParser.IsPublicVerb(verb))
         {
             var probeArgs = segments.Skip(1).ToList();
             if (probeArgs.Count == 0) probeArgs = ArgsFromQuery(req.Query);
             var need = ShowCommandParser.TryParse(verb, probeArgs, out var probe, out _) && ApiKeys.NodeMayRun(probe.Kind)
                 ? ApiKeyScope.Node : ApiKeyScope.Control;
-            if (Authorize(req, remote, need) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+            if (Authorize(req, remote, need, out proved) is { } denied) { await WriteDenied(stream, denied, ct); return; }
             authorized = true;
         }
         else if (IsQuestion(verb) && !AllowQuestion(remote))
@@ -1054,8 +1075,18 @@ public sealed class WebServer : IAsyncDisposable
                 return;
             }
         }
+        var requestId = CommandReceipt.CleanId(req.Headers.GetValueOrDefault("x-request-id"));
+        // Another node's air: with no PIN set and no key, only this PC or a listed address, never another site's page (a refusal runs
+        // nothing and sends nothing).
+        if (PlayoutGate.Check(cmd.Kind, CommandDoor.Http, WebSender(req, remote, proved), _control.PlayoutFrom) is { } gated)
+        {
+            Reject(gated);
+            if (requestId is not null) await WriteAsync(stream, 403, "application/json", CommandReceipt.Refused(requestId, gated).ToJson(), ct);
+            else await WriteJsonError(stream, 403, gated, ct);
+            return;
+        }
         // Show Bus receipts: with a request id the sender hears what happened, not just that it was sent.
-        if (CommandReceipt.CleanId(req.Headers.GetValueOrDefault("x-request-id")) is { } requestId)
+        if (requestId is not null)
         {
             var receipt = await _control.ExecuteWithReceiptAsync(cmd, requestId, ReceiptWait);
             await WriteAsync(stream, receipt.Ok ? 200 : 409, "application/json", receipt.ToJson(), ct, extra: RateHeaders(req));
@@ -1082,8 +1113,12 @@ public sealed class WebServer : IAsyncDisposable
     }
 
     /// <returns>Null when allowed, otherwise the reason.</returns>
-    private string? CheckPin(string? supplied, IPAddress remote)
+    private string? CheckPin(string? supplied, IPAddress remote) => CheckPin(supplied, remote, out _);
+
+    /// <summary><see cref="CheckPin(string?, IPAddress)"/>, and whether the PIN was asked for and given right (<paramref name="proved"/>), read from the one PIN it compared.</summary>
+    private string? CheckPin(string? supplied, IPAddress remote, out bool proved)
     {
+        proved = false;
         var pin = _pin();
         if (string.IsNullOrEmpty(pin)) return null;
 
@@ -1097,15 +1132,17 @@ public sealed class WebServer : IAsyncDisposable
         if (CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(supplied), Encoding.UTF8.GetBytes(pin)))
         {
             _pinGuesses.Clear(remote);
+            proved = true;
             return null;
         }
         _pinGuesses.Count(remote, now);
         return "wrong PIN";
     }
 
-    private void Reject(string error)
+    /// <summary>A refused line, said on the status line under the door it came in by.</summary>
+    private void Reject(string error, string door = "Remote")
     {
-        try { CommandRejected?.Invoke("Remote: " + error); } catch { }
+        try { CommandRejected?.Invoke(door + ": " + error); } catch { }
     }
 
     private static bool IsQuestion(string verb) => verb.Trim().ToLowerInvariant() is "question" or "ask";
@@ -1131,9 +1168,16 @@ public sealed class WebServer : IAsyncDisposable
     private async Task HandleMcpAsync(Stream stream, HttpRequest req, IPAddress remote, CancellationToken ct)
     {
         if (req.Method != "POST") { await WriteJsonError(stream, 405, "POST JSON-RPC to /mcp", ct); return; }
-        if (Authorize(req, remote, ApiKeyScope.Mcp) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+        if (Authorize(req, remote, ApiKeyScope.Mcp, out var proved) is { } denied) { await WriteDenied(stream, denied, ct); return; }
         if (!_control.McpAllowed) { await WriteJsonError(stream, 403, "MCP is off, or needs Stagewatch Production", ct); return; }
-        var reply = _mcp.Handle(req.Body);
+        var sender = WebSender(req, remote, proved);
+        var reply = _mcp.Handle(req.Body, kind =>
+        {
+            // Refused at the door like the other four, and said on the status line too, so an agent probing for a peer's air is seen.
+            if (PlayoutGate.Check(kind, CommandDoor.Mcp, sender, _control.PlayoutFrom) is not { } refused) return null;
+            Reject(refused, "MCP");
+            return refused;
+        });
         if (reply is null) { await WriteAsync(stream, 202, "application/json", Array.Empty<byte>(), ct, cors: true, extra: RateHeaders(req)); return; }
         await WriteAsync(stream, 200, "application/json", reply, ct, cors: true, extra: RateHeaders(req));
     }
@@ -1328,13 +1372,23 @@ public sealed class WebServer : IAsyncDisposable
     /// address's PIN count, so a key holder on that address can go on guessing the PIN below the lockout (counts per
     /// address and key close it). Null = allowed.
     /// </summary>
-    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need) => AuthorizeSecret(PinFrom(req), remote, need);
+    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need) => AuthorizeSecret(PinFrom(req), remote, need, out _);
 
-    /// <summary><see cref="Authorize"/> for a secret already read from the request (a socket's Authorization header).</summary>
-    private Denied? AuthorizeSecret(string? supplied, IPAddress remote, ApiKeyScope need)
+    /// <summary>
+    /// <see cref="Authorize(HttpRequest, IPAddress, ApiKeyScope)"/>, and whether the request proved a credential when it is let in
+    /// (<paramref name="proved"/>): the PIN asked for and given right, or a key in force. Let in with neither, it proved nothing: an
+    /// open door (no PIN set), which the playout gate does not count as a credential.
+    /// </summary>
+    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need, out bool proved) => AuthorizeSecret(PinFrom(req), remote, need, out proved);
+
+    /// <summary><see cref="Authorize(HttpRequest, IPAddress, ApiKeyScope)"/> for a secret already read from the request (a socket's Authorization header).</summary>
+    private Denied? AuthorizeSecret(string? supplied, IPAddress remote, ApiKeyScope need) => AuthorizeSecret(supplied, remote, need, out _);
+
+    private Denied? AuthorizeSecret(string? supplied, IPAddress remote, ApiKeyScope need, out bool proved)
     {
+        proved = false;
         if (!ApiKeys.LooksLikeKey(supplied))
-            return CheckPin(supplied, remote) is { } pinError ? new Denied(401, pinError) : null;
+            return CheckPin(supplied, remote, out proved) is { } pinError ? new Denied(401, pinError) : null;
 
         if (_pinGuesses.Locked(remote, Environment.TickCount64))
             return new Denied(401, PinsLocked);
@@ -1343,7 +1397,9 @@ public sealed class WebServer : IAsyncDisposable
         _pinGuesses.Clear(remote);
         if (!ApiKeys.Allows(key.Scope, need))
             return new Denied(403, $"this API key is {ApiKeys.Describe(key.Scope)}");
-        return Spend(key.Id);
+        var over = Spend(key.Id);
+        proved = over is null;
+        return over;
     }
 
     /// <summary>Whether the request carries a PIN or key good for <paramref name="need"/>. Only tests what was given.</summary>
@@ -1554,6 +1610,7 @@ public sealed class WebServer : IAsyncDisposable
             Device = Screens.Device(req.Headers.GetValueOrDefault("user-agent")),
             WindowId = window?.Id,
             WindowToken = window is null ? null : winToken,
+            Sender = WebSender(req, remote, proved: false),
         };
         if (admission.Close)
         {
@@ -1736,6 +1793,17 @@ public sealed class WebServer : IAsyncDisposable
             return Error(refused);
         if (cmd.Kind == ShowCommandKind.DeptNote && !client.CanControl && CheckDeptKey(DeptOf(cmd), client.CrewKey, client.Remote, client) is { } noteRefused)
             return Error(noteRefused);
+        // Another node's air: a control page let in with no PIN set and no key proved nothing, so only this PC or a listed address,
+        // never another site's page; the socket's link is read once, as it stands now.
+        var link = client.Link;
+        var proved = link.CanControl && link.Scope is "pin" or "control";
+        if (PlayoutGate.Check(cmd.Kind, CommandDoor.WebSocket, client.Sender with { Credentialed = proved }, _control.PlayoutFrom) is { } gated)
+        {
+            Reject(gated);
+            if (requestId is null) return Error(gated);
+            _ = SendReceiptAsync(client, Task.FromResult(CommandReceipt.Refused(requestId, gated)));
+            return null;
+        }
         if (requestId is not null)
         {
             // The receipt follows when the show thread has run it; frames keep flowing meanwhile.
@@ -1811,6 +1879,12 @@ public sealed class WebServer : IAsyncDisposable
 
         /// <summary>The crew link key this page was opened with (?key=), if any.</summary>
         public string? CrewKey { get; init; }
+
+        /// <summary>
+        /// Who opened this socket, as the playout gate judges it from its upgrade (its address, this PC by address and Host, another
+        /// site's page); what it proved is read from <see cref="Link"/> at each line, since a credential change swaps that.
+        /// </summary>
+        public CommandSender Sender { get; init; }
 
         private int _crewKeyCounted;
 

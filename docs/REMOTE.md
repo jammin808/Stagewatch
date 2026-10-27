@@ -26,8 +26,8 @@ multi-room beacon behind `/rooms` and the acknowledged-cue loop on the role page
 | MCP | `POST http://<pc>:9924/mcp` | PIN (`Authorization: Bearer <pin>` or `X-Stagewatch-Pin`) | AI assistants and Patterns tools reading and driving the show |
 | HTTP API | `http://<pc>:9924/api/...` | PIN | vMix, Companion "generic HTTP", Stream Deck, scripts |
 | WebSocket | `ws://<pc>:9924/ws` | PIN for control; a node key for a show app | Custom dashboards that want live state; show apps following the timer as node links (2.18) |
-| OSC (UDP) | port 9925, **off by default** | none | QLab, lighting desks, TouchOSC |
-| Companion TCP | port 9923 | none | Bitfocus Companion module (see COMPANION.md) |
+| OSC (UDP) | port 9925, **off by default** | none; `playout` and `patterns` only from this PC or a listed address (2.20) | QLab, lighting desks, TouchOSC |
+| Companion TCP | port 9923 | none; `playout` and `patterns` only from this PC or a listed address (2.20) | Bitfocus Companion module (see COMPANION.md) |
 
 The PIN is generated on first run and shown in Settings → Remote. Five wrong PINs from one address lock that
 address out for a minute. A link with `?pin=1234` (e.g. `http://<pc>:9924/control?pin=1234`) logs in directly.
@@ -163,6 +163,46 @@ containing only the fields that changed: `/stagewatch/time` (s), `/seconds` (i),
 `/phase` (s: normal|warning|wrapup|overtime), `/title` (s), `/next` (s), `/item` (i, 1-based), `/offset` (i, seconds
 behind schedule; negative = ahead), `/message` (s), `/blackout` (i), `/progress` (f, 0–1).
 
+### Who may drive another app's air (2.20)
+
+A `playout` or `patterns` line goes on through Stagewatch's own paired link to a Patterns desk's or a PlayMap node's air,
+so Stagewatch never relays one for a sender that proved nothing. It runs when it comes:
+
+- from this PC: a loopback address, and over HTTP, a WebSocket or MCP also a `Host` that names this PC there (none,
+  `localhost` or a loopback address, at Stagewatch's port);
+- over HTTP, a WebSocket or MCP, with the PIN Stagewatch asks for or a key (a control key; MCP an MCP key);
+- or from an address listed in **Settings → Remote → May drive playout** (`remote.playoutFrom` in the settings file: at
+  most 16, each one IPv4 or IPv6 address written out; names, ranges, ports and loopback addresses are left out at load,
+  and said).
+
+A listed address is trusted by its source address alone. Over OSC, which is UDP, any machine on that network can send
+from an address it does not own, so list addresses only on a show network you trust; over HTTP, a WebSocket or MCP a key
+proves more than an address.
+
+A web page of another site proves nothing, whichever machine its browser runs on: a request whose browser says so
+(`Sec-Fetch-Site: cross-site` or `same-site`, or an `Origin` that is not the request's own `Host`) is refused even from this
+PC or a listed address, unless it carries the PIN or a key. So is a request over loopback whose `Host` is some other name
+(a name rebound to 127.0.0.1) or port (a forwarder carrying another machine in): it is judged as another machine's.
+
+Anything else is refused before the show thread hears of it, so nothing reaches a peer, and the words name the door:
+
+```
+playout from another machine over OSC needs its address in Settings → Remote → May drive playout (OSC carries no PIN)
+ERROR @c1 patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive playout (Companion TCP carries no PIN)
+403 {"ok":false,"error":"playout from another machine over HTTP needs a control key while no PIN is set, or its address in Settings → Remote → May drive playout"}
+403 {"ok":false,"error":"patterns from another site's web page over HTTP needs a control key while no PIN is set"}
+```
+
+With a request id the refusal is a refused receipt under that id (HTTP 403, a WebSocket `receipt`, Companion `ERROR @id`).
+Every refusal goes on the status line under its door's name (`OSC:`, `Companion:`, `Remote:` for HTTP and a WebSocket,
+`MCP:`, whose agent also reads it as an error in the tool's result), the newest one when several come at once; Diagnostics
+counts Companion's refused lines beside OSC's. Every other verb keeps the rules above.
+
+**On upgrade**, a setup on another machine that drives Patterns stops until it proves itself: an OSC or Companion TCP one
+until its address is listed, and, while no PIN is set, an HTTP or WebSocket one (a vMix, Stream Deck or Companion "generic
+HTTP" button calling `/api/patterns/…`) or an MCP agent there until it sends a key or its address is listed. A web page of
+another site that called those routes from a browser on this PC stops too, unless it sends a key.
+
 ## Running order & schedule
 
 The running order (right panel → Running order → Edit…) is an agenda you step through with **Next** (button,
@@ -199,7 +239,10 @@ button press, so an AI tool can never do anything an operator can't.
 **Human in the loop (2.8):** by default `run_command` doesn't run the command — it becomes a proposal in the
 operator's **Copilot** window with the agent's `reason`, and the tool result says so ("Queued for the operator's
 approval (proposal #12)"). The operator ticks and runs it, or discards it; both go in the show journal and the
-report's *AI suggestions and decisions*. Settings → Integrations can let agents act directly instead.
+report's *AI suggestions and decisions*. Settings → Integrations can let agents act directly instead, except for
+`playout` and `patterns`: a line that drives another app's air is always a proposal (2.20), and with no PIN set it comes
+only from this PC, with an MCP key, or from an address in May drive playout (above). Where nobody approves (the headless
+rig), such a line is refused, and the tool result is an error, never read as queued.
 
 ## Screens: what browsers are told (2.8)
 

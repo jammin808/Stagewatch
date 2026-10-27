@@ -175,6 +175,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         _engine.SetDuration(TimeSpan.Zero);
 
         _companion = new CompanionServer(this);
+        _companion.CommandRejected += SayRefused;
 
         InitSystems();
         InitLtc();
@@ -245,6 +246,28 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
 
     /// <summary>The acknowledgement loop is Production; on lower tiers a message simply goes out.</summary>
     private bool CrewCuesAllowed => FeatureGate.AllowsCrewCues(_license.Tier);
+
+    // ================================================================== refusals at the doors
+
+    /// <summary>The newest words a server refused a line with, waiting for the status line; null once shown.</summary>
+    private string? _refusedWords;
+    private int _refusedQueued;
+
+    /// <summary>
+    /// A line refused at a door (OSC, Companion TCP, HTTP, a WebSocket, MCP), said on the status line. Latest wins: a sender that floods
+    /// refused lines queues at most one item on the show thread, which shows the newest words. Any thread.
+    /// </summary>
+    private void SayRefused(string words)
+    {
+        Volatile.Write(ref _refusedWords, words);
+        if (Interlocked.Exchange(ref _refusedQueued, 1) == 0) _ui.BeginInvoke(DrainRefused);
+    }
+
+    private void DrainRefused()
+    {
+        Interlocked.Exchange(ref _refusedQueued, 0);
+        if (Interlocked.Exchange(ref _refusedWords, null) is { } words) StatusLine = words;
+    }
 
     // ================================================================== frame loop
 
@@ -955,7 +978,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         if (r.WebEnabled)
         {
             var web = new WebServer(this, () => _store.Snapshot.Remote.Pin);   // web threads read the snapshot, never the live settings
-            web.CommandRejected += m => _ui.BeginInvoke(() => StatusLine = m);
+            web.CommandRejected += SayRefused;
             if (r.Https) web.Certificate = Certificate;
             web.RequireHttps = r.Https && r.RequireHttps && web.Certificate is not null;
             // HTTPS asked for and no certificate: said at every start of the server, never a quiet plain HTTP.
@@ -966,8 +989,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         }
         if (r.OscEnabled)
         {
-            var osc = new OscServer(this);
-            osc.CommandRejected += m => _ui.BeginInvoke(() => StatusLine = m);
+            var osc = new OscServer(this, this);
+            osc.CommandRejected += SayRefused;
             try { osc.Start(r.OscPort, r.OscBindAll, r.OscFeedbackHost, r.OscFeedbackPort); _osc = osc; }
             catch (Exception ex) when (ex is SocketException or ArgumentOutOfRangeException) { problems.Add($"OSC port {r.OscPort} is unavailable"); osc.Dispose(); }
         }

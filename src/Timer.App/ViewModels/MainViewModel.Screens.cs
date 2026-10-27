@@ -17,6 +17,7 @@ public sealed partial class MainViewModel
     {
         _customCss = Settings.Remote.CustomCss ?? "";
         _viewCode = (Settings.Remote.ViewCode ?? "").Trim();
+        _playoutFrom = PlayoutGate.Addresses(Settings.Remote.PlayoutFrom);
         _layouts = Settings.Remote.Layouts.ToDictionary(l => l.Name, ScreenLayouts.ToJson, StringComparer.OrdinalIgnoreCase);
         CopyApiKeys();
         _nodes.Keep(_apiKeys);   // a revoked key speaks for nothing; a pair saved on a key is put back
@@ -39,6 +40,10 @@ public sealed partial class MainViewModel
 
     private volatile string _viewCode = "";
     public string? ViewCode => _viewCode;
+
+    /// <summary>Settings → Remote → May drive playout, parsed whole for the servers' threads (the playout gate's list).</summary>
+    private volatile IReadOnlyList<System.Net.IPAddress> _playoutFrom = Array.Empty<System.Net.IPAddress>();
+    public IReadOnlyList<System.Net.IPAddress> PlayoutFrom => _playoutFrom;
     private volatile string _customCss = "";
     public string CustomCss => _customCss;
 

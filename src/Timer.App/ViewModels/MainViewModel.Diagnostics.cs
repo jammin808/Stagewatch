@@ -67,7 +67,7 @@ public sealed partial class MainViewModel
         Line("Blackout", Blackout);
 
         Section("Connections");
-        Line("Companion server", _companion.IsRunning ? $"listening on {_companion.Port}" : "off");
+        Line("Companion server", _companion.IsRunning ? $"listening on {_companion.Port}, {_companion.MessagesRejected} rejected" : "off");
         Line("Web remote", _web is null ? "off" : $"listening on {_web.Port}, {_web.Census().Describe()}");
         // Read from what this run's certificate read left, never a read of its own.
         Line("Certificate", !_certificateTried ? "not read yet this run"
@@ -76,6 +76,7 @@ public sealed partial class MainViewModel
                                          + (_certificateNote is { } said ? " — " + said.Text : "")
             : "none — " + (_certificateProblem ?? "HTTPS is off"));
         Line("OSC", _osc is null ? "off" : $"listening on {_osc.Port}, {_osc.MessagesReceived} received, {_osc.MessagesRejected} rejected");
+        Line("May drive playout", "this PC" + (_playoutFrom.Count == 0 ? "" : ", " + string.Join(", ", _playoutFrom)) + "; over HTTP, WebSocket and MCP also the PIN or a key");
         Line("LAN addresses", string.Join(", ", LanAddresses()));
 
         Section("Audio");

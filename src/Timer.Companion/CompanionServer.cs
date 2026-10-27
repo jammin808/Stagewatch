@@ -16,6 +16,9 @@ namespace Stagewatch.Companion;
 ///      visible changes (~1/s while running) and CONFIG {json} whenever presets, quick messages
 ///      or the running order change. Same frames the browser viewer gets.
 ///
+/// A line that drives another node's air (playout, patterns) runs only from this PC or an address the operator listed
+/// (<see cref="PlayoutGate"/>): Companion TCP carries no credential, and it binds every interface when the operator asks.
+///
 /// Stability: every client has its own bounded outbound queue drained by its own writer task.
 /// Publishing never touches a socket, so a stalled client can't block the engine ticker or the
 /// UI thread; it loses its oldest queued lines, and is dropped if a write stalls for 10 s.
@@ -36,6 +39,19 @@ public sealed class CompanionServer : IAsyncDisposable
 
     public bool IsRunning => _listener is not null;
     public int Port { get; private set; }
+
+    /// <summary>
+    /// The local-address seam: whether a client is this PC (loopback, an IPv4-mapped one included). Fixed when the server is made;
+    /// a test plays a client on another machine from loopback with it.
+    /// </summary>
+    public Func<IPAddress, bool> IsThisPc { get; init; } = PlayoutGate.IsLoopback;
+
+    /// <summary>Raised (on a client's reader) when a line is refused at the door, for the status line: the refusal's words.</summary>
+    public event Action<string>? CommandRejected;
+
+    /// <summary>Lines refused since start, for diagnostics: the shared grammar's refusals and the playout gate's.</summary>
+    public long MessagesRejected => Interlocked.Read(ref _rejected);
+    private long _rejected;
 
     /// <summary>The door as <see cref="Start"/> bound it, published whole once the listener runs; null while it does not.</summary>
     public BoundDoor? Door => _door;
@@ -176,6 +192,8 @@ public sealed class CompanionServer : IAsyncDisposable
         });
         private readonly CancellationTokenSource _life = new();
         private int _disposed;
+        /// <summary>The client's address as the socket gave it at accept; none (never this PC, never listed) when it gave none.</summary>
+        private readonly IPAddress _remote;
 
         public bool Subscribed { get; private set; } = true; // default-on after connect
         public bool JsonMode { get; private set; }
@@ -187,6 +205,20 @@ public sealed class CompanionServer : IAsyncDisposable
             _server = server;
             _stream = tcp.GetStream();
             _reader = new StreamReader(_stream, Encoding.UTF8);
+            _remote = (tcp.Client.RemoteEndPoint as IPEndPoint)?.Address ?? IPAddress.None;
+        }
+
+        /// <summary>
+        /// Null when this client may send <paramref name="cmd"/>; else the gate's words, said on the status line too. Asked after the
+        /// line parses and before the show thread hears of it, so a refused line reaches no peer.
+        /// </summary>
+        private string? Gate(ShowCommand cmd)
+        {
+            var sender = new CommandSender(_remote, _server.IsThisPc(_remote), Credentialed: false);
+            if (PlayoutGate.Check(cmd.Kind, CommandDoor.Companion, sender, _server._bridge.PlayoutFrom) is not { } refused) return null;
+            Interlocked.Increment(ref _server._rejected);
+            try { _server.CommandRejected?.Invoke("Companion: " + refused); } catch { }
+            return refused;
         }
 
         /// <summary>Never blocks. Called from the engine ticker, the UI thread, or this client's reader.</summary>
@@ -301,6 +333,7 @@ public sealed class CompanionServer : IAsyncDisposable
         {
             if (ShowCommandParser.TryParse(t[0], t.Skip(1).ToList(), out var cmd, out _))
             {
+                if (Gate(cmd) is { } refused) { Enqueue($"ERROR @{id} {refused}"); return; }
                 _ = ReplyAsync(_server._bridge.ExecuteWithReceiptAsync(cmd, id, TimeSpan.FromSeconds(3)));
                 return;
             }
@@ -410,10 +443,13 @@ public sealed class CompanionServer : IAsyncDisposable
                 default:
                     // Everything newer (NEXT, PREV, GOTO, BLACKOUT, TOGGLE, NUDGE, ENDAT, CLEARMESSAGE...)
                     // comes from the shared grammar so Companion, HTTP and OSC can never drift apart.
-                    if (ShowCommandParser.TryParse(verb, t.Skip(1).ToList(), out var cmd, out var error))
-                        bridge.Execute(cmd);
-                    else
+                    if (!ShowCommandParser.TryParse(verb, t.Skip(1).ToList(), out var cmd, out var error))
+                    {
+                        Interlocked.Increment(ref _server._rejected);
                         Fail(error);
+                    }
+                    else if (Gate(cmd) is { } refused) Fail(refused);
+                    else bridge.Execute(cmd);
                     break;
             }
         }

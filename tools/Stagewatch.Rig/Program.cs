@@ -374,7 +374,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             _web.Start(_o.Http, _o.BindAll);
             _windows.Web = _web;
             if (_o.Companion > 0) { _companion = new CompanionServer(this); _companion.Start(_o.Companion, _o.BindAll); }
-            if (_o.Osc > 0) { _osc = new OscServer(this); _osc.Start(_o.Osc, _o.BindAll, null, 0); }
+            if (_o.Osc > 0) { _osc = new OscServer(this, this); _osc.Start(_o.Osc, _o.BindAll, null, 0); }
         }
         catch (System.Net.Sockets.SocketException ex)
         {

@@ -516,6 +516,12 @@ public interface IShowAccess
     /// per surface and first-bind-wins, so no surface lets one key speak for two nodes.
     /// </summary>
     NodeBindings Nodes => NodeBindings.For(this);
+
+    /// <summary>
+    /// The addresses whose <c>playout</c> and <c>patterns</c> lines run without a credential (<see cref="PlayoutGate"/>), an immutable
+    /// copy. None unless the host lists some, so a surface that keeps no list takes those lines only from this PC or a credential.
+    /// </summary>
+    IReadOnlyList<System.Net.IPAddress> PlayoutFrom => Array.Empty<System.Net.IPAddress>();
 }
 
 /// <summary>Crew pages: crew links and each department's notes. Thread-safe.</summary>
@@ -616,14 +622,33 @@ public interface IShowReports
     string? Report(string format) => null;
 }
 
+/// <summary>
+/// What an agent hears about a line it proposed: <see cref="Queued"/> when it waits for a person, else refused, in
+/// <see cref="Text"/>'s words. The flag is the fact: an agent's tool result reports a refusal as an error, so nothing that was
+/// not queued reads as queued.
+/// </summary>
+public readonly record struct AgentReply(string Text, bool Queued)
+{
+    /// <summary>The line waits for the operator's approval.</summary>
+    public static AgentReply Waiting(string text) => new(text, true);
+
+    /// <summary>The line was not queued, and runs nowhere.</summary>
+    public static AgentReply Refused(string text) => new(text, false);
+}
+
 /// <summary>AI agents (MCP): their commands can wait for the operator's approval. Thread-safe.</summary>
 public interface IShowAgents
 {
     /// <summary>
     /// An agent wants to run a command. Returns what to tell the agent when it was queued for the operator's
-    /// approval (or refused), or null when agents may act directly.
+    /// approval or refused (<see cref="AgentReply.Queued"/> says which), or null when agents may act directly. With
+    /// <paramref name="mustPropose"/> (a line that drives another node's air, <see cref="PlayoutGate.Drives"/>) it is never null:
+    /// the line waits for a person even when agents act directly, and a surface with nobody to approve it refuses it.
     /// </summary>
-    string? ProposeFromAgent(string commandLine, string reason) => null;
+    AgentReply? ProposeFromAgent(string commandLine, string reason, bool mustPropose) => mustPropose ? AgentReply.Refused(NobodyApproves) : null;
+
+    /// <summary>What an agent hears when its line needs a person and this surface has no approvals.</summary>
+    const string NobodyApproves = "Refused: a line that drives another app's air waits for a person's approval, and nobody approves here.";
 
     /// <summary>A proposal's fate as JSON (state, and each step's command and result), or null when there's no such proposal.</summary>
     string? ProposalJson(int id) => null;

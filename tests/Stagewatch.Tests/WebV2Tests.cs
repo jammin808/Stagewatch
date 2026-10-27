@@ -56,11 +56,11 @@ static class WebV2Tests
         public byte[]? SoundData(string id) => id == "abc123" ? Wav.Encode(new Wav.Sound(new short[800], 8000)) : null;
         public volatile bool AgentApproval;
         public readonly List<string> Proposed = new();
-        public string? ProposeFromAgent(string line, string reason)
+        public AgentReply? ProposeFromAgent(string line, string reason, bool mustPropose)
         {
-            if (!AgentApproval) return null;
+            if (!AgentApproval && !mustPropose) return null;
             lock (Proposed) Proposed.Add(line + " | " + reason);
-            return "Queued for the operator's approval (proposal #1).";
+            return AgentReply.Waiting("Queued for the operator's approval (proposal #1).");
         }
         public string? ScreenName(string screenId) => Names.TryGetValue(screenId, out var n) ? n : null;
         public string? ScreenPresetPath(string name) => name.Equals("lobby", StringComparison.OrdinalIgnoreCase) ? "/audience?holding=0" : null;

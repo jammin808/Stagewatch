@@ -202,12 +202,13 @@ public sealed partial class MainViewModel
 
     /// <summary>
     /// MCP agents: with approval on (the default), their commands become proposals here and the agent is told so.
-    /// Returns null when the agent may act directly. Thread-safe (called from the web server).
+    /// Returns null when the agent may act directly, never for a line that drives another app's air (<paramref name="mustPropose"/>):
+    /// that one is always a proposal, so a person decides what goes on a peer's air. Thread-safe (called from the web server).
     /// </summary>
-    public string? ProposeFromAgent(string line, string reason)
+    public AgentReply? ProposeFromAgent(string line, string reason, bool mustPropose)
     {
-        if (!Settings.Integrations.AgentsNeedApproval) return null;
-        if (Copilot.Check(line) is not { } cmd) return "Rejected: not a valid Stagewatch command.";
+        if (!mustPropose && !Settings.Integrations.AgentsNeedApproval) return null;
+        if (Copilot.Check(line) is not { } cmd) return AgentReply.Refused("Rejected: not a valid Stagewatch command.");
         var step = new CopilotStep(line.Trim(), reason.Length > 300 ? reason[..300] : reason, Copilot.Classify(cmd));
         var proposal = new CopilotProposal { Source = "AI agent (MCP)", Request = step.Command };
         _ui.BeginInvoke(DispatcherPriority.Normal, () =>
@@ -219,7 +220,8 @@ public sealed partial class MainViewModel
             UpdatePendingCount();
             StatusLine = "An AI agent proposed a change — see Copilot";
         });
-        return $"Queued for the operator's approval (proposal #{proposal.Id}). It runs only if they approve it in Stagewatch → Copilot.";
+        var always = mustPropose && !Settings.Integrations.AgentsNeedApproval ? " A command that drives another app's air always waits for a person." : "";
+        return AgentReply.Waiting($"Queued for the operator's approval (proposal #{proposal.Id}).{always} It runs only if they approve it in Stagewatch → Copilot.");
     }
 
     /// <summary>IShowAgents: a proposal's fate for the agent that made it (network thread; read on the owner thread).</summary>

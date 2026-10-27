@@ -7,7 +7,7 @@ Stagewatch ships a full Companion module in [`companion-module/`](../companion-m
 **From the package (operators):**
 1. In Companion, open **Modules → Import module package** and choose `stagewatch-<version>.tgz` (the installer puts it in the Stagewatch folder under `Companion`; builds write it to `companion-module/`).
 2. Add a **Stagewatch** connection and set the address (`127.0.0.1` on the same PC) and port 9923.
-3. In Stagewatch, check that **Settings → Companion → Enabled** is on. For a second PC, also turn on **Bind all interfaces**.
+3. In Stagewatch, check that **Settings → Companion → Enabled** is on. For a second PC, also turn on **Bind all interfaces**; its Patterns (and playout) buttons also need that PC's address in **Settings → Remote → May drive playout** (2.20; `remote.playoutFrom` in the settings file), since Companion TCP carries no PIN — until then each press is refused with those words in the module's log. List addresses only on a show network you trust: an address is all Companion TCP proves.
 
 **From source (developers):**
 ```pwsh

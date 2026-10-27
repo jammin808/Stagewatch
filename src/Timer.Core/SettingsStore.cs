@@ -200,6 +200,8 @@ public sealed class SettingsStore : IDisposable
             .DistinctBy(l => l.Name, StringComparer.OrdinalIgnoreCase).Take(ScreenLayouts.MaxLayouts).ToList();
         if (s.Remote.Pin is null)
             s.Remote.Pin = System.Security.Cryptography.RandomNumberGenerator.GetInt32(1000, 10000).ToString();
+        // Who may drive another node's air without a credential: only addresses as PlayoutGate reads them, each loss said.
+        s.Remote.PlayoutFrom = PlayoutGate.Sanitise(s.Remote.PlayoutFrom, notes);
         s.Rundown ??= new Rundown();
         s.Rundown.Items ??= new List<RundownItem>();
         // Stable identities for history (journal, reports): assigned once, then saved.

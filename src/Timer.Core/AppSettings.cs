@@ -297,6 +297,12 @@ public sealed class RemoteSettings
     /// <summary>Browser windows Stagewatch controls, each at an address of its own (/w/&lt;token&gt;). They stay with this PC
     /// (the addresses are on the screens in the venue), never in a show file.</summary>
     [JsonPropertyName("windows")] public List<ScreenWindow> Windows { get; set; } = new();
+    /// <summary>
+    /// Settings → Remote → May drive playout: the addresses (at most <see cref="PlayoutGate.MaxFrom"/>) whose <c>playout</c> and
+    /// <c>patterns</c> lines run without a credential (<see cref="PlayoutGate"/>). Empty by default: only this PC, the PIN or a key.
+    /// They stay with this PC, never in a show file.
+    /// </summary>
+    [JsonPropertyName("playoutFrom")] public List<string> PlayoutFrom { get; set; } = new();
     public const int MaxCustomCss = 64 * 1024;
 }
 

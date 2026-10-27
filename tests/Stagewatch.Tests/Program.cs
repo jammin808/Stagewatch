@@ -2207,6 +2207,7 @@ await ShowBusCopiesTests.Run(Check);
 PeerLinkVectors.Run(Check);
 await PeerLinkScenarios.Run(Check);
 await CompanionV2Tests.Run(Check);
+await PlayoutGateTests.Run(Check);
 if (args.Contains("--powerpoint")) await PowerPointLiveTest.Run(Check);
 ScratchTests.Run(Check);
 
@@ -2263,6 +2264,9 @@ sealed class FakeBridge : Stagewatch.Companion.ICompanionBridge
     public TimerEngine Engine { get; } = new();
     public AppSettings Settings { get; } = new();
     public bool CompanionAllowed => Allowed;
+    /// <summary>The playout gate's list (Settings → Remote → May drive playout), as a test sets it.</summary>
+    public volatile IReadOnlyList<IPAddress> From = Array.Empty<IPAddress>();
+    public IReadOnlyList<IPAddress> PlayoutFrom => From;
     public void Execute(ShowCommand command) { lock (Commands) Commands.Add(command); }
     public RemoteConfig GetRemoteConfig() => new(
         new[] { (1, "One", 60) }, Array.Empty<(string, string, MessageUrgency, FlashRate)>(), new[] { ("Opening", (string?)null, 300) });

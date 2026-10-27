@@ -31,8 +31,11 @@ public sealed class McpEndpoint
         _context = context;
     }
 
-    /// <summary>Handle one JSON-RPC message (or batch). Returns the reply, or null for notifications.</summary>
-    public byte[]? Handle(byte[] body)
+    /// <summary>
+    /// Handle one JSON-RPC message (or batch). Returns the reply, or null for notifications. <paramref name="gate"/> is the playout
+    /// gate for this request's sender (<see cref="PlayoutGate.Check"/>): null when it may send a line of that kind, else why not.
+    /// </summary>
+    public byte[]? Handle(byte[] body, Func<ShowCommandKind, string?> gate)
     {
         JsonNode? root;
         try { root = JsonNode.Parse(body); }
@@ -41,13 +44,13 @@ public sealed class McpEndpoint
         if (root is JsonArray batch)
         {
             var replies = new JsonArray();
-            foreach (var m in batch) if (HandleOne(m as JsonObject) is { } r) replies.Add(r);
+            foreach (var m in batch) if (HandleOne(m as JsonObject, gate) is { } r) replies.Add(r);
             return replies.Count == 0 ? null : Encode(replies);
         }
-        return HandleOne(root as JsonObject) is { } one ? Encode(one) : null;
+        return HandleOne(root as JsonObject, gate) is { } one ? Encode(one) : null;
     }
 
-    private JsonObject? HandleOne(JsonObject? msg)
+    private JsonObject? HandleOne(JsonObject? msg, Func<ShowCommandKind, string?> gate)
     {
         if (msg is null) return Error(null, -32600, "invalid request");
         var id = msg["id"]?.DeepClone();
@@ -70,7 +73,7 @@ public sealed class McpEndpoint
             case "tools/list":
                 return Result(id, new JsonObject { ["tools"] = Tools() });
             case "tools/call":
-                return Result(id, Call(msg["params"] as JsonObject));
+                return Result(id, Call(msg["params"] as JsonObject, gate));
             default:
                 return Error(id, -32601, "method not found: " + method);
         }
@@ -84,7 +87,8 @@ public sealed class McpEndpoint
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
         Tool("run_command", "Propose one Stagewatch command, e.g. 'nudge 60', 'next', 'trim 7 -180', 'delay 300', 'catchup', " +
                             "'signal message speaker \"Please wrap up\"', 'signal go Lighting', 'q next', 'aux 1 start', 'screen identify'. " +
-                            "Usually the operator must approve it in Stagewatch first (the result says so); give a short reason they will read. Grammar: " + ShowCommandParser.Help,
+                            "Usually the operator must approve it in Stagewatch first (the result says so); a playout or patterns command, which " +
+                            "drives another app's air, always waits for the operator. Give a short reason they will read. Grammar: " + ShowCommandParser.Help,
             new JsonObject
             {
                 ["type"] = "object",
@@ -115,7 +119,7 @@ public sealed class McpEndpoint
     private static JsonObject Tool(string name, string description, JsonObject schema)
         => new() { ["name"] = name, ["description"] = description, ["inputSchema"] = schema };
 
-    private JsonObject Call(JsonObject? p)
+    private JsonObject Call(JsonObject? p, Func<ShowCommandKind, string?> gate)
     {
         var name = p?["name"]?.GetValue<string>() ?? "";
         var args = p?["arguments"] as JsonObject;
@@ -137,9 +141,15 @@ public sealed class McpEndpoint
                 if (tokens.Count == 0) return Text("Empty command.", isError: true);
                 if (!ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out var error))
                     return Text("Rejected: " + error + ". Grammar: " + ShowCommandParser.Help, isError: true);
+                // Another node's air: the sender must be one that may send such a line at all, and then a person decides, always.
+                var drives = PlayoutGate.Drives(cmd.Kind);
+                if (drives && gate(cmd.Kind) is { } refused) return Text("Refused: " + refused, isError: true);
                 // Human in the loop: by default an agent proposes and the operator decides.
                 var reason = args?["reason"]?.GetValue<string>() ?? "";
-                if (_agents.ProposeFromAgent(line, reason) is { } queued) return Text(queued);
+                // Queued or refused is the reply's fact, never read from its words: a refusal is an error to the agent.
+                if (_agents.ProposeFromAgent(line, reason, mustPropose: drives) is { } answer) return Text(answer.Text, isError: !answer.Queued);
+                // A host that answered null for such a line queued nothing: it never runs directly from here.
+                if (drives) return Text(IShowAgents.NobodyApproves, isError: true);
                 // Acting directly: say what actually happened (Show Bus receipt), not just that it was sent.
                 var receipt = _commands.ExecuteWithReceiptAsync(cmd, "mcp", TimeSpan.FromSeconds(3));
                 if (!receipt.Wait(TimeSpan.FromSeconds(4))) return Text("Sent: " + line + " (Stagewatch hasn't confirmed it yet)");

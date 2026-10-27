@@ -10,11 +10,14 @@ namespace Stagewatch.Remote;
 /// In:  /stagewatch/&lt;verb&gt;[/&lt;arg&gt;...] [args...]   e.g. /stagewatch/start,
 ///      /stagewatch/preset/3 "start", /stagewatch/nudge 60, /stagewatch/message "Wrap up" "warn".
 ///      The "/stagewatch" prefix is optional. Verbs are the shared command grammar.
+///      OSC carries no credential: a line that drives another node's air (playout, patterns) runs only from this PC or an
+///      address the operator listed (<see cref="PlayoutGate"/>); every other verb runs from any sender, as it always has.
 /// Out: optional feedback to host:port — only the fields that changed, one bundle per change.
 /// </summary>
 public sealed class OscServer : IDisposable
 {
     private readonly IShowCommands _control;
+    private readonly IShowAccess? _access;
     private UdpClient? _listener;
     private UdpClient? _sender;
     private IPEndPoint? _feedback;
@@ -22,7 +25,19 @@ public sealed class OscServer : IDisposable
     private ShowSnapshot? _lastSent;
     private readonly object _feedbackLock = new();
 
-    public OscServer(IShowCommands control) { _control = control; }
+    /// <param name="access">Who may drive another node's air without a credential (its <see cref="IShowAccess.PlayoutFrom"/>); none
+    /// given, those lines run only from this PC.</param>
+    public OscServer(IShowCommands control, IShowAccess? access = null)
+    {
+        _control = control;
+        _access = access;
+    }
+
+    /// <summary>
+    /// The local-address seam: whether a sender is this PC (loopback, an IPv4-mapped one included). Fixed when the server is made;
+    /// a test plays a sender on another machine from loopback with it.
+    /// </summary>
+    public Func<IPAddress, bool> IsThisPc { get; init; } = PlayoutGate.IsLoopback;
 
     public bool IsRunning => _listener is not null;
     public int Port { get; private set; }
@@ -108,12 +123,12 @@ public sealed class OscServer : IDisposable
             foreach (var msg in OscCodec.Decode(packet.Buffer))
             {
                 Interlocked.Increment(ref _received);
-                Dispatch(msg);
+                Dispatch(msg, packet.RemoteEndPoint.Address);
             }
         }
     }
 
-    private void Dispatch(OscMessage msg)
+    private void Dispatch(OscMessage msg, IPAddress sender)
     {
         var segments = msg.Address.Split('/', StringSplitOptions.RemoveEmptyEntries).ToList();
         if (segments.Count > 0 && segments[0].Equals("stagewatch", StringComparison.OrdinalIgnoreCase))
@@ -129,10 +144,11 @@ public sealed class OscServer : IDisposable
             return;
         if (IsTrigger(verb) && segments.Count == 1 && msg.Args.Count == 1) args.Clear();
 
-        if (ShowCommandParser.TryParse(verb, args, out var cmd, out var error))
-            _control.Execute(cmd);
-        else
-            Reject(error);
+        if (!ShowCommandParser.TryParse(verb, args, out var cmd, out var error)) { Reject(error); return; }
+        // Refused before the show thread hears of it: nothing reaches a peer's air for a sender that proved nothing.
+        var from = new CommandSender(sender, IsThisPc(sender), Credentialed: false);
+        if (PlayoutGate.Check(cmd.Kind, CommandDoor.Osc, from, _access?.PlayoutFrom ?? []) is { } refused) { Reject(refused); return; }
+        _control.Execute(cmd);
     }
 
     private static bool IsTrigger(string verb) => verb.ToLowerInvariant() is
