@@ -9,6 +9,7 @@ import type {
 import { COLORS } from './feedbacks.js'
 import type ModuleInstance from './main.js'
 import type { ModuleSchema } from './main.js'
+import { PLAYOUT_FEATURE, playoutOffered } from './state.js'
 
 const HOLD_MS = 1000
 
@@ -369,7 +370,7 @@ ${v('standing_by')} SB`, { size: '14', bgcolor: COLORS.darkgrey }),
 				{ feedbackId: 'pace', options: { pace: 'ahead' }, style: { bgcolor: COLORS.blue, color: COLORS.white } },
 			],
 		}),
-		simple('show_vt', 'Video (VT) countdown from vMix (display)', {
+		simple('show_vt', 'Video (VT) countdown from vMix or a playout link (display)', {
 			style: style(`VT\n${v('vt_remaining')}`, { size: '18' }),
 			steps: [],
 			feedbacks: [
@@ -580,6 +581,47 @@ ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
 		feedbacks: [],
 	})
 
+	// 2.20: playout links — the clip on air with no link named and on each link the config names. A key is blue while what its press
+	// reaches feeds the VT (with no link named, Stagewatch takes the only link switched on, else the link feeding the VT: so any link
+	// feeding it), and red in that clip's last 10 s while it runs; never lit by vMix, which no playout press reaches. Only where the
+	// actions are offered (the licence carries playout), so no key names an action Companion doesn't know. Each link's ids sit under
+	// `playout_link_`, the unnamed set's under `playout_vt_`, so no link's name (`vt` among them) can give two keys one id.
+	const playoutKeys: string[] = []
+	if (playoutOffered(cfg, self.configHeard)) {
+		const blue = { bgcolor: COLORS.blue, color: COLORS.white }
+		const red = { bgcolor: COLORS.red, color: COLORS.white }
+		const transport = (id: string, name: string, link: string, label: string, what: string, text: string) =>
+			simple(id, name, {
+				style: style(`${label}\n${text}`, { size: '14', bgcolor: COLORS.darkgrey }),
+				steps: press('playout_transport', { link, what, seconds: 10, at: '0:00' }),
+				feedbacks: [
+					{ feedbackId: 'vt_link', options: { link, running: false, last: 0 }, style: blue },
+					{ feedbackId: 'vt_link', options: { link, running: true, last: 10 }, style: red },
+				],
+				keywords: ['playout', 'vt', 'video', 'clip', 'patterns', 'playmap', what],
+			})
+		const sets: [string, string, string, string][] = [
+			['', 'playout_vt', "no link named (the only link, else the one feeding the VT)", 'VT'],
+			...(cfg.playoutLinks ?? []).map((l): [string, string, string, string] => [l.name, `playout_link_${l.name}`, l.label || l.name, l.name.toUpperCase()]),
+		]
+		for (const [link, key, who, label] of sets) {
+			playoutKeys.push(
+				transport(`${key}_last10`, `Playout: ${who} — clip to its last 10 s`, link, label, 'end', link ? 'LAST 10s' : `LAST 10s\n${v('vt_remaining')}`),
+				transport(`${key}_pause`, `Playout: ${who} — pause the clip`, link, label, 'pause', '⏸ PAUSE'),
+				transport(`${key}_play`, `Playout: ${who} — play the clip on`, link, label, 'play', '▶ PLAY'),
+				transport(`${key}_restart`, `Playout: ${who} — restart the clip`, link, label, 'restart', '↺ TOP'),
+			)
+		}
+		playoutKeys.push(
+			simple('playout_answer', 'Playout: the last answer (display)', {
+				style: style(`ANSWER\n${v('playout_answer')}`, { size: '7', bgcolor: COLORS.darkgrey }),
+				steps: [],
+				feedbacks: [],
+				keywords: ['playout', 'answer', 'receipt', 'refused'],
+			}),
+		)
+	}
+
 	// Dim Production-only keys on lower licences, so nobody presses a key that won't work.
 	const lockAll = (ids: string[], feature: string): void => {
 		for (const id of ids) {
@@ -591,7 +633,7 @@ ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
 	lockAll(['cue_wrap', 'cue_finish', 'cue_slow', 'cue_buzz', 'cue_call_next', 'cue_podium_ack', 'cue_waiting', 'dept_standby_t', 'dept_go_t', 'all_go'], 'crewcues')
 	lockAll(['show_forecast'], 'forecast')
 	lockAll(['advice_1', 'advice_2', 'advice_3'], 'assistant')
-	lockAll(['show_vt'], 'vmix')
+	lockAll(['show_vt', ...playoutKeys], PLAYOUT_FEATURE)
 	lockAll(['listen'], 'speech')
 	lockAll(['rooms'], 'multiroom')
 	lockAll(['report'], 'fullreport')
@@ -685,5 +727,13 @@ ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
 		{ id: 'speaker', name: 'Speaker cues & presentation', definitions: [...speakerKeys, 'timer_ring'] },
 		{ id: 'qa', name: 'Q&A, report & rooms', definitions: [...qa, qaAnswered] },
 	]
+	if (playoutKeys.length > 0)
+		structure.push({
+			id: 'playout',
+			name: 'Playout links (Patterns, PlayMap)',
+			description:
+				"The clip on air with no link named (the only link switched on, else the one feeding the VT) and on each of Stagewatch's playout links: blue while what the key reaches feeds the VT, red in its last 10 s. What Stagewatch and the peer answer each press is in the log and on the answer key. For a PlayMap playlist item or a Patterns cue, use the Playout: GO and cue actions.",
+			definitions: playoutKeys,
+		})
 	self.setPresetDefinitions(structure, presets)
 }

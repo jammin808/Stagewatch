@@ -6,6 +6,11 @@
 //  * Commands are never queued while offline: replaying stale "START"/"NEXT" presses after a
 //    reconnect would be dangerous mid-show. A press while offline is dropped and logged.
 //  * Inbound data is reassembled into lines with a hard length cap.
+//  * A line sent with a request id (`@c<n> …`, request()) is answered by Stagewatch's own receipt: `OK @id <stage> [words]` or
+//    `ERROR @id <words>`, and after an `accepted` that waits on another node its one follow-up, the word `final` after the id, within
+//    30 s of the send. Each answer is a 'receipt' event naming the line it answers. A line still waiting when the socket closes — no
+//    answer yet, or an `accepted` within FINAL_WAIT_MS of its send — is one 'receipt' of kind `lost`, never a success the module did
+//    not hear; one older than that is forgotten without a word, for no answer to it could still come.
 
 import { EventEmitter } from 'node:events'
 import net from 'node:net'
@@ -19,6 +24,26 @@ export type LinkStatus =
 	/** The link is fine but Stagewatch itself has stopped updating (its show thread is stuck). */
 	| { kind: 'stuck' }
 
+/**
+ * Stagewatch's answer to a line sent with a request id (Show Bus §3 on Companion TCP). `line` is the line as sent, without its id.
+ * `answered` an `OK` or `ERROR` line for that id; `lost` the socket closed while the line still waited — with no answer yet, so it may
+ * or may not have run, or after an `accepted` and before any `final`, which may or may not have been coming.
+ */
+export interface Receipt {
+	id: string
+	line: string
+	kind: 'answered' | 'lost'
+	ok: boolean
+	/** `accepted` or `applied` on an OK; "" on an ERROR, on a bare `OK @id`, and on `lost`. */
+	stage: string
+	/** The follow-up after an `accepted` that waited on another node: that node's final word, or Stagewatch's own. */
+	final: boolean
+	/** Stagewatch's words: the effect, or why not. */
+	words: string
+	/** On `lost`: whether an `accepted` had come before the socket closed (a `final` may or may not have been coming). */
+	wasAccepted: boolean
+}
+
 export interface ConnectionEvents {
 	status: [LinkStatus]
 	snapshot: [Snapshot]
@@ -26,9 +51,53 @@ export interface ConnectionEvents {
 	/** An operator action in Stagewatch, as a protocol line (for Companion's action recorder). */
 	record: [string]
 	protocolError: [string]
+	receipt: [Receipt]
 }
 
 const MAX_LINE = 1024 * 1024
+
+/** Lines waiting for Stagewatch's answer at most; the oldest is forgotten (its answer then goes unread), never resent. */
+export const MAX_PENDING = 64
+/**
+ * A line waits this long from its send, then is forgotten without a word: Stagewatch answers within its 3 s deadline and sends a
+ * follow-up, when one is coming, within 30 s of the send — so past this no answer can come, and none is reported lost.
+ */
+export const FINAL_WAIT_MS = 40000
+
+/**
+ * The words an `accepted` begins with when Stagewatch already knows no follow-up will come (PlayoutReceipts.Unconfirmed: the peer took
+ * the line and said nothing final, or never answered): that answer settles the line.
+ */
+const UNCONFIRMED = 'unconfirmed'
+
+const STAGES = ['accepted', 'applied']
+
+/**
+ * One receipt line read: `OK @id [final] [<stage>] [words]` or `ERROR @id [final] <words>`; null for any other line. The word
+ * `final` after the id marks the follow-up only when the id is waiting for one (its first answer was `accepted`), so an ERROR
+ * whose own words begin with "final" is never taken for it.
+ */
+export function parseReceipt(line: string, awaitingFinal: boolean): { id: string; ok: boolean; stage: string; final: boolean; words: string } | null {
+	const m = /^(OK|ERROR) @([A-Za-z0-9_-]{1,32})(?: (.*))?$/.exec(line)
+	if (!m) return null
+	let rest = m[3] ?? ''
+	let final = false
+	if (awaitingFinal && (rest === 'final' || rest.startsWith('final '))) {
+		final = true
+		rest = rest.slice(6)
+	}
+	const ok = m[1] === 'OK'
+	let stage = ''
+	if (ok) {
+		const sp = rest.indexOf(' ')
+		const first = sp < 0 ? rest : rest.slice(0, sp)
+		if (STAGES.includes(first)) {
+			stage = first
+			rest = sp < 0 ? '' : rest.slice(sp + 1)
+		}
+	}
+	return { id: m[2], ok, stage, final, words: rest.trim() }
+}
 
 export interface ConnectionTimings {
 	pingEveryMs: number
@@ -61,15 +130,23 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 	#destroyed = false
 	#ready = false
 	#denied = false
+	#requestSeq = 0
+	/** Lines sent with an id and not yet answered for good, oldest first: id → the line, when, and whether `accepted` came. */
+	readonly #pending = new Map<string, { line: string; at: number; accepted: boolean }>()
+
+	/** The clock a line's age is read on: the wall clock, or a test's. */
+	readonly #now: () => number
 
 	constructor(
 		readonly host: string,
 		readonly port: number,
 		timings: Partial<ConnectionTimings> = {},
+		now: () => number = Date.now,
 	) {
 		super()
 		this.#t = { ...DEFAULT_TIMINGS, ...timings }
 		this.#backoffMs = this.#t.minBackoffMs
+		this.#now = now
 	}
 
 	get isReady(): boolean {
@@ -87,6 +164,23 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 		if (/[\r\n]/.test(line)) line = line.replace(/[\r\n]+/g, ' ')
 		s.write(line + '\n')
 		return true
+	}
+
+	/**
+	 * Send one protocol line with a request id, so Stagewatch answers it with a receipt ('receipt' events). Returns the id, or null
+	 * (and does nothing) when not connected: a press is never queued for later.
+	 */
+	request(line: string): string | null {
+		const s = this.#socket
+		if (!s || !this.#ready || s.destroyed) return null
+		if (/[\r\n]/.test(line)) line = line.replace(/[\r\n]+/g, ' ')
+		const now = this.#now()
+		this.#expire(now)
+		while (this.#pending.size >= MAX_PENDING) this.#pending.delete(this.#pending.keys().next().value as string)
+		const id = `c${++this.#requestSeq}`
+		this.#pending.set(id, { line, at: now, accepted: false })
+		s.write(`@${id} ${line}\n`)
+		return id
 	}
 
 	destroy(): void {
@@ -128,6 +222,7 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 			this.#stuck = false
 			this.#socket = null
 			this.#stopHeartbeat()
+			this.#forgetPending()
 			if (this.#destroyed) return
 			if (!this.#denied) {
 				this.emit('status', {
@@ -157,6 +252,20 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 	}
 
 	#onLine(line: string): void {
+		if (line.startsWith('OK @') || line.startsWith('ERROR @')) {
+			const id = /^\S+ @([A-Za-z0-9_-]{1,32})/.exec(line)?.[1]
+			const p = id === undefined ? undefined : this.#pending.get(id)
+			if (id !== undefined && p) {
+				const r = parseReceipt(line, p.accepted)
+				if (r) {
+					// An accepted that is not final waits for its follow-up, unless its words say none is coming.
+					if (!r.final && r.ok && r.stage === 'accepted' && !(r.words === UNCONFIRMED || r.words.startsWith(UNCONFIRMED + ' '))) p.accepted = true
+					else this.#pending.delete(id)
+					this.emit('receipt', { id, line: p.line, kind: 'answered', ok: r.ok, stage: r.stage, final: r.final, words: r.words, wasAccepted: p.accepted })
+					return
+				}
+			}
+		}
 		const space = line.indexOf(' ')
 		const verb = space < 0 ? line : line.slice(0, space)
 		const rest = space < 0 ? '' : line.slice(space + 1)
@@ -243,6 +352,25 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 		}, delay)
 	}
 
+	/** Forgets, without a word, every line sent more than FINAL_WAIT_MS ago: no answer to it can still come. */
+	#expire(now: number): void {
+		for (const [id, p] of this.#pending) if (now - p.at > FINAL_WAIT_MS) this.#pending.delete(id)
+	}
+
+	/**
+	 * The socket is gone, and with it any answer still to come on it: each line still waiting — within FINAL_WAIT_MS of its send — is
+	 * one `lost` receipt; an older one is forgotten without a word.
+	 */
+	#forgetPending(): void {
+		if (this.#pending.size === 0) return
+		this.#expire(this.#now())
+		const waiting = [...this.#pending]
+		this.#pending.clear()
+		if (this.#destroyed) return
+		for (const [id, p] of waiting)
+			this.emit('receipt', { id, line: p.line, kind: 'lost', ok: false, stage: '', final: false, words: '', wasAccepted: p.accepted })
+	}
+
 	#clearTimers(): void {
 		this.#stopHeartbeat()
 		if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer)
@@ -255,12 +383,35 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 		this.#ready = false
 		this.#stuck = false
 		this.#buffer = ''
+		this.#forgetPending()
 		if (s) {
 			s.removeAllListeners()
 			s.on('error', () => {})
 			s.destroy()
 		}
 	}
+}
+
+/**
+ * What a receipt says, after the line it answers: its stage (or "refused") and Stagewatch's words — the peer's own when the line
+ * went on to one. A line whose answer was lost says so, and never that it ran or did not, nor that a final answer was owed.
+ */
+export function receiptWords(r: Receipt): string {
+	if (r.kind === 'lost')
+		return r.wasAccepted
+			? 'accepted; the link to Stagewatch dropped before any final answer came (look at Stagewatch)'
+			: 'no answer — the link to Stagewatch dropped first, so it may or may not have run (look at Stagewatch)'
+	const head = (r.final ? 'final ' : '') + (r.ok ? r.stage || 'ok' : 'refused')
+	return r.words ? `${head} — ${r.words}` : head
+}
+
+/**
+ * What `playout_answer` shows for a receipt: its words when it answers the latest press (`latest`, the id that press went with, or
+ * null when it was not sent), else the line it answers before them — an earlier press's late answer never reads as the latest's.
+ */
+export function answerShown(r: Receipt, latest: string | null): string {
+	const words = receiptWords(r)
+	return r.id === latest ? words : `${r.line}: ${words}`
 }
 
 /** Quote a string argument for the Stagewatch line protocol. */

@@ -474,3 +474,382 @@ test('2.17 window names: one word, empty is every window', async () => {
 	assert.equal(windowName('Lobby TV'), null)
 	assert.equal(windowName('x'.repeat(41)), null)
 })
+
+// ---------------------------------------------------------------- 2.20: playout links, receipts, vt_link
+
+import { readFileSync } from 'node:fs'
+import { answerShown, parseReceipt, receiptWords, FINAL_WAIT_MS, MAX_PENDING } from '../dist/connection.js'
+
+const LINKS = [
+	{ name: 'stage-left', kind: 'playmap', label: 'PlayMap Stage left' },
+	{ name: 'patterns', kind: 'patterns', label: 'Patterns' },
+]
+const LICENSED = { presets: [], messages: [], rundown: [], tier: 'Production', features: ['vmix', 'runningorder'], playoutLinks: LINKS }
+
+/** A stand-in for the module instance: what the definitions read, and what a press sends or logs. */
+function fakeInstance(showConfig, configHeard = true) {
+	const self = {
+		label: 'stagewatch',
+		showConfig,
+		configHeard,
+		snapshot: null,
+		sent: [],
+		commands: [],
+		logs: [],
+		actions: {},
+		feedbacks: {},
+		presets: null,
+		structure: null,
+		sendPlayout: (line) => self.sent.push(line),
+		sendCommand: (line) => self.commands.push(line),
+		log: (level, text) => self.logs.push([level, text]),
+		setActionDefinitions: (d) => (self.actions = d),
+		setFeedbackDefinitions: (d) => (self.feedbacks = d),
+		setPresetDefinitions: (structure, presets) => ((self.structure = structure), (self.presets = presets)),
+	}
+	return self
+}
+
+/** test/playout-lines.tsv, the file Stagewatch's suite reads too: name, press and refuse rows. */
+function playoutRows() {
+	const text = readFileSync(new URL('./playout-lines.tsv', import.meta.url), 'utf8')
+	// A checkout may end its lines with CRLF (.gitattributes keeps this file LF; a copy made elsewhere may not): a row never ends in \r.
+	return text.split(/\r?\n/).filter((l) => l.length > 0 && !l.startsWith('#')).map((l) => l.split('\t'))
+}
+
+test('2.20 playout lines: every press sends exactly its line with a request id, every refusal sends nothing and says why', async () => {
+	const { UpdateActions, playoutLinkName } = await import('../dist/actions.js')
+	const rows = playoutRows()
+	assert.ok(rows.filter((r) => r[0] === 'press').length >= 20 && rows.filter((r) => r[0] === 'refuse').length >= 10)
+	for (const r of rows) {
+		if (r[0] === 'name') {
+			assert.equal(playoutLinkName(r[1]) !== null, r[2] === 'ok', `name ${r[1]} → ${r[2]}`)
+			continue
+		}
+		const self = fakeInstance(LICENSED)
+		UpdateActions(self)
+		const action = self.actions[r[1]]
+		assert.ok(action, `action ${r[1]} is defined`)
+		action.callback({ options: JSON.parse(r[2]) })
+		assert.deepEqual(self.commands, [], `${r[1]} never sends a playout line without its request id`)
+		if (r[0] === 'press') {
+			assert.deepEqual(self.sent, [r[3]], `${r[1]} ${r[2]}`)
+			assert.equal(r.length, 7, `press row ${r[3]} has its kind, arguments and number`)
+		} else {
+			assert.equal(r[0], 'refuse')
+			assert.deepEqual(self.sent, [], `${r[1]} ${r[2]} sends nothing`)
+			assert.ok(self.logs.some(([level, text]) => level === 'warn' && text.startsWith(r[3])), `${r[1]} ${r[2]} logs "${r[3]}…" (${JSON.stringify(self.logs)})`)
+		}
+	}
+	// Every name Stagewatch reads as an action, trust, or another integration's has a row (Stagewatch's suite holds its own lists to them).
+	const { PLAYOUT_ACTION_WORDS, PLAYOUT_RESERVED } = await import('../dist/actions.js')
+	const no = new Set(rows.filter((r) => r[0] === 'name' && r[2] === 'no').map((r) => r[1]))
+	for (const w of [...PLAYOUT_ACTION_WORDS, 'trust', ...PLAYOUT_RESERVED]) assert.ok(no.has(w), `a name row refuses ${w}`)
+})
+
+test('2.20 the playout actions and keys exist only where Stagewatch runs playout links under its licence', async () => {
+	const { UpdateActions } = await import('../dist/actions.js')
+	const { UpdatePresets } = await import('../dist/presets.js')
+	const st = await import('../dist/state.js')
+	const ids = ['playout_transport', 'playout_go', 'playout_cue']
+	const offered = (cfg, heard) => {
+		const self = fakeInstance(cfg, heard)
+		UpdateActions(self)
+		UpdatePresets(self)
+		const has = ids.map((id) => id in self.actions)
+		assert.ok(has.every((h) => h === has[0]), 'all three or none')
+		const section = self.structure.find((s) => s.id === 'playout')
+		assert.equal(!!section, has[0], 'the keys come and go with the actions')
+		for (const id of section?.definitions ?? [])
+			for (const step of self.presets[id].steps ?? []) for (const a of step.down) assert.ok(a.actionId in self.actions, `${id} presses a defined action`)
+		return { has: has[0], self, section }
+	}
+	assert.equal(offered(LICENSED, true).has, true)
+	assert.equal(offered({ ...LICENSED, features: ['runningorder'] }, true).has, false, 'a licence without playout: none')
+	assert.equal(offered({ ...LICENSED, playoutLinks: undefined }, true).has, false, 'a Stagewatch older than 2.20 (no playoutLinks): none')
+	assert.equal(offered(st.EMPTY_CONFIG, false).has, true, 'before any CONFIG: kept, so buttons keep their actions while Stagewatch is away')
+	assert.equal(offered({ ...LICENSED, features: undefined }, true).has, true, 'a CONFIG that names no features allows them all')
+	// Every link switched off (an empty list): kept, so a press is refused in Stagewatch's words, not dropped by Companion unsaid.
+	const none = offered({ ...LICENSED, playoutLinks: [] }, true)
+	assert.equal(none.has, true, 'an empty list keeps the actions')
+	assert.deepEqual(none.self.actions.playout_transport.options.find((o) => o.id === 'link').choices.map((c) => c.id), [''])
+	assert.ok(none.section.definitions.includes('playout_vt_pause') && !none.section.definitions.some((d) => d.startsWith('playout_link_')))
+	// The link dropdown: none named first, then each link by its peer's name; a custom name is typed.
+	const { self, section } = offered(LICENSED, true)
+	const link = self.actions.playout_go.options.find((o) => o.id === 'link')
+	assert.deepEqual(link.choices.map((c) => c.id), ['', 'stage-left', 'patterns'])
+	assert.equal(link.choices[1].label, 'stage-left — PlayMap Stage left')
+	assert.equal(link.allowCustom, true)
+	// One set of transport keys with no link named, one per link, and the answer key; each lit by what its press reaches feeding the VT.
+	assert.ok(section.definitions.includes('playout_vt_pause') && section.definitions.includes('playout_link_stage-left_last10') && section.definitions.includes('playout_answer'))
+	const key = self.presets['playout_link_stage-left_pause']
+	assert.deepEqual(key.steps[0].down[0], { actionId: 'playout_transport', options: { link: 'stage-left', what: 'pause', seconds: 10, at: '0:00' } })
+	assert.ok(key.feedbacks.some((f) => f.feedbackId === 'vt_link' && f.options.link === 'stage-left' && f.options.last === 0))
+	assert.ok(key.feedbacks.some((f) => f.feedbackId === 'vt_link' && f.options.link === 'stage-left' && f.options.running === true && f.options.last === 10))
+	assert.ok(key.feedbacks.some((f) => f.feedbackId === 'feature_locked' && f.options.feature === 'vmix'), 'dimmed on a licence without playout')
+	// With no link named, a press reaches the only link, else the one feeding the VT: lit by any link feeding it, never by vMix's clip,
+	// which no playout press reaches.
+	const unnamed = self.presets.playout_vt_pause
+	assert.equal(unnamed.steps[0].down[0].options.link, '')
+	assert.ok(!unnamed.feedbacks.some((f) => f.feedbackId === 'vt_running'), 'never lit by a clip a press does not reach')
+	assert.deepEqual(
+		unnamed.feedbacks.filter((f) => f.feedbackId === 'vt_link').map((f) => [f.options.link, f.options.running, f.options.last]),
+		[['', false, 0], ['', true, 10]],
+	)
+	assert.match(unnamed.name, /no link named/)
+	const st2 = await import('../dist/state.js')
+	const vmixRunning = snap({ playout: { title: 'Sizzle', remaining: 5, duration: 30, running: true, source: 'vMix', link: '', node: '' } })
+	for (const f of unnamed.feedbacks.filter((f) => f.feedbackId === 'vt_link'))
+		assert.equal(st2.vtFrom(vmixRunning, f.options.link, f.options.running, f.options.last), false, "vMix's clip lights no playout key")
+})
+
+test('2.20 a link named vt: its keys and the unnamed set never share an id', async () => {
+	const { UpdatePresets } = await import('../dist/presets.js')
+	const { playoutLinkName } = await import('../dist/actions.js')
+	assert.equal(playoutLinkName('vt'), 'vt', 'vt names a link')
+	const self = fakeInstance({ ...LICENSED, playoutLinks: [{ name: 'vt', kind: 'playmap', label: 'PlayMap VT' }, ...LINKS] })
+	UpdatePresets(self)
+	const defs = self.structure.find((s) => s.id === 'playout').definitions
+	assert.equal(new Set(defs).size, defs.length, 'each key listed once')
+	assert.equal(defs.length, 4 * 4 + 1, 'four keys with no link named, four for each of three links, and the answer key')
+	for (const what of ['last10', 'pause', 'play', 'restart']) {
+		assert.equal(self.presets[`playout_vt_${what}`].steps[0].down[0].options.link, '', `playout_vt_${what} names no link`)
+		assert.equal(self.presets[`playout_link_vt_${what}`].steps[0].down[0].options.link, 'vt', `playout_link_vt_${what} names vt`)
+	}
+})
+
+test('2.20 vt_link: the variable, the feedback and its recheck follow the frame\'s playout row', async () => {
+	const st = await import('../dist/state.js')
+	const { UpdateFeedbacks } = await import('../dist/feedbacks.js')
+	const linked = snap({ playout: { title: 'Intro', remaining: 42, duration: 90, running: true, source: 'PlayMap', link: 'stage-left', node: 'a1b2c3d4' } })
+	const vmix = snap({ playout: { title: 'Sizzle', remaining: 12, duration: 30, running: false, source: 'vMix', link: '', node: '' } })
+	const v = st.deriveVariables(linked, true)
+	assert.equal(v.vt_link, 'stage-left')
+	assert.equal(v.vt_source, 'PlayMap')
+	assert.equal(v.vt_title, 'Intro')
+	assert.equal(st.deriveVariables(vmix, true).vt_link, '')
+	assert.equal(st.deriveVariables(snap({ playout: null }), true).vt_source, '')
+	assert.equal(st.vtFrom(linked, 'stage-left'), true)
+	assert.equal(st.vtFrom(linked, 'patterns'), false)
+	assert.equal(st.vtFrom(linked, ''), true, 'any link')
+	assert.equal(st.vtFrom(linked, 'vmix'), false)
+	assert.equal(st.vtFrom(vmix, 'vmix'), true)
+	assert.equal(st.vtFrom(vmix, 'vmix', true), false, 'not running')
+	assert.equal(st.vtFrom(vmix, ''), false, "vMix's clip is no link's")
+	assert.equal(st.vtFrom(snap({ playout: { title: 'Old', remaining: 5, duration: 9, running: true, source: 'Patterns' } }), ''), true, 'a frame before 2.20 names no link: a Patterns clip is still a link\'s')
+	assert.equal(st.vtFrom(snap({ playout: null }), ''), false)
+	// Its last N seconds: 42 left is not in the last 10, 5 left is; 0 is always.
+	assert.equal(st.vtFrom(linked, 'stage-left', true, 10), false)
+	assert.equal(st.vtFrom(linked, 'stage-left', true, 60), true)
+	assert.equal(st.vtFrom(snap({ playout: { ...linked.playout, remaining: 5 } }), '', true, 10), true)
+	assert.equal(st.vtFrom(snap({ playout: { ...linked.playout, remaining: 5, running: false } }), '', true, 10), false, 'held: not running')
+	assert.equal(st.vtFrom(linked, 'stage-left', false, 0), true)
+	assert.ok(st.FEEDBACK_IDS.includes('vt_link'))
+	const moved = st.feedbacksAffected(linked, snap({ playout: { ...linked.playout, link: 'patterns', source: 'Patterns' } }), false)
+	assert.ok(moved.includes('vt_link') && moved.includes('vt_running') && !moved.includes('blackout'))
+	const self = fakeInstance(LICENSED)
+	self.snapshot = linked
+	UpdateFeedbacks(self)
+	const fb = self.feedbacks.vt_link
+	assert.deepEqual(fb.options[0].choices.map((c) => c.id), ['', 'vmix', 'stage-left', 'patterns'])
+	assert.equal(fb.callback({ options: { link: 'Stage-Left', running: true } }), true, 'a button saved without the last option')
+	assert.equal(fb.callback({ options: { link: 'vmix', running: false } }), false)
+	assert.equal(fb.callback({ options: { link: 'stage-left', running: true, last: 10 } }), false, '42 s left')
+	assert.equal(fb.callback({ options: { link: 'stage-left', running: true, last: 60 } }), true)
+	assert.ok(fb.options.some((o) => o.id === 'last' && o.default === 0))
+})
+
+test('2.20 the config\'s playout links are read as Stagewatch names them, and the licence rule', async () => {
+	const st = await import('../dist/state.js')
+	assert.equal(st.readPlayoutLinks(undefined), undefined)
+	assert.deepEqual(st.readPlayoutLinks([{ name: 'stage-left', kind: 'playmap', label: 'PlayMap Stage left' }, { name: 'Bad Name' }, null, { name: 'foh' }]), [
+		{ name: 'stage-left', kind: 'playmap', label: 'PlayMap Stage left' },
+		{ name: 'foh', kind: '', label: 'foh' },
+	])
+	assert.equal(st.playoutOffered(LICENSED, true), true)
+	assert.equal(st.playoutOffered({ ...LICENSED, features: ['ndi'] }, true), false)
+	assert.equal(st.playoutOffered({ ...LICENSED, playoutLinks: undefined }, true), false)
+	assert.equal(st.playoutOffered(st.EMPTY_CONFIG, false), true)
+	assert.ok(st.FEATURE_CHOICES.some((f) => f.id === st.PLAYOUT_FEATURE && /playout/.test(f.label)))
+})
+
+test('2.20 receipt lines: stage, words, and final only after an accepted', () => {
+	assert.deepEqual(parseReceipt('OK @c1 accepted PlayMap Stage left: starting Intro', false), { id: 'c1', ok: true, stage: 'accepted', final: false, words: 'PlayMap Stage left: starting Intro' })
+	assert.deepEqual(parseReceipt('OK @c1 final applied PlayMap Stage left took PLAYLIST GO pl1 it1 (playing Intro)', true), {
+		id: 'c1', ok: true, stage: 'applied', final: true, words: 'PlayMap Stage left took PLAYLIST GO pl1 it1 (playing Intro)',
+	})
+	assert.deepEqual(parseReceipt('ERROR @c2 final PlayMap Stage left refused PLAYLIST GO pl1 it9: no item', true), { id: 'c2', ok: false, stage: '', final: true, words: 'PlayMap Stage left refused PLAYLIST GO pl1 it9: no item' })
+	assert.equal(parseReceipt('ERROR @c3 final answer withheld', false).final, false, 'the word final is a follow-up only after an accepted')
+	assert.equal(parseReceipt('ERROR @c3 final answer withheld', false).words, 'final answer withheld')
+	assert.deepEqual(parseReceipt('OK @c4', false), { id: 'c4', ok: true, stage: '', final: false, words: '' })
+	assert.equal(parseReceipt('OK PONG 1 2 3', false), null)
+	assert.equal(parseReceipt('ERROR bad duration', false), null)
+	const r = (o) => ({ id: 'c1', line: 'PLAYOUT stage-left go pl1 it1', kind: 'answered', ok: true, stage: 'applied', final: false, words: '', wasAccepted: false, ...o })
+	assert.equal(receiptWords(r({ words: 'PlayMap Stage left took PLAYLIST GO pl1 it1' })), 'applied — PlayMap Stage left took PLAYLIST GO pl1 it1')
+	assert.equal(receiptWords(r({ final: true, stage: 'accepted', words: 'unconfirmed — no answer' })), 'final accepted — unconfirmed — no answer')
+	assert.equal(receiptWords(r({ ok: false, stage: '', words: 'playout from another machine over Companion TCP needs its address' })), 'refused — playout from another machine over Companion TCP needs its address')
+	assert.equal(receiptWords(r({ stage: '' })), 'ok')
+	assert.match(receiptWords(r({ kind: 'lost', ok: false, stage: '' })), /^no answer — the link to Stagewatch dropped first, so it may or may not have run/)
+	const afterAccepted = receiptWords(r({ kind: 'lost', ok: false, stage: '', wasAccepted: true }))
+	assert.match(afterAccepted, /^accepted; the link to Stagewatch dropped before any final answer came/)
+	assert.doesNotMatch(afterAccepted, /lost|owed/, 'never says a final answer was owed: Stagewatch sends none to an accepted it ran itself')
+	// playout_answer: the latest press's answer as its words; an earlier press's names its line first.
+	const late = r({ id: 'c1', words: 'PlayMap Stage left took PLAYLIST GO pl1 it1', final: true })
+	assert.equal(answerShown(late, 'c1'), 'final applied — PlayMap Stage left took PLAYLIST GO pl1 it1')
+	assert.equal(answerShown(late, 'c2'), 'PLAYOUT stage-left go pl1 it1: final applied — PlayMap Stage left took PLAYLIST GO pl1 it1')
+	assert.equal(answerShown(late, null), 'PLAYOUT stage-left go pl1 it1: final applied — PlayMap Stage left took PLAYLIST GO pl1 it1', 'the latest press was not sent')
+})
+
+/** A Stagewatch that answers each `@id PLAYOUT …` as `answer(line)` says (lines to write back, or nothing), and records what came. */
+function answering(received, answer) {
+	return (s) => {
+		s.setEncoding('utf8')
+		s.write(`READY stagewatch/2\nSNAPSHOT ${JSON.stringify(snap())}\n`)
+		let buf = ''
+		s.on('data', (d) => {
+			buf += d
+			let i
+			while ((i = buf.indexOf('\n')) >= 0) {
+				const line = buf.slice(0, i)
+				buf = buf.slice(i + 1)
+				if (line.startsWith('PING')) s.write(line.replace('PING', 'PONG') + '\n')
+				else if (line !== 'SUBSCRIBE JSON') {
+					received.push(line)
+					for (const out of answer(line, s)) s.write(out + '\n')
+				}
+			}
+		})
+	}
+}
+
+test('2.20 a press with a request id: the peer\'s answer, its final follow-up, a refusal at the door and a lost answer each reach one receipt', async () => {
+	const received = []
+	const srv = await fakeServer(
+		answering(received, (line, s) => {
+			const id = line.slice(1, line.indexOf(' '))
+			if (line.endsWith('go pl1 it1')) return [`OK @${id} accepted PlayMap Stage left: starting Intro`, 'OK @zz9 applied not ours', `OK @${id} final applied PlayMap Stage left took PLAYLIST GO pl1 it1 (playing Intro)`]
+			if (line.endsWith('cue pl1 it2'))
+				return [`OK @${id} accepted sent to PlayMap Stage left — waiting for its answer`, `OK @${id} final accepted unconfirmed — PlayMap Stage left took it and gave no final answer in 30 s — it may have run; look at its state`]
+			if (line.endsWith('PATTERNS PAUSE')) return [`ERROR @${id} patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive playout (Companion TCP carries no PIN)`]
+			if (line.endsWith('restart')) {
+				setTimeout(() => s.destroy(), 30) // the link drops before any answer
+				return []
+			}
+			return [`OK @${id} applied done`]
+		}),
+	)
+	const c = new StagewatchConnection('127.0.0.1', srv.port, FAST)
+	const receipts = []
+	const errors = []
+	c.on('receipt', (r) => receipts.push(r))
+	c.on('protocolError', (m) => errors.push(m))
+	try {
+		assert.equal(c.request('PLAYOUT pause'), null, 'not connected: nothing sent, nothing queued')
+		c.start()
+		await waitFor(c, 'status', (s) => s.kind === 'connected')
+		const go = c.request('PLAYOUT stage-left go pl1 it1')
+		await waitFor(c, 'receipt', (r) => r.id === go && r.final)
+		assert.deepEqual(
+			receipts.map((r) => [r.id, r.kind, r.ok, r.stage, r.final, r.words, r.line]),
+			[
+				[go, 'answered', true, 'accepted', false, 'PlayMap Stage left: starting Intro', 'PLAYOUT stage-left go pl1 it1'],
+				[go, 'answered', true, 'applied', true, 'PlayMap Stage left took PLAYLIST GO pl1 it1 (playing Intro)', 'PLAYOUT stage-left go pl1 it1'],
+			],
+		)
+		assert.deepEqual(errors, [], "an answer to an id this connection never sent is no one's receipt and no error")
+		const pause = c.request('PATTERNS PAUSE')
+		const refused = await waitFor(c, 'receipt', (r) => r.id === pause)
+		assert.equal(refused.ok, false)
+		assert.match(refused.words, /^patterns from another machine over Companion TCP needs its address/)
+		assert.deepEqual(errors, [], 'a refusal of a line sent with an id is its receipt, not a protocol error')
+		const cue = c.request('PLAYOUT stage-left cue pl1 it2')
+		const unconfirmed = await waitFor(c, 'receipt', (r) => r.id === cue && r.final)
+		assert.deepEqual([unconfirmed.ok, unconfirmed.stage], [true, 'accepted'], "Stagewatch's own final word: still only accepted, never applied")
+		assert.match(receiptWords(unconfirmed), /^final accepted — unconfirmed — PlayMap Stage left took it/)
+		const restart = c.request('PLAYOUT stage-left restart')
+		const lost = await waitFor(c, 'receipt', (r) => r.id === restart)
+		assert.deepEqual([lost.kind, lost.ok, lost.line], ['lost', false, 'PLAYOUT stage-left restart'])
+		assert.deepEqual(receipts.filter((r) => r.kind === 'lost').map((r) => r.id), [restart], 'a line answered for good is never lost after')
+		assert.deepEqual(received, [`@${go} PLAYOUT stage-left go pl1 it1`, `@${pause} PATTERNS PAUSE`, `@${cue} PLAYOUT stage-left cue pl1 it2`, `@${restart} PLAYOUT stage-left restart`])
+		assert.match(go, /^c\d+$/)
+		assert.notEqual(go, pause)
+	} finally {
+		c.destroy()
+		await srv.close()
+	}
+})
+
+test('2.20 lines waiting for an answer are bounded: the oldest is forgotten, never resent', async () => {
+	const received = []
+	const srv = await fakeServer(answering(received, () => []))
+	const c = new StagewatchConnection('127.0.0.1', srv.port, FAST)
+	try {
+		c.start()
+		await waitFor(c, 'status', (s) => s.kind === 'connected')
+		const ids = []
+		for (let i = 0; i <= MAX_PENDING; i++) ids.push(c.request(`PLAYOUT seek ${i}`))
+		await new Promise((r) => setTimeout(r, 100))
+		assert.equal(received.length, MAX_PENDING + 1, 'each sent once')
+		const lost = []
+		c.on('receipt', (r) => lost.push(r.id))
+		for (const s of srv.sockets) s.destroy()
+		await waitFor(c, 'status', (s) => s.kind === 'disconnected')
+		assert.equal(lost.length, MAX_PENDING, 'one lost receipt for each line still waiting')
+		assert.ok(!lost.includes(ids[0]), 'the oldest was forgotten when the 65th went')
+	} finally {
+		c.destroy()
+		await srv.close()
+	}
+})
+
+test('2.20 an accepted with no follow-up: settled by unconfirmed, forgotten after FINAL_WAIT_MS, and a drop never says a final was owed', async () => {
+	const received = []
+	const srv = await fakeServer(
+		answering(received, (line) => {
+			const id = line.slice(1, line.indexOf(' '))
+			// Stagewatch's show thread missed its 3 s deadline: a bare accepted, and no follow-up ever.
+			if (line.endsWith('PATTERNS PAUSE')) return [`OK @${id} accepted`]
+			// A peer's first answer was unconfirmed: Stagewatch already knows no final is coming, and sends none.
+			if (line.endsWith('cue pl1 it2')) return [`OK @${id} accepted unconfirmed — no answer from PlayMap Stage left in 30 s — it may have run · cued`]
+			// A peer took it and will answer later: accepted, its final still to come.
+			if (line.endsWith('go pl1 it1')) return [`OK @${id} accepted PlayMap Stage left: starting Intro`]
+			return [`OK @${id} applied done`]
+		}),
+	)
+	let clock = 1_000_000
+	const c = new StagewatchConnection('127.0.0.1', srv.port, FAST, () => clock)
+	const receipts = []
+	c.on('receipt', (r) => receipts.push(r))
+	try {
+		c.start()
+		await waitFor(c, 'status', (s) => s.kind === 'connected')
+		// An accepted with no follow-up coming (the show thread's deadline), older than FINAL_WAIT_MS when the link drops, and a newer
+		// press answered applied: the drop reports neither.
+		const stale = c.request('PATTERNS PAUSE')
+		await waitFor(c, 'receipt', (r) => r.id === stale)
+		clock += FINAL_WAIT_MS - 10000
+		const newer = c.request('PLAYOUT stage-left play')
+		await waitFor(c, 'receipt', (r) => r.id === newer)
+		const unconfirmed = c.request('PLAYOUT stage-left cue pl1 it2')
+		await waitFor(c, 'receipt', (r) => r.id === unconfirmed)
+		// A fresh accepted whose final may still come: the drop reports it, in words that claim no final was owed.
+		const fresh = c.request('PLAYOUT stage-left go pl1 it1')
+		await waitFor(c, 'receipt', (r) => r.id === fresh)
+		clock += 10001 // the stale line is now past FINAL_WAIT_MS; the fresh one is 10 s old
+		const before = receipts.length
+		for (const s of srv.sockets) s.destroy()
+		await waitFor(c, 'status', (s) => s.kind === 'disconnected')
+		const lost = receipts.slice(before)
+		assert.deepEqual(lost.map((r) => [r.id, r.kind, r.wasAccepted]), [[fresh, 'lost', true]], 'only the fresh accepted is reported; the stale and the settled ones are not')
+		assert.equal(receiptWords(lost[0]), 'accepted; the link to Stagewatch dropped before any final answer came (look at Stagewatch)')
+		assert.equal(answerShown(lost[0], newer).startsWith('PLAYOUT stage-left go pl1 it1: '), true, "an earlier press's answer never reads as the newer press's")
+		assert.deepEqual(
+			receipts.filter((r) => r.id === unconfirmed).map((r) => [r.stage, r.final, r.words.startsWith('unconfirmed')]),
+			[['accepted', false, true]],
+			'the unconfirmed first answer is its one receipt',
+		)
+	} finally {
+		c.destroy()
+		await srv.close()
+	}
+})

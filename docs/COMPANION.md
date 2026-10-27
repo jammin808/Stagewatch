@@ -42,9 +42,12 @@ Stagewatch (single authority)                         Companion module
 
 **Module side:**
 - Reconnects forever with backoff from 1 s up to 10 s.
-- Sends a `PING <n>` heartbeat every 4 s and declares the link dead after 12 s of silence, so a pulled cable or a sleeping laptop is caught quickly.
+- Sends a `PING <n>` heartbeat every 2 s and declares the link dead after 12 s of silence, so a pulled cable or a sleeping laptop is caught quickly.
 - Offline, the timer variables read `OFFLINE` instead of freezing on a stale time.
 - Presses made while offline are dropped, because replaying a stale START/NEXT after a reconnect could disrupt a show.
+- A press that drives another app's air (`PLAYOUT …`, `PATTERNS …`) goes with a request id, and Stagewatch's answer to it is read
+  and shown, never assumed (2.20, below). At most 64 such lines wait for an answer at once (the oldest is forgotten, never resent),
+  none longer than 40 s.
 - Free mode is reported as *Insufficient permissions* along with the reason, and retries only every 30 s.
 
 ## Protocol
@@ -102,7 +105,7 @@ button is recording.
 | `AUX`, `SCREEN` | Extra timers and browser screens (2.8; see REMOTE.md). Module: *Extra timer* actions and keys, `aux_1`…`aux_3` variables, *Screens: send / identify*. From 2.18 screen commands reach browser screens only (below) |
 | `UNDO`, `REDO`, `ENDOFSHOW <HH:MM\|clear>`, `LOOP <off\|n\|forever>`, `SCREEN RELOAD\|DISCONNECT [screen]` | 2.10. Module: *Undo the last live edit*, *Redo*, *Running order: show ends at*, *Running order: loop*, *Screens: reload / disconnect* |
 | `WINDOW NEW\|SHOW\|CUE\|HOLD\|RELEASE\|IDENTIFY\|RELOAD\|LOSS\|FADE\|RENAME\|REVOKE\|DELETE …` | Windows Stagewatch controls (2.17; see REMOTE.md). Module: *Windows: show a page* (show or cue), *Windows: holding page* (on, toggle, words, image), *Windows: release*, *Windows: identify*; presets *holding page on every window (toggle)* and *identify all*. No window feedbacks yet: the module's frame doesn't carry windows |
-| `PLAYOUT [<link>] END [secs]\|RESTART\|PLAY\|PAUSE\|STOP\|SEEK <m:ss>`, `PLAYOUT <link> GO\|CUE …`, `PATTERNS …` | The clip on air, a PlayMap node's playlist items and a Patterns desk's cues over Stagewatch's playout links (2.20; see REMOTE.md), from this PC or an address in May drive playout. Module: the *Patterns* actions send `PATTERNS …` with no request id; playout link actions are a later release |
+| `PLAYOUT [<link>] END [secs]\|RESTART\|PLAY\|PAUSE\|STOP\|SEEK <m:ss>`, `PLAYOUT <link> GO\|CUE …`, `PATTERNS …` | The clip on air, a PlayMap node's playlist items and a Patterns desk's cues over Stagewatch's playout links (2.20; see REMOTE.md), from this PC or an address in May drive playout. Module (2.20): *Playout: the clip on air*, *Playout: GO*, *Playout: cue* and the *Patterns* actions, each sent with a request id; `vt_link`, `vt_source` and `playout_answer`; the *Playout: The VT comes from…* feedback; the *Playout links* presets (below) |
 | `STATE`, `SUBSCRIBE [JSON]`, `UNSUBSCRIBE`, `PING`, `QUIT` | Session |
 
 **Screen commands reach browsers only (2.18).** `SCREEN IDENTIFY|RELOAD|DISCONNECT|GO` with no screen, or `all`, reach
@@ -125,8 +128,34 @@ the send — the node's final word, never a later accepted; when it gives none b
 unconfirmed — PlayMap Stage left took it and gave no final answer in 30 s — it may have run; look at its state`. A line
 Stagewatch refuses from the peer's own facts (a Patterns
 playlist item's pause, a PlayMap playlist not idle for a CUE) is `ERROR @c1 <why>`, and nothing reaches the peer. A client
-that reads `OK @id` lines takes `final` after the id as the follow-up's mark; the module sends these lines with no id, so it
-reads none of them.
+that reads `OK @id` lines takes `final` after the id as the follow-up's mark, as the module does (below).
+
+**The module's playout keys (2.20).** Three actions drive Stagewatch's playout links: *Playout: the clip on air* (`PLAYOUT
+[<link>] play|pause|stop|restart|end <s>|seek <m:ss>`), *Playout: GO* (`PLAYOUT [<link>] go <playlist> [<item>] [together]` for a
+PlayMap node, `go <cue>` for a Patterns desk) and *Playout: cue* (`cue <playlist> <item>`, or `cue <cue>`). The link is picked
+from the config's `playoutLinks` (by name, its peer's name beside it) or typed; none named sends no link, so Stagewatch takes the
+only link switched on, else (for the clip on air) the link feeding the VT, and otherwise refuses, naming the links. They exist
+when the config carries `playoutLinks` (Stagewatch 2.20 or later) and the licence carries playout (`features` holds `vmix`); an
+empty list keeps them, so with every link switched off a press is refused in Stagewatch's words rather than doing nothing; before
+any `CONFIG` they stay, so a button keeps its action while Stagewatch is away. A name Stagewatch would read as an action, `trust`
+or another integration's name is refused in the module, never sent (`PLAYOUT go pause` would GO a cue called pause); a playlist,
+item or cue with a space or a quote mark is quoted; one called `together`, last, is refused (the word asks for a GO together).
+Each of these lines, and each *Patterns* action's, is sent as `@c<n> <line>`, and what comes back is one line in the connection's
+log and in `$(stagewatch:playout_answer)`: `applied — PlayMap Stage left took …`, `accepted — …` then `final applied — …` (or
+`final accepted — unconfirmed …`, Stagewatch's own word when the node gave none), `refused — <why>` — the playout gate's words
+from a PC not in May drive playout among them — or, when the link drops before the answer, `no answer — the link to Stagewatch
+dropped first, so it may or may not have run`, and after an `accepted`, `accepted; the link to Stagewatch dropped before any final
+answer came`. An `accepted` whose words begin `unconfirmed` is settled (Stagewatch sends no follow-up to it), and a line sent more
+than 40 s ago is forgotten without a word, since no answer to it can still come. In the variable, an earlier press's late answer
+names its line before its words. A press while offline is dropped and says so; nothing is queued. `vt_link` is the frame's
+`playout.link` (empty for vMix or none), `vt_source` its `source`; the feedback *Playout: The VT comes from…* lights a key while a
+link (any link, or vMix) feeds the VT, optionally only while it runs or in its last N seconds. The *Playout links* preset section
+has last 10 s, pause, play and restart with no link named (the only link switched on, else the one feeding the VT) and for each
+link — blue while what the key reaches feeds the VT, red in that clip's last 10 s, never for vMix's, grey without the licence —
+and a key showing the last answer. [`companion-module/test/playout-lines.tsv`](../companion-module/test/playout-lines.tsv) holds
+the module's lines to this grammar from both ends: the module's tests press every action and expect exactly its line, and the
+suite reads each line as this server does (tokenized, then the shared grammar) and expects its kind and arguments, and agrees with
+the module on every name a link may not take.
 
 Bad input gets `ERROR <reason>` and the connection stays open.
 

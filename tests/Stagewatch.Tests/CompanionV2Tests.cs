@@ -46,6 +46,54 @@ static class CompanionV2Tests
         lock (bridge.Messages) Check(bridge.Messages.Any(m => m.Item1 == "Wrap up" && m.Item2 == MessageUrgency.Warning), "companion: MESSAGE still works");
     }
 
+    /// <summary>
+    /// The Companion module's playout lines, held to this grammar from Stagewatch's end: <c>companion-module/test/playout-lines.tsv</c>
+    /// is the file the module's own tests press every action against. Each press row's line is read as the Companion server reads a
+    /// line with a request id (tokenized, then the shared grammar) and must give the row's kind, packed arguments and number; each name
+    /// row must agree with <see cref="PlayoutRules.NameProblem"/>, and every word this grammar keeps from links has a row the module
+    /// refuses — so a reserved name or action added here fails until the module learns it.
+    /// </summary>
+    public static void ModuleLines(Action<bool, string> Check)
+    {
+        var master = ShowBusSpecTests.Master();
+        var path = master is null ? null : Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(master)!)!, "companion-module", "test", "playout-lines.tsv");
+        Check(path is not null && File.Exists(path), "companion module lines: companion-module/test/playout-lines.tsv is there");
+        if (path is null || !File.Exists(path)) return;
+        var rows = File.ReadAllLines(path).Where(l => l.Length > 0 && !l.StartsWith('#')).Select(l => l.Split('\t')).ToList();
+        int presses = 0, names = 0;
+        foreach (var r in rows)
+        {
+            switch (r[0])
+            {
+                case "name":
+                    names++;
+                    Check((PlayoutRules.NameProblem(r[1].ToLowerInvariant()) is null) == (r[2] == "ok"), $"companion module lines: {r[1]} {(r[2] == "ok" ? "names" : "can't name")} a playout link here too");
+                    break;
+                case "press":
+                {
+                    presses++;
+                    var tokens = Stagewatch.Companion.CompanionProtocol.Tokenize("@c1 " + r[3]);
+                    var read = tokens.Count > 1 && tokens[0] == "@c1"
+                        && ShowCommandParser.TryParse(tokens[1], tokens.Skip(2).ToList(), out var cmd, out _)
+                        ? cmd : (ShowCommand?)null;
+                    var said = read is { } c ? $"{c.Kind}\t{(c.Text ?? "").Replace('\u0001', '|')}\t{c.Number.ToString(System.Globalization.CultureInfo.InvariantCulture)}" : "not read";
+                    Check(said == $"{r[4]}\t{r[5]}\t{r[6]}", $"companion module lines: {r[3]} reads as {r[4]} {r[5]} {r[6]} ({said})");
+                    Check(read is { } d && PlayoutGate.Drives(d.Kind), $"companion module lines: {r[3]} drives another app's air, so the playout gate guards it");
+                    break;
+                }
+                case "refuse":
+                    break;
+                default:
+                    Check(false, $"companion module lines: a row of kind {r[0]}");
+                    break;
+            }
+        }
+        Check(presses >= 20 && names >= 20, $"companion module lines: {presses} presses and {names} names read");
+        var refused = rows.Where(r => r[0] == "name" && r[2] == "no").Select(r => r[1]).ToHashSet(StringComparer.Ordinal);
+        var kept = PlayoutRules.Actions.Concat(PlayoutRules.Reserved).Append(PlayoutRules.TrustWord).Where(w => !refused.Contains(w)).ToList();
+        Check(kept.Count == 0, $"companion module lines: every word kept from links has a name row the module refuses ({string.Join(", ", kept)})");
+    }
+
     static async Task<string?> ReadLine(StreamReader r)
     {
         using var cts = new CancellationTokenSource(2000);

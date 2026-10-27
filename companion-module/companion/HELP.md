@@ -67,7 +67,7 @@ When you change the running order or presets in Stagewatch, the keys, dropdowns 
 - **Clock mode is…**, **Blackout is on**, **A message is showing** (filter by urgency).
 - **Item is current**, **Item is finished**, **Preset is loaded**.
 - **Behind schedule by at least…** and **Connected to Stagewatch** (invert it to light a key when the link is down).
-- **2.0:** **Speaker message is…** (waiting / acknowledged), **A cue is waiting** (any or one target; only unanswered), **Department is…** (standby / standing by / GO / done / clear), **Curfew margin below…**, **Item expected late by…**, **Assistant has a suggestion**, **Elastic is stretching**, **PC clock is off**, **Cue label is…**, **Pace against rehearsal**, **Video is running** (optionally its last N seconds), **Briefing preview**, **Questions waiting**, **A room is late**.
+- **2.0:** **Speaker message is…** (waiting / acknowledged), **A cue is waiting** (any or one target; only unanswered), **Department is…** (standby / standing by / GO / done / clear), **Curfew margin below…**, **Item expected late by…**, **Assistant has a suggestion**, **Elastic is stretching**, **PC clock is off**, **Cue label is…**, **Pace against rehearsal**, **Video is running** (vMix's or a playout link's clip; optionally its last N seconds), **Briefing preview**, **Questions waiting**, **A room is late**.
 - **2.2:** **Output window is…** (open / full / keyed / mini / closed), **NDI is sending**, **Live item is a…** (talk, panel, Q&A, break…), **Item has been trimmed** (cut / extended; item 0 = live), and **Licence: feature not included** — dims a key when your Stagewatch licence doesn't include that feature (the built-in presets already use it, so Production-only keys show grey on a Pro licence).
 - **Value feedbacks:** *Seconds remaining* and *Percent left* — for expressions and layered graphics (the timer ring uses them).
 
@@ -88,6 +88,17 @@ When you change the running order or presets in Stagewatch, the keys, dropdowns 
 - **Per department:** `dept_name_N`, `dept_<name>` (clear / standby / standby_ack / go / go_ack)
 
 (Replace `stagewatch` with your connection's label.)
+
+### New in 2.20: playout links (Patterns desks and PlayMap nodes)
+
+Stagewatch drives the clip on air, a PlayMap node's playlist items and a Patterns desk's cues over its playout links (set up in Stagewatch's Settings → Integrations). These actions and keys appear when Stagewatch is 2.20 or later and its licence carries playout (Production). With no link switched on they stay, and Stagewatch refuses a press in its own words (on the log and the answer key).
+
+- **Playout: the clip on air** — play, pause, stop, restart, jump to its last seconds, or move to a point. Pick a link, or none for the only link (with several, the one feeding the VT); a link's name can also be typed.
+- **Playout: GO** — on a PlayMap node a playlist and its item (the playlist's next item when the item is empty); on a Patterns desk a cue, in the item field. **Together** starts every link's GO asked together at one instant, where each one's clock allows. With two links, name one.
+- **Playout: cue** — a PlayMap playlist's item (only while that playlist is idle: a cued item shows its first frame on air), or a Patterns cue to that desk's own standby.
+- **Every answer is shown.** Each press goes with a request id, and what Stagewatch answers — a refusal at its door (for example from a PC not listed in Settings → Remote → May drive playout), the peer's own words, the final answer of a peer that runs it later, or "no answer" when the link dropped first — is a line in this connection's log and in `$(stagewatch:playout_answer)` (an earlier press's late answer names its line there). A press is never reported as done unless Stagewatch said so. The *Patterns* actions answer the same way.
+- **Feedback:** *Playout: The VT comes from…* (a link, any link, or vMix; optionally only while it runs, or only in its last N seconds). **Variables:** `vt_link` (the link feeding the VT), `vt_source` (vMix, Patterns or PlayMap), `playout_answer`.
+- **Presets:** the *Playout links* section — last 10 s, pause, play and restart with no link named (the only link switched on, else the one feeding the VT) and for each link: blue while what the key reaches feeds the VT, red in that clip's last 10 s, grey on a licence without playout. A vMix clip lights none of them, since no playout press reaches vMix. And a key showing the last answer.
 
 ### New in 2.6: the 3D egg timer
 

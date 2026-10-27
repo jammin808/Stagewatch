@@ -372,6 +372,24 @@ running app on a network: two copies of one install for the conflict, an old cer
   among those at most 10 s old" differs from 13.11.3, which is followed).
   None of the desk's side (the advice, the turn's end, the show-clock times in the rows) has been walked on Windows (`pwsh
   tools\smoke.ps1`).
+  *Since then (SW20.12):* the Companion module drives the playout links: *Playout: the clip on air* (play, pause, stop, restart,
+  its last seconds, seek), *Playout: GO* (a PlayMap playlist's item — its next with none named — or a Patterns cue; `together`)
+  and *Playout: cue*, each with a link from the config's `playoutLinks` or typed (none named: the only link switched on, else for
+  the clip on air the one feeding the VT). They exist where the config carries `playoutLinks` (2.20 on; an empty list keeps them,
+  so a press with every link off is refused in Stagewatch's words) and the licence carries playout, and stay until a first
+  `CONFIG` says otherwise. A link name the grammar would read as an action, `trust` or another integration's is refused in the
+  module, never sent. Every playout line, and every *Patterns* action's, goes with a request id: Stagewatch's answer — the gate's
+  refusal from a PC not in May drive playout, the peer's own words, the `final` follow-up, or "no answer" when the link dropped
+  first — is one line in the connection's log and the `playout_answer` variable, never a done the module did not hear; at most 64
+  wait for an answer, none past 40 s (an `accepted` whose words begin `unconfirmed` waits for nothing), and a drop never reports a
+  final answer as owed. The frame's `playout.link` and `source` are `vt_link` and `vt_source`; the *Playout: The VT comes from…*
+  feedback lights a key while a link (any, or vMix) feeds the VT, and the *Playout links* presets give each link, and a press with
+  no link named, its transport keys — lit by what the press reaches, never by vMix's clip — and an answer key.
+  `companion-module/test/playout-lines.tsv` holds the module's lines to the grammar from both ends (the module's tests press every
+  action against it; the suite reads every line as the Companion server does). Left: Companion itself has not loaded these
+  definitions here — the module's tests and `companion-module-check` ran, a deck has not (the maintainer's PC); the module reads
+  no `INDEX` or `CUE LIST`, so GO and cue take ids or names typed, not picked (the desk's pickers are SW20.11's); and a press's
+  answer reaches the log and one variable, not a feedback of its own button.
 - **Find still listens on Patterns' beacon.** Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled:
   the release after that walk row is filled takes it. Find already reads a hello's `ports.wire` (else the top-level `wire` older
   senders give) and hears PlayMap's hello as well as Patterns', so a desk that names its wire only in `ports` is listed; Settings'

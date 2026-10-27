@@ -99,7 +99,8 @@ export interface Snapshot {
 	signals?: SignalInfo[]
 	slides?: { slide: number; count: number; next: string; notes: string; ghost: number; projected: number; pace: string; rehearsing: boolean } | null
 	speech?: { percent: number; wpm: number; projected: number | null; listening: boolean } | null
-	playout?: { title: string; remaining: number; duration: number; running: boolean; source: string } | null
+	/** The clip feeding the VT countdown: vMix's, or a playout link's (2.20: `link` names it, `node` is its peer's Show Bus id). */
+	playout?: { title: string; remaining: number; duration: number; running: boolean; source: string; link?: string; node?: string } | null
 	qaLive?: string
 	qaPending?: number
 	qaQueued?: number
@@ -169,6 +170,53 @@ export interface ShowConfig {
 	features?: string[]
 	/** 2.3: the holding-image library. */
 	holding?: { id: string; name: string }[]
+	/**
+	 * 2.20: the playout links a `PLAYOUT <link> …` line may name — each switched on under the licence (none without it), its peer's
+	 * kind once heard or set (`playmap`, `patterns`, "" while neither) and its peer as people read it. Absent from a Stagewatch older
+	 * than 2.20, whose grammar has no `PLAYOUT`.
+	 */
+	playoutLinks?: PlayoutLinkInfo[]
+}
+
+export interface PlayoutLinkInfo {
+	name: string
+	kind: string
+	label: string
+}
+
+/** The licence key that carries playout (Stagewatch's FeatureGate.AllowsPlayout): the vMix VT countdown and the playout links. */
+export const PLAYOUT_FEATURE = 'vmix'
+
+/**
+ * Whether the playout actions are offered: until a CONFIG is heard (so buttons keep their actions while Stagewatch is away), then
+ * only from a Stagewatch whose grammar has `PLAYOUT` (its CONFIG carries `playoutLinks`) and whose licence carries playout. An empty
+ * list keeps them: with every link switched off a press is still Stagewatch's to refuse, in its words on the log, where an action
+ * Companion no longer knows would do nothing and say nothing.
+ */
+export function playoutOffered(config: ShowConfig, heard: boolean): boolean {
+	return !heard || (Array.isArray(config.playoutLinks) && hasFeature(config, PLAYOUT_FEATURE))
+}
+
+/** The config's playout links, each a name Stagewatch would read; anything else in the list is left out. */
+export function readPlayoutLinks(v: unknown): PlayoutLinkInfo[] | undefined {
+	if (!Array.isArray(v)) return undefined
+	return v
+		.filter((l): l is PlayoutLinkInfo => !!l && typeof l.name === 'string' && /^[a-z0-9][a-z0-9-]{0,23}$/.test(l.name))
+		.map((l) => ({ name: l.name, kind: typeof l.kind === 'string' ? l.kind : '', label: typeof l.label === 'string' && l.label ? l.label : l.name }))
+}
+
+/**
+ * Whether the clip feeding the VT comes from `from`: a link's name, `vmix`, or "" for any playout link — and, with `runningOnly`,
+ * whether it runs, and with `last` above 0, whether it is in its last `last` seconds. A frame from before 2.20 names no link: a clip
+ * whose source is not vMix then counts as a link's.
+ */
+export function vtFrom(s: Snapshot | null, from: string, runningOnly = false, last = 0): boolean {
+	const p = s?.playout
+	if (!p || (runningOnly && !p.running) || (last > 0 && !(p.remaining <= last))) return false
+	const link = p.link ?? ''
+	if (from === 'vmix') return link === '' && p.source === 'vMix'
+	if (from === '') return link !== '' || p.source !== 'vMix'
+	return link === from
 }
 
 /** Licence features Companion can check (keys sent by Stagewatch in CONFIG). */
@@ -179,7 +227,7 @@ export const FEATURE_CHOICES: { id: string; label: string }[] = [
 	{ id: 'multiroom', label: 'Multi-room (Production)' },
 	{ id: 'cuelights', label: 'Cue lights (Production)' },
 	{ id: 'timecode', label: 'LTC & time server (Production)' },
-	{ id: 'vmix', label: 'vMix VT countdown (Production)' },
+	{ id: 'vmix', label: 'vMix VT countdown & playout links (Production)' },
 	{ id: 'speech', label: 'Speech pace (Production)' },
 	{ id: 'fullreport', label: 'Full show report (Production)' },
 	{ id: 'mcp', label: 'MCP / AI tools (Production)' },
@@ -275,6 +323,8 @@ export const FEEDBACK_IDS = [
 	'aux_running',
 	'roll',
 	'rundown_live',
+	// 2.20
+	'vt_link',
 ] as const
 export type FeedbackId = (typeof FEEDBACK_IDS)[number]
 
@@ -413,6 +463,8 @@ export function deriveVariables(s: Snapshot | null, connected: boolean, config: 
 		vt_title: s.playout?.title ?? '',
 		vt_remaining: s.playout ? formatShort(s.playout.remaining) : '',
 		vt_seconds: s.playout?.remaining ?? 0,
+		vt_source: s.playout?.source ?? '',
+		vt_link: s.playout?.link ?? '',
 		// ---- schedule recovery
 		hard_out: s.hardOut ?? '',
 		hard_out_margin: s.hardOutMargin == null ? '' : signed(s.hardOutMargin),
@@ -520,7 +572,7 @@ export function feedbacksAffected(prev: Snapshot | null, next: Snapshot | null, 
 	if (!same(prev.signals, next.signals)) add('cue_waiting', 'dept_state', 'standing_by', 'message_ack')
 	if (prev.hardOutMargin !== next.hardOutMargin) add('hard_out_risk')
 	if (!same(prev.slides, next.slides)) add('pace')
-	if (!same(prev.playout, next.playout)) add('vt_running')
+	if (!same(prev.playout, next.playout)) add('vt_running', 'vt_link')
 	if (prev.preview !== next.preview) add('preview')
 	if (prev.qaPending !== next.qaPending || prev.qaQueued !== next.qaQueued) add('qa_waiting')
 	if (!same(prev.timings, next.timings)) add('item_late')

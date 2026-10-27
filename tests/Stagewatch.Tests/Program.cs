@@ -2115,6 +2115,7 @@ await ShowBusCopiesTests.Run(Check);
 PeerLinkVectors.Run(Check);
 await PeerLinkScenarios.Run(Check);
 await CompanionV2Tests.Run(Check);
+CompanionV2Tests.ModuleLines(Check);
 await PlayoutGateTests.Run(Check);
 await TriggerAuthTests.Run(Check);
 if (args.Contains("--powerpoint")) await PowerPointLiveTest.Run(Check);

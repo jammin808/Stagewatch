@@ -1,6 +1,7 @@
 import type { CompanionActionDefinitions, CompanionOptionValues, DropdownChoice } from '@companion-module/base'
 import { quote } from './connection.js'
-import { adviceCommand, formatShort, itemAdjust, latestOpenFor, liveQuestion, newestUnanswered, resolveItem } from './state.js'
+import { adviceCommand, formatShort, itemAdjust, latestOpenFor, liveQuestion, newestUnanswered, playoutOffered, resolveItem } from './state.js'
+import type { PlayoutLinkInfo } from './state.js'
 import type ModuleInstance from './main.js'
 
 const URGENCY_CHOICES: DropdownChoice[] = [
@@ -27,6 +28,90 @@ const num = (v: unknown, fallback = 0): number => {
 	return Number.isFinite(n) ? n : fallback
 }
 
+/** Stagewatch's playout actions: a first word that is one of these is an action, never a link (PlayoutRules.Actions). */
+export const PLAYOUT_ACTION_WORDS = ['end', 'restart', 'play', 'pause', 'stop', 'seek', 'cue', 'go']
+/** The word after a link that trusts its certificate — a person's choice on the desk only, never a button's. */
+const TRUST_WORD = 'trust'
+/** Names no playout link takes: the other integrations' context slugs and the assistant's (PlayoutRules.Reserved). */
+export const PLAYOUT_RESERVED = ['powerpoint', 'presenter-pcs', 'vmix', 'speech', 'time-server', 'ltc', 'ltc-in', 'cue-lights', 'triggers', 'rooms', 'assistant']
+
+/**
+ * A playout link's name as Stagewatch reads it: "" when empty (no link named: Stagewatch takes the only link switched on, else — for the clip on air — the link feeding the VT), the
+ * name in lower case, or null when it can't name a link — so a press never sends a word Stagewatch would read as an action
+ * (`PLAYOUT go pause` is a GO of a cue called pause, not a pause of a link called go).
+ */
+export const playoutLinkName = (v: string): string | null => {
+	const t = v.trim().toLowerCase()
+	if (t === '') return ''
+	if (!/^[a-z0-9][a-z0-9-]{0,23}$/.test(t)) return null
+	return PLAYOUT_ACTION_WORDS.includes(t) || t === TRUST_WORD || PLAYOUT_RESERVED.includes(t) ? null : t
+}
+
+/** A playlist, item or cue for a playout line: 1–64 characters, none a control character; quoted when it holds a space or a quote. */
+export const playoutWord = (v: string): string | null => {
+	const t = v.trim()
+	if (t.length < 1 || t.length > 64 || /[\u0000-\u001f\u007f-\u009f]/.test(t)) return null
+	return /[\s"\\]/.test(t) ? quote(t) : t
+}
+
+const LINK_WORDS = 'a playout link is named with 1 to 24 of a-z, 0-9 and -, never an action word, trust or another integration\'s name'
+
+/** `PLAYOUT [<link>] end|restart|play|pause|stop|seek …` for the clip on air, or why not (nothing is sent). */
+export function playoutTransportLine(link: string, what: string, seconds: number, at: string): { line: string } | { error: string } {
+	const name = playoutLinkName(link)
+	if (name === null) return { error: `Playout: "${link.trim()}" — ${LINK_WORDS}` }
+	const head = name ? `PLAYOUT ${name}` : 'PLAYOUT'
+	switch (what) {
+		case 'restart':
+		case 'play':
+		case 'pause':
+		case 'stop':
+			return { line: `${head} ${what}` }
+		case 'end': {
+			const n = Math.trunc(seconds)
+			return n >= 1 && n <= 3600 ? { line: `${head} end ${n}` } : { error: 'Playout: the clip jumps to its last 1–3600 seconds' }
+		}
+		case 'seek': {
+			const t = at.trim()
+			return /^(\d{1,2}:)?\d{1,2}:\d{2}$|^\d{1,5}$/.test(t) ? { line: `${head} seek ${t}` } : { error: `Playout seek: "${t}" is not a time (use m:ss)` }
+		}
+		default:
+			return { error: `Playout: "${what}" is not play, pause, stop, restart, end or seek` }
+	}
+}
+
+/**
+ * `PLAYOUT [<link>] cue|go …`: on a PlayMap node a playlist and its item (GO with no item plays the playlist's next one, as the
+ * node's STATE names it); on a Patterns desk one cue, in the item field. `together` (GO only) starts every link's GO at one
+ * instant where each one's clock allows. Which the link is, and so which words fit, is Stagewatch's to check: it refuses a line
+ * that does not fit its peer, with the words, and the log shows them.
+ */
+export function playoutStartLine(action: 'cue' | 'go', link: string, playlist: string, item: string, together: boolean): { line: string } | { error: string } {
+	const name = playoutLinkName(link)
+	if (name === null) return { error: `Playout: "${link.trim()}" — ${LINK_WORDS}` }
+	const words: string[] = []
+	for (const [v, what] of [
+		[playlist, 'playlist'],
+		[item, 'item or cue'],
+	] as const) {
+		if (v.trim() === '') continue
+		const w = playoutWord(v)
+		if (w === null) return { error: `Playout ${action === 'go' ? 'GO' : 'cue'}: the ${what} is 1–64 characters with no control character` }
+		words.push(w)
+	}
+	if (words.length === 0) return { error: action === 'cue' ? 'Playout cue: name a playlist and its item (PlayMap) or a cue (Patterns)' : 'Playout GO: name a playlist (PlayMap) or a cue (Patterns)' }
+	if (action === 'cue' && together) return { error: 'Playout cue: together is for a GO' }
+	// The word together, last, asks for a GO together: a playlist or item of that name can't be the last word.
+	if (action === 'go' && /^"?together"?$/i.test(words[words.length - 1])) return { error: 'Playout GO: a playlist or item called "together" can\'t be named from a button — the word asks for a GO together' }
+	const head = name ? `PLAYOUT ${name}` : 'PLAYOUT'
+	return { line: `${head} ${action} ${words.join(' ')}${together ? ' together' : ''}` }
+}
+
+/** The link dropdown: none named first (Stagewatch picks: the only link, else for the clip on air the VT's), then the config's links by their peers' names. */
+export function playoutLinkChoices(links: PlayoutLinkInfo[] | undefined, none: string): DropdownChoice[] {
+	return [{ id: '', label: none }, ...(links ?? []).map((l) => ({ id: l.name, label: l.label && l.label !== l.name ? `${l.name} — ${l.label}` : l.name }))]
+}
+
 export function UpdateActions(self: ModuleInstance): void {
 	const cfg = self.showConfig
 	const presetChoices: DropdownChoice[] = cfg.presets.map((p) => ({ id: p.slot, label: `${p.slot}: ${p.label}` }))
@@ -47,6 +132,18 @@ export function UpdateActions(self: ModuleInstance): void {
 	)
 
 	const send = (line: string): void => self.sendCommand(line)
+	/** A line that drives another app's air: sent with a request id, so its answer reaches the log and `playout_answer`. */
+	const playout = (line: string): void => self.sendPlayout(line)
+	const built = (r: { line: string } | { error: string }): void => {
+		if ('error' in r) {
+			self.log('warn', r.error)
+			return
+		}
+		playout(r.line)
+	}
+	const linkChoices = playoutLinkChoices(cfg.playoutLinks, 'None named: the only link, else the one feeding the VT')
+	const startLinkChoices = playoutLinkChoices(cfg.playoutLinks, 'None named: the only link')
+	const LINK_TIP = 'A playout link set up in Stagewatch (Settings → Integrations), or its name typed. From another PC the press also needs that PC\'s address in Stagewatch\'s Settings → Remote → May drive playout.'
 
 	const actions: CompanionActionDefinitions = {
 		// ---- transport
@@ -900,15 +997,16 @@ export function UpdateActions(self: ModuleInstance): void {
 		// ---- 2.10: Patterns video (Stagewatch forwards these to Patterns over its wire)
 		patterns_end: {
 			name: 'Patterns: clip to its last seconds',
-			description: 'The clip on air in Patterns jumps to its last N seconds (default 10); its end and whatever follows still play. Needs Settings → Integrations → Patterns in Stagewatch.',
+			description:
+				"The clip on air in Patterns jumps to its last N seconds (default 10); its end and whatever follows still play. Goes over Stagewatch's playout link called patterns (else its only link); Patterns' answer is in the log and $(stagewatch:playout_answer).",
 			options: [{ type: 'number', id: 'seconds', label: 'Seconds before the end', default: 10, min: 1, max: 3600 }],
-			callback: (ev) => send(`PATTERNS END ${Math.min(3600, Math.max(1, Math.trunc(num(ev.options.seconds, 10))))}`),
+			callback: (ev) => playout(`PATTERNS END ${Math.min(3600, Math.max(1, Math.trunc(num(ev.options.seconds, 10))))}`),
 		},
 		patterns_restart: {
 			name: 'Patterns: restart the clip',
 			description: 'The clip on air in Patterns plays again from the start.',
 			options: [],
-			callback: () => send('PATTERNS RESTART'),
+			callback: () => playout('PATTERNS RESTART'),
 		},
 		patterns_transport: {
 			name: 'Patterns: play / pause / stop the clip',
@@ -928,7 +1026,7 @@ export function UpdateActions(self: ModuleInstance): void {
 			],
 			callback: (ev) => {
 				const what = str(ev.options.what, 'pause')
-				if (what === 'play' || what === 'pause' || what === 'stop') send(`PATTERNS ${what.toUpperCase()}`)
+				if (what === 'play' || what === 'pause' || what === 'stop') playout(`PATTERNS ${what.toUpperCase()}`)
 			},
 		},
 		patterns_seek: {
@@ -941,7 +1039,7 @@ export function UpdateActions(self: ModuleInstance): void {
 					self.log('warn', `Patterns seek: "${at}" is not a time (use m:ss)`)
 					return
 				}
-				send(`PATTERNS SEEK ${at}`)
+				playout(`PATTERNS SEEK ${at}`)
 			},
 		},
 
@@ -978,6 +1076,59 @@ export function UpdateActions(self: ModuleInstance): void {
 				if (c) send(c)
 			},
 		},
+	}
+
+	// ---- 2.20: playout links (Patterns desks and PlayMap nodes), under the licence that runs them
+	if (playoutOffered(cfg, self.configHeard)) {
+		actions.playout_transport = {
+			name: 'Playout: the clip on air (play, pause, stop, restart, last seconds, seek)',
+			description:
+				"The clip on air on one of Stagewatch's playout links — a Patterns desk or a PlayMap node — or, with none named, on the only link switched on, else the one feeding the VT. What Stagewatch and the peer answer is in this connection's log and $(stagewatch:playout_answer): a Patterns playlist item's pause, say, is refused in Patterns' own words.",
+			options: [
+				{ type: 'dropdown', id: 'link', label: 'Link', default: '', choices: linkChoices, allowCustom: true, tooltip: LINK_TIP },
+				{
+					type: 'dropdown',
+					id: 'what',
+					label: 'Action',
+					default: 'pause',
+					disableAutoExpression: true,
+					choices: [
+						{ id: 'play', label: 'Play on' },
+						{ id: 'pause', label: 'Pause' },
+						{ id: 'stop', label: 'Stop (back to the top, held)' },
+						{ id: 'restart', label: 'Restart from the top' },
+						{ id: 'end', label: 'Jump to its last seconds' },
+						{ id: 'seek', label: 'Move to a point' },
+					],
+				},
+				{ type: 'number', id: 'seconds', label: 'Seconds before the end', default: 10, min: 1, max: 3600, isVisibleExpression: "$(options:what) == 'end'" },
+				{ type: 'textinput', id: 'at', label: 'Point in the clip (m:ss or seconds)', default: '0:00', useVariables: true, isVisibleExpression: "$(options:what) == 'seek'" },
+			],
+			callback: (ev) => built(playoutTransportLine(str(ev.options.link), str(ev.options.what, 'pause'), num(ev.options.seconds, 10), str(ev.options.at))),
+		}
+		actions.playout_go = {
+			name: 'Playout: GO (a PlayMap playlist item or a Patterns cue)',
+			description:
+				"Starts something new on a playout link's air: on a PlayMap node a playlist's item (its next one when the item is empty), on a Patterns desk a cue (in the item field, playlist empty; Patterns' own standby decides). Together starts the GOs of every link asked together at one instant, where each clock allows. With two links, name one. The peer's answer is in the log and $(stagewatch:playout_answer).",
+			options: [
+				{ type: 'dropdown', id: 'link', label: 'Link', default: '', choices: startLinkChoices, allowCustom: true, tooltip: LINK_TIP },
+				{ type: 'textinput', id: 'playlist', label: 'Playlist (PlayMap; empty for a Patterns cue)', default: '', useVariables: true },
+				{ type: 'textinput', id: 'item', label: "Item (PlayMap; empty = the playlist's next) or cue (Patterns)", default: '', useVariables: true },
+				{ type: 'checkbox', id: 'together', label: 'Together (at one instant with the other links asked together)', default: false },
+			],
+			callback: (ev) => built(playoutStartLine('go', str(ev.options.link), str(ev.options.playlist), str(ev.options.item), ev.options.together === true)),
+		}
+		actions.playout_cue = {
+			name: 'Playout: cue (a PlayMap playlist item, or a Patterns cue to standby)',
+			description:
+				"Readies the next thing on a playout link: on a PlayMap node a playlist's item, cued only while that playlist is idle (a cued item shows its first frame on air); on a Patterns desk its own standby moves to the cue. The peer's answer is in the log and $(stagewatch:playout_answer).",
+			options: [
+				{ type: 'dropdown', id: 'link', label: 'Link', default: '', choices: startLinkChoices, allowCustom: true, tooltip: LINK_TIP },
+				{ type: 'textinput', id: 'playlist', label: 'Playlist (PlayMap; empty for a Patterns cue)', default: '', useVariables: true },
+				{ type: 'textinput', id: 'item', label: 'Item (PlayMap) or cue (Patterns)', default: '', useVariables: true },
+			],
+			callback: (ev) => built(playoutStartLine('cue', str(ev.options.link), str(ev.options.playlist), str(ev.options.item), false)),
+		}
 	}
 	self.setActionDefinitions(actions)
 }

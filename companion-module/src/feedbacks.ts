@@ -1,5 +1,5 @@
 import { combineRgb, type CompanionFeedbackDefinitions, type DropdownChoice } from '@companion-module/base'
-import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, standingBy } from './state.js'
+import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, standingBy, vtFrom } from './state.js'
 import type ModuleInstance from './main.js'
 
 // Every callback reads the cached frame only: no I/O, constant time.
@@ -587,7 +587,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 		vt_running: {
 			type: 'boolean',
 			name: 'Playout: Video is running',
-			description: 'vMix clip in Program, optionally only in its last N seconds.',
+			description: "The clip feeding the VT countdown — vMix's in Program, or a playout link's on air — optionally only in its last N seconds.",
 			defaultStyle: { bgcolor: COLORS.blue, color: COLORS.white },
 			options: [{ type: 'number', id: 'last', label: 'Only in the last (seconds, 0 = always)', default: 0, min: 0, max: 86400 }],
 			callback: (fb) => {
@@ -596,6 +596,30 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				const last = Number(fb.options.last)
 				return last <= 0 || p.remaining <= last
 			},
+		},
+		vt_link: {
+			type: 'boolean',
+			name: 'Playout: The VT comes from…',
+			description:
+				"True while the clip feeding the VT countdown comes from this playout link (a Patterns desk or a PlayMap node), from any link, or from vMix — optionally only while it runs, or only in its last N seconds. $(stagewatch:vt_link) names the link.",
+			defaultStyle: { bgcolor: COLORS.blue, color: COLORS.white },
+			options: [
+				{
+					type: 'dropdown',
+					id: 'link',
+					label: 'From',
+					default: '',
+					choices: [
+						{ id: '', label: 'Any playout link' },
+						{ id: 'vmix', label: 'vMix' },
+						...(self.showConfig.playoutLinks ?? []).map((l) => ({ id: l.name, label: l.label && l.label !== l.name ? `${l.name} — ${l.label}` : l.name })),
+					],
+					allowCustom: true,
+				},
+				{ type: 'checkbox', id: 'running', label: 'Only while it runs', default: false },
+				{ type: 'number', id: 'last', label: 'Only in its last (seconds, 0 = always)', default: 0, min: 0, max: 86400 },
+			],
+			callback: (fb) => vtFrom(s(), String(fb.options.link ?? '').trim().toLowerCase(), fb.options.running === true, Number(fb.options.last ?? 0) || 0),
 		},
 		preview: {
 			type: 'boolean',

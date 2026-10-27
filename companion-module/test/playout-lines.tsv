@@ -1,0 +1,80 @@
+# The playout lines the Companion module sends, held to Stagewatch's own grammar from both ends. The module's tests press each
+# action with its options and expect exactly the line (test/module.test.mjs); Stagewatch's suite reads each line as its Companion
+# server does — tokenized, then ShowCommandParser — and expects the kind, the packed arguments (U+0001 shown as |) and the number
+# (CompanionV2Tests). A name row says whether a word may name a playout link: the module's playoutLinkName and Stagewatch's
+# PlayoutRules.NameProblem agree on every row, and every action word, trust and reserved name Stagewatch knows has a row. A refuse
+# row is a press the module answers in its log with those first words, sending nothing.
+#
+# name<TAB>word<TAB>ok|no
+# press<TAB>action<TAB>options (JSON)<TAB>line<TAB>kind<TAB>arguments<TAB>number
+# refuse<TAB>action<TAB>options (JSON)<TAB>the log's first words
+name	stage-left	ok
+name	patterns	ok
+name	foh	ok
+name	vt	ok
+name	2nd-room	ok
+name	a	ok
+name	Stage-Left	ok
+name	abcdefghijklmnopqrstuvwx	ok
+name	end	no
+name	restart	no
+name	play	no
+name	pause	no
+name	stop	no
+name	seek	no
+name	cue	no
+name	go	no
+name	trust	no
+name	powerpoint	no
+name	presenter-pcs	no
+name	vmix	no
+name	speech	no
+name	time-server	no
+name	ltc	no
+name	ltc-in	no
+name	cue-lights	no
+name	triggers	no
+name	rooms	no
+name	assistant	no
+name	-left	no
+name	stage_left	no
+name	stage.left	no
+name	abcdefghijklmnopqrstuvwxy	no
+name	café	no
+press	playout_transport	{"link": "", "what": "pause", "seconds": 10, "at": "0:00"}	PLAYOUT pause	Playout	|pause|||	0
+press	playout_transport	{"link": "stage-left", "what": "play", "seconds": 10, "at": "0:00"}	PLAYOUT stage-left play	Playout	stage-left|play|||	0
+press	playout_transport	{"link": "stage-left", "what": "stop", "seconds": 10, "at": "0:00"}	PLAYOUT stage-left stop	Playout	stage-left|stop|||	0
+press	playout_transport	{"link": "patterns", "what": "restart", "seconds": 10, "at": "0:00"}	PLAYOUT patterns restart	Playout	patterns|restart|||	0
+press	playout_transport	{"link": "", "what": "end", "seconds": 10, "at": "0:00"}	PLAYOUT end 10	Playout	|end|||	10
+press	playout_transport	{"link": "Stage-Left", "what": "end", "seconds": 30, "at": "0:00"}	PLAYOUT stage-left end 30	Playout	stage-left|end|||	30
+press	playout_transport	{"link": "stage-left", "what": "seek", "seconds": 10, "at": "1:30"}	PLAYOUT stage-left seek 1:30	Playout	stage-left|seek|||	90
+press	playout_transport	{"link": "stage-left", "what": "seek", "seconds": 10, "at": "1:02:03"}	PLAYOUT stage-left seek 1:02:03	Playout	stage-left|seek|||	3723
+press	playout_transport	{"link": "", "what": "seek", "seconds": 10, "at": "45"}	PLAYOUT seek 45	Playout	|seek|||	45
+press	playout_go	{"link": "stage-left", "playlist": "pl1", "item": "it1", "together": false}	PLAYOUT stage-left go pl1 it1	Playout	stage-left|go|pl1|it1|	0
+press	playout_go	{"link": "stage-left", "playlist": "pl1", "item": "", "together": false}	PLAYOUT stage-left go pl1	Playout	stage-left|go||pl1|	0
+press	playout_go	{"link": "stage-left", "playlist": "pl1", "item": "it1", "together": true}	PLAYOUT stage-left go pl1 it1 together	Playout	stage-left|go|pl1|it1|together	0
+press	playout_go	{"link": "patterns", "playlist": "", "item": "c0ffee12", "together": false}	PLAYOUT patterns go c0ffee12	Playout	patterns|go||c0ffee12|	0
+press	playout_go	{"link": "", "playlist": "", "item": "c0ffee12", "together": false}	PLAYOUT go c0ffee12	Playout	|go||c0ffee12|	0
+press	playout_go	{"link": "stage-left", "playlist": "Main show", "item": "Intro", "together": false}	PLAYOUT stage-left go "Main show" Intro	Playout	stage-left|go|Main show|Intro|	0
+press	playout_go	{"link": "stage-left", "playlist": "show", "item": "#4", "together": false}	PLAYOUT stage-left go show #4	Playout	stage-left|go|show|#4|	0
+press	playout_go	{"link": "stage-left", "playlist": "pl1", "item": "Say \"hi\"", "together": false}	PLAYOUT stage-left go pl1 "Say \"hi\""	Playout	stage-left|go|pl1|Say "hi"|	0
+press	playout_go	{"link": "stage-left", "playlist": "pl1", "item": "a\\b", "together": false}	PLAYOUT stage-left go pl1 "a\\b"	Playout	stage-left|go|pl1|a\b|	0
+press	playout_cue	{"link": "stage-left", "playlist": "pl1", "item": "it2"}	PLAYOUT stage-left cue pl1 it2	Playout	stage-left|cue|pl1|it2|	0
+press	playout_cue	{"link": "patterns", "playlist": "", "item": "c0ffee12"}	PLAYOUT patterns cue c0ffee12	Playout	patterns|cue||c0ffee12|	0
+press	patterns_transport	{"what": "pause"}	PATTERNS PAUSE	Patterns	pause	0
+press	patterns_transport	{"what": "stop"}	PATTERNS STOP	Patterns	stop	0
+press	patterns_end	{"seconds": 10}	PATTERNS END 10	Patterns	end	10
+press	patterns_restart	{}	PATTERNS RESTART	Patterns	restart	0
+press	patterns_seek	{"at": "1:30"}	PATTERNS SEEK 1:30	Patterns	seek	90
+refuse	playout_transport	{"link": "go", "what": "pause", "seconds": 10, "at": "0:00"}	Playout: "go"
+refuse	playout_transport	{"link": "vmix", "what": "pause", "seconds": 10, "at": "0:00"}	Playout: "vmix"
+refuse	playout_transport	{"link": "stage left", "what": "pause", "seconds": 10, "at": "0:00"}	Playout: "stage left"
+refuse	playout_transport	{"link": "stage-left", "what": "end", "seconds": 0, "at": "0:00"}	Playout: the clip jumps to its last 1–3600 seconds
+refuse	playout_transport	{"link": "stage-left", "what": "seek", "seconds": 10, "at": "soon"}	Playout seek: "soon" is not a time
+refuse	playout_transport	{"link": "stage-left", "what": "rewind", "seconds": 10, "at": "0:00"}	Playout: "rewind" is not
+refuse	playout_go	{"link": "stage-left", "playlist": "", "item": "", "together": false}	Playout GO: name a playlist
+refuse	playout_go	{"link": "stage-left", "playlist": "pl1", "item": "together", "together": false}	Playout GO: a playlist or item called "together"
+refuse	playout_go	{"link": "stage-left", "playlist": "pl1", "item": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "together": false}	Playout GO: the item or cue is 1–64 characters
+refuse	playout_go	{"link": "stage-left", "playlist": "pl\u0007", "item": "it1", "together": false}	Playout GO: the playlist is 1–64 characters
+refuse	playout_go	{"link": "trust", "playlist": "pl1", "item": "it1", "together": false}	Playout: "trust"
+refuse	playout_cue	{"link": "stage-left", "playlist": "", "item": ""}	Playout cue: name a playlist and its item

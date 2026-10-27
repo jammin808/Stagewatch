@@ -8,3 +8,4 @@
 *.wav binary
 *.sh text eol=lf
 tools/showbus/*.mjs text eol=lf
+companion-module/test/*.tsv text eol=lf
