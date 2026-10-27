@@ -1107,140 +1107,133 @@ static class ShowBusTests
     /// </summary>
     static void CertificateOnDisk(Action<bool, string> Check)
     {
-        var root = Path.Combine(Path.GetTempPath(), "sw-cert-" + Guid.NewGuid().ToString("N"));
-        try
+        using var folder = Scratch.Folder("cert", make: false);   // each case's folder is made by the files under test or by Store
+        var root = folder.Path;
+        static byte[] Seal(byte[] b) => b.Select(x => (byte)(x ^ 0x5A)).ToArray();
+        static byte[] Broken(byte[] b) => throw new System.Security.Cryptography.CryptographicException("sealed for another user");
+        var t = new DateTimeOffset(2026, 11, 2, 18, 0, 0, TimeSpan.Zero);
+        var makes = 0;
+        System.Security.Cryptography.X509Certificates.X509Certificate2 Make(DateTimeOffset now, string cn = "CN=Stagewatch disk")
         {
-            static byte[] Seal(byte[] b) => b.Select(x => (byte)(x ^ 0x5A)).ToArray();
-            static byte[] Broken(byte[] b) => throw new System.Security.Cryptography.CryptographicException("sealed for another user");
-            var t = new DateTimeOffset(2026, 11, 2, 18, 0, 0, TimeSpan.Zero);
-            var makes = 0;
-            System.Security.Cryptography.X509Certificates.X509Certificate2 Make(DateTimeOffset now, string cn = "CN=Stagewatch disk")
-            {
-                makes++;
-                var (from, to) = CertificateLife.Window(now);
-                return Made(from, to, cn);
-            }
-            static System.Security.Cryptography.X509Certificates.X509Certificate2 Made(DateTimeOffset from, DateTimeOffset to, string cn)
-            {
-                using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
-                return new System.Security.Cryptography.X509Certificates.CertificateRequest(cn, key, System.Security.Cryptography.HashAlgorithmName.SHA256).CreateSelfSigned(from, to);
-            }
-            // A pair in CertificateFiles' format, made by an older writer: its span and its password.
-            static string Store(string folder, DateTimeOffset from, DateTimeOffset to, string pw)
-            {
-                using var c = Made(from, to, "CN=Stagewatch older");
-                Directory.CreateDirectory(folder);
-                File.WriteAllBytes(Path.Combine(folder, "node.pfx"), c.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pkcs12, pw));
-                File.WriteAllBytes(Path.Combine(folder, "node.key"), Seal(Encoding.UTF8.GetBytes(pw)));
-                return c.Thumbprint;
-            }
-            static TimeSpan Span(System.Security.Cryptography.X509Certificates.X509Certificate2 c) => c.NotAfter.ToUniversalTime() - c.NotBefore.ToUniversalTime();
-            CertificateFiles Files(string folder, DateTimeOffset now, Func<byte[], byte[]>? unseal = null, Action<string, byte[]>? save = null,
-                                   Func<string, byte[]>? read = null, bool makeFails = false)
-                => new(folder, Seal, unseal ?? Seal, n => makeFails ? throw new System.Security.Cryptography.CryptographicException("no key could be made") : Make(n))
-                {
-                    Clock = () => now,
-                    Save = save ?? AtomicFile.Write,
-                    Read = read ?? File.ReadAllBytes,
-                };
-            static void DiskFull(string path, byte[] bytes) => throw new IOException("disk full");
-            static bool Public(CertificateRead r, string pw) => (r.Note ?? "").Contains(pw, StringComparison.Ordinal) is false
-                && (r.Line ?? "").Contains(pw, StringComparison.Ordinal) is false
-                && (r.Certificate is not { } c || !(r.Note ?? "").Contains(TlsPins.Fingerprint(c.RawData)[15..31], StringComparison.Ordinal));
-
-            // A first start makes one, saves it and says nothing; the next start keeps it.
-            var first = Path.Combine(root, "first");
-            var a = Files(first, t).Load();
-            var a2 = Files(first, t + TimeSpan.FromDays(1)).Load();
-            Check(a is { Certificate.HasPrivateKey: true, Replaced: null, Problem: null, Note: null, Line: null } && Span(a.Certificate) == CertificateLife.Span
-                  && File.Exists(Path.Combine(first, "node.pfx")) && File.Exists(Path.Combine(first, "node.key"))
-                  && a2 is { Replaced: null, Problem: null, Note: null } && a2.Certificate!.Thumbprint == a.Certificate.Thumbprint,
-                "certificate on disk: a first start makes one of exactly 825 days, saved, and the next start keeps it, saying nothing");
-
-            // An older Stagewatch's 826 days, with 800 left: replaced once through the real path, then kept.
-            var older = Path.Combine(root, "older");
-            var oldThumb = Store(older, t - TimeSpan.FromDays(26), t - TimeSpan.FromDays(26) + TimeSpan.FromDays(826), "older-password");
-            var sealedBefore = File.ReadAllBytes(Path.Combine(older, "node.key"));
-            var saved = new List<string>();
-            var b = Files(older, t, save: (path, bytes) => { saved.Add(Path.GetFileName(path)); AtomicFile.Write(path, bytes); }).Load();
-            var b2 = Files(older, t + TimeSpan.FromHours(20)).Load();
-            var b3 = Files(older, t + TimeSpan.FromDays(400)).Load();
-            Check(b is { Certificate: not null, Problem: null } && b.Replaced == "it spanned 826 days, more than the 825 Apple devices and Show Bus 1.3 allow"
-                  && b.Certificate.Thumbprint != oldThumb && Span(b.Certificate) == CertificateLife.Span
-                  && b.Note == CertificateLife.ReplacedWords(b.Replaced, TlsPins.Fingerprint(b.Certificate.RawData)) && b.Line!.StartsWith("Certificate replaced (it spanned 826 days", StringComparison.Ordinal)
-                  && saved.SequenceEqual(["node.pfx"]) && File.ReadAllBytes(Path.Combine(older, "node.key")).SequenceEqual(sealedBefore)
-                  && b2 is { Replaced: null, Problem: null, Note: null } && b2.Certificate!.Thumbprint == b.Certificate.Thumbprint
-                  && b3 is { Replaced: null, Problem: null } && b3.Certificate!.Thumbprint == b.Certificate.Thumbprint && Public(b, "older-password"),
-                "certificate on disk: an older Stagewatch's 826-day certificate is replaced once at the first start, under its stored password "
-                + "(node.key untouched: one swap of node.pfx), and the new one, exactly 825 days, is kept at the next starts");
-
-            // The replacement can't be saved, or can't be made: the old one, which has not ended, keeps serving and it is said.
-            var full = Path.Combine(root, "full");
-            var fullThumb = Store(full, t - TimeSpan.FromDays(26), t - TimeSpan.FromDays(26) + TimeSpan.FromDays(826), "full-password");
-            var pfxBefore = File.ReadAllBytes(Path.Combine(full, "node.pfx"));
-            var c1 = Files(full, t, save: DiskFull).Load();
-            var c2 = Files(full, t, makeFails: true).Load();
-            var untouched = File.ReadAllBytes(Path.Combine(full, "node.pfx")).SequenceEqual(pfxBefore);
-            var c3 = Files(full, t + TimeSpan.FromDays(1)).Load();
-            Check(c1 is { Replaced: null } && c1.Certificate!.Thumbprint == fullThumb && untouched
-                  && c1.Problem == "Certificate kept, not replaced (it spanned 826 days, more than the 825 Apple devices and Show Bus 1.3 allow): the new one could not "
-                     + "be saved (disk full). Every peer keeps the one it pinned; the next start tries again"
-                  && c1.Note == c1.Problem && c1.Line == c1.Problem
-                  && c2 is { Replaced: null } && c2.Certificate!.Thumbprint == fullThumb && c2.Problem!.Contains("a new one could not be made (no key could be made)", StringComparison.Ordinal)
-                  && c3 is { Problem: null, Replaced: not null } && c3.Certificate!.Thumbprint != fullThumb && Public(c1, "full-password"),
-                "certificate on disk: a replacement that can't be saved or made leaves the old one serving, its files as they were, and says so; "
-                + "a later start replaces it (" + c1.Problem + ")");
-
-            // An ended one whose replacement can't be saved: the new one serves this run only, said with why it was replaced.
-            var ended = Path.Combine(root, "ended");
-            var endedThumb = Store(ended, t - TimeSpan.FromDays(826), t - TimeSpan.FromDays(1), "ended-password");
-            var d = Files(ended, t, save: DiskFull).Load();
-            Check(d is { Replaced: "it had ended" } && d.Certificate!.Thumbprint != endedThumb && d.Problem!.StartsWith("Certificate made for this run only: it could not be saved (disk full)", StringComparison.Ordinal)
-                  && d.Note!.StartsWith("Certificate replaced: it had ended. ", StringComparison.Ordinal) && d.Note.EndsWith(d.Problem, StringComparison.Ordinal) && d.Line == d.Problem,
-                "certificate on disk: an ended certificate whose replacement can't be saved is replaced for this run only, and said: " + d.Note);
-
-            // A pair torn by an older writer (a new key beside the old PKCS#12) is replaced, not failed at every start.
-            var torn = Path.Combine(root, "torn");
-            Store(torn, t - TimeSpan.FromDays(1), t + TimeSpan.FromDays(824), "torn-password");
-            File.WriteAllBytes(Path.Combine(torn, "node.key"), Seal(Encoding.UTF8.GetBytes("another-password")));
-            var e1 = Files(torn, t).Load();
-            var e2 = Files(torn, t + TimeSpan.FromHours(1)).Load();
-            Check(e1 is { Certificate: not null, Problem: null } && e1.Replaced!.StartsWith("the stored one could not be opened (", StringComparison.Ordinal)
-                  && e2 is { Replaced: null, Problem: null } && e2.Certificate!.Thumbprint == e1.Certificate.Thumbprint,
-                "certificate on disk: a torn pair is replaced once and the new pair is kept (" + e1.Replaced + ")");
-
-            // Sealed for another user: a new pair, both files, under this user's seal.
-            var foreign = Path.Combine(root, "foreign");
-            var foreignThumb = Store(foreign, t - TimeSpan.FromDays(1), t + TimeSpan.FromDays(824), "foreign-password");
-            var f1 = Files(foreign, t, unseal: Broken).Load();
-            var f2 = Files(foreign, t + TimeSpan.FromHours(1)).Load();
-            Check(f1 is { Problem: null } && f1.Replaced == "the stored one could not be opened (sealed for another user)" && f1.Certificate!.Thumbprint != foreignThumb
-                  && f2 is { Replaced: null, Problem: null } && f2.Certificate!.Thumbprint == f1.Certificate.Thumbprint,
-                "certificate on disk: a pair sealed for another user is replaced under this user's seal, then kept");
-
-            // Files that can't be read: no certificate this run, said, and nothing overwritten.
-            var locked = Path.Combine(root, "locked");
-            Store(locked, t - TimeSpan.FromDays(1), t + TimeSpan.FromDays(824), "locked-password");
-            var lockedPfx = File.ReadAllBytes(Path.Combine(locked, "node.pfx"));
-            var made = makes;
-            var g = Files(locked, t, read: _ => throw new IOException("locked by another process")).Load();
-            Check(g is { Certificate: null, Replaced: null } && g.Problem == "No certificate this run: it could not be read (locked by another process). HTTPS is off; the next start reads it again"
-                  && g.Note == g.Problem && g.Line == g.Problem && makes == made && File.ReadAllBytes(Path.Combine(locked, "node.pfx")).SequenceEqual(lockedPfx),
-                "certificate on disk: files that can't be read are left as they are, with no certificate this run, said");
-
-            // A first start that can't save: the new one serves this run, said; one that can't make: none, said.
-            var h = Files(Path.Combine(root, "nosave"), t, save: DiskFull).Load();
-            var i = Files(Path.Combine(root, "nomake"), t, makeFails: true).Load();
-            Check(h is { Certificate.HasPrivateKey: true, Replaced: null } && h.Problem!.StartsWith("Certificate made for this run only: it could not be saved (disk full). The next start makes another", StringComparison.Ordinal)
-                  && !File.Exists(Path.Combine(root, "nosave", "node.pfx"))
-                  && i is { Certificate: null, Replaced: null } && i.Problem == "No certificate this run: one could not be made (no key could be made). HTTPS is off until a start can make one",
-                "certificate on disk: a first certificate that can't be saved serves this run only, and one that can't be made leaves none, each said");
+            makes++;
+            var (from, to) = CertificateLife.Window(now);
+            return Made(from, to, cn);
         }
-        finally
+        static System.Security.Cryptography.X509Certificates.X509Certificate2 Made(DateTimeOffset from, DateTimeOffset to, string cn)
         {
-            try { Directory.Delete(root, recursive: true); }
-            catch (IOException) { /* the temporary folder is the system's to clear */ }
+            using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            return new System.Security.Cryptography.X509Certificates.CertificateRequest(cn, key, System.Security.Cryptography.HashAlgorithmName.SHA256).CreateSelfSigned(from, to);
         }
+        // A pair in CertificateFiles' format, made by an older writer: its span and its password.
+        static string Store(string folder, DateTimeOffset from, DateTimeOffset to, string pw)
+        {
+            using var c = Made(from, to, "CN=Stagewatch older");
+            Directory.CreateDirectory(folder);
+            File.WriteAllBytes(Path.Combine(folder, "node.pfx"), c.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pkcs12, pw));
+            File.WriteAllBytes(Path.Combine(folder, "node.key"), Seal(Encoding.UTF8.GetBytes(pw)));
+            return c.Thumbprint;
+        }
+        static TimeSpan Span(System.Security.Cryptography.X509Certificates.X509Certificate2 c) => c.NotAfter.ToUniversalTime() - c.NotBefore.ToUniversalTime();
+        CertificateFiles Files(string folder, DateTimeOffset now, Func<byte[], byte[]>? unseal = null, Action<string, byte[]>? save = null,
+                               Func<string, byte[]>? read = null, bool makeFails = false)
+            => new(folder, Seal, unseal ?? Seal, n => makeFails ? throw new System.Security.Cryptography.CryptographicException("no key could be made") : Make(n))
+            {
+                Clock = () => now,
+                Save = save ?? AtomicFile.Write,
+                Read = read ?? File.ReadAllBytes,
+            };
+        static void DiskFull(string path, byte[] bytes) => throw new IOException("disk full");
+        static bool Public(CertificateRead r, string pw) => (r.Note ?? "").Contains(pw, StringComparison.Ordinal) is false
+            && (r.Line ?? "").Contains(pw, StringComparison.Ordinal) is false
+            && (r.Certificate is not { } c || !(r.Note ?? "").Contains(TlsPins.Fingerprint(c.RawData)[15..31], StringComparison.Ordinal));
+
+        // A first start makes one, saves it and says nothing; the next start keeps it.
+        var first = Path.Combine(root, "first");
+        var a = Files(first, t).Load();
+        var a2 = Files(first, t + TimeSpan.FromDays(1)).Load();
+        Check(a is { Certificate.HasPrivateKey: true, Replaced: null, Problem: null, Note: null, Line: null } && Span(a.Certificate) == CertificateLife.Span
+              && File.Exists(Path.Combine(first, "node.pfx")) && File.Exists(Path.Combine(first, "node.key"))
+              && a2 is { Replaced: null, Problem: null, Note: null } && a2.Certificate!.Thumbprint == a.Certificate.Thumbprint,
+            "certificate on disk: a first start makes one of exactly 825 days, saved, and the next start keeps it, saying nothing");
+
+        // An older Stagewatch's 826 days, with 800 left: replaced once through the real path, then kept.
+        var older = Path.Combine(root, "older");
+        var oldThumb = Store(older, t - TimeSpan.FromDays(26), t - TimeSpan.FromDays(26) + TimeSpan.FromDays(826), "older-password");
+        var sealedBefore = File.ReadAllBytes(Path.Combine(older, "node.key"));
+        var saved = new List<string>();
+        var b = Files(older, t, save: (path, bytes) => { saved.Add(Path.GetFileName(path)); AtomicFile.Write(path, bytes); }).Load();
+        var b2 = Files(older, t + TimeSpan.FromHours(20)).Load();
+        var b3 = Files(older, t + TimeSpan.FromDays(400)).Load();
+        Check(b is { Certificate: not null, Problem: null } && b.Replaced == "it spanned 826 days, more than the 825 Apple devices and Show Bus 1.3 allow"
+              && b.Certificate.Thumbprint != oldThumb && Span(b.Certificate) == CertificateLife.Span
+              && b.Note == CertificateLife.ReplacedWords(b.Replaced, TlsPins.Fingerprint(b.Certificate.RawData)) && b.Line!.StartsWith("Certificate replaced (it spanned 826 days", StringComparison.Ordinal)
+              && saved.SequenceEqual(["node.pfx"]) && File.ReadAllBytes(Path.Combine(older, "node.key")).SequenceEqual(sealedBefore)
+              && b2 is { Replaced: null, Problem: null, Note: null } && b2.Certificate!.Thumbprint == b.Certificate.Thumbprint
+              && b3 is { Replaced: null, Problem: null } && b3.Certificate!.Thumbprint == b.Certificate.Thumbprint && Public(b, "older-password"),
+            "certificate on disk: an older Stagewatch's 826-day certificate is replaced once at the first start, under its stored password "
+            + "(node.key untouched: one swap of node.pfx), and the new one, exactly 825 days, is kept at the next starts");
+
+        // The replacement can't be saved, or can't be made: the old one, which has not ended, keeps serving and it is said.
+        var full = Path.Combine(root, "full");
+        var fullThumb = Store(full, t - TimeSpan.FromDays(26), t - TimeSpan.FromDays(26) + TimeSpan.FromDays(826), "full-password");
+        var pfxBefore = File.ReadAllBytes(Path.Combine(full, "node.pfx"));
+        var c1 = Files(full, t, save: DiskFull).Load();
+        var c2 = Files(full, t, makeFails: true).Load();
+        var untouched = File.ReadAllBytes(Path.Combine(full, "node.pfx")).SequenceEqual(pfxBefore);
+        var c3 = Files(full, t + TimeSpan.FromDays(1)).Load();
+        Check(c1 is { Replaced: null } && c1.Certificate!.Thumbprint == fullThumb && untouched
+              && c1.Problem == "Certificate kept, not replaced (it spanned 826 days, more than the 825 Apple devices and Show Bus 1.3 allow): the new one could not "
+                 + "be saved (disk full). Every peer keeps the one it pinned; the next start tries again"
+              && c1.Note == c1.Problem && c1.Line == c1.Problem
+              && c2 is { Replaced: null } && c2.Certificate!.Thumbprint == fullThumb && c2.Problem!.Contains("a new one could not be made (no key could be made)", StringComparison.Ordinal)
+              && c3 is { Problem: null, Replaced: not null } && c3.Certificate!.Thumbprint != fullThumb && Public(c1, "full-password"),
+            "certificate on disk: a replacement that can't be saved or made leaves the old one serving, its files as they were, and says so; "
+            + "a later start replaces it (" + c1.Problem + ")");
+
+        // An ended one whose replacement can't be saved: the new one serves this run only, said with why it was replaced.
+        var ended = Path.Combine(root, "ended");
+        var endedThumb = Store(ended, t - TimeSpan.FromDays(826), t - TimeSpan.FromDays(1), "ended-password");
+        var d = Files(ended, t, save: DiskFull).Load();
+        Check(d is { Replaced: "it had ended" } && d.Certificate!.Thumbprint != endedThumb && d.Problem!.StartsWith("Certificate made for this run only: it could not be saved (disk full)", StringComparison.Ordinal)
+              && d.Note!.StartsWith("Certificate replaced: it had ended. ", StringComparison.Ordinal) && d.Note.EndsWith(d.Problem, StringComparison.Ordinal) && d.Line == d.Problem,
+            "certificate on disk: an ended certificate whose replacement can't be saved is replaced for this run only, and said: " + d.Note);
+
+        // A pair torn by an older writer (a new key beside the old PKCS#12) is replaced, not failed at every start.
+        var torn = Path.Combine(root, "torn");
+        Store(torn, t - TimeSpan.FromDays(1), t + TimeSpan.FromDays(824), "torn-password");
+        File.WriteAllBytes(Path.Combine(torn, "node.key"), Seal(Encoding.UTF8.GetBytes("another-password")));
+        var e1 = Files(torn, t).Load();
+        var e2 = Files(torn, t + TimeSpan.FromHours(1)).Load();
+        Check(e1 is { Certificate: not null, Problem: null } && e1.Replaced!.StartsWith("the stored one could not be opened (", StringComparison.Ordinal)
+              && e2 is { Replaced: null, Problem: null } && e2.Certificate!.Thumbprint == e1.Certificate.Thumbprint,
+            "certificate on disk: a torn pair is replaced once and the new pair is kept (" + e1.Replaced + ")");
+
+        // Sealed for another user: a new pair, both files, under this user's seal.
+        var foreign = Path.Combine(root, "foreign");
+        var foreignThumb = Store(foreign, t - TimeSpan.FromDays(1), t + TimeSpan.FromDays(824), "foreign-password");
+        var f1 = Files(foreign, t, unseal: Broken).Load();
+        var f2 = Files(foreign, t + TimeSpan.FromHours(1)).Load();
+        Check(f1 is { Problem: null } && f1.Replaced == "the stored one could not be opened (sealed for another user)" && f1.Certificate!.Thumbprint != foreignThumb
+              && f2 is { Replaced: null, Problem: null } && f2.Certificate!.Thumbprint == f1.Certificate.Thumbprint,
+            "certificate on disk: a pair sealed for another user is replaced under this user's seal, then kept");
+
+        // Files that can't be read: no certificate this run, said, and nothing overwritten.
+        var locked = Path.Combine(root, "locked");
+        Store(locked, t - TimeSpan.FromDays(1), t + TimeSpan.FromDays(824), "locked-password");
+        var lockedPfx = File.ReadAllBytes(Path.Combine(locked, "node.pfx"));
+        var made = makes;
+        var g = Files(locked, t, read: _ => throw new IOException("locked by another process")).Load();
+        Check(g is { Certificate: null, Replaced: null } && g.Problem == "No certificate this run: it could not be read (locked by another process). HTTPS is off; the next start reads it again"
+              && g.Note == g.Problem && g.Line == g.Problem && makes == made && File.ReadAllBytes(Path.Combine(locked, "node.pfx")).SequenceEqual(lockedPfx),
+            "certificate on disk: files that can't be read are left as they are, with no certificate this run, said");
+
+        // A first start that can't save: the new one serves this run, said; one that can't make: none, said.
+        var h = Files(Path.Combine(root, "nosave"), t, save: DiskFull).Load();
+        var i = Files(Path.Combine(root, "nomake"), t, makeFails: true).Load();
+        Check(h is { Certificate.HasPrivateKey: true, Replaced: null } && h.Problem!.StartsWith("Certificate made for this run only: it could not be saved (disk full). The next start makes another", StringComparison.Ordinal)
+              && !File.Exists(Path.Combine(root, "nosave", "node.pfx"))
+              && i is { Certificate: null, Replaced: null } && i.Problem == "No certificate this run: one could not be made (no key could be made). HTTPS is off until a start can make one",
+            "certificate on disk: a first certificate that can't be saved serves this run only, and one that can't be made leaves none, each said");
     }
 
     static System.Security.Cryptography.X509Certificates.X509Certificate2 TestCertificate()

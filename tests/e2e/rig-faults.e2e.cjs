@@ -11,10 +11,10 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const net = require('node:net');
-const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { Rig, until, DLL, freePort } = require('./rig.cjs');
+const { Rig, until, DLL, freePort, RIG_ENV } = require('./rig.cjs');
+const { tempDir, removeDir } = require('./temp.cjs');
 
 const UNKNOWN = 'unknown (stall <ms>, auth, heard, nodes, exit)';
 const rigs = [];
@@ -24,7 +24,7 @@ async function make(options) {
   return rig;
 }
 after(async () => {
-  for (const r of rigs) await r.stop();
+  for (const r of rigs) await r.dispose();
 });
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -289,79 +289,88 @@ test('--journal - keeps the journal in memory: the report and the recent lines a
 });
 
 test('a start that cannot listen (exit 3) or cannot write --secrets-out (exit 4) keeps no key whose secret never went out; the next start makes it afresh', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-rig-keys-'));
-  const state = path.join(dir, 'windows.json');
-  const blocker = path.join(dir, 'blocker');
-  fs.writeFileSync(blocker, 'a file, never a folder\n');
-  const busy = net.createServer();
-  await new Promise((resolve) => busy.listen(0, '127.0.0.1', resolve));
-  const runs = [
-    { code: 3, args: ['--port', String(busy.address().port)], words: /couldn't listen/ },
-    { code: 4, args: ['--port', String(await freePort()), '--secrets-out', path.join(blocker, 'secrets.json')], words: /couldn't write --secrets-out/ },
-  ];
+  // The folder is the test's: the rig given it keeps its state there, and is stopped before the folder goes.
+  const dir = tempDir('sw-rig-keys-');
+  let rig = null;
   try {
-    for (const { code, args, words } of runs) {
-      const r = spawnSync('dotnet', [DLL, '--companion', '0', '--osc', '0', '--state', state, '--node-keys', '1', ...args], { encoding: 'utf8', timeout: 30000 });
-      assert.equal(r.status, code, `exit ${r.status}\n${r.stderr}`);
-      assert.match(r.stderr, words);
-      assert.match(r.stderr, /the 1 made in this start are taken out of --state again/);
-      assert.equal(r.stdout, '', 'no ready line');
-      assert.deepEqual(JSON.parse(fs.readFileSync(state, 'utf8')).keys, [], `exit ${code}: no key kept whose secret never went out`);
+    const state = path.join(dir, 'windows.json');
+    const blocker = path.join(dir, 'blocker');
+    fs.writeFileSync(blocker, 'a file, never a folder\n');
+    const busy = net.createServer();
+    await new Promise((resolve) => busy.listen(0, '127.0.0.1', resolve));
+    const runs = [
+      { code: 3, args: ['--port', String(busy.address().port)], words: /couldn't listen/ },
+      { code: 4, args: ['--port', String(await freePort()), '--secrets-out', path.join(blocker, 'secrets.json')], words: /couldn't write --secrets-out/ },
+    ];
+    try {
+      for (const { code, args, words } of runs) {
+        const r = spawnSync('dotnet', [DLL, '--companion', '0', '--osc', '0', '--state', state, '--node-keys', '1', ...args], { encoding: 'utf8', timeout: 30000, env: RIG_ENV });
+        assert.equal(r.status, code, `exit ${r.status}\n${r.stderr}`);
+        assert.match(r.stderr, words);
+        assert.match(r.stderr, /the 1 made in this start are taken out of --state again/);
+        assert.equal(r.stdout, '', 'no ready line');
+        assert.deepEqual(JSON.parse(fs.readFileSync(state, 'utf8')).keys, [], `exit ${code}: no key kept whose secret never went out`);
+      }
+    } finally {
+      busy.close();
     }
-  } finally {
-    busy.close();
-  }
 
-  const rig = new Rig(await freePort(), dir, { nodeKeys: 1, secretsOut: true });
-  rigs.push(rig);
-  await rig.start();
-  assert.equal(rig.ready.nodeKeys.length, 1, 'the next start makes the key afresh');
-  assert.deepEqual(rig.savedState().keys.map((k) => k.id), [rig.keys[0].id]);
-  const link = await rig.link('node=pat00001&t=patterns', rig.keys[0].secret);
-  const verdict = await link.next(() => true, 5000, 'the verdict');
-  assert.equal(verdict.json.ok, true, verdict.text);
-  await link.close();
+    rig = new Rig(await freePort(), dir, { nodeKeys: 1, secretsOut: true });
+    await rig.start();
+    assert.equal(rig.ready.nodeKeys.length, 1, 'the next start makes the key afresh');
+    assert.deepEqual(rig.savedState().keys.map((k) => k.id), [rig.keys[0].id]);
+    const link = await rig.link('node=pat00001&t=patterns', rig.keys[0].secret);
+    const verdict = await link.next(() => true, 5000, 'the verdict');
+    assert.equal(verdict.json.ok, true, verdict.text);
+    await link.close();
+  } finally {
+    if (rig) await rig.dispose();
+    removeDir(dir);
+  }
 });
 
 test('options the rig cannot take are refused with words and exit code 2, never guessed, and the words never carry a file\'s content', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-rig-opts-'));
-  const pinFile = path.join(dir, 'pin.txt');
-  fs.writeFileSync(pinFile, 'Kp93Secret\n');
-  const long = path.join(dir, 'long.txt');
-  fs.writeFileSync(long, 'Lq'.repeat(129));
-  const cases = [
-    [['--node-id', 'bad id'], /--node-id is 6-40 letters, digits, - or _/],
-    [['--node-id', 'abcde'], /--node-id is 6-40/],
-    [['--node-id', 'x'.repeat(41)], /--node-id is 6-40/],
-    [['--node-id', 'interop-sw-1', '--node-id', 'interop-sw-2'], /--node-id once/],
-    [['--pin', '1', '--pin-file', pinFile], /--pin-file once, and never with --pin$/m],
-    [['--pin-file', pinFile, '--pin', '1'], /--pin once, and never with --pin-file/],
-    [['--pin-file', path.join(dir, 'missing.txt')], /--pin-file: /],
-    [['--pin-file', long], /--pin-file: the first line is over 256 characters/],
-    [['--journal'], /--journal needs a value/],
-    [['--journal', path.join(pinFile, 'journal.jsonl')], /--journal: couldn't open it for appending: /],
-    [['--secrets-out', ''], /--secrets-out needs a file/],
-    [['--exit-on-eof=yes'], /unknown option --exit-on-eof=yes/],
-    [['--tls', ''], /--tls needs a folder/],
-    [['--tls', path.join(dir, 'a'), '--tls', path.join(dir, 'b')], /--tls once/],
-    [['--tls', path.join(pinFile, 'tls')], /--tls: couldn't make the folder: /],
-    // A folder that is there and holds anything else is never the rig's to write its key in (nor narrowed: it is not its own).
-    [['--tls', dir], /--tls: .* holds what is not its certificate \(long\.txt, open, pin\.txt\): name a folder of the rig's own/],
-  ];
-  // Off Windows a folder others may open is refused as it stands, never narrowed (as `--tls /tmp` or `--tls .` would be).
-  const open = path.join(dir, 'open');
-  fs.mkdirSync(open, { mode: 0o755 });
-  fs.chmodSync(open, 0o755);
-  if (process.platform !== 'win32') cases.push([['--tls', open], /--tls: .* is open to other users \(mode 755\): name a folder of the rig's own/]);
-  for (const [args, words] of cases) {
-    const r = spawnSync('dotnet', [DLL, '--port', '0', '--companion', '0', '--osc', '0', ...args], { encoding: 'utf8', timeout: 30000 });
-    assert.equal(r.status, 2, `${args.join(' ')}: exit ${r.status}\n${r.stderr}`);
-    assert.match(r.stderr, words, args.join(' '));
-    assert.equal(r.stdout, '', 'nothing on standard output: ' + args.join(' '));
-    assert.ok(!r.stderr.includes('Kp93Secret') && !r.stderr.includes('LqLq'), 'the words carry no file\'s content: ' + r.stderr);
+  const dir = tempDir('sw-rig-opts-');
+  try {
+    const pinFile = path.join(dir, 'pin.txt');
+    fs.writeFileSync(pinFile, 'Kp93Secret\n');
+    const long = path.join(dir, 'long.txt');
+    fs.writeFileSync(long, 'Lq'.repeat(129));
+    const cases = [
+      [['--node-id', 'bad id'], /--node-id is 6-40 letters, digits, - or _/],
+      [['--node-id', 'abcde'], /--node-id is 6-40/],
+      [['--node-id', 'x'.repeat(41)], /--node-id is 6-40/],
+      [['--node-id', 'interop-sw-1', '--node-id', 'interop-sw-2'], /--node-id once/],
+      [['--pin', '1', '--pin-file', pinFile], /--pin-file once, and never with --pin$/m],
+      [['--pin-file', pinFile, '--pin', '1'], /--pin once, and never with --pin-file/],
+      [['--pin-file', path.join(dir, 'missing.txt')], /--pin-file: /],
+      [['--pin-file', long], /--pin-file: the first line is over 256 characters/],
+      [['--journal'], /--journal needs a value/],
+      [['--journal', path.join(pinFile, 'journal.jsonl')], /--journal: couldn't open it for appending: /],
+      [['--secrets-out', ''], /--secrets-out needs a file/],
+      [['--exit-on-eof=yes'], /unknown option --exit-on-eof=yes/],
+      [['--tls', ''], /--tls needs a folder/],
+      [['--tls', path.join(dir, 'a'), '--tls', path.join(dir, 'b')], /--tls once/],
+      [['--tls', path.join(pinFile, 'tls')], /--tls: couldn't make the folder: /],
+      // A folder that is there and holds anything else is never the rig's to write its key in (nor narrowed: it is not its own).
+      [['--tls', dir], /--tls: .* holds what is not its certificate \(long\.txt, open, pin\.txt\): name a folder of the rig's own/],
+    ];
+    // Off Windows a folder others may open is refused as it stands, never narrowed (as `--tls /tmp` or `--tls .` would be).
+    const open = path.join(dir, 'open');
+    fs.mkdirSync(open, { mode: 0o755 });
+    fs.chmodSync(open, 0o755);
+    if (process.platform !== 'win32') cases.push([['--tls', open], /--tls: .* is open to other users \(mode 755\): name a folder of the rig's own/]);
+    for (const [args, words] of cases) {
+      const r = spawnSync('dotnet', [DLL, '--port', '0', '--companion', '0', '--osc', '0', ...args], { encoding: 'utf8', timeout: 30000, env: RIG_ENV });
+      assert.equal(r.status, 2, `${args.join(' ')}: exit ${r.status}\n${r.stderr}`);
+      assert.match(r.stderr, words, args.join(' '));
+      assert.equal(r.stdout, '', 'nothing on standard output: ' + args.join(' '));
+      assert.ok(!r.stderr.includes('Kp93Secret') && !r.stderr.includes('LqLq'), 'the words carry no file\'s content: ' + r.stderr);
+    }
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['long.txt', 'open', 'pin.txt'], 'nothing written in a folder refused');
+    assert.deepEqual(fs.readdirSync(open), []);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(open).mode & 0o777, 0o755, 'a folder refused keeps its mode');
+  } finally {
+    removeDir(dir);
   }
-  assert.deepEqual(fs.readdirSync(dir).sort(), ['long.txt', 'open', 'pin.txt'], 'nothing written in a folder refused');
-  assert.deepEqual(fs.readdirSync(open), []);
-  if (process.platform !== 'win32') assert.equal(fs.statSync(open).mode & 0o777, 0o755, 'a folder refused keeps its mode');
-  fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -17,8 +17,12 @@ before(async () => {
   browser = await chromium.launch();
 });
 after(async () => {
-  if (browser) await browser.close();
-  if (rig) await rig.stop();
+  // The rig goes whatever the browser's close threw: a rig left running would outlive its folder's removal at this file's end.
+  try {
+    if (browser) await browser.close();
+  } finally {
+    if (rig) await rig.dispose();
+  }
 });
 
 async function shot(page, name) {

@@ -152,18 +152,17 @@ sealed record KitCert(string CertFile, string KeyFile, string Fp, X509Certificat
 /// <summary>
 /// The kit's files: keys, codes and certificates the scripted peer reads, each written owner-only (0600) in a directory of its own, as
 /// 13.20 asks — never an argument. It owns the certificates it makes for the kit's own TLS ends, so the key container each one holds
-/// on Windows goes with them. Gone when disposed.
+/// on Windows goes with them. Gone when disposed (<see cref="Scratch"/>).
 /// </summary>
 sealed class KitFiles : IDisposable
 {
     readonly List<X509Certificate2> _made = [];
+    readonly ScratchFolder _folder = Scratch.Folder("peerlink");
 
-    public string Dir { get; }
+    public string Dir => _folder.Path;
 
     public KitFiles()
     {
-        Dir = Path.Combine(Path.GetTempPath(), "sw-peerlink-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Dir);
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(Dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
@@ -193,9 +192,7 @@ sealed class KitFiles : IDisposable
     {
         foreach (var cert in _made) cert.Dispose();
         _made.Clear();
-        try { Directory.Delete(Dir, recursive: true); }
-        catch (IOException) { Console.WriteLine("peerlink kit: could not remove " + Dir); }
-        catch (UnauthorizedAccessException) { Console.WriteLine("peerlink kit: could not remove " + Dir); }
+        _folder.Dispose();
     }
 }
 

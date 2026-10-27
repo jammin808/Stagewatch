@@ -38,28 +38,22 @@ static class ShowBusCopiesTests
         var (header, body) = (text[..at], text[at..]);
         var hash = Hex(Encoding.UTF8.GetBytes(body));
 
-        var dir = Path.Combine(Path.GetTempPath(), "sw-copies-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            // This tree, as the release's validate runs it: the master holds its own hashes. Its siblings are pointed at folders that are
-            // not there, so a landed tree is "not run" whatever clones this machine holds, and a tree not landed is not compared.
-            var landed = Regex.Match(header, @"^\*Landed \(§14\): (.+)\.\*$", RegexOptions.Multiline).Groups[1].Value.Split(", ");
-            var away = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var t in Copies) away["SW_" + t.ToUpperInvariant() + "_DIR"] = Path.Combine(dir, "away", t);
-            var own = await Script(script, root, away);
-            Check(own.Code == 0 && Says(own.Out, "Stagewatch", "the master: its header's Body line prints its body's hash, and §14 pins its peer's")
-                  && own.Out.Contains("  body " + hash + "\n", StringComparison.Ordinal) && own.Out.Contains("  peer " + Hex(peer) + "\n", StringComparison.Ordinal)
-                  && Copies.All(t => Says(own.Out, t, landed.Contains(t) ? "not run: no tree at " + Path.Combine(dir, "away", t) : "not landed: not compared"))
-                  && own.Out.Contains("every landed tree found holds the master (landed: " + string.Join(", ", landed) + ")", StringComparison.Ordinal),
-                "showbus copies: this tree's master holds its body's hash and its peer's, and the script compares only the trees its Landed line "
-                + "names (exit " + own.Code + "): " + own.Out);
+        using var folder = Scratch.Folder("copies", make: false);   // each tree's folder is made as it is written
+        var dir = folder.Path;
+        // This tree, as the release's validate runs it: the master holds its own hashes. Its siblings are pointed at folders that are
+        // not there, so a landed tree is "not run" whatever clones this machine holds, and a tree not landed is not compared.
+        var landed = Regex.Match(header, @"^\*Landed \(§14\): (.+)\.\*$", RegexOptions.Multiline).Groups[1].Value.Split(", ");
+        var away = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var t in Copies) away["SW_" + t.ToUpperInvariant() + "_DIR"] = Path.Combine(dir, "away", t);
+        var own = await Script(script, root, away);
+        Check(own.Code == 0 && Says(own.Out, "Stagewatch", "the master: its header's Body line prints its body's hash, and §14 pins its peer's")
+              && own.Out.Contains("  body " + hash + "\n", StringComparison.Ordinal) && own.Out.Contains("  peer " + Hex(peer) + "\n", StringComparison.Ordinal)
+              && Copies.All(t => Says(own.Out, t, landed.Contains(t) ? "not run: no tree at " + Path.Combine(dir, "away", t) : "not landed: not compared"))
+              && own.Out.Contains("every landed tree found holds the master (landed: " + string.Join(", ", landed) + ")", StringComparison.Ordinal),
+            "showbus copies: this tree's master holds its body's hash and its peer's, and the script compares only the trees its Landed line "
+            + "names (exit " + own.Code + "): " + own.Out);
 
-            await Trees(Check, dir, script, header, body, hash, peer);
-        }
-        finally
-        {
-            if (Directory.Exists(dir)) Directory.Delete(dir, true);
-        }
+        await Trees(Check, dir, script, header, body, hash, peer);
     }
 
     static async Task Trees(Action<bool, string> Check, string dir, string script, string header, string body, string hash, byte[] peer)

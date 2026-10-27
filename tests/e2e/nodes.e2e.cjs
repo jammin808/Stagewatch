@@ -23,9 +23,13 @@ before(async () => {
   await until(async () => (await rig.screens()).length === 1, 8000, 'the viewer listed in Screens');
 });
 after(async () => {
-  for (const l of links) await l.close();
-  if (browser) await browser.close();
-  if (rig) await rig.stop();
+  // The rig goes whatever a close above threw: a rig left running would outlive its folder's removal at this file's end.
+  try {
+    for (const l of links) await l.close();
+    if (browser) await browser.close();
+  } finally {
+    if (rig) await rig.dispose();
+  }
 });
 
 /** A show app's link, closed when the file ends. */

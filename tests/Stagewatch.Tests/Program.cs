@@ -17,6 +17,8 @@ void Check(bool cond, string name)
     else { failures++; Console.WriteLine("FAIL: " + name); }
 }
 bool OnWindows(string what) => Bench.OnWindows(what);
+// The fence's first listing, before any check makes a temporary folder or file (Scratch.End lists again at the end).
+Scratch.Begin();
 
 // ---------------------------------------------------------------- engine
 {
@@ -164,8 +166,8 @@ bool OnWindows(string what) => Bench.OnWindows(what);
 
 // ---------------------------------------------------------------- show files & 12-hour clock
 {
-    var dir = Path.Combine(Path.GetTempPath(), "sw-show-" + Guid.NewGuid().ToString("N"));
-    Directory.CreateDirectory(dir);
+    using var showDir = Scratch.Folder("show");
+    var dir = showDir.Path;
     var settings = new AppSettings();
     settings.Presets[2].Label = "Keynote"; settings.Presets[2].DurationSeconds = 2700; settings.Presets[2].Message = "Keynote — 45";
     settings.Rundown = new Rundown { ScheduledStart = "19:00", Items = { new RundownItem { Title = "Welcome", Speaker = "Ana", DurationSeconds = 300, AutoAdvance = true }, new RundownItem { Title = "Awards", DurationSeconds = 5400 } } };
@@ -202,7 +204,6 @@ bool OnWindows(string what) => Bench.OnWindows(what);
     Check(sp.Name == "Sparse" && st.Presets.Count == 12 && st.Presets[4].Label == "Five" && st.Presets[0].Label == "Preset 1", "show: missing presets padded, bad slots ignored");
     Check(st.Rundown.ScheduledStart is null && st.Rundown.Items[0].DurationSeconds == 0, "show: invalid start dropped, negative duration clamped");
     Check(Expect("").Contains("readable"), "show: empty file rejected");
-    Directory.Delete(dir, true);
 
     // 12-hour clock
     var t = new DateTime(2026, 10, 24, 14, 5, 9);
@@ -304,8 +305,8 @@ bool OnWindows(string what) => Bench.OnWindows(what);
     }
 
     // Session file: round trip, clean close, age, corruption.
-    var dir = Path.Combine(Path.GetTempPath(), "sw-session-" + Guid.NewGuid().ToString("N"));
-    var path = Path.Combine(dir, "session.json");
+    using var sessionDir = Scratch.Folder("session", make: false);   // the store makes its folder
+    var path = Path.Combine(sessionDir.Path, "session.json");
     var store = new SessionStore(path);
     var now = DateTime.UtcNow;
     using var live = new TimerEngine { TickIntervalMs = 1000 };
@@ -331,7 +332,6 @@ bool OnWindows(string what) => Bench.OnWindows(what);
     quiet.Save(new SessionState { SavedAtUtc = now.AddSeconds(2), Engine = paused.Capture(), Title = "X" });
     Check(File.GetLastWriteTimeUtc(path) == t1, "session: unchanged idle show is not rewritten");
     paused.Dispose();
-    Directory.Delete(dir, true);
 
     // Licence binding survives docking / network changes: the ID has no network component.
     if (OnWindows("hwid: stable 32-char id (WMI)"))
@@ -745,7 +745,8 @@ bool OnWindows(string what) => Bench.OnWindows(what);
 
 // ---------------------------------------------------------------- 2.3: holding images
 {
-    var dir = Path.Combine(Path.GetTempPath(), "sw-holding-test-" + Guid.NewGuid().ToString("N")[..6]);
+    using var holdingDir = Scratch.Folder("holding", make: false);   // the library makes its folder
+    var dir = holdingDir.Path;
     HoldingLibrary.FolderOverride = dir;
     try
     {
@@ -773,7 +774,6 @@ bool OnWindows(string what) => Bench.OnWindows(what);
     finally
     {
         HoldingLibrary.FolderOverride = null;
-        try { Directory.Delete(dir, true); } catch { }
     }
 
     ShowCommand? P(string line) { var t = line.Split(' '); return ShowCommandParser.TryParse(t[0], t.Skip(1).ToList(), out var c, out _) ? c : null; }
@@ -807,9 +807,9 @@ bool OnWindows(string what) => Bench.OnWindows(what);
     var d3 = new DisplaySettings();
     Check(d3.Animations3D && d3.Particles3D && !d3.EggTimer, "3D: animations and particles on by default, hologram first");
 
-    var root = Path.Combine(Path.GetTempPath(), "sw-holo-" + Guid.NewGuid().ToString("N")[..6]);
-    try
+    using (var holoRoot = Scratch.Folder("holo", make: false))   // extraction makes its folder
     {
+        var root = holoRoot.Path;
         var folder = Stagewatch.Remote.WebAssets.ExtractHolo(root);
         var html = File.ReadAllText(Path.Combine(folder, "holo.html"));
         var bundle = new FileInfo(Path.Combine(folder, "holo.bundle.js"));
@@ -820,16 +820,14 @@ bool OnWindows(string what) => Bench.OnWindows(what);
         var bundleText = File.ReadAllText(bundle.FullName);
         Check(bundleText.Contains("Three.js Authors") && bundleText.Contains("MIT"), "holo: three.js licence kept in the bundle");
     }
-    finally { try { Directory.Delete(root, true); } catch { } }
 }
 
 // ---------------------------------------------------------------- external review (2.5) regressions
 {
     // P1: a saved show keeps its time zone and dated start.
-    var dir = Path.Combine(Path.GetTempPath(), "sw-review-" + Guid.NewGuid().ToString("N")[..6]);
-    Directory.CreateDirectory(dir);
-    try
+    using (var reviewDir = Scratch.Folder("review"))
     {
+        var dir = reviewDir.Path;
         var settings = new AppSettings();
         settings.Rundown.TimeZoneId = "Eastern Standard Time";
         settings.Rundown.ScheduledStart = "2026-10-24 14:00";
@@ -889,7 +887,6 @@ bool OnWindows(string what) => Bench.OnWindows(what);
         Check(reread.Settings.Rundown.Items.Count > 0 && !Directory.GetFiles(dir, "*.tmp").Any(), "review P2: the saved file is whole and no temp files are left");
         store.Dispose(); reread.Dispose();
     }
-    finally { try { Directory.Delete(dir, true); } catch { } }
 
     // Crew keys: stable per target, case-insensitive, different per target and per secret.
     Check(CrewKeys.For("s", "Lighting") == CrewKeys.For("s", "lighting ") && CrewKeys.For("s", "Lighting") != CrewKeys.For("s", "Sound")
@@ -899,7 +896,8 @@ bool OnWindows(string what) => Bench.OnWindows(what);
     var linkList = CrewKeys.Links("s", new[] { "Lighting", "lighting", "Video / LED" });
     Check(linkList.Count(l => l.Path.StartsWith("/dept")) == 2 && linkList.Any(l => l.Path == "/dept?name=Video%20%2F%20LED&key=" + CrewKeys.For("s", "Video / LED")),
           "crew keys: one link per page, names escaped");
-    var fresh = new SettingsStore(Path.Combine(Path.GetTempPath(), "sw-new-" + Guid.NewGuid().ToString("N")[..6] + ".json"));
+    using var freshFile = Scratch.File("new", ".json");
+    var fresh = new SettingsStore(freshFile.Path);
     Check(!string.IsNullOrEmpty(fresh.Settings.Remote.CrewSecret) && fresh.Settings.Remote.CrewKeysRequired, "crew keys: every install gets its own secret, on by default");
     fresh.Dispose();
 }
@@ -1442,7 +1440,8 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     Check(stormed && faults.Contain(new InvalidOperationException("later"), t0.AddMinutes(5)), "faults: a storm ends the process (for the watchdog), a later one is contained again");
 
     // Crash-safe files: the old whole file is kept; a damaged file falls back to it.
-    var dir = Path.Combine(Path.GetTempPath(), "sw-atomic-" + Guid.NewGuid().ToString("N")[..8]);
+    using var atomicDir = Scratch.Folder("atomic", make: false);   // the first write makes its folder
+    var dir = atomicDir.Path;
     var f = Path.Combine(dir, "x.json");
     AtomicFile.Write(f, "{\"a\":1}", AtomicFile.IsJson);
     AtomicFile.Write(f, "{\"a\":2}", AtomicFile.IsJson);
@@ -1460,7 +1459,6 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     File.Delete(sp);
     using (var st3 = new SettingsStore(sp))
         Check(st3.Settings.RundownName == "Main" && !SettingsStore.LoadedFromBackup, "settings: a deleted settings file is a fresh start, not the old backup");
-    try { Directory.Delete(dir, true); } catch { }
 
     // GO latency ring.
     var go = new GoLatency();
@@ -1472,7 +1470,8 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
 
 // ---------------------------------------------------------------- Checkpoint order (review 2026-10-11)
 {
-    var spath = Path.Combine(Path.GetTempPath(), "sw-session-" + Guid.NewGuid().ToString("N")[..8] + ".json");
+    using var sessionFile = Scratch.File("session", ".json");   // with its second copy, spath + "2"
+    var spath = sessionFile.Path;
     var store = new SessionStore(spath);
     var now = DateTime.UtcNow;
     SessionState Live(long seq, string title) => new() { Sequence = seq, SavedAtUtc = now, Title = title, RundownActive = true, CurrentItem = 0,
@@ -1485,7 +1484,6 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     store2.Save(Live(5, "newer"));
     store2.Save(Live(4, "older"));
     Check(store2.LoadRecoverable(now)?.Title == "newer", "session: the newest capture wins whatever order the saves land in");
-    try { File.Delete(spath); File.Delete(spath + "2"); } catch { }
 }
 
 // ---------------------------------------------------------------- Panel layout (draggable panels)
@@ -1523,11 +1521,11 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     Check(bad.Order.SequenceEqual(PanelLayout.Default) && bad.Floating.Count == 0 && bad.SideWidth == PanelLayout.DefaultSideWidth, "panels: reset puts everything back");
 
     // Old settings files have no panels section.
-    var ppath = Path.Combine(Path.GetTempPath(), "sw-panels-" + Guid.NewGuid().ToString("N")[..8] + ".json");
+    using var panelsFile = Scratch.File("panels", ".json");   // with the .bak the store keeps beside it
+    var ppath = panelsFile.Path;
     File.WriteAllText(ppath, "{\"schemaVersion\":1,\"panels\":null}");
     using (var pstore = new SettingsStore(ppath))
         Check(pstore.Settings.Panels is { Order.Count: 6 }, "panels: an old settings file gets the default layout");
-    try { File.Delete(ppath); } catch { }
 }
 
 // ---------------------------------------------------------------- Narrower contracts (architecture review)
@@ -1554,7 +1552,8 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     Check(frozen[0] == 1, "contracts: EquatableArray keeps its own copy");
 
     // Settings: other threads read a snapshot, never the live object.
-    var spath = Path.Combine(Path.GetTempPath(), "sw-snap-" + Guid.NewGuid().ToString("N")[..8] + ".json");
+    using var snapFile = Scratch.File("snap", ".json");
+    var spath = snapFile.Path;
     using (var store = new SettingsStore(spath))
     {
         store.Update(s => s.Triggers.Clear());
@@ -1571,7 +1570,6 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
         reader.Wait();
         Check(errors == 0, $"contracts: background readers never see a list mid-edit ({errors} errors)");
     }
-    try { File.Delete(spath); } catch { }
 
     // Narrow consumers depend on narrow contracts.
     Check(typeof(OscServer).GetConstructors().Single().GetParameters()[0].ParameterType == typeof(IShowCommands), "contracts: OSC needs only commands and frames");
@@ -1647,13 +1645,13 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     Check(ShowReport.Build("Show", day1, legacy, null, ShowClock.Local, t0).Rows.Single().ActualSeconds == 90, "identity: old journals still report by position");
 
     // Identities survive the file.
-    var jpath = Path.Combine(Path.GetTempPath(), "sw-ident-" + Guid.NewGuid().ToString("N")[..6] + ".jsonl");
+    using var identFile = Scratch.File("ident", ".jsonl");
+    var jpath = identFile.Path;
     var onDisk = new ShowJournal(jpath) { Identify = _ => new JournalIdentity("rDay1", "talkA", "x9") };
     onDisk.Add(t0, JournalKind.ItemStart, 0);
     onDisk.DisposeAsync().AsTask().Wait();
     var readBack = ShowJournal.Load(jpath).Single();
     Check(readBack is { RundownId: "rDay1", ItemId: "talkA", Execution: "x9" } && File.ReadAllText(jpath).Contains("\"ii\":\"talkA\""), "identity: written to and read from the journal file");
-    File.Delete(jpath);
 
     // Stable ids are assigned once and kept.
     var unnamed = new Rundown { Id = "", Items = { new RundownItem { Title = "x" } } };
@@ -1786,9 +1784,9 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     settings.Rundown.GroupTargets["Morning"] = 3600;
     settings.Rundown.SheetUrl = "https://example.com/day1.csv";
     settings.OtherRundowns.Add(new NamedRundown { Name = "Day 2", Rundown = new Rundown { Items = { new RundownItem { Title = "Keynote", DurationSeconds = 1800 } } } });
-    var file = Path.Combine(Path.GetTempPath(), "sw-multi-" + Guid.NewGuid().ToString("N")[..6] + ShowFile.Extension);
-    try
+    using (var multiFile = Scratch.File("multi", ShowFile.Extension))
     {
+        var file = multiFile.Path;
         ShowFile.FromSettings(settings, "Summit").Save(file);
         var target = new AppSettings();
         ShowFile.Load(file).ApplyTo(target);
@@ -1802,7 +1800,6 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
         ShowFile.Load(file).ApplyTo(dup);
         Check(dup.OtherRundowns.Count == 0, "show files: a running order can't share the live one's name");
     }
-    finally { try { File.Delete(file); } catch { } }
     var copy = settings.Rundown.Clone();
     copy.Items[0].Title = "Changed";
     copy.GroupTargets["Morning"] = 1;
@@ -2210,8 +2207,12 @@ PeerLinkVectors.Run(Check);
 await PeerLinkScenarios.Run(Check);
 await CompanionV2Tests.Run(Check);
 if (args.Contains("--powerpoint")) await PowerPointLiveTest.Run(Check);
+ScratchTests.Run(Check);
 
+// The fence: every temporary folder and file this run made is gone (its last check, counted with the rest).
+var temp = Scratch.End(Check);
 Console.WriteLine($"\n{passes} passed, {failures} failed");
+foreach (var line in temp) Console.WriteLine(line);
 if (Bench.WindowsOnlyNotRun is { Count: > 0 } windowsOnly)
     Console.WriteLine($"{windowsOnly.Count} Windows-only check(s) not run on {System.Runtime.InteropServices.RuntimeInformation.OSDescription} (the Windows job runs them): {string.Join("; ", windowsOnly)}");
 if (Bench.LinuxBenchNotRun is { Count: > 0 } linuxBench)

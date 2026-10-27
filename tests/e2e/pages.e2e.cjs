@@ -16,8 +16,12 @@ before(async () => {
   await rig.run('start');
 });
 after(async () => {
-  if (browser) await browser.close();
-  if (rig) await rig.stop();
+  // The rig goes whatever the browser's close threw: a rig left running would outlive its folder's removal at this file's end.
+  try {
+    if (browser) await browser.close();
+  } finally {
+    if (rig) await rig.dispose();
+  }
 });
 
 // Each page and what "drew a frame" means on it (run inside the page).

@@ -149,10 +149,13 @@ static class IntegrationTests
         r.Observe(3, 4, t.AddSeconds(110));
         var b = r.Finish(t.AddSeconds(170));
         Check(b is not null && b.Length == 4 && b[0] == 50 && b[1] == 60 && b[2] == 60 && b[3] == 0, $"rehearsal: per-slide seconds, revisits add up ({(b is null ? "null" : string.Join(",", b))})");
-        var path = Path.Combine(Path.GetTempPath(), "sw-reh-" + Guid.NewGuid().ToString("N") + ".json");
-        var store = new RehearsalStore(path);
+        using var file = Scratch.File("reh", ".json");
+        var store = new RehearsalStore(file.Path);
         store.Save("Deck.pptx", b!);
         Check(store.For("deck.PPTX")?.Length == 4, "rehearsal: store (case-insensitive)");
+        // The save runs on a worker: the file is read back by a new store before it goes, so no write lands after the removal.
+        Check(Scratch.Until(() => new RehearsalStore(file.Path).For("Deck.pptx")?.Length == 4, TimeSpan.FromSeconds(10)),
+            "rehearsal: the worker's save lands, and a new store reads it");
     }
 
     static async Task Rooms(Action<bool, string> Check)

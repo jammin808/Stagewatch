@@ -27,8 +27,12 @@ before(async () => {
   await link.next((j) => j.type === 'state', 5000, 'a first frame');
 });
 after(async () => {
-  for (const l of links) await l.close();
-  if (rig) await rig.stop();
+  // The rig goes whatever a link's close threw: a rig left running would outlive its folder's removal at this file's end.
+  try {
+    for (const l of links) await l.close();
+  } finally {
+    if (rig) await rig.dispose();
+  }
 });
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));

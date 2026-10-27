@@ -86,16 +86,30 @@ before(async () => {
 after(async () => {
   const exits = {};
   const removed = [];
+  const failed = [];
+  // An app whose stop or secret files' removal throws is recorded in exits and said below; the other apps still stop, and
+  // each app's temporary folder still goes and the matrix is still written, whatever any of them did.
   for (const [name, app] of Object.entries(apps).reverse()) {
-    exits[name] = await app.stop();
-    removed.push(...run.removeSecretFiles(app.secretFiles()));
+    try {
+      exits[name] = await app.stop();
+      removed.push(...run.removeSecretFiles(app.secretFiles()));
+    } catch (e) {
+      exits[name] = { ...exits[name], failed: e.code || e.message };
+      failed.push(`${name}: ${e.code || e.message}`);
+    }
   }
-  if (matrix) {
-    matrix.measure('exits', exits);
-    matrix.removed(removed);
-    matrix.write();
+  try {
+    const tempLeft = run ? run.removeTempFolders() : [];
+    if (matrix) {
+      matrix.measure('exits', exits);
+      matrix.measure('tempFoldersLeft', tempLeft);
+      matrix.removed(removed);
+      matrix.write();
+    }
+  } finally {
+    if (lan) await lan.close();
   }
-  if (lan) await lan.close();
+  if (failed.length) throw new Error(`an app's end failed (${failed.join('; ')}); the matrix's exits name it`);
 });
 
 /** A row: the matrix records it when it runs (after `before`), and the test fails when the row does. */

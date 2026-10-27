@@ -66,10 +66,29 @@ foreach (var page in pages)
     var ok = File.Exists(file) && new FileInfo(file).Length > 2000;
     if (!ok) missing++;
     Console.WriteLine($"{(ok ? "OK  " : "FAIL")} {page} -> {file}");
-    try { Directory.Delete(profile, true); } catch { }
+    if (RemoveProfile(profile) is { } why) Console.WriteLine($"NOTE {profile} could not be removed: {why}");
 }
 Console.WriteLine(missing == 0 ? "ALL OK" : $"{missing} page(s) didn't render");
 return missing;
+
+// The browser's profile folder, made for one page and gone with it: a removal its last process still holds is retried, each
+// wait longer, and said if it stands (null once it is gone).
+static string? RemoveProfile(string profile)
+{
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            if (Directory.Exists(profile)) Directory.Delete(profile, recursive: true);
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            if (attempt == 5) return e.Message;
+            Thread.Sleep(TimeSpan.FromMilliseconds(100 * attempt));
+        }
+    }
+}
 
 static IEnumerable<string> LinuxChromium()
 {

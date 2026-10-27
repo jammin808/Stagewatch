@@ -21,8 +21,8 @@ static class V2Tests
     static void SettingsMigration(Action<bool, string> Check)
     {
         // A 1.x file (no 2.0 sections) and a hand-edited one (sections nulled) must both load with defaults.
-        var dir = Path.Combine(Path.GetTempPath(), "sw-settings-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
+        using var folder = Scratch.Folder("settings");
+        var dir = folder.Path;
         var p1 = Path.Combine(dir, "a.json");
         File.WriteAllText(p1, "{\"schemaVersion\":1,\"rundown\":{\"items\":[{\"title\":\"Old\",\"durationSeconds\":60}]}}");
         using (var a = new SettingsStore(p1))
@@ -241,11 +241,13 @@ static class V2Tests
         Check(learned.For(SegmentKind.Talk, "Bob").Mu > OverrunModel.Prior(SegmentKind.Talk).Mu + 0.15, "forecast: learns a speaker's habit");
         Check(learned.For(SegmentKind.Talk, "Somebody").Mu > OverrunModel.Prior(SegmentKind.Talk).Mu, "forecast: kind learned too (shrunk to prior)");
 
-        var path = Path.Combine(Path.GetTempPath(), "sw-hist-" + Guid.NewGuid().ToString("N") + ".json");
-        var h = new OverrunHistory(path);
+        using var file = Scratch.File("hist", ".json");
+        var h = new OverrunHistory(file.Path);
         h.Add(new HistoryRecord(SegmentKind.Panel, "", 1800, 2100, anchor));
         h.Add(new HistoryRecord(SegmentKind.Panel, "", 5, 2100, anchor)); // nonsense, ignored
         Check(h.Records.Count == 1, "history: sanity filter");
+        // The one record kept is saved on a worker: read back by a new history before the file goes, so no write lands after it.
+        Check(Scratch.Until(() => new OverrunHistory(file.Path).Records.Count == 1, TimeSpan.FromSeconds(10)), "history: the worker's save lands, and a new history reads it");
 
         // Advisor: curfew at risk → trim proposals with commands.
         var conf = new List<RundownItem>
@@ -303,7 +305,8 @@ static class V2Tests
         var items = new List<RundownItem> { Item("Opening", 10), Item("Keynote", 30) };
         items[1].Speaker = "Ana";
         items[1].AdjustSeconds = -120;
-        var path = Path.Combine(Path.GetTempPath(), "sw-journal-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        using var file = Scratch.File("journal", ".jsonl");
+        var path = file.Path;
         var j = new ShowJournal(path);
         j.Add(anchor, JournalKind.ItemStart, 0);
         j.Add(anchor.AddMinutes(11), JournalKind.ItemEnd, 0);

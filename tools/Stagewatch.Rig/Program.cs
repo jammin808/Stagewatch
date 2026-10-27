@@ -72,6 +72,11 @@ using Stagewatch.Show;
 // Exit codes: 0 stopped (Ctrl+C, the process ending, --exit-after, exit, --exit-on-eof); 2 an option it cannot take, said on
 // standard error; 3 a server could not listen; 4 --secrets-out could not be written. On 3 and 4 no secret went out, so the
 // node keys made in that start are taken out of --state again and the next start makes them afresh.
+// On the disk the rig writes only at the paths it is given: --state (with the .bak and the temporary copies AtomicFile keeps
+// beside it), --journal, --secrets-out and --tls. A starter that gives it paths in a folder of its own removes all the rig made
+// by removing that folder once the rig has stopped (tests/e2e/rig.cjs's dispose). The .NET runtime's own debugger pipes and
+// diagnostics socket go to the temp folder, and a rig ended with SIGKILL cannot remove them: its starter turns them off
+// (rig.cjs's RIG_ENV) or gives it a temp folder of its own that it removes (the interop lane, tests/interop/lib/run.cjs).
 var options = RigOptions.Parse(args);
 if (options is null) return 2;
 var certificate = options.Tls is { } tlsFolder ? RigCertificate.Load(tlsFolder, options.Room) : null;

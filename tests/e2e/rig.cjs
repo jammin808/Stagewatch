@@ -3,18 +3,24 @@
 // on standard output is its ready line, or it has not started. Its standard input takes control lines (stall <ms>, auth,
 // heard, nodes, exit), answered in JSON lines on its standard output (a stall twice: stalled, then running); a show app's link on /ws is
 // dialled as a peer dials it (Link). The interop lane's options ride on create: a stable node id, a journal, the PIN from a
-// file and every secret to a file instead of standard output; each keeps its meaning across a restart.
+// file and every secret to a file instead of standard output; each keeps its meaning across a restart. A rig made by create
+// keeps its state in a temporary folder of its own (tests/e2e/temp.cjs), which dispose removes with the rig stopped, a rig
+// that never said its ready line included. A rig makes nothing else in the temp folder: it runs with the .NET runtime's
+// diagnostics off (RIG_ENV), so no debugger pipe or diagnostics socket is made there, which a rig ended with SIGKILL (a crash,
+// as a screen sees it) could never remove.
 'use strict';
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 const path = require('node:path');
 const fs = require('node:fs');
-const os = require('node:os');
 const WebSocket = require('ws');
+const { tempDir, removeDir } = require('./temp.cjs');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const DLL = process.env.STAGEWATCH_RIG || path.join(ROOT, 'tools', 'Stagewatch.Rig', 'bin', 'Debug', 'net10.0-windows', 'Stagewatch.Rig.dll');
 const PIN = '4321';
+/** Every rig's environment: the runner's, with the .NET runtime's diagnostics off (no files of its own in the temp folder). */
+const RIG_ENV = { ...process.env, DOTNET_EnableDiagnostics: '0' };
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -103,6 +109,7 @@ class Link {
 class Rig {
   constructor(port, dir, options) {
     this.port = port; this.dir = dir; this.state = path.join(dir, 'windows.json'); this.proc = null; this.log = ''; this.companion = 0; this.osc = 0;
+    this.ownsDir = false;   // create's folder is the rig's own, removed by dispose; a folder given to the constructor is its giver's
     this.nodeKeyCount = options.nodeKeys || 0;
     this.extraArgs = options.args || [];   // more options, as given (e.g. --bind all --bus <port> --bus-to 127.0.0.1:<port>)
     this.nodeId = options.nodeId || null;
@@ -133,10 +140,16 @@ class Rig {
    */
   static async create(options = {}) {
     if (!fs.existsSync(DLL)) throw new Error(`the rig isn't built (${DLL}): dotnet build tools/Stagewatch.Rig`);
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-rig-'));
+    const dir = tempDir('sw-rig-');
     const rig = new Rig(await freePort(), dir, options);
-    if (options.wire) { rig.companion = await freePort(); rig.osc = await freePort(); }
-    await rig.start();
+    rig.ownsDir = true;
+    try {
+      if (options.wire) { rig.companion = await freePort(); rig.osc = await freePort(); }
+      await rig.start();
+    } catch (e) {
+      await rig.dispose();
+      throw e;
+    }
     return rig;
   }
 
@@ -152,7 +165,7 @@ class Rig {
       if (this.journal) args.push('--journal', this.journal);
       if (this.secretsOut) args.push('--secrets-out', this.secretsOut);
       args.push(...this.extraArgs.map(String));
-      const proc = spawn('dotnet', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+      const proc = spawn('dotnet', args, { stdio: ['pipe', 'pipe', 'pipe'], env: RIG_ENV });
       this.proc = proc;
       const out = new Inbox();   // this run's lines: a restart's run has its own
       this.out = out;
@@ -220,6 +233,16 @@ class Rig {
       this.proc.once('exit', (code, sig) => { this.stopping = false; resolve({ code, signal: sig }); });
       this.proc.kill(signal);
     });
+  }
+
+  /**
+   * The end of a rig: stopped (SIGKILL, unless it has already ended) and, when create made its folder, the folder removed with
+   * all the rig kept in it. Resolves with how its last run ended.
+   */
+  async dispose() {
+    const ended = await this.stop();
+    if (this.ownsDir) removeDir(this.dir);
+    return ended;
   }
 
   /** One control line on the rig's standard input; resolves with the first answer line that passes `answered`. */
@@ -303,4 +326,4 @@ async function until(fn, ms = 5000, what = 'condition') {
   throw new Error(`timed out waiting for ${what} (last: ${JSON.stringify(last)})`);
 }
 
-module.exports = { Rig, Link, until, freePort, PIN, ROOT, DLL };
+module.exports = { Rig, Link, until, freePort, PIN, ROOT, DLL, RIG_ENV };

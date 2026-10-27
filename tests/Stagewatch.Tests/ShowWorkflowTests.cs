@@ -38,13 +38,13 @@ static class ShowWorkflowTests
         public readonly TimerEngine Engine;
         public readonly FakeHost Host = new();
         public readonly ShowController Show;
-        private readonly string _path;
+        private readonly ScratchFile _file;
 
         public Rig(DateTime startUtc, Action<AppSettings> setup)
         {
             Time = new ManualTime(startUtc);
-            _path = Path.Combine(Path.GetTempPath(), "sw-show-" + Guid.NewGuid().ToString("N")[..8] + ".json");
-            Store = new SettingsStore(_path);
+            _file = Scratch.File("show", ".json");
+            Store = new SettingsStore(_file.Path);
             Store.Update(setup);
             Store.Settings.Rundown.EnsureIds();
             foreach (var o in Store.Settings.OtherRundowns) o.Rundown.EnsureIds();
@@ -73,7 +73,7 @@ static class ShowWorkflowTests
         {
             Engine.Dispose();
             Store.Dispose();
-            try { File.Delete(_path); } catch { }
+            _file.Dispose();
         }
     }
 

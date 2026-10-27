@@ -13,16 +13,20 @@ const crypto = require('node:crypto');
 const dgram = require('node:dgram');
 const fs = require('node:fs');
 const https = require('node:https');
-const os = require('node:os');
 const path = require('node:path');
 const { Rig, until } = require('./rig.cjs');
+const { tempDir, removeDir } = require('./temp.cjs');
 
 const HELLO_BYTES = 1200;   // §14 hello.bytes
 const rigs = [];
 const sockets = [];
 after(async () => {
-  for (const s of sockets) s.close();
-  for (const r of rigs) await r.stop();
+  // The rigs go whatever a socket's close threw: a rig left running would outlive its folder's removal at this file's end.
+  try {
+    for (const s of sockets) s.close();
+  } finally {
+    for (const r of rigs) await r.dispose();
+  }
 });
 
 /** A UDP socket on 127.0.0.1 and a free port, keeping every datagram it hears (with when it came). */
@@ -86,11 +90,12 @@ function overTls(port, route) {
 
 test('with --tls the rig serves the certificate it keeps beside plain HTTP on its one port, names it in its ready line and its hello (https on that port), and serves the same one after a restart; its folder and files are this user\'s alone', async () => {
   const to = await listener();
-  // The private key and its password (unsealed off Windows) live here: removed whatever happens.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-rig-tls-'));
+  // The private key and its password (unsealed off Windows) live here: removed whatever happens, the rig stopped first.
+  const home = tempDir('sw-rig-tls-');
+  let rig = null;
   try {
     const folder = path.join(home, 'tls');
-    const rig = await Rig.create({ args: ['--bind', 'all', '--bus', await freeUdpPort(), '--bus-to', `127.0.0.1:${to.port}`, '--tls', folder] });
+    rig = await Rig.create({ args: ['--bind', 'all', '--bus', await freeUdpPort(), '--bus-to', `127.0.0.1:${to.port}`, '--tls', folder] });
     rigs.push(rig);
     const fp = rig.ready.tls;
     assert.match(fp, /^sha256:[0-9a-f]{64}$/, 'the ready line names the certificate by its fingerprint');
@@ -111,9 +116,9 @@ test('with --tls the rig serves the certificate it keeps beside plain HTTP on it
     assert.equal(rig.ready.tls, fp, 'a restart serves the certificate it kept, from the folder it made');
     assert.equal((await overTls(rig.port, '/')).fp, fp);
     assert.ok(!rig.log.includes(fs.readFileSync(path.join(folder, 'node.key'), 'utf8')), 'the password is on no line it said');
-    await rig.stop();
   } finally {
-    fs.rmSync(home, { recursive: true, force: true });
+    if (rig) await rig.stop();
+    removeDir(home);
   }
 });
 

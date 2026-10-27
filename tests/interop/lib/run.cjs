@@ -10,7 +10,9 @@
 // reader check that (the sweep, row S7.1) without printing one. A file an app keeps a secret in by design (its settings with
 // its token, its TLS key) is named by the app (secretFiles()) and removed once the app has stopped; until then it is 0600 on
 // the disk in a 0700 folder, and a run killed before its after() hook leaves it until run.sh's next run of that topology
-// removes the folder.
+// removes the folder. Each app's TMPDIR is a folder of the run's own (folders()); the after() hook removes each once every app
+// has stopped and the sweep has read the run (removeTempFolders()); what cannot go is said on standard error and in the
+// matrix (measured.tempFoldersLeft), never passed over.
 'use strict';
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -89,6 +91,7 @@ class Run {
     for (const sub of ['logs', 'apps', 'captures']) fs.mkdirSync(path.join(this.dir, sub), { mode: 0o700 });
     this.secrets = new Secrets(secrets);
     this.started = new Date();
+    this.temps = [];   // each app's TMPDIR, as folders() made it
   }
 
   /**
@@ -111,7 +114,27 @@ class Run {
     const base = path.join(this.dir, 'apps', app);
     const f = { home: path.join(base, 'home'), user: path.join(base, 'user'), tmp: path.join(base, 'tmp') };
     for (const [k, dir] of Object.entries(f)) if (!(k === 'home' && appMakesHome)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (!this.temps.includes(f.tmp)) this.temps.push(f.tmp);
     return f;
+  }
+
+  /**
+   * Remove each app's TMPDIR (folders()), once every app has stopped: what an app made there (a runtime's pipes, a killed
+   * process's files) is no part of the run's record. A removal a process still holds is retried, each wait longer; one that
+   * still stands is said on standard error. Returns the folders that could not be removed, relative to the topology's
+   * folder, for the matrix.
+   */
+  removeTempFolders() {
+    const stand = [];
+    for (const dir of this.temps) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      } catch (e) {
+        stand.push(this.rel(dir));
+        process.stderr.write(`interop: ${this.rel(dir)} could not be removed (${e.code || e.message})\n`);
+      }
+    }
+    return stand;
   }
 
   log(name) { return path.join(this.dir, 'logs', name); }

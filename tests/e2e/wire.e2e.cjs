@@ -10,7 +10,7 @@ const { Rig, until, PIN } = require('./rig.cjs');
 
 let rig;
 before(async () => { rig = await Rig.create({ wire: true }); });
-after(async () => { if (rig) await rig.stop(); });
+after(async () => { if (rig) await rig.dispose(); });
 
 /** OSC 1.0: a message with string arguments. */
 function osc(address, ...args) {

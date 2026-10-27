@@ -62,6 +62,16 @@ tools/test.sh help            # what each lane does, and the variables a person 
 - The suite names the checks it leaves to the Windows job (`Bench.OnWindows`): today the WMI hardware id, the crafted
   master file, the report file names and the slides agent's PowerPoint loop. On Windows it names the one it leaves to the
   Linux bench (`Bench.OffWindows`): `tools/showbus-copies.sh` run by bash. Neither is ever counted as passed.
+- The suite, the browser workflows and the interop lane remove the temporary folders and files they make. The suite makes
+  each through `Scratch`, named `sw-<kind>-<run>-<id>` with the run's tag, lists the temp folder's `sw-*` entries as it
+  starts and as it ends, and fails on an entry of its own still there (its summary's `temp:` line counts them; a removal a
+  process still holds is retried, then said there). An e2e file fails when a folder it made (`tests/e2e/temp.cjs`) stands
+  at its end, and the rig runs there with the .NET runtime's diagnostics off, so a rig ended with SIGKILL leaves no pipe or
+  socket behind. The interop lane removes each app's temporary folder once the apps have stopped, whatever a stop did, and
+  names any it could not in its matrix (`tempFoldersLeft`). An entry made outside those makers would carry no run tag, so
+  the suite also fails when any of its files but `Scratch.cs`, or the code the suite and the lanes run (`src/`, the rig,
+  the scripted peer, the copies script), names the temp folder. An earlier run's leftovers, and what another run made,
+  are never counted or touched.
 - `tools/Stagewatch.Rig` is the real web server, Companion server and OSC server around a simulated show (timer,
   messages, blackout, a holding image, Next/Previous/GoTo, windows, screen commands, the contexts show apps post and
   their node links); anything else is refused with words. Its first output line is JSON with its ports, its node id and
