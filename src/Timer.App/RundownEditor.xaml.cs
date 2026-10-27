@@ -558,6 +558,8 @@ public partial class RundownEditor : Window
             set { Labels = Stagewatch.Core.Labels.Parse(value); Notify(); }
         }
         public Dictionary<string, string> DeptNotes { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>The item's playout cues, carried through the editor whole (a row keeps them until it is deleted).</summary>
+        public List<PlayoutCue> Playout { get; private set; } = new();
         /// <summary>True once notes were changed in this editor (otherwise notes made live on crew pages are kept on save).</summary>
         public bool DeptNotesEdited { get; private set; }
         public string DeptNotesLabel => DeptNotes.Count == 0 ? "Add…" : $"{DeptNotes.Count} note{(DeptNotes.Count == 1 ? "" : "s")}";
@@ -600,6 +602,7 @@ public partial class RundownEditor : Window
             Labels = i.Labels.ToList(),
             Chimes = i.Chimes.Clone(),
             DeptNotes = new Dictionary<string, string>(i.DeptNotes, StringComparer.OrdinalIgnoreCase),
+            Playout = i.Playout.Select(c => c.Clone()).ToList(),
         };
 
         public RundownItem ToItem() => new()
@@ -622,6 +625,7 @@ public partial class RundownEditor : Window
             Labels = Labels.ToList(),
             Chimes = Chimes.Clone(),
             DeptNotes = new Dictionary<string, string>(DeptNotes, StringComparer.OrdinalIgnoreCase),
+            Playout = Playout.Select(c => c.Clone()).ToList(),
         };
     }
 }

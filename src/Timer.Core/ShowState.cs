@@ -388,7 +388,12 @@ public enum ShowCommandKind
     /// <summary>GO every department standing by, at once ("signal go all").</summary>
     SignalGoAll,
     /// <summary>Controlled browser windows (their own addresses). Text = action \u0001 who \u0001 argument.</summary>
-    Window
+    Window,
+    /// <summary>
+    /// A playout link's clip or cues (<see cref="PlayoutArgs"/>). Text = link \u0001 action \u0001 list \u0001 item \u0001 "together"
+    /// or ""; Number = the seconds of end (before the clip's end) and seek (into it).
+    /// </summary>
+    Playout
 }
 
 /// <summary>
@@ -450,6 +455,7 @@ public abstract record ShowArgs
             ShowCommandKind.Ltc => new LtcArgs(At(0), At(1)),
             ShowCommandKind.Ack => new AckArgs(bar[0], bar.Length > 1 && bar[1].Length > 0 ? bar[1] : "seen"),
             ShowCommandKind.Window => new WindowArgs(At(0), At(1), At(2)),
+            ShowCommandKind.Playout => new PlayoutArgs(At(0), At(1), At(2), At(3), At(4) == "together"),
             _ => null,
         };
     }
@@ -681,6 +687,8 @@ public static class ShowCommandParser
         "aux <1-3> start|pause|toggle|reset|stage|unstage|up|down | aux <n> set <time> | aux <n> nudge <secs> | aux <n> name <text> | " +
         "deptnote <item> <department> [text] | roll [on|off|toggle] | rundown <name> | undo | redo | endofshow <HH:MM|clear> | loop <off|n|forever> | " +
         "screen reload [screen] | screen disconnect [screen] | patterns end [seconds] | patterns restart | patterns play | patterns pause | patterns stop | patterns seek <m:ss> | " +
+        "playout [link] end [seconds] | playout [link] restart|play|pause|stop | playout [link] seek <m:ss> | " +
+        "playout [link] cue <playlist> <item> | playout [link] cue <cue> | playout [link] go <playlist> [item] [together] | playout [link] go <cue> | " +
         "screen identify [screen] | screen go <preset|/page> [screen] | screen name <id> <name> | screen save <preset> <screen> | " +
         "window new <name> [page] | window show <window|all> <page|setup|holding|black> | window cue <window|all> <page> | " +
         "window hold <window|all> [toggle|text <words>|image <n|name|off>] | window release <window|all> | window identify|reload <window|all> | " +
@@ -1073,6 +1081,9 @@ public static class ShowCommandParser
                     throw new FormatException("patterns takes end [seconds], restart, play, pause, stop or seek <m:ss>");
                 }
 
+                case "playout":
+                    return TryParsePlayout(args, out cmd);
+
                 case "undo":
                     cmd = new(ShowCommandKind.Undo, Number: 1); return true;
                 case "redo":
@@ -1151,6 +1162,58 @@ public static class ShowCommandParser
             error = $"{verb}: {ex.Message}";
             return false;
         }
+    }
+
+    /// <summary>
+    /// <c>playout [&lt;link&gt;] &lt;action&gt; …</c>. A link's name is never an action word, so a first word that is no action names
+    /// the link. Every word is read and none is left over: <c>playout pause stage-left</c> is refused, never a pause of another link.
+    /// Throws <see cref="FormatException"/> with the words for a line that is not one.
+    /// </summary>
+    private static bool TryParsePlayout(IReadOnlyList<string> args, out ShowCommand cmd)
+    {
+        const string Takes = "playout takes end, restart, play, pause, stop, seek, cue or go";
+        var words = args.Select(a => a.Trim()).Where(a => a.Length > 0).ToList();
+        var link = "";
+        if (words.Count > 0 && !PlayoutRules.IsAction(words[0]))
+        {
+            link = words[0].ToLowerInvariant();
+            if (PlayoutRules.NameProblem(link) is { } why) throw new FormatException(Takes + ", after a link's name: " + why);
+            words.RemoveAt(0);
+        }
+        if (words.Count == 0 || !PlayoutRules.IsAction(words[0])) throw new FormatException(Takes);
+        var action = words[0].ToLowerInvariant();
+        var rest = words.Skip(1).ToList();
+        double number = 0;
+        string list = "", item = "";
+        var together = false;
+        switch (action)
+        {
+            case "end":
+                if (rest.Count > 1) throw new FormatException("playout end takes the seconds before the clip's end and nothing more");
+                number = rest.Count == 0 ? 10
+                    : int.TryParse(rest[0], NumberStyles.None, CultureInfo.InvariantCulture, out var k) && k is >= 1 and <= 3600 ? k
+                    : throw new FormatException("playout end takes the seconds before the clip's end (1-3600, default 10)");
+                break;
+            case "restart" or "play" or "pause" or "stop":
+                if (rest.Count > 0) throw new FormatException($"playout {action} takes nothing after it (a link's name goes before it: playout stage-left {action})");
+                break;
+            case "seek":
+                if (rest.Count != 1 || !TryParseSpan(rest[0], out var at) || at > TimeSpan.FromHours(24))
+                    throw new FormatException("playout seek takes one point in the clip: seconds, m:ss or h:mm:ss");
+                number = Math.Floor(at.TotalSeconds);
+                break;
+            case "cue" or "go":
+                together = action == "go" && rest.Count > 0 && rest[^1].Equals("together", StringComparison.OrdinalIgnoreCase);
+                if (together) rest.RemoveAt(rest.Count - 1);
+                if (rest.Count is 0 or > 2 || !rest.All(PlayoutRules.ValidWord))
+                    throw new FormatException(action == "cue"
+                        ? "playout cue takes a playlist and its item (PlayMap) or a cue (Patterns), each 1-64 characters"
+                        : "playout go takes a playlist and, if not its next, its item (PlayMap) or a cue (Patterns), each 1-64 characters, then together if it starts with the others");
+                (list, item) = rest.Count == 2 ? (rest[0], rest[1]) : ("", rest[0]);
+                break;
+        }
+        cmd = new ShowCommand(ShowCommandKind.Playout, Number: number, Text: ShowArgs.Pack(link, action, list, item, together ? "together" : ""));
+        return true;
     }
 
     /// <summary>on / off / toggle (or empty) → 1 / 0 / -1.</summary>

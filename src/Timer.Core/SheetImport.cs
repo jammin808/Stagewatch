@@ -84,6 +84,7 @@ public static class SheetImport
             merged.AdjustSeconds = old.AdjustSeconds;
             merged.Notes = old.Notes;
             merged.CueLadderId = old.CueLadderId;
+            merged.Playout = old.Playout.Select(c => c.Clone()).ToList();   // a sheet has no playout cues: the item keeps its own
             merged.Message ??= old.Message;
             merged.Group ??= old.Group;
             foreach (var (dept, note) in old.DeptNotes)

@@ -8,7 +8,9 @@ namespace Stagewatch.Core;
 public enum JournalKind
 {
     ShowOpened, ItemLoaded, ItemStart, ItemEnd, Pause, Resume, Nudge, Expired,
-    Phase, Message, Signal, Ack, Escalated, Trim, Delay, Question, Note, Preview, Blackout, ClockCheck
+    Phase, Message, Signal, Ack, Escalated, Trim, Delay, Question, Note, Preview, Blackout, ClockCheck,
+    /// <summary>What a playout link was asked to do and what became of it, and what was seen of its clip.</summary>
+    Playout
 }
 
 /// <summary>

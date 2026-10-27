@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Stagewatch.Core;
 using Stagewatch.Integrations;
+using Stagewatch.Show;
 
 namespace Stagewatch.App.ViewModels;
 
@@ -11,10 +12,13 @@ namespace Stagewatch.App.ViewModels;
 /// </summary>
 public sealed partial class MainViewModel
 {
-    /// <summary>Whichever playout source has a clip running (Patterns first), else whichever has a clip at all.</summary>
+    /// <summary>
+    /// Whichever playout source has a clip running (Patterns first), else whichever has a clip at all. Patterns' clip counts only while
+    /// link "patterns" may feed the VT countdown (its followVt).
+    /// </summary>
     private PlayoutState? PickPlayout()
     {
-        var p = _patterns?.Value;
+        var p = PlayoutRules.PatternsLink(Settings.Integrations) is { FollowVt: true } ? _patterns?.Value : null;
         var v = _vmix?.Value;
         if (p is { Running: true }) return p;
         if (v is { Running: true }) return v;
@@ -49,11 +53,11 @@ public sealed partial class MainViewModel
         if (_clipEndHandled || !(v.Ended || (left <= 0.25 && !v.Paused))) return;
         _clipEndHandled = true;
         var item = _show.RundownActive ? _show.CurrentItem : -1;
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, item, "Patterns clip ended: " + v.Title);
+        _journal.Add(DateTime.UtcNow, JournalKind.Playout, item, "Patterns clip ended: " + v.Title);
         FireTrigger(TriggerEvent.ClipEnd, v.Tag.Length > 0 ? v.Tag : v.File, v.Title);
         var items = Settings.Rundown.Items;
         var isVideo = item >= 0 && item < items.Count && (items[item].Kind == SegmentKind.Video || items[item].Labels.Any(l => l.Equals("VT", StringComparison.OrdinalIgnoreCase)));
-        if (Settings.Integrations.PatternsNextOnEnd && isVideo && item + 1 < items.Count)
+        if (PlayoutRules.PatternsLink(Settings.Integrations) is { NextOnEnd: true } && isVideo && item + 1 < items.Count)
         {
             StatusLine = $"VT {v.Title} ended — next item";
             _show.Next();
@@ -85,6 +89,31 @@ public sealed partial class MainViewModel
         if (error is not null) { Refuse("Patterns: " + error); return; }
         StatusLine = "Patterns: " + done + " (sent — waiting for Patterns)";
         ReceiptHandedOn();   // Patterns confirms (or refuses) it itself
-        if (error is null) _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, "Patterns " + done);
+        if (error is null) _journal.Add(DateTime.UtcNow, JournalKind.Playout, _show.RundownActive ? _show.CurrentItem : -1, "Patterns " + done);
     }
+
+    /// <summary>
+    /// <c>playout [&lt;link&gt;] &lt;action&gt; …</c> (owner thread). <see cref="PlayoutRules.Route"/> decides: the clip's transport on
+    /// link "patterns" does what the same <c>patterns …</c> line does; every other answer is a refusal with its reason, and nothing is
+    /// sent.
+    /// </summary>
+    private void PlayoutCommand(ShowCommand c)
+    {
+        var a = c.Get<PlayoutArgs>();
+        var (link, why) = PlayoutRules.Route(Settings.Integrations.PlayoutLinks, a, FeatureGate.AllowsPlayout(_license.Tier), _patterns is not null, VtLink());
+        if (link is null) { Refuse(why!); return; }
+        PatternsVideoCommand(a.Action, (int)c.Number);
+    }
+
+    /// <summary>The link whose clip feeds the VT countdown now, or null: link "patterns" while its clip is the one picked (<see cref="PickPlayout"/>).</summary>
+    private string? VtLink() => _patterns is not null && PickPlayout() is { Source: "Patterns" } ? PlayoutRules.PatternsName : null;
+
+    /// <summary>
+    /// The playout links a peer or an AI may propose lines for, for the context's commands: the ones this Stagewatch runs and the
+    /// licence allows — link "patterns" while its Patterns link runs, its clip's transport only.
+    /// </summary>
+    private IReadOnlyList<PlayoutRow> PlayoutRows()
+        => _patterns is not null && FeatureGate.AllowsPlayout(_license.Tier) && PlayoutRules.PatternsLink(Settings.Integrations) is { Enabled: true } own
+            ? [new PlayoutRow(own.Name, PlayoutRules.Label(own.Name), PlayoutRules.Patterns, Starts: false)]
+            : [];
 }

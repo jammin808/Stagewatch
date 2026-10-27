@@ -202,6 +202,10 @@ public sealed class RundownItem
     [JsonPropertyName("deptNotes")]
     public Dictionary<string, string> DeptNotes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>What this item cues on the playout links (at most <see cref="PlayoutRules.MaxCuesPerItem"/>; kept as PlayoutRules allows).</summary>
+    [JsonPropertyName("playout")]
+    public List<PlayoutCue> Playout { get; set; } = new();
+
     /// <summary>The duration that runs on the day: plan plus live adjustments, never negative.</summary>
     [JsonIgnore]
     public int EffectiveSeconds => Math.Max(0, DurationSeconds + AdjustSeconds);
@@ -235,7 +239,8 @@ public sealed class RundownItem
         Message = Message, AutoAdvance = AutoAdvance, Kind = Kind, StartMode = StartMode,
         FixedStart = FixedStart, MinDurationSeconds = MinDurationSeconds, HardOut = HardOut,
         CueLadderId = CueLadderId, AdjustSeconds = AdjustSeconds, Notes = Notes, Group = Group,
-        DeptNotes = new Dictionary<string, string>(DeptNotes, StringComparer.OrdinalIgnoreCase)
+        DeptNotes = new Dictionary<string, string>(DeptNotes, StringComparer.OrdinalIgnoreCase),
+        Playout = Playout.Select(c => c.Clone()).ToList(),
     };
 }
 

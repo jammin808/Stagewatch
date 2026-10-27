@@ -42,6 +42,7 @@ public sealed partial class MainViewModel
         Line("GO latency", GoLatencyLine);
         Line("Garbage collector", System.Runtime.GCSettings.LatencyMode + (System.Runtime.GCSettings.IsServerGC ? ", server" : ", workstation"));
         if (SettingsStore.LoadedFromBackup) Line("Settings", "the settings file was damaged at start — the last good copy (.bak) was loaded");
+        foreach (var note in _store.Notes) Line("Settings", note);
         Line("Memory", $"{Process.GetCurrentProcess().WorkingSet64 / (1024 * 1024)} MB");
         Line(".NET", RuntimeInformation.FrameworkDescription);
         Line("Windows", RuntimeInformation.OSDescription + " " + RuntimeInformation.OSArchitecture);

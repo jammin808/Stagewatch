@@ -1635,8 +1635,17 @@ static class ShowBusSpecTests
         var hellos = Enumerable.Range(0, (int)n.Of("context.peers") + 1).Select(i => new HeardNode("patterns", "pat" + i.ToString("D4", CultureInfo.InvariantCulture), "P", "10.0.1.1", 1));
         Keeps(ShowNetwork.Summaries(hellos, Array.Empty<HeldContext>(), Array.Empty<NodeLinkFact>(), "desk01", Tonight).Rows.Count == n.Of("context.peers"),
             "its own context lists that many peers at most", "context.peers");
-        Keeps(ShowContext.Commands.Count <= n.Of("context.commands")
-              && ShowContext.Commands.All(x => x.Verb.Length <= n.Of("context.verb.chars") && x.Words.Length <= n.Of("context.words.chars")),
+        // The most its context can list: every playout link it keeps, each named at the longest a name may be, half PlayMap and half
+        // Patterns, every one able to cue and start, beside the fixed rows.
+        var mostLinks = Enumerable.Range(0, PlayoutRules.Max)
+            .Select(i => ("link-" + i.ToString(CultureInfo.InvariantCulture)).PadRight(PlayoutRules.MaxNameChars, 'x'))
+            .Select((name, i) => new PlayoutRow(name, PlayoutRules.Label(name), i % 2 == 0 ? PlayoutRules.PlayMap : PlayoutRules.Patterns, Starts: true))
+            .ToList();
+        var mostCommands = ShowContext.CommandsFor(mostLinks);
+        Keeps(mostLinks.All(l => PlayoutRules.ValidName(l.Name) && l.Name.Length == PlayoutRules.MaxNameChars)
+              && mostCommands.Count == ShowContext.Commands.Count + 5 * PlayoutRules.Max
+              && new[] { ShowContext.Commands, mostCommands }.All(cs => cs.Count <= n.Of("context.commands")
+                  && cs.All(x => x.Verb.Length <= n.Of("context.verb.chars") && x.Words.Length <= n.Of("context.words.chars"))),
             "its own context lists no more commands, with no longer verbs or words", "context.commands", "context.verb.chars", "context.words.chars");
         OwnContextSizes(Keeps, n);
 

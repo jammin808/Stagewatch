@@ -60,7 +60,9 @@ public sealed partial class MainViewModel
         _show.NewShow();
         OnRundownEdited();   // rebuilds rows + Starts box, bumps remotes/Companion
         UpdateWindowTitle();
-        StatusLine = $"Opened show: {show.Name} — {show.Rundown.Items.Count} running-order items";
+        StatusLine = $"Opened show: {show.Name} — {show.Rundown.Items.Count} running-order items"
+                     + (show.Notes is [var first, ..] ? " — " + first + (show.Notes.Count > 1 ? $" (and {show.Notes.Count - 1} more in the show log)" : "") : "");
+        foreach (var note in show.Notes) _journal.Add(DateTime.UtcNow, JournalKind.Note, -1, $"Show {show.Name}: {note}");
         return null;
     }
 }

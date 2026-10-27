@@ -366,8 +366,11 @@ public static class Program
             var missing = vm.ExecuteWithReceiptAsync(Cmd("rundown Nowhere"), "r1", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
             var noPatterns = vm.ExecuteWithReceiptAsync(Cmd("patterns end 10"), "r2", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
             var fine = vm.ExecuteWithReceiptAsync(Cmd("note hello"), "r3", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
-            var okR2 = !missing.Ok && missing.Error!.Contains("Nowhere") && !noPatterns.Ok && noPatterns.Error!.Contains("Patterns") && fine is { Ok: true, Stage: "applied" };
-            Console.WriteLine((okR2 ? "OK   " : "FAIL ") + $"receipts: refusals are refusals ({missing.Ok}/{missing.Error} · {noPatterns.Ok}/{noPatterns.Error} · {fine.Stage})");
+            // No playout link here (or no licence for one): refused with the reason, and nothing sent.
+            var noPlayout = vm.ExecuteWithReceiptAsync(Cmd("playout pause"), "r4", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            var okR2 = !missing.Ok && missing.Error!.Contains("Nowhere") && !noPatterns.Ok && noPatterns.Error!.Contains("Patterns") && fine is { Ok: true, Stage: "applied" }
+                       && !noPlayout.Ok && noPlayout.Error!.Contains("playout");
+            Console.WriteLine((okR2 ? "OK   " : "FAIL ") + $"receipts: refusals are refusals ({missing.Ok}/{missing.Error} · {noPatterns.Ok}/{noPatterns.Error} · {noPlayout.Ok}/{noPlayout.Error} · {fine.Stage})");
             if (!okR2) failures++;
             // A speaker message that asks for its acknowledgement, as a show app sends one: the receipt names its signal, the
             // first ACK applies and the frame says done by whom, and an ACK that would change nothing is refused with the board's

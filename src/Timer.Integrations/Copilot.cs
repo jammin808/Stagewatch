@@ -222,6 +222,9 @@ public sealed class Copilot
         {
             ShowCommandKind.Note => CopilotRisk.Low,
             ShowCommandKind.Undo or ShowCommandKind.Loop or ShowCommandKind.Patterns => CopilotRisk.High,
+            // Every playout action is High: what it does is on another node's air, which nothing here can see (a PlayMap cue shows
+            // its first frame at once, a Patterns cue moves that desk's own standby).
+            ShowCommandKind.Playout => CopilotRisk.High,
             ShowCommandKind.Screen when text.StartsWith("save", StringComparison.Ordinal) => CopilotRisk.Low,
             ShowCommandKind.Screen when text.StartsWith("name", StringComparison.Ordinal) => CopilotRisk.Low,
             // A window's name, its link-loss choice and its fade change nothing on screen now; everything else does.

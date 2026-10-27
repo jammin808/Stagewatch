@@ -245,9 +245,12 @@ public sealed class FaultCounter
     }
 }
 
+/// <summary>One clock sample as a timed command reads it: the peer's clock minus ours, the round trip it was measured over, and how long ago (ms).</summary>
+public readonly record struct ClockSample(long OffsetMs, long RttMs, long AgeMs);
+
 /// <summary>
 /// A peer's clock offset, NTP-style (Show Bus §5): offset = ((t2 − t1) + (t3 − t4)) / 2, keeping the sample with the
-/// smallest round trip of the last 8 (the least delayed is the most honest). Thread-safe.
+/// smallest round trip of the last 8 (the least delayed is the most honest), each with the time it was taken (its t4). Thread-safe.
 /// </summary>
 public sealed class ClockOffsetEstimator
 {
@@ -255,17 +258,34 @@ public sealed class ClockOffsetEstimator
     /// <summary>Above this two machines disagree on what "14:30" is: say CLOCKS APART.</summary>
     public static readonly TimeSpan ApartAfter = TimeSpan.FromSeconds(2);
 
-    private readonly Queue<(long Rtt, long Offset)> _samples = new();
+    private readonly Queue<(long Rtt, long Offset, long At)> _samples = new();
 
-    /// <summary>One exchange: our send time t1, their receive t2 and send t3, our receive t4 (Unix ms).</summary>
+    /// <summary>One exchange: our send time t1, their receive t2 and send t3, our receive t4 (Unix ms), which is when it was taken.</summary>
     public void Add(long t1, long t2, long t3, long t4)
     {
         var rtt = (t4 - t1) - (t3 - t2);
         if (rtt < 0 || rtt > 60_000) return;   // nonsense: ignore
         lock (_samples)
         {
-            _samples.Enqueue((rtt, ((t2 - t1) + (t3 - t4)) / 2));
+            _samples.Enqueue((rtt, ((t2 - t1) + (t3 - t4)) / 2, t4));
             while (_samples.Count > Window) _samples.Dequeue();
+        }
+    }
+
+    /// <summary>
+    /// The sample with the smallest round trip among those taken no longer than <paramref name="maxAge"/> before
+    /// <paramref name="nowUnixMs"/> (this machine's clock, as t4 is), the newer of two equal ones; null when none is that recent.
+    /// A sample from after now (this machine's clock stepped back) is no sample to time a command by.
+    /// </summary>
+    public ClockSample? Best(TimeSpan maxAge, long nowUnixMs)
+    {
+        var limit = (long)maxAge.TotalMilliseconds;
+        lock (_samples)
+        {
+            (long Rtt, long Offset, long At)? best = null;
+            foreach (var s in _samples)
+                if (nowUnixMs - s.At is var age && age >= 0 && age <= limit && (best is null || s.Rtt <= best.Value.Rtt)) best = s;
+            return best is { } b ? new ClockSample(b.Offset, b.Rtt, nowUnixMs - b.At) : null;
         }
     }
 

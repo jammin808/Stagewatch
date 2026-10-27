@@ -37,9 +37,13 @@ public sealed partial class MainViewModel
             () => { var s = new PowerPointSensor(); s.Start(); return s; });
         _supervisor.Reconcile("vmix", $"{i.Vmix && FeatureGate.AllowsPlayout(t)}|{i.VmixHost}|{i.VmixPort}", v => _vmix = v,
             () => { var s = new VmixSource(i.VmixHost, i.VmixPort); s.Start(); return s; });
-        var patternsToken = ProtectedKey.Unprotect(i.PatternsTokenProtected);
-        _supervisor.Reconcile("patterns", $"{i.Patterns && FeatureGate.AllowsPlayout(t)}|{i.PatternsHost}|{i.PatternsPort}|{patternsToken.GetHashCode()}", v => _patterns = v,
-            () => { var s = new PatternsLink(i.PatternsHost, i.PatternsPort, patternsToken); s.Receipt += OnPatternsReceipt; s.Start(); return s; });
+        // Link "patterns" runs as the Patterns link: a Patterns desk, or a peer whose kind is not set (a PlayMap one never does).
+        var pl = PlayoutRules.PatternsLink(i);
+        var patternsOn = pl is { Enabled: true } && pl.Kind != PlayoutRules.PlayMap && FeatureGate.AllowsPlayout(t);
+        var (patternsHost, patternsPort) = (pl?.Host ?? "", pl?.Port ?? 0);
+        var patternsToken = patternsOn ? ProtectedKey.Unprotect(pl!.TokenProtected) : "";
+        _supervisor.Reconcile("patterns", $"{patternsOn}|{patternsHost}|{patternsPort}|{patternsToken.GetHashCode()}", v => _patterns = v,
+            () => { var s = new PatternsLink(patternsHost, patternsPort, patternsToken); s.Receipt += OnPatternsReceipt; s.Start(); return s; });
         _supervisor.Reconcile("ntp", $"{i.Ntp && FeatureGate.AllowsTimecode(t)}|{i.NtpServer}", v => _ntp = v,
             () => { var s = new TimeSync(i.NtpServer); s.Start(); return s; });
         _supervisor.Reconcile("ltc", $"{i.Ltc && FeatureGate.AllowsTimecode(t)}|{i.LtcDevice}|{i.LtcFps}|{i.LtcSource}", v => _ltc = v,

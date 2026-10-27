@@ -8,7 +8,11 @@ namespace Stagewatch.Core;
 /// </summary>
 public sealed class AppSettings
 {
-    public const int CurrentSchemaVersion = 1;
+    /// <summary>
+    /// Schema 2: playout links are a list (<see cref="IntegrationSettings.PlayoutLinks"/>), and the 2.17 Patterns keys are link
+    /// "patterns"'s mirror (<see cref="PlayoutRules.Upgrade"/> as a file loads, <see cref="PlayoutRules.WriteMirror"/> as it saves).
+    /// </summary>
+    public const int CurrentSchemaVersion = 2;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -143,14 +147,13 @@ public sealed class IntegrationSettings
     [JsonPropertyName("vmixHost")] public string VmixHost { get; set; } = "127.0.0.1";
     [JsonPropertyName("vmixPort")] public int VmixPort { get; set; } = 8088;
 
-    // Patterns (the show-control desk) as a video source: TCP line protocol
-    [JsonPropertyName("patterns")] public bool Patterns { get; set; }
-    [JsonPropertyName("patternsHost")] public string PatternsHost { get; set; } = "127.0.0.1";
-    [JsonPropertyName("patternsPort")] public int PatternsPort { get; set; } = 9697;
-    /// <summary>Patterns' pairing token, DPAPI-protected (see ProtectedKey). Empty = the desk asks for none.</summary>
-    [JsonPropertyName("patternsToken")] public string PatternsTokenProtected { get; set; } = "";
-    /// <summary>When Patterns' clip ends and the live item is a video (kind Video, or labelled VT), go to the next item.</summary>
-    [JsonPropertyName("patternsNextOnEnd")] public bool PatternsNextOnEnd { get; set; }
+    // The 2.17 Patterns keys: link "patterns"'s mirror, written by PlayoutRules.WriteMirror and read only by PlayoutRules.Upgrade.
+    // Every other reader takes the link from PlayoutLinks.
+    [JsonPropertyName("patterns")] public bool? LegacyPatterns { get; set; }
+    [JsonPropertyName("patternsHost")] public string? LegacyPatternsHost { get; set; }
+    [JsonPropertyName("patternsPort")] public int? LegacyPatternsPort { get; set; }
+    [JsonPropertyName("patternsToken")] public string? LegacyPatternsToken { get; set; }
+    [JsonPropertyName("patternsNextOnEnd")] public bool? LegacyPatternsNextOnEnd { get; set; }
 
     // Speech-to-script
     [JsonPropertyName("speech")] public bool Speech { get; set; }
@@ -206,6 +209,12 @@ public sealed class IntegrationSettings
 
     // Model Context Protocol endpoint for the Patterns ecosystem / AI tools
     [JsonPropertyName("mcp")] public bool Mcp { get; set; } = true;
+
+    // Playout links (schema 2): Patterns desks and PlayMap nodes, each by a name of its own (PlayoutRules has their rules).
+    /// <summary>At most <see cref="PlayoutRules.Max"/>, in the operator's order; link "patterns" is the one a 2.17 Patterns setup became.</summary>
+    [JsonPropertyName("playoutLinks")] public List<PlayoutLinkSettings> PlayoutLinks { get; set; } = new();
+    /// <summary>How far ahead a timed GO is set, ms (<see cref="PlayoutRules.MinLeadMs"/>–<see cref="PlayoutRules.MaxLeadMs"/>).</summary>
+    [JsonPropertyName("playoutLeadMs")] public int PlayoutLeadMs { get; set; } = PlayoutRules.DefaultLeadMs;
 }
 
 public enum DmxMode { Rgb, Rgbw, RgbDimmer, Dimmer }

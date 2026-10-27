@@ -16,7 +16,15 @@ public sealed record ContextInput(
     IReadOnlyList<PeerSummary> Peers,
     IReadOnlyList<JournalEntry> Journal,
     ShowClock Clock,
-    double GoLatencyP95Ms);
+    double GoLatencyP95Ms,
+    IReadOnlyList<PlayoutRow>? Playout = null);
+
+/// <summary>
+/// A playout link a peer or an AI may propose lines for: its name, as people read it, the peer's kind once known
+/// (<see cref="PlayoutRules.Patterns"/> or <see cref="PlayoutRules.PlayMap"/>, else ""), and whether this Stagewatch can cue and
+/// start something on it as well as move its clip on air.
+/// </summary>
+public sealed record PlayoutRow(string Name, string Label, string Kind, bool Starts);
 
 /// <summary>
 /// Stagewatch's Show Bus context (§6): its light, a one-line headline and its parts — the timer, the schedule, each
@@ -90,6 +98,36 @@ public static class ShowContext
         ("trim <item> <seconds>", "review", "Lengthen or shorten a coming item", false),
         ("note <text>", "low", "Add a line to the show log", false),
     };
+
+    /// <summary>
+    /// <see cref="Commands"/> with each playout link's rows among the panic, air and transport commands (all high: what they do is on
+    /// another node's air): moving its clip for every link it runs, and cueing and starting for a link that can, in its kind's
+    /// words. With no link, <see cref="Commands"/> as it is.
+    /// </summary>
+    public static IReadOnlyList<(string Verb, string Risk, string Words, bool Air)> CommandsFor(IReadOnlyList<PlayoutRow>? links)
+    {
+        if (links is not { Count: > 0 }) return Commands;
+        var rows = new List<(string, string, string, bool)>();
+        foreach (var l in links)
+        {
+            var on = "playout " + l.Name;
+            rows.Add(($"{on} play|pause|stop|restart", "high", $"Play, pause, stop (back to the top, held) or restart the clip on air on {l.Label}", true));
+            rows.Add(($"{on} end [<seconds>]", "high", $"Jump {l.Label}'s clip to its last seconds (10 unless said)", true));
+            rows.Add(($"{on} seek <m:ss>", "high", $"Move {l.Label}'s clip to a point", true));
+            if (!l.Starts) continue;
+            if (l.Kind == PlayoutRules.PlayMap)
+            {
+                rows.Add(($"{on} go <playlist> [<item>] [together]", "high", $"Play a playlist's item on {l.Label} (its next item when none is named)", true));
+                rows.Add(($"{on} cue <playlist> <item>", "high", $"Load an item on {l.Label}: its first frame shows on air at once", true));
+            }
+            else if (l.Kind == PlayoutRules.Patterns)
+            {
+                rows.Add(($"{on} go <cue>", "high", $"GO a cue on {l.Label} (its own standby decides)", true));
+                rows.Add(($"{on} cue <cue>", "high", $"Stand a cue by on {l.Label}: it moves that desk's own standby", true));
+            }
+        }
+        return [.. Commands.Where(c => c.Air), .. rows, .. Commands.Where(c => !c.Air)];
+    }
 
     /// <summary>
     /// The context's light (the worst of every item, those trimming may leave out among them), its headline within
@@ -209,7 +247,7 @@ public static class ShowContext
             x.Links.Select(Sized).Select(l => Part.Of(new ContextLink("timer", l.Id, l.Kind == "playout" ? "follows" : "hears", l.Light))).ToList(),
             x.Journal.TakeLast(MaxRecent).Select(e => Part.Of(new DateTimeOffset(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
                 ShowBusText.Cut(string.Create(CultureInfo.InvariantCulture, $"{x.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}"), RecentChars))).ToList(),
-            Commands.Select(Part.Of).ToList());
+            CommandsFor(x.Playout).Select(Part.Of).ToList());
         // The usual context fits: one serialization, as it is sent. Only one over a count or the bytes is measured part by part.
         var json = Json(whole);
         if (whole.Items.Count <= MaxItems && whole.Links.Count <= MaxLinks && whole.Commands.Count <= MaxCommands

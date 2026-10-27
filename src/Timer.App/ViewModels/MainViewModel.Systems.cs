@@ -91,8 +91,18 @@ public sealed partial class MainViewModel
     {
         _model = OverrunModel.Learn(_history.Records);
         _signals.EscalateAfter = TimeSpan.FromSeconds(Math.Clamp(Settings.Signals.EscalateSeconds, 5, 600));
+        _settingsNotes = _store.Notes.Select(n => new JournalEntry(DateTime.UtcNow, JournalKind.Note, -1, "Settings: " + n)).ToList();
         OpenJournal(null);
     }
+
+    /// <summary>What loading the settings left out or changed, as show-log rows: in the run's first journal and in a resumed one.</summary>
+    private IReadOnlyList<JournalEntry> _settingsNotes = [];
+
+    /// <summary>What loading the settings left out or changed, for the status line at start; null when nothing was.</summary>
+    public string? SettingsLoadLine
+        => _store.Notes is [var first, ..] notes
+            ? "Settings: " + first + (notes.Count > 1 ? $" (and {notes.Count - 1} more in the show log)" : "")
+            : null;
 
     private void OpenJournal(string? path)
     {
@@ -104,6 +114,7 @@ public sealed partial class MainViewModel
         // A show resumed after this run read its certificate: what that read said reaches the resumed show's report too, not
         // only the run's first journal, which the resume leaves.
         if (path is not null && _certificateNote is { } note) _journal.Add(note);
+        foreach (var said in _settingsNotes) _journal.Add(said);
         _ = old.DisposeAsync();
     }
 

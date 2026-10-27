@@ -835,6 +835,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             case ShowCommandKind.Patterns:
                 PatternsVideoCommand(c.Text ?? "end", (int)c.Number);
                 break;
+            case ShowCommandKind.Playout: PlayoutCommand(c); break;
             case ShowCommandKind.Loop: _show.SetLoop((int)c.Number); break;
             case ShowCommandKind.Ltc:
             {

@@ -275,11 +275,13 @@ public partial class SettingsDialog : Window
         VmixOn.IsChecked = i.Vmix;
         VmixHost.Text = i.VmixHost;
         VmixPort.Text = i.VmixPort.ToString();
-        PatternsOn.IsChecked = i.Patterns;
-        PatternsNextOnEnd.IsChecked = i.PatternsNextOnEnd;
-        PatternsHost.Text = i.PatternsHost;
-        PatternsPort.Text = i.PatternsPort.ToString();
-        if (i.PatternsTokenProtected.Length > 0) PatternsToken.Password = "••••••••";
+        // The Patterns box shows link "patterns" (the other playout links are kept as they are).
+        var patterns = PlayoutRules.PatternsLink(i);
+        PatternsOn.IsChecked = patterns?.Enabled == true;
+        PatternsNextOnEnd.IsChecked = patterns?.NextOnEnd == true;
+        PatternsHost.Text = patterns?.Host ?? PlayoutRules.DefaultHost;
+        PatternsPort.Text = (patterns?.Port ?? PlayoutRules.PatternsPort).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (patterns is { TokenProtected.Length: > 0 }) PatternsToken.Password = "••••••••";
         ArtNetOn.IsChecked = i.ArtNet;
         ArtNetHost.Text = i.ArtNetHost;
         SacnOn.IsChecked = i.Sacn;
@@ -393,12 +395,11 @@ public partial class SettingsDialog : Window
         i.Vmix = VmixOn.IsChecked == true;
         i.VmixHost = VmixHost.Text.Trim();
         if (int.TryParse(VmixPort.Text, out var vp) && vp is > 0 and < 65536) i.VmixPort = vp;
-        i.Patterns = PatternsOn.IsChecked == true;
-        i.PatternsNextOnEnd = PatternsNextOnEnd.IsChecked == true;
-        i.PatternsHost = PatternsHost.Text.Trim().Length > 0 ? PatternsHost.Text.Trim() : "127.0.0.1";
-        if (int.TryParse(PatternsPort.Text, out var pp) && pp is > 0 and < 65536) i.PatternsPort = pp;
-        if (PatternsToken.Password != "••••••••")
-            i.PatternsTokenProtected = PatternsToken.Password.Length == 0 ? "" : ViewModels.ProtectedKey.Protect(PatternsToken.Password);
+        var patternsPort = int.TryParse(PatternsPort.Text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var pp) ? pp : 0;
+        var patternsToken = PatternsToken.Password == "••••••••" ? null
+            : PatternsToken.Password.Length == 0 ? "" : ViewModels.ProtectedKey.Protect(PatternsToken.Password);
+        // Inside the store's lock: what could not be written is said once the lock is let go (OnSave).
+        _patternsNotSet = PlayoutRules.EditPatterns(i, PatternsOn.IsChecked == true, PatternsHost.Text, patternsPort, patternsToken, PatternsNextOnEnd.IsChecked == true);
         i.ArtNet = ArtNetOn.IsChecked == true;
         i.ArtNetHost = ArtNetHost.Text.Trim();
         i.Sacn = SacnOn.IsChecked == true;
@@ -688,8 +689,12 @@ public partial class SettingsDialog : Window
             SaveV2(s);
         });
         _store.SaveNow();
+        if (_patternsNotSet is { } notSet) MessageBox.Show(this, notSet, "Patterns", MessageBoxButton.OK, MessageBoxImage.Warning);
         DialogResult = true;
     }
+
+    /// <summary>Why the Patterns box's link could not be written by the last Save, or null.</summary>
+    private string? _patternsNotSet;
 
     private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
 

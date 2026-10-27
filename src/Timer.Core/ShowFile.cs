@@ -25,6 +25,9 @@ public sealed class ShowFile
     /// <summary>The show's other running orders (e.g. Day 2, the rehearsal version).</summary>
     [JsonPropertyName("otherRundowns")] public List<NamedRundown> OtherRundowns { get; set; } = new();
 
+    /// <summary>What <see cref="Load"/> left out of the file (a playout cue it could not keep), in words to say once; never saved.</summary>
+    [JsonIgnore] public IReadOnlyList<string> Notes { get; private set; } = [];
+
     private static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
@@ -80,12 +83,14 @@ public sealed class ShowFile
         show.Presets ??= new();
         show.MessageBank ??= new MessageBank();
         show.MessageBank.Entries ??= new();
-        show.Rundown = Sanitize(show.Rundown);
+        var notes = new LoadNotes();
+        show.Rundown = Sanitize(show.Rundown, notes, show.RundownName);
         show.OtherRundowns = (show.OtherRundowns ?? new())
             .Where(r => r is not null && NamedRundown.ValidName(r.Name))
             .GroupBy(r => r.Name.Trim(), StringComparer.OrdinalIgnoreCase).Select(g => g.First())
-            .Select(r => new NamedRundown { Name = r.Name.Trim(), Rundown = Sanitize(r.Rundown) })
+            .Select(r => new NamedRundown { Name = r.Name.Trim(), Rundown = Sanitize(r.Rundown, notes, r.Name.Trim()) })
             .ToList();
+        show.Notes = notes.Words;
         show.RundownName = NamedRundown.ValidName(show.RundownName) ? show.RundownName.Trim() : "Main";
         show.OtherRundowns.RemoveAll(r => string.Equals(r.Name, show.RundownName, StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrWhiteSpace(show.Name)) show.Name = Path.GetFileNameWithoutExtension(path);
@@ -96,7 +101,7 @@ public sealed class ShowFile
     /// Same rules as typing it in: "HH:mm" or a dated "yyyy-MM-dd HH:mm" (multi-day shows). The time zone is kept even
     /// if this PC doesn't know it, so re-saving never loses it (ShowClock falls back to the PC's zone meanwhile).
     /// </summary>
-    private static Rundown Sanitize(Rundown? r)
+    private static Rundown Sanitize(Rundown? r, LoadNotes notes, string name)
     {
         r ??= new Rundown();
         r.Items ??= new();
@@ -119,6 +124,7 @@ public sealed class ShowFile
                 if (!ItemChimes.ValidSpec(spec)) { i.Chimes = new ItemChimes(); break; }
             if (string.IsNullOrWhiteSpace(i.Id) || !ids.Add(i.Id)) { i.Id = Guid.NewGuid().ToString("N")[..10]; ids.Add(i.Id); }
         }
+        PlayoutRules.SanitiseCues(r, notes, name);
         return r;
     }
 

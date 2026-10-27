@@ -24,7 +24,9 @@ public sealed class SettingsStore : IDisposable
     public SettingsStore(string path)
     {
         _path = path;
-        _current = Load(path);
+        var notes = new LoadNotes();
+        _current = Load(path, notes);
+        Notes = notes.Words;
         // Persist identities assigned on load at once, so a crash before the next save can't change them.
         if (File.Exists(path) && (_current.Rundown.Id.Length > 0) && !File.ReadAllText(path).Contains(_current.Rundown.Id, StringComparison.Ordinal))
             SaveNow();
@@ -93,7 +95,12 @@ public sealed class SettingsStore : IDisposable
             string json;
             try
             {
-                lock (_lock) { json = JsonSerializer.Serialize(_current, JsonOpts); }
+                lock (_lock)
+                {
+                    // Every file written carries link "patterns" in the 2.17 keys too, so a rollback keeps that link.
+                    if (_current.Integrations is { } integrations) PlayoutRules.WriteMirror(integrations);
+                    json = JsonSerializer.Serialize(_current, JsonOpts);
+                }
             }
             catch (Exception ex)
             {
@@ -125,32 +132,39 @@ public sealed class SettingsStore : IDisposable
     /// <summary>True when the settings file was damaged and the last whole copy (.bak) was loaded instead.</summary>
     public static bool LoadedFromBackup { get; private set; }
 
+    /// <summary>
+    /// What this store's load left out of the file or changed in it (a playout link or cue it could not keep, an address it would not
+    /// dial), in words for the desk to say once: by name, never a token. Empty when the file was kept as it was.
+    /// </summary>
+    public IReadOnlyList<string> Notes { get; }
+
     public static string DefaultPath()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         return Path.Combine(appData, "Stagewatch", "settings.json");
     }
 
-    private static AppSettings Load(string path)
+    private static AppSettings Load(string path, LoadNotes notes)
     {
         LoadedFromBackup = false;
         try
         {
             // No file is a fresh start (someone reset it on purpose) — never a reason to bring back an old backup.
-            if (!File.Exists(path)) return Migrate(new AppSettings());
+            if (!File.Exists(path)) return Migrate(new AppSettings(), notes);
             // A damaged file falls back to the last whole one (.bak) before ever starting from nothing.
             var json = AtomicFile.ReadWithBackup(path, IsSettings, out var fromBackup);
             if (fromBackup && File.Exists(path)) Quarantine(path);
             if (json is null) throw new JsonException("no readable settings");
             var s = JsonSerializer.Deserialize<AppSettings>(json, JsonOpts) ?? new AppSettings();
             LoadedFromBackup = fromBackup;
-            return Migrate(s);
+            return Migrate(s, notes);
         }
         catch
         {
             // Corrupted file and no good backup — keep it for inspection and start fresh, never block startup.
             Quarantine(path);
-            return Migrate(new AppSettings());
+            notes.Clear();   // what a load that failed half-way said is not what this fresh start did
+            return Migrate(new AppSettings(), notes);
         }
 
         static bool IsSettings(string text)
@@ -166,13 +180,13 @@ public sealed class SettingsStore : IDisposable
         }
     }
 
-    private static AppSettings Migrate(AppSettings s)
+    private static AppSettings Migrate(AppSettings s, LoadNotes notes)
     {
         // CountdownToTime mode was removed in favor of unified Countdown + end-at.
         // Anything saved as that mode collapses back to Countdown.
         if (!Enum.IsDefined(s.LastMode)) s.LastMode = TimerMode.Countdown;
 
-        // No migrations yet. When SchemaVersion bumps, add upgraders here.
+        // Every load: PlayoutRules.Upgrade (below) keeps link "patterns" in step with the 2.17 keys, which win when they differ.
         if (s.SchemaVersion < AppSettings.CurrentSchemaVersion)
             s.SchemaVersion = AppSettings.CurrentSchemaVersion;
 
@@ -191,8 +205,12 @@ public sealed class SettingsStore : IDisposable
         // Stable identities for history (journal, reports): assigned once, then saved.
         s.Rundown.EnsureIds();
         foreach (var other in s.OtherRundowns ?? new()) other.Rundown?.EnsureIds();
+        // Playout cues are input like a show file's: kept only as PlayoutRules allows them.
+        PlayoutRules.SanitiseCues(s.Rundown, notes, s.RundownName);
+        foreach (var other in s.OtherRundowns ?? new()) PlayoutRules.SanitiseCues(other?.Rundown, notes, other?.Name ?? "");
         // 2.0 sections: absent in older files, or nulled by hand edits.
         s.Integrations ??= new IntegrationSettings();
+        PlayoutRules.Upgrade(s.Integrations, notes);
         s.Signals ??= new SignalSettings();
         s.Signals.Departments ??= new List<string>();
         s.Triggers ??= new List<TriggerRule>();

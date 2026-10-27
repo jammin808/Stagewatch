@@ -98,7 +98,8 @@ public sealed partial class MainViewModel
         var view = Network(now);
         _network = view;
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
-            now, _hub.Latest, _hub.ProducerStuck, LinkItems(), view.Rows.Select(r => r.Peer).ToList(), _journal.Entries, ShowClock, _goLatency.Percentile(0.95));
+            now, _hub.Latest, _hub.ProducerStuck, LinkItems(), view.Rows.Select(r => r.Peer).ToList(), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
+            PlayoutRows());
         _contextJson = ShowContext.Build(input);
         SyncPeerRows(now, view);
         var hello = OwnHello;
@@ -133,7 +134,7 @@ public sealed partial class MainViewModel
     {
         var hellos = NetworkPeers().Select(p => new HeardNode(p.Hello.Kind, p.Hello.Id, p.Hello.Name, p.Address, p.AgeSeconds) { Conflict = p.Conflict?.Words ?? "" });
         var contexts = _peerContexts.Held(now).ToList();
-        if (_patterns?.Context is { } pc && PeerContexts.Parse(pc, Settings.Integrations.PatternsHost, now) is { } pe)
+        if (_patterns?.Context is { } pc && PeerContexts.Parse(pc, PlayoutRules.PatternsLink(Settings.Integrations)?.Host ?? "", now) is { } pe)
             contexts.Add(new HeldContext(pe, _peerContexts.LinkedProof(pe.Id), Pulled: true));
         return ShowNetwork.Summaries(hellos, contexts, _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
     }

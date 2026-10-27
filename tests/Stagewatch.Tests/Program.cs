@@ -2191,6 +2191,7 @@ V2Tests.Run(Check);
 ShowWorkflowTests.Run(Check);
 WindowTests.Run(Check);
 await WindowTests.RunWeb(Check);
+PlayoutTests.Run(Check);
 SupervisorTests.Run(Check);
 SupervisorTests.Holding(Check);
 await IntegrationTests.Run(Check);

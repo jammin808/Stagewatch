@@ -67,6 +67,7 @@ public partial class MainWindow : Window, IContextActions
                 "Restore show?", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
             _vm.ResolveRecovery(answer == MessageBoxResult.Yes);
         }
+        if (_vm.SettingsLoadLine is { } said) _vm.StatusLine = said;
         if (SettingsStore.LoadedFromBackup)
             _vm.StatusLine = "The settings file was damaged — Stagewatch loaded the last good copy (nothing else was lost)";
         // Launched by double-clicking a .stagewatch file.
