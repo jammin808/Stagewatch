@@ -101,6 +101,9 @@ One grammar is shared by every transport — HTTP, WebSocket, OSC and the Compan
 | `rehearse` / `listen` | `[on\|off]` | Record slide timings from PowerPoint / follow the speaker through their script |
 | `report` | `[html\|csv]` | Save the planned-vs-actual report |
 | `note` | `<text>` | Log a note in the show report |
+| `playout` | `[<link>] end [seconds]` · `[<link>] restart\|play\|pause\|stop` · `[<link>] seek <m:ss>` | The clip on air on a playout link's peer, a Patterns desk or a PlayMap node (Settings → Integrations → Playout links; 2.20): its last seconds (10 unless said), back to its top, play, pause, stop (back to its top, held) or a point. `<link>` is the link's name; with none, the only link switched on, else the link feeding the VT countdown |
+| `playout` | `<link> go <playlist> [item]` · `<link> cue <playlist> <item>` (a PlayMap node) · `<link> go <cue>` · `<link> cue <cue>` (a Patterns desk) | Start a playlist's item (its next one when none is named) or load one, its first frame on air at once; GO a cue (the desk's own standby decides) or stand one by. Never guessed between two links (2.20) |
+| `patterns` | `end [seconds]` · `restart\|play\|pause\|stop` · `seek <m:ss>` | As `playout`, on link `patterns`, else the only link |
 
 ### HTTP
 
@@ -288,6 +291,67 @@ slow or malicious client is timed out or dropped without touching the timer.
   `screen disconnect [screen]`, `patterns end [seconds]` (the clip on air in Patterns jumps to its last seconds,
   default 10), `patterns restart`, and with Patterns Round 86 `patterns play`, `patterns pause`, `patterns stop` (the
   clip back to its top — never outputs off) and `patterns seek <m:ss>`.
+
+### A playout line's receipt is its peer's answer (2.20)
+
+A `playout` or `patterns` line that passes the door above is checked against the link's own facts before anything is sent,
+and is refused here with why — nothing written to the peer — when it names no link Stagewatch runs, or a link not running
+yet; when the peer answers as another kind than Settings set, or its kind is not yet heard from its STATE (only the
+clip's verbs go then); when a PlayMap `cue` finds its playlist not idle or ended in a STATE at most 3 s old, a `go` with no
+item has no next item to name, or the playlist follows another node's sync group; when a Patterns desk is asked for more
+than one cue by its id; for `together`, which the grammar reads but no help line or context row offers (a timed GO is a later
+release); and when Patterns' own STATE says the clip is a playlist item or a stinger's, whose `pause` or `stop` Patterns
+itself refuses — in Patterns' words: `Patterns: 'opener.mp4' is a playlist item — its own clock keeps running, so it is not
+paused (end or seek move it)`. A Patterns desk whose context lists a verb with `ON <key>` is sent the clip's own key with it.
+
+Otherwise the line goes on the link's one writer with a request id (`s<n>-<inst>`), and its receipt is the peer's own
+answer (Show Bus 13.12.3), never a "done" the peer did not say:
+
+| The peer | The receipt |
+|---|---|
+| `OK @id …` | `ok:true`, `stage:"applied"`, `effect`: `PlayMap Stage left took PLAYLIST GO pl1 it1 (its words)` |
+| `ERR @id …` | `ok:false` (HTTP 409), `error`: `PlayMap Stage left refused PLAYLIST GO pl1 it9: Main show has no item it9` |
+| `OK @id {"stage":"accepted",…}` | `ok:true`, `stage:"accepted"`, `effect`: `PlayMap Stage left: <its words>` — taken, not run yet; a follow-up comes |
+| nothing within the receipt's 3 s | `ok:true`, `stage:"accepted"`, `effect`: `sent to PlayMap Stage left — waiting for its answer`; a follow-up comes |
+| the link dropped before it answered | `ok:true`, `stage:"accepted"`, `effect`: `unconfirmed — …` (it may have run) |
+| never written | `ok:false`, `error`: `not sent — …` |
+
+`refs.peerRequest` is the request's number, the `<n>` of the id the peer answered. A receipt that says accepted while the
+peer still owes its answer has one follow-up, the same id, within `receipt.final.ms` (30 s) of the send: the peer's final
+answer — applied, refused, unconfirmed or not sent, never a later accepted, so a peer that answers accepted only after the
+first receipt went is followed to its final word — and when none has come by then, Stagewatch's own: `ok:true`,
+`stage:"accepted"`, `effect`: `unconfirmed — PlayMap Stage left took it and gave no final answer in 30 s — it may have run;
+look at its state` (`no answer from PlayMap Stage left in 30 s` when it never answered). A WebSocket hears it as a second
+receipt with `"final":true` as its last field; Companion TCP as the word `final` after the id; HTTP answers once, so its
+sender has the first receipt alone.
+
+```
+{"type":"receipt","id":"w1","ok":true,"stage":"accepted","effect":"PlayMap Stage left: loading Walk-in","error":null,"refs":{"peerRequest":7}}
+{"type":"receipt","id":"w1","ok":true,"stage":"applied","effect":"PlayMap Stage left took PLAYLIST CUE pl1 it2 (Walk-in cued)","error":null,"refs":{"peerRequest":7},"final":true}
+OK @c1 accepted PlayMap Stage left: starting Intro
+OK @c1 final applied PlayMap Stage left took PLAYLIST GO pl1 it1 (playing Intro)
+```
+
+A receipt says what the peer took, never what the room saw. That is the show log's: one row when the command's outcome
+first settles (its moves after it go on the status line), and, for a GO, a CUE, a play or a pause, one more within the
+operator's lead and 3 s of the peer's answer — `seen: Main show plays it1 on PlayMap Stage left` when a STATE the link read
+after the command went shows it (after the peer's answer, when the STATE as it went already showed it: a STATE from before the
+command proves nothing of it), or `not seen in PlayMap Stage left's STATE within 3.3 s: …` when none does. At most 32 effects (`link.inflight.max`) are looked for at once on one link; a command past
+that still goes, and its sender's status line says its effect is not looked for.
+
+An AI's or a peer's approved proposal that went to a playout link (Show Bus §11) is settled by the command's final receipt:
+`done` only once the peer said it applied it; `failed` in the peer's words when it refused or nothing was sent; and one the
+peer only took, or never answered within 30 s, is never `done` — §11 has no state between done and failed, so it is `failed`
+with words that start `unconfirmed —` and say it may have run.
+
+Every reader takes the links: the frame's `playout` row (the clip feeding the VT) ends with `link` and `node`, the link's
+name and its peer's node id (empty for vMix); the config ends with `playoutLinks`, each link switched on under the licence —
+`{"name":"stage-left","kind":"playmap","label":"PlayMap Stage left"}`, its kind as heard (or as set; empty while neither);
+the context has a `link:<name>` item (kind `playout`) per link in its PeerLink record's light — amber at Show Bus level 0,
+"proved at level 0 — the peer does not prove itself to this link" — with `clock:<name>` (kind `health`) amber while its clock
+is apart, each link's verbs among the commands, and the context it pulled from its peer among the peers — only for the node
+id the peer's STATE gives, when it gives one. A peer that answers as another kind than Settings set feeds none of these but
+its `link:<name>` item, which says why: no clip, no verbs, no context.
 
 ## 2.15: Show Bus 1.1 — receipts, context, node keys
 
@@ -550,6 +614,9 @@ Stagewatch's own link to a Patterns desk (TCP 9697, Settings → Integrations �
 - **Open desks.** A desk that asks this link for no key is followed when it speaks Show Bus 1.1, or when it is on this
   PC and this link holds no token. While this link holds a token the desk never asked for, it is amber ("asks for no key
   — the token stays on this PC").
+
+In 2.20 every playout link keeps these rules, a PlayMap node's line wire (TCP 9941) among them: Settings → Integrations →
+Playout links names up to 8, each with its own address and token.
 
 Two things change for older desks: a Patterns older than Show Bus 1.1 on another PC is no longer followed, even when
 neither side holds a token ("pairs only on its own PC — update Patterns"), so its VT countdown stops until it is

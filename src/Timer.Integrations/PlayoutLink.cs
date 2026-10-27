@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Channels;
 using Stagewatch.Core;
 
@@ -29,6 +30,12 @@ public sealed record PlayoutLinkOptions
 
     /// <summary>The link's name (Settings → playout links): its words say its label, "Patterns" for link "patterns".</summary>
     public string Name { get; init; } = PlayoutRules.PatternsName;
+
+    /// <summary>
+    /// The peer's kind as Settings set it: <see cref="PlayoutRules.Auto"/> (its STATE says), <see cref="PlayoutRules.Patterns"/> or
+    /// <see cref="PlayoutRules.PlayMap"/>. A peer whose STATE says another kind than one set here is told apart, and sent nothing.
+    /// </summary>
+    public string Kind { get; init; } = PlayoutRules.Auto;
 
     /// <summary>
     /// Whether a connected socket's remote address is this machine — the only place plain AUTH may go, and what makes the link local
@@ -71,11 +78,12 @@ public enum PlayoutPairing { None, Paired, Open }
 /// <summary>
 /// A command's outcome as the link knows it now (13.12.2): its request id, the line it was (without its id), its outcome by 13.12.3's
 /// table and the words that go with it, the outcome it moved on from (null for its first), when the link read it, on the link's
-/// clock, and the mark its asker gave it (the desk: the running-order item it was asked for; -1 for none). An outcome only moves
-/// forward; each move is said once.
+/// clock, the mark its asker gave it (the desk: the running-order item it was asked for; -1 for none), and how many STATEs the link had
+/// read when it read this answer (<see cref="PlayoutReading.Number"/>): a reading numbered past it was read after it. An outcome only
+/// moves forward; each move is said once.
 /// </summary>
 public readonly record struct PlayoutAnswer(string Id, string Line, PeerOutcome Outcome, string Words, PeerOutcome? Before = null, DateTimeOffset At = default,
-    int Mark = -1)
+    int Mark = -1, long Read = 0)
 {
     /// <summary>
     /// Pure: the show log's row for this outcome (13.12.10), the peer named by <paramref name="label"/> — one when the outcome of a
@@ -128,6 +136,39 @@ public readonly record struct PlayoutLinkChange(DateTimeOffset At, PeerLinkState
 }
 
 /// <summary>
+/// A command the link took for its peer (13.12.2): its request id, the line it is (without its id), and its outcomes as they come —
+/// <see cref="First"/> the first the link reads (applied, accepted, refused, unconfirmed or not-sent), <see cref="Final"/> the first
+/// that is not accepted. Both complete outside the link's lock, their continuations never inline: a task completed by the link's own
+/// thread never runs its waiter's code there.
+/// </summary>
+public sealed record PlayoutTicket(string Id, string Line, Task<PlayoutAnswer> First, Task<PlayoutAnswer> Final)
+{
+    /// <summary>The <c>n</c> of the request id <c>s&lt;n&gt;-&lt;inst&gt;</c>, the number a receipt's <c>refs.peerRequest</c> names.</summary>
+    public long Number => Id.Length > 1 && Id.IndexOf('-') is var dash and > 1
+        && long.TryParse(Id.AsSpan(1, dash - 1), NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : 0;
+}
+
+/// <summary>What asking the link for a command gave: its ticket, on its way, or why nothing was sent.</summary>
+public readonly record struct PlayoutSent(PlayoutTicket? Ticket, string? Error);
+
+/// <summary>
+/// A PlayMap node's answer to <c>WHOAMI</c>: whether it holds this link paired, its role for it and whether its show is armed, and the
+/// verbs it may run now (null = every one, PlayMap's <c>"*"</c>). <see cref="MayDrive"/>: a playlist's GO or a clip's transport is
+/// among them.
+/// </summary>
+public sealed record PlayoutWhoami(bool Paired, string Role, bool Armed, IReadOnlyList<string>? May)
+{
+    public bool MayDrive => May is null || May.Any(v => v.StartsWith("PLAYLIST GO", StringComparison.Ordinal) || v.StartsWith("VIDEO ", StringComparison.Ordinal));
+}
+
+/// <summary>
+/// The peer's STATE as the link last read it, on the connection up now, with its age on the link's clock and its number: how many
+/// STATEs the link has read in its life, this one the last — a STATE read after an answer is numbered past that answer's
+/// <see cref="PlayoutAnswer.Read"/>.
+/// </summary>
+public sealed record PlayoutReading(PlayoutPeerState State, long AgeMs, long Number = 0);
+
+/// <summary>
 /// A playout peer — a Patterns desk, or a PlayMap node's line wire — over its TCP line protocol, as a level-0 connector of Show Bus
 /// 1.3 §13 on Stagewatch's PeerLink core: <see cref="PeerLinkConnector"/> decides — the dial and its jittered redial, liveness
 /// (live, stale past <c>link.stale.ms</c>, down past <c>link.drop.ms</c>) with its own self-gap, each command's outcome by 13.12.3,
@@ -140,7 +181,12 @@ public readonly record struct PlayoutLinkChange(DateTimeOffset At, PeerLinkState
 /// <c>s&lt;n&gt;-&lt;inst&gt;</c>, unique for the process; at most <c>link.inflight.max</c> wait for answers and none is evicted;
 /// nothing is queued while the link is not up, and a command written before the link dropped is unconfirmed, never failed. Commands
 /// are a fixed set — <c>VIDEO END n</c>, <c>VIDEO RESTART</c>, and on desks that have them <c>VIDEO PLAY</c>, <c>PAUSE</c>,
-/// <c>STOP</c>, <c>SEEK n</c> — never a raw line, and never a bare <c>STOP</c>, which on Patterns closes every output. One writer:
+/// <c>STOP</c>, <c>SEEK n</c>, each naming its clip <c>ON &lt;key&gt;</c> where the asker gives one; to a peer heard to be PlayMap
+/// <c>PLAYLIST GO</c> and <c>PLAYLIST CUE</c>, to one heard to be Patterns <c>CUE GO</c> and <c>CUE STANDBY</c> — each with a ticket
+/// its asker waits on (<see cref="PlayoutTicket"/>), never a raw line, and never a bare <c>STOP</c>, which on Patterns closes every
+/// output. The peer's kind is what its STATE says (a whole STATE with no <c>t</c> is Patterns, <c>"t":"playmap"</c> PlayMap); a
+/// peer that answers as another kind than Settings set is sent nothing. Once paired it is asked for its STATE and its context at once,
+/// its context every 5 s, and a PlayMap node its <c>WHOAMI</c> every 5 s: a node that lets this link only read is amber. One writer:
 /// every step of the core runs under one lock, on its time read inside that lock, and what readers take — the light and words, the
 /// record, the clock, the reading and the context — is one snapshot published after each step; a link that is not live is never green.
 /// Nothing touches the socket under that lock or on a caller's thread: each connection writes its lines in order on a lane of its own,
@@ -211,6 +257,8 @@ public sealed class PlayoutLink : IPlayoutSource
     private readonly int _port;
     private readonly string _token;
     private readonly string _label;
+    private readonly string _name;
+    private readonly string _setKind;
     private readonly StrongBox<long> _ids;
     private readonly Lock _gate = new();
     /// <summary>
@@ -225,6 +273,17 @@ public sealed class PlayoutLink : IPlayoutSource
     private readonly List<PlayoutAnswer> _toSay = [];
     private readonly List<PlayoutLinkChange> _toChange = [];
     private readonly List<string> _toLog = [];
+    // Each command's ticket by its request id, until its final outcome is said; and the outcomes to hand them, outside the lock.
+    private readonly Dictionary<string, Pending> _tickets = new(StringComparer.Ordinal);
+    private readonly List<(TaskCompletionSource<PlayoutAnswer> Tcs, PlayoutAnswer Answer)> _toComplete = [];
+
+    /// <summary>A ticket's two outcomes still to hand out, and whether its first was handed (under the lock).</summary>
+    private sealed class Pending
+    {
+        public readonly TaskCompletionSource<PlayoutAnswer> First = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource<PlayoutAnswer> Final = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool FirstSaid;
+    }
     private Task? _run;
     private ITimer? _tick;
     private Connection? _conn;
@@ -235,9 +294,19 @@ public sealed class PlayoutLink : IPlayoutSource
     private string _said;
 
     // The newest reading of the peer's STATE and its context, on the connection up now (under the lock): published with the rest.
-    private sealed record Reading(PlayoutVideo? Video, long AtMs);
-    private Reading? _reading;
+    private sealed record StateRead(PlayoutPeerState State, long AtMs, long Number)
+    {
+        public PlayoutVideo? Video => State.Video;
+    }
+    private StateRead? _reading;
+    // How many STATEs the link has read in its life (under the lock): each reading and each answer carries the count it was read at.
+    private long _readings;
     private string? _context;
+    private string? _contextNode;
+    // The kind the peer's STATE says (13.4: its t, Patterns' none) once one was read, kept across a redial to the same address: a
+    // peer's kind is what it said last, never guessed from the port. And PlayMap's WHOAMI answer, on the connection up now.
+    private string? _kindSeen;
+    private PlayoutWhoami? _whoami;
 
     // This PC's wall clock less its monotonic one at the last read a pause did not split (13.11.7), and the evaluator's own pauses
     // (13.10.4): when the last line about one went out, and how many came since.
@@ -267,6 +336,7 @@ public sealed class PlayoutLink : IPlayoutSource
         public readonly long Order = order;
         public readonly int Mark = mark;
         public PeerOutcome? Said;
+        public PlayoutAnswer? Last;
     }
 
     /// <summary>
@@ -274,7 +344,8 @@ public sealed class PlayoutLink : IPlayoutSource
     /// clock, and the reading and context of the connection up now — one snapshot, so no reader sees a reading beside an older light.
     /// </summary>
     private sealed record Published(LinkHealth Health, string Status, PeerLinkState State, PlayoutPairing Pairing, bool Connected,
-        PeerLinkRecord Record, PeerClock.Belief? Clock, bool ClockApart, Reading? Reading, string? Context);
+        PeerLinkRecord Record, PeerClock.Belief? Clock, bool ClockApart, StateRead? Reading, string? Context, string? Kind, string? NodeId,
+        PlayoutWhoami? Whoami, string? ContextNode);
 
     /// <summary>
     /// A line for a connection's lane: its text, the request id of the command it is, or a ping whose t1 the lane stamps as it writes it.
@@ -317,7 +388,7 @@ public sealed class PlayoutLink : IPlayoutSource
         public bool EndExplained;
         /// <summary>The link said why this desk does not pair (an older desk, a NONCE it does not prove, no token): kept while it redials.</summary>
         public bool Advised;
-        public long LastPing = long.MinValue / 2, LastContext = long.MinValue / 2;
+        public long LastPing = long.MinValue / 2, LastContext = long.MinValue / 2, LastWhoami = long.MinValue / 2;
 
         public void Dispose()
         {
@@ -337,7 +408,9 @@ public sealed class PlayoutLink : IPlayoutSource
         _host = string.IsNullOrWhiteSpace(options.Host) ? "127.0.0.1" : options.Host.Trim();
         _port = options.Port is > 0 and < 65536 ? options.Port : DefaultPort;
         _token = (options.Token ?? "").Trim();
+        _name = options.Name;
         _label = PlayoutRules.Label(options.Name);
+        _setKind = options.Kind is PlayoutRules.Patterns or PlayoutRules.PlayMap ? options.Kind : PlayoutRules.Auto;
         // An id this link would make is checked now, so an inst of another shape fails here and not at the first command.
         _ = PeerLink.RequestId(IdPrefix, 1, options.Inst);
         _ids = Counters.GetOrAdd(IdPrefix + "-" + options.Inst, _ => new StrongBox<long>());
@@ -393,8 +466,67 @@ public sealed class PlayoutLink : IPlayoutSource
     /// <summary>13.11.5's CLOCKS APART, while the link is paired: |offset| − its error past <c>clock.apart.ms</c>.</summary>
     public bool ClockApart => _pub is { Pairing: not PlayoutPairing.None, ClockApart: true };
 
-    /// <summary>The peer's context (Show Bus §6 JSON), refreshed every 5 s from a 1.1 desk while paired, or null.</summary>
+    /// <summary>The peer's context (Show Bus §6 JSON), asked for once the link pairs and every 5 s after from a 1.1 peer, or null.</summary>
     public string? Context => _pub is { Pairing: not PlayoutPairing.None } pub ? pub.Context : null;
+
+    /// <summary>
+    /// Why nothing goes to the peer and nothing of it feeds a reader now: its STATE says another kind than the one its settings name,
+    /// or a kind this Stagewatch does not speak — in words; null while it says none or the right one.
+    /// </summary>
+    public string? WrongKind => KindProblem(_pub.Reading?.State.Kind);
+
+    /// <summary>
+    /// The peer's context as the show network and a proposal's risk may take it for the node it names (Show Bus §6, §11: a context read
+    /// over this Stagewatch's own link to the address the operator set): <see cref="Context"/>, but null while the peer answers as
+    /// another kind than its settings name, and null when its STATE names its node (PlayMap's <c>id</c>) and its context names another
+    /// — a context speaks only for the id the same link reads from its STATE.
+    /// </summary>
+    public string? PulledContext
+    {
+        get
+        {
+            var pub = _pub;
+            if (pub.Pairing == PlayoutPairing.None || pub.Context is null || KindProblem(pub.Reading?.State.Kind) is not null) return null;
+            return pub.Reading?.State.Id is { Length: > 0 } stateId && pub.ContextNode != stateId ? null : pub.Context;
+        }
+    }
+
+    /// <summary>The link's name as Settings keeps it ("patterns", "stage-left"): its context ids and the wire's verbs name it.</summary>
+    public string LinkName => _name;
+
+    /// <summary>The peer's host as the link dials it ("127.0.0.1" for a blank one).</summary>
+    public string Host => _host;
+
+    /// <summary>
+    /// The peer's kind as its STATE said it last — <see cref="PlayoutRules.Patterns"/> (a whole STATE with no <c>t</c>) or
+    /// <see cref="PlayoutRules.PlayMap"/> (<c>"t":"playmap"</c>) — or null: no STATE read yet, or one that names another kind.
+    /// </summary>
+    public string? Kind => _pub.Kind;
+
+    /// <summary>The kind Settings set for the peer: <see cref="PlayoutRules.Auto"/>, <see cref="PlayoutRules.Patterns"/> or <see cref="PlayoutRules.PlayMap"/>.</summary>
+    public string SetKind => _setKind;
+
+    /// <summary>How people read the peer (<see cref="PlayoutRules.Peer"/>): "PlayMap Stage left" once its kind is known or set.</summary>
+    public string Peer => PlayoutRules.Peer(Kind ?? (_setKind == PlayoutRules.Auto ? null : _setKind), _name);
+
+    /// <summary>The peer's Show Bus id: its STATE's (PlayMap's <c>id</c>), else its context's <c>node.id</c>; null while neither said one.</summary>
+    public string? NodeId => _pub.NodeId;
+
+    /// <summary>A PlayMap node's answer to <c>WHOAMI</c> on the connection up now, asked once its kind is known and every 5 s; null otherwise.</summary>
+    public PlayoutWhoami? Whoami => _pub is { Pairing: not PlayoutPairing.None } pub ? pub.Whoami : null;
+
+    /// <summary>
+    /// The peer's STATE as last read while the link is paired, with its age on the link's clock — every section it read (its clip,
+    /// playlists, sync, cue stack), whole or in part (13.14) — or null: not paired, or no STATE read on the connection up now.
+    /// </summary>
+    public PlayoutReading? Reading
+    {
+        get
+        {
+            var pub = _pub;
+            return pub.Reading is { } r && pub.Pairing != PlayoutPairing.None ? new PlayoutReading(r.State, MonoMs() - r.AtMs, r.Number) : null;
+        }
+    }
 
     /// <summary>
     /// A command's outcome came, or moved forward (13.12.2). Raised outside the link's lock, on its own threads or the asker's, in the
@@ -475,13 +607,17 @@ public sealed class PlayoutLink : IPlayoutSource
         _run = Task.Run(() => RunAsync(_stop.Token));
     }
 
-    /// <summary>The clip on air with its position counted on to now, or null: none, the link not live, or a playing clip gone stale.</summary>
+    /// <summary>
+    /// The clip on air with its position counted on to now, or null: none, the link not live, a playing clip gone stale, or a peer that
+    /// answers as another kind than its settings name — sent nothing, it feeds no reader either (the VT, the frame, a clip's end).
+    /// </summary>
     public PlayoutVideo? Video
     {
         get
         {
             var pub = _pub;
             if (pub.Reading is not { Video: { } v } r || pub.Pairing == PlayoutPairing.None || pub.State != PeerLinkState.Live) return null;
+            if (KindProblem(r.State.Kind) is not null) return null;
             var age = (MonoMs() - r.AtMs) / 1000.0;
             if (v.Playing && age > StaleAfter.TotalSeconds) return null;   // fail safe: an old countdown is worse than none
             if (!v.Playing || v.Paused || !v.CountsDown) return v;
@@ -495,7 +631,10 @@ public sealed class PlayoutLink : IPlayoutSource
     /// </summary>
     public PlayoutState? Value
         => Video is { CountsDown: true } v
-            ? new PlayoutState(_label, v.Title, v.LengthSeconds / v.Rate, v.PositionSeconds / v.Rate, v.Playing && !v.Paused)
+            ? new PlayoutState(ShowBusKinds.Label(Kind) ?? _label, v.Title, v.LengthSeconds / v.Rate, v.PositionSeconds / v.Rate, v.Playing && !v.Paused)
+            {
+                Link = _name, Node = NodeId ?? "",
+            }
             : null;
 
     /// <summary>
@@ -503,37 +642,82 @@ public sealed class PlayoutLink : IPlayoutSource
     /// command takes its asker's <paramref name="mark"/> (the desk: the running-order item it was asked for), handed back with each of
     /// its outcomes (<see cref="PlayoutAnswer.Mark"/>).
     /// </summary>
-    public string? EndIn(int seconds, int mark = -1)
-    {
-        if (seconds is < 1 or > 3600) return "seconds must be 1-3600";
-        if (Video is { } v && !v.CountsDown) return v.Loops ? "the clip on air loops — it has no end to jump to" : $"{_label} doesn't know this clip's length yet";
-        return Send(mark, "VIDEO", "END", seconds.ToString(CultureInfo.InvariantCulture));
-    }
+    public string? EndIn(int seconds, int mark = -1) => Clip("END", seconds, mark).Error;
 
     /// <summary>Play the clip on air again from its start. Null = on its way (the link's lane writes it), else why not.</summary>
-    public string? Restart(int mark = -1) => Send(mark, "VIDEO", "RESTART");
+    public string? Restart(int mark = -1) => Clip("RESTART", 0, mark).Error;
 
     /// <summary>Play on / pause / stop (back to the top, held) the clip on air — desks with transport only.</summary>
-    public string? Play(int mark = -1) => Transport(mark, "PLAY");
-    public string? Pause(int mark = -1) => Transport(mark, "PAUSE");
-    public string? StopClip(int mark = -1) => Transport(mark, "STOP");   // VIDEO STOP: the clip only — never the bare STOP that closes outputs
+    public string? Play(int mark = -1) => Clip("PLAY", 0, mark).Error;
+    public string? Pause(int mark = -1) => Clip("PAUSE", 0, mark).Error;
+    public string? StopClip(int mark = -1) => Clip("STOP", 0, mark).Error;   // VIDEO STOP: the clip only — never the bare STOP that closes outputs
 
     /// <summary>Move the clip on air to <paramref name="seconds"/> from its start.</summary>
-    public string? Seek(int seconds, int mark = -1)
+    public string? Seek(int seconds, int mark = -1) => Clip("SEEK", seconds, mark).Error;
+
+    /// <summary>
+    /// The clip on air's transport — <c>VIDEO END n</c>, <c>RESTART</c>, <c>PLAY</c>, <c>PAUSE</c>, <c>STOP</c> or <c>SEEK n</c> — with its
+    /// ticket, or why nothing was sent. With <paramref name="onKey"/> the line names the clip by the peer's own key
+    /// (<c>VIDEO PAUSE ON &lt;key&gt;</c>), for a peer that lists that form; never a bare <c>STOP</c>.
+    /// </summary>
+    public PlayoutSent Clip(string what, int seconds, int mark = -1, string? onKey = null)
     {
-        if (seconds is < 0 or > 24 * 3600) return "seek takes 0 to 24 hours";
-        if (Video is { LengthSeconds: > 0 } v && seconds > v.LengthSeconds) return $"the clip is only {TimerTick.FormatSeconds((long)v.LengthSeconds)} long";
-        return Transport(mark, "SEEK", seconds.ToString(CultureInfo.InvariantCulture));
+        string[] On(params string[] words) => onKey is { Length: > 0 } key ? [.. words, "ON", key] : words;
+        switch (what)
+        {
+            case "END":
+                if (seconds is < 1 or > 3600) return new(null, "seconds must be 1-3600");
+                if (Video is { } v && !v.CountsDown)
+                    return new(null, v.Loops ? "the clip on air loops — it has no end to jump to" : $"{_label} doesn't know this clip's length yet");
+                return Send(mark, "VIDEO", On("END", seconds.ToString(CultureInfo.InvariantCulture)));
+            case "RESTART":
+                return Send(mark, "VIDEO", On("RESTART"));
+            case "PLAY" or "PAUSE" or "STOP":
+                return Transport(mark, On(what));
+            case "SEEK":
+                if (seconds is < 0 or > 24 * 3600) return new(null, "seek takes 0 to 24 hours");
+                if (Video is { LengthSeconds: > 0 } c && seconds > c.LengthSeconds) return new(null, $"the clip is only {TimerTick.FormatSeconds((long)c.LengthSeconds)} long");
+                return Transport(mark, On("SEEK", seconds.ToString(CultureInfo.InvariantCulture)));
+            default:
+                return new(null, $"VIDEO {what} isn't one of the clip's verbs a playout link sends");
+        }
     }
 
-    private string? Transport(int mark, string what, params string[] more)
+    /// <summary>
+    /// A PlayMap playlist's <c>PLAYLIST GO &lt;playlist&gt; [&lt;item&gt;] [EXPECT &lt;next&gt;]</c> or <c>PLAYLIST CUE &lt;playlist&gt; &lt;item&gt;</c>,
+    /// each word quoted by PlayMap's line rule where it needs it, with its ticket, or why nothing was sent. Only to a peer heard to be
+    /// PlayMap: a Patterns desk has no playlists of this shape.
+    /// </summary>
+    public PlayoutSent Playlist(string verb, string list, string? item, string? expect, int mark = -1)
     {
-        if (NotReady() is { } why) return why;   // an unpaired link knows no clip, so it says why it sends nothing
+        if (Kind != PlayoutRules.PlayMap) return new(null, $"{Peer} isn't heard to be a PlayMap node — no playlist command is sent to it");
+        return verb switch
+        {
+            "GO" when item is { Length: > 0 } => Send(mark, "PLAYLIST", ["GO", list, item]),
+            "GO" when expect is { Length: > 0 } => Send(mark, "PLAYLIST", ["GO", list, "EXPECT", expect]),
+            "CUE" when item is { Length: > 0 } => Send(mark, "PLAYLIST", ["CUE", list, item]),
+            _ => new(null, $"PLAYLIST {verb} isn't one of the playlist verbs a playout link sends (GO with an item or its EXPECT, CUE with an item)"),
+        };
+    }
+
+    /// <summary>
+    /// A Patterns desk's <c>CUE GO &lt;id&gt;</c> or <c>CUE STANDBY &lt;id&gt;</c>, the id bare (Patterns reads its words raw), with its
+    /// ticket, or why nothing was sent. Only to a peer heard to be Patterns. Never STANDBY and GO together: its own standby fence decides.
+    /// </summary>
+    public PlayoutSent Cue(string verb, string cue, int mark = -1)
+    {
+        if (Kind != PlayoutRules.Patterns) return new(null, $"{Peer} isn't heard to be a Patterns desk — no cue command is sent to it");
+        return verb is "GO" or "STANDBY" ? Send(mark, "CUE", [verb, cue]) : new(null, $"CUE {verb} isn't one of the cue verbs a playout link sends (GO, STANDBY)");
+    }
+
+    private PlayoutSent Transport(int mark, string[] words)
+    {
+        if (NotReady() is { } why) return new(null, why);   // an unpaired link knows no clip, so it says why it sends nothing
         var video = _pub.Reading?.Video;
         if (video is { Transport: false })
-            return $"this {_label} desk is older than Round 86 — it only takes Last 10 s and restart";
-        if (video is null) return $"{_label} has no clip on air";
-        return Send(mark, "VIDEO", [what, .. more]);
+            return new(null, $"this {_label} desk is older than Round 86 — it only takes Last 10 s and restart");
+        if (video is null) return new(null, $"{_label} has no clip on air");
+        return Send(mark, "VIDEO", words);
     }
 
     /// <summary>Null when a command may go out; else why not — no connection, or a peer that has not paired with this link.</summary>
@@ -545,33 +729,36 @@ public sealed class PlayoutLink : IPlayoutSource
     }
 
     /// <summary>
-    /// One command, built here and nowhere else (<see cref="PlayoutWire.Line"/>), only for a connection that paired: the core decides
-    /// whether it may go (13.12.3's not-sent rows, nothing queued across a drop) and reads its answer by its request id. Null once it is
-    /// on the connection's lane, which writes it in order — the caller's thread never touches the socket — else why it was not sent.
-    /// Its outcome comes by <see cref="Answered"/>: not-sent should the connection end before the lane wrote it, and once written, a
-    /// desk older than Show Bus 1.1 echoes no id, so it is unconfirmed at once (13.12.3).
+    /// One command, built here and nowhere else (<see cref="PlayoutWire.Line"/>, in the words the peer's kind reads back as themselves),
+    /// only for a connection that paired: the core decides whether it may go (13.12.3's not-sent rows, nothing queued across a drop) and
+    /// reads its answer by its request id. Its ticket once it is on the connection's lane, which writes it in order — the caller's thread
+    /// never touches the socket — else why it was not sent. Its outcome comes by <see cref="Answered"/> and its ticket: not-sent should
+    /// the connection end before the lane wrote it, and once written, a desk older than Show Bus 1.1 echoes no id, so it is unconfirmed
+    /// at once (13.12.3).
     /// </summary>
-    private string? Send(int mark, string verb, params string[] words)
+    private PlayoutSent Send(int mark, string verb, string[] words)
     {
-        if (verb == "STOP" && words.Length == 0) return "refused";   // never: it closes every Patterns output
-        if (PlayoutWire.Line(PlayoutRules.Patterns, null, verb, words) is not { } line) return "that command can't be written on this link";
-        string? why;
+        if (verb == "STOP" && words.Length == 0) return new(null, "refused");   // never: it closes every Patterns output
+        if (KindProblem(_pub.Reading?.State.Kind) is { } wrongKind) return new(null, wrongKind);
+        var kind = Kind ?? _setKind;
+        if (PlayoutWire.Line(kind, null, verb, words) is not { } line) return new(null, "that command can't be written on this link");
+        PlayoutSent sent;
         lock (_gate)
         {
-            why = SendLocked(verb, line, mark);
+            sent = SendLocked(verb, line, mark);
         }
         SayAnswers();
-        return why;
+        return sent;
     }
 
-    private string? SendLocked(string verb, string line, int mark)
+    private PlayoutSent SendLocked(string verb, string line, int mark)
     {
         var now = Now();
         var conn = _conn;
         if (conn is null || conn.Pairing == PlayoutPairing.None)
         {
             _pub = Publish(now);
-            return NotReady() ?? $"{_label} hasn't paired with this link — nothing sent";
+            return new(null, NotReady() ?? $"{_label} hasn't paired with this link — nothing sent");
         }
         var id = PeerLink.RequestId(IdPrefix, Interlocked.Increment(ref _ids.Value), _o.Inst);
         _outbound[id] = conn.Bus11 ? "@" + id + " " + line : line;
@@ -580,14 +767,15 @@ public sealed class PlayoutLink : IPlayoutSource
             _outbound.Remove(id);
             var why = _m.WordsOf(id);
             _pub = Publish(now);
-            return why;
+            return new(null, why);
         }
+        var pending = _tickets[id] = new Pending();
         Track(id, line, mark);
         Flush(conn);
         Ended(conn, now);
         TrackAnswers(now);
         _pub = Publish(now);
-        return null;
+        return new(new PlayoutTicket(id, line, pending.First.Task, pending.Final.Task), null);
     }
 
     // ------------------------------------------------------------------ the connection
@@ -691,6 +879,8 @@ public sealed class PlayoutLink : IPlayoutSource
                 }
                 _reading = null;
                 _context = null;
+                _contextNode = null;
+                _whoami = null;
                 _outbound.Clear();
                 TrackAnswers(now);
                 _pub = Publish(now);
@@ -894,7 +1084,17 @@ public sealed class PlayoutLink : IPlayoutSource
             var words = sp < 0 ? "" : rest[(sp + 1)..];
             if (id == "ctx")
             {
-                if (ok && words.StartsWith('{') && words.Length < PlayoutWire.LineBytes) _context = words;
+                if (ok && words.StartsWith('{') && words.Length < PlayoutWire.LineBytes)
+                {
+                    _context = words;
+                    _contextNode = ContextNode(words);
+                }
+                return;
+            }
+            if (id == "wh")
+            {
+                // PlayMap's WHOAMI: who this link is to it now. An older node that does not know the verb leaves it unknown.
+                _whoami = ok ? ReadWhoami(words) : null;
                 return;
             }
             if (id == "st")
@@ -918,6 +1118,48 @@ public sealed class PlayoutLink : IPlayoutSource
     }
 
     private static long? Ms(string s) => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    /// <summary>A context's <c>node.id</c> when it is a Show Bus id, else null: never an exception, whatever the peer sent.</summary>
+    private static string? ContextNode(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("node", out var node)
+                   && node.ValueKind == JsonValueKind.Object && node.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
+                   && id.GetString() is { } said && ShowBusHello.ValidId(said) ? said : null;
+        }
+        catch (JsonException) { return null; }
+        catch (InvalidOperationException) { return null; }
+    }
+
+    /// <summary>
+    /// PlayMap's WHOAMI answer, read for what a link uses — paired, role, armed, may (<c>"*"</c> or a list of verbs, at most 256 of 64
+    /// characters) — or null for one it cannot read. Never an exception, whatever the peer sent.
+    /// </summary>
+    public static PlayoutWhoami? ReadWhoami(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var r = doc.RootElement;
+            if (r.ValueKind != JsonValueKind.Object) return null;
+            var role = r.TryGetProperty("role", out var ro) && ro.ValueKind == JsonValueKind.String ? ShowBusText.Clip(ro.GetString() ?? "", 24) : "";
+            IReadOnlyList<string>? may = null;
+            if (r.TryGetProperty("may", out var m))
+            {
+                if (m.ValueKind == JsonValueKind.Array)
+                    may = m.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString() ?? "")
+                        .Where(v => v.Length is > 0 and <= 64).Take(256).ToList();
+                else if (m.ValueKind != JsonValueKind.String || m.GetString() != "*") return null;
+            }
+            else return null;
+            return new PlayoutWhoami(r.TryGetProperty("paired", out var p) && p.ValueKind == JsonValueKind.True, role,
+                r.TryGetProperty("armed", out var a) && a.ValueKind == JsonValueKind.True, may);
+        }
+        catch (JsonException) { return null; }
+        catch (InvalidOperationException) { return null; }
+    }
 
     /// <summary>Peer words as the link says them: the token taken out first (<see cref="Scrub"/>), so no cut leaves part of it, then at most 160 characters.</summary>
     private string Clip(string words)
@@ -943,7 +1185,14 @@ public sealed class PlayoutLink : IPlayoutSource
             return;
         }
         var video = state.Video;
-        _reading = new Reading(video, now.Mono);
+        _reading = new StateRead(state, now.Mono, ++_readings);
+        // The kind its STATE says (13.4): what the link's commands are written for, and the one a kind set in Settings must match.
+        if (state.Kind is { } kind) _kindSeen = kind.Length > 0 ? kind : null;
+        if (KindProblem(state.Kind) is { } problem)
+        {
+            Say(LinkHealth.Starting, problem);
+            return;
+        }
         var said = (video is null ? $"connected to {_host}:{_port} — no clip on air"
             : $"{video.Title}" + (video.CountsDown ? $": {TimeSpan.FromSeconds(Math.Max(0, video.LengthSeconds - video.PositionSeconds)):mm\\:ss} left" : video.Loops ? " (looping)" : "")) + OpenNote;
         var part = state.Whole ? "" : " · " + PlayoutWire.OversizeWords(state.Bytes) + ", read in part";
@@ -1023,7 +1272,12 @@ public sealed class PlayoutLink : IPlayoutSource
         if (!_m.Follows(now)) return;
         conn.Pairing = how;
         Say(PairedHealth, (how == PlayoutPairing.Paired ? $"paired with {_host}:{_port}" : $"connected to {_host}:{_port}") + OpenNote + " — waiting for its STATE");
-        if (conn.Bus11) Write(conn, "@st STATUS");
+        if (!conn.Bus11) return;
+        // Its STATE, and its context at once: the greeting it sent before the pairing was set aside, and nothing it says is taken
+        // from before; the context's next ask comes ContextEvery from now.
+        Write(conn, "@st STATUS");
+        Write(conn, "@ctx CONTEXT");
+        conn.LastContext = now.Mono;
     }
 
     /// <summary>
@@ -1035,6 +1289,20 @@ public sealed class PlayoutLink : IPlayoutSource
     {
         Explain(conn, LinkHealth.Error, _label + ": " + Clip(words));
         _m.Refused(now, "refused", 0);
+    }
+
+    /// <summary>
+    /// Null when the peer's kind is one this link may command: its STATE named none yet, or the kind Settings set (or any of the two
+    /// Stagewatch speaks, when Settings leaves it to the peer); else why not, in words — nothing is sent to a peer that answers as
+    /// another kind than the one it was set up as, or as a kind this Stagewatch does not speak.
+    /// </summary>
+    private string? KindProblem(string? said)
+    {
+        if (said is null) return null;
+        if (said.Length == 0) return $"{_label} at {_host}:{_port} says it is a kind of node this Stagewatch doesn't speak to — nothing is sent to it";
+        if (_setKind != PlayoutRules.Auto && said != _setKind)
+            return $"{_label} at {_host}:{_port} answers as {ShowBusKinds.Label(said)}, but its settings say {ShowBusKinds.Label(_setKind)} — nothing is sent to it until its kind is set again (Settings → Integrations)";
+        return null;
     }
 
     /// <summary>Amber while the link holds a token the desk never asked for (it asks for no key); otherwise green.</summary>
@@ -1086,6 +1354,13 @@ public sealed class PlayoutLink : IPlayoutSource
                     {
                         Write(conn, "@ctx CONTEXT");
                         conn.LastContext = now.Mono;
+                    }
+                    // A PlayMap node says who this link is to it — its role, whether its show is armed, what it may run — asked once
+                    // its kind is heard and every ContextEvery after: what greys a desk's entries, never a local refusal.
+                    if (conn.Bus11 && _kindSeen == PlayoutRules.PlayMap && now.Mono - conn.LastWhoami >= ContextEvery.TotalMilliseconds)
+                    {
+                        Write(conn, "@wh WHOAMI");
+                        conn.LastWhoami = now.Mono;
                     }
                 }
                 Flush(conn);
@@ -1288,8 +1563,40 @@ public sealed class PlayoutLink : IPlayoutSource
     {
         _tracked[id] = new Tracked(line, Interlocked.Read(ref _ids.Value), mark);
         if (_tracked.Count <= PeerLink.ReceiptsKept) return;
-        foreach (var old in _tracked.OrderBy(t => t.Value.Order).Take(_tracked.Count - PeerLink.ReceiptsKept).Select(t => t.Key).ToList())
-            _tracked.Remove(old);
+        foreach (var old in _tracked.OrderBy(t => t.Value.Order).Take(_tracked.Count - PeerLink.ReceiptsKept).ToList())
+        {
+            _tracked.Remove(old.Key);
+            LetGo(old.Key, old.Value);
+        }
+    }
+
+    /// <summary>
+    /// A command's outcome came or moved forward: its ticket's first outcome is this one if none was handed yet, and its final one when
+    /// this one is not accepted (applied, refused, unconfirmed or not-sent). Handed out by <see cref="SayAnswers"/>, outside the lock.
+    /// </summary>
+    private void Ticket(string id, PlayoutAnswer answer)
+    {
+        if (!_tickets.TryGetValue(id, out var p)) return;
+        if (!p.FirstSaid)
+        {
+            p.FirstSaid = true;
+            _toComplete.Add((p.First, answer));
+        }
+        if (answer.Outcome == PeerOutcome.Accepted) return;
+        _toComplete.Add((p.Final, answer));
+        _tickets.Remove(id);
+    }
+
+    /// <summary>
+    /// The link no longer follows a command (its core let it go, or the link stopped) while its ticket still waits: it hands the last
+    /// outcome said, or, with none, unconfirmed — it may have reached the peer — so no waiter waits on a command nobody follows.
+    /// </summary>
+    private void LetGo(string id, Tracked t, string why = "the link no longer follows it")
+    {
+        if (!_tickets.ContainsKey(id)) return;
+        Ticket(id, t.Last is { Outcome: not PeerOutcome.Accepted } said ? said
+            : new PlayoutAnswer(id, t.Line, PeerOutcome.Unconfirmed, why + " — it may have run; look at " + _label + "'s state", t.Last?.Outcome, t.Last?.At ?? default, t.Mark,
+                _readings));
     }
 
     /// <summary>
@@ -1303,11 +1610,18 @@ public sealed class PlayoutLink : IPlayoutSource
             var outcome = _m.OutcomeOf(id);
             if (outcome is { } o && o != t.Said)
             {
-                _toSay.Add(new PlayoutAnswer(id, t.Line, o, Scrub(_m.WordsOf(id)), t.Said, DateTimeOffset.FromUnixTimeMilliseconds(now.Wall), t.Mark));
+                var answer = new PlayoutAnswer(id, t.Line, o, Scrub(_m.WordsOf(id)), t.Said, DateTimeOffset.FromUnixTimeMilliseconds(now.Wall), t.Mark, _readings);
+                _toSay.Add(answer);
                 t.Said = o;
+                t.Last = answer;
+                Ticket(id, answer);
             }
             // Applied and refused are final; accepted and unconfirmed can still move, until the core no longer holds the command.
-            if (outcome is PeerOutcome.Applied or PeerOutcome.Refused or PeerOutcome.NotSent || !_m.Knows(id)) _tracked.Remove(id);
+            if (outcome is PeerOutcome.Applied or PeerOutcome.Refused or PeerOutcome.NotSent || !_m.Knows(id))
+            {
+                _tracked.Remove(id);
+                LetGo(id, t);
+            }
         }
     }
 
@@ -1324,19 +1638,24 @@ public sealed class PlayoutLink : IPlayoutSource
             List<PlayoutLinkChange> changed;
             List<PlayoutAnswer> said;
             List<string> logged;
+            List<(TaskCompletionSource<PlayoutAnswer> Tcs, PlayoutAnswer Answer)> tickets;
             lock (_gate)
             {
-                if (_toChange.Count == 0 && _toSay.Count == 0 && _toLog.Count == 0) return;
+                if (_toChange.Count == 0 && _toSay.Count == 0 && _toLog.Count == 0 && _toComplete.Count == 0) return;
                 changed = [.. _toChange];
                 said = [.. _toSay];
                 logged = [.. _toLog];
+                tickets = [.. _toComplete];
                 _toChange.Clear();
                 _toSay.Clear();
                 _toLog.Clear();
+                _toComplete.Clear();
             }
             foreach (var c in changed) Changed?.Invoke(c);
             foreach (var a in said) Answered?.Invoke(a);
             foreach (var line in logged) Logged?.Invoke(line);
+            // A ticket's waiter hears its outcome after the listeners: the show log has its row before a receipt says it.
+            foreach (var (tcs, answer) in tickets) tcs.TrySetResult(answer);
         }
     }
 
@@ -1381,8 +1700,12 @@ public sealed class PlayoutLink : IPlayoutSource
         var state = _m.State(now);
         string Seconds(long? ms) => ((ms ?? 0) / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + " s";
         var live = _saidHealth == LinkHealth.Ok;
+        // A PlayMap node that lets this link only read (armed and remote-view-only) is amber with what its desk can do: the link stays
+        // up and its commands still go, and the node's own ERR refuses them in its words.
+        var readOnly = live && _whoami is { MayDrive: false };
         var status = state switch
         {
+            PeerLinkState.Live when readOnly => _said + $" · {Peer} is armed and lets this PC only read — its desk can SHOW SET REMOTE-VIEW-ONLY OFF",
             PeerLinkState.Live => _said,
             PeerLinkState.Stale => $"{_label} at {_host}:{_port} quiet for {Seconds(record.HeardMs)} — no countdown until it is heard again",
             PeerLinkState.Down when live => record.Words,
@@ -1399,8 +1722,9 @@ public sealed class PlayoutLink : IPlayoutSource
             _logged = state;
         }
         if (_repeats > 0 && _repeatSince is { } since && now.Mono - since >= RepeatSummaryEvery.TotalMilliseconds) FoldRepeats(now);
-        return new Published(HealthOf(state, _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None, _conn is not null, record,
-            _m.Clock.Believed, _m.Clock.Apart, _reading, _context);
+        var node = _reading?.State.Id is { Length: > 0 } stateId ? stateId : _contextNode;
+        return new Published(HealthOf(state, readOnly ? LinkHealth.Starting : _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None,
+            _conn is not null, record, _m.Clock.Believed, _m.Clock.Apart, _reading, _context, _kindSeen, node, _whoami, _contextNode);
     }
 
     /// <summary>
@@ -1538,6 +1862,8 @@ public sealed class PlayoutLink : IPlayoutSource
             var now = Now();
             if (_m.KeepsConnection(now)) _m.Closed(now);
             TrackAnswers(now);
+            // A ticket still waiting on an answer the stopped link will never read is handed one now, so no waiter waits on nothing.
+            foreach (var (id, t) in _tracked.ToList()) LetGo(id, t, "the link was stopped");
             _pub = Publish(now);
             // The link is stopped (Settings changed or turned it off, or Stagewatch is closing): its last row says so, and what it was.
             FoldRepeats(now);

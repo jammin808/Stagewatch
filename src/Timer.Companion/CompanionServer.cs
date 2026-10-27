@@ -343,11 +343,20 @@ public sealed class CompanionServer : IAsyncDisposable
             finally { _rid = null; }
             if (!_ridFailed) Enqueue($"OK @{id}");
 
+            // The receipt, and after an "accepted" that waits on another node its one follow-up (Show Bus §3, 13.12.4): the word final
+            // after the id, within receipt.final.ms — that node's final answer, or unconfirmed when it gave none in time.
             async Task ReplyAsync(Task<CommandReceipt> receipt)
             {
                 var r = await receipt.ConfigureAwait(false);
+                Enqueue(Line(r));
+                if (r.Final is { } pending) Enqueue(Line(await pending.ConfigureAwait(false)));
+            }
+
+            string Line(CommandReceipt r)
+            {
                 var words = (r.Ok ? r.Effect : r.Error ?? "refused").Replace('\n', ' ').Replace('\r', ' ');
-                Enqueue(r.Ok ? $"OK @{id} {r.Stage}{(words.Length > 0 ? " " + words : "")}" : $"ERROR @{id} {words}");
+                var tag = r.IsFinal ? $"@{id} final" : $"@{id}";
+                return r.Ok ? $"OK {tag} {r.Stage}{(words.Length > 0 ? " " + words : "")}" : $"ERROR {tag} {words}";
             }
         }
 

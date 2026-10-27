@@ -399,24 +399,34 @@ public static class PlayoutRules
     // ------------------------------------------------------------------ which link a command reaches, and what this Stagewatch does with it
 
     /// <summary>
-    /// What this Stagewatch does with a playout command, pure: the link it runs it on, or why not, asked in this order — the licence;
-    /// the link (<see cref="Target"/>); whether this Stagewatch runs that link (link "patterns", through its Patterns link, to a
-    /// Patterns desk or a peer whose kind is not set, while that link runs: <paramref name="patternsRuns"/>); whether it carries the
-    /// action (end, restart, play, pause, stop and seek; cue and go put something new on a peer's air, which no link here carries
-    /// yet). A refusal sends nothing.
+    /// The link a playout command reaches, pure, or why none, asked in this order — the licence; the link (<see cref="Target"/>);
+    /// whether this Stagewatch runs it now (<paramref name="runs"/>, by name: a link started under the licence, switched on, its
+    /// kind one this Stagewatch speaks). What the link then sends, or refuses with the peer's own facts, is the director's. A refusal
+    /// sends nothing.
     /// </summary>
-    public static (PlayoutLinkSettings? Link, string? Error) Route(IReadOnlyList<PlayoutLinkSettings> links, PlayoutArgs a, bool licensed, bool patternsRuns, string? vtLink)
+    public static (PlayoutLinkSettings? Link, string? Error) Route(IReadOnlyList<PlayoutLinkSettings> links, PlayoutArgs a, bool licensed, Func<string, bool> runs, string? vtLink)
     {
         if (!licensed) return (null, LicenceWords + ". Help → License.");
         var (link, why) = Target(links, a.Link, a.Action, vtLink);
         if (link is null) return (null, why);
-        if (link.Name != PatternsName)
-            return (null, $"{Label(link.Name)} isn't running: this Stagewatch runs one playout link, patterns, as its Patterns link");
-        if (link.Kind == PlayMap) return (null, "link patterns is set to a PlayMap node, which this Stagewatch's Patterns link doesn't speak to");
-        if (!patternsRuns) return (null, "Patterns isn't running (Settings → Integrations → Patterns)");
-        if (!TransportActions.Contains(a.Action))
-            return (null, $"playout {a.Action} isn't carried to {Label(link.Name)} by this Stagewatch: it sends end, restart, play, pause, stop and seek");
-        return (link, null);
+        return runs(link.Name) ? (link, null) : (null, $"{Label(link.Name)} isn't running yet — its link starts with Settings → Integrations, and dials once started");
+    }
+
+    /// <summary>
+    /// The link <c>patterns …</c> reaches: link "patterns" when there is one, else the only link switched on — the verb 2.17's
+    /// Patterns link answered, unchanged.
+    /// </summary>
+    public static string PatternsTarget(IReadOnlyList<PlayoutLinkSettings> links) => Find(links, PatternsName) is not null ? PatternsName : "";
+
+    /// <summary>
+    /// How people read a link's peer: the app its kind names and the link's label — "PlayMap Stage left" — or the app alone when the
+    /// label already says it ("Patterns" for link patterns), or the label alone while the kind is not known.
+    /// </summary>
+    public static string Peer(string? kind, string name)
+    {
+        var label = Label(name);
+        if (ShowBusKinds.Label(kind) is not { } app) return label;
+        return label.Equals(app, StringComparison.OrdinalIgnoreCase) ? app : app + " " + label;
     }
 
     /// <summary>

@@ -926,7 +926,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             s.Display.CueLadderId,
             Pricing.TierName(_license.Tier),
             FeatureKeys(_license.Tier),
-            s.Holding.Images.Select(i => (i.Id, i.Name)).ToArray());
+            s.Holding.Images.Select(i => (i.Id, i.Name)).ToArray(),
+            PlayoutConfig());
         Volatile.Write(ref _remoteConfig, cfg);
     }
 

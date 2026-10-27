@@ -112,6 +112,8 @@ class Rig {
     this.ownsDir = false;   // create's folder is the rig's own, removed by dispose; a folder given to the constructor is its giver's
     this.nodeKeyCount = options.nodeKeys || 0;
     this.extraArgs = options.args || [];   // more options, as given (e.g. --bind all --bus <port> --bus-to 127.0.0.1:<port>)
+    // More environment, as given (e.g. STAGEWATCH_RIG_PLAYOUT_TOKEN for --playout's links): never a flag, so no secret is in argv.
+    this.env = { ...RIG_ENV, ...(options.env || {}) };
     this.nodeId = options.nodeId || null;
     // --journal: a file in the rig's folder (true), '-' for one in memory, or a path as given.
     this.journal = options.journal === true ? path.join(dir, 'journal.jsonl') : options.journal || null;
@@ -136,7 +138,7 @@ class Rig {
   /**
    * A rig on free ports; with { wire: true } also its Companion (TCP) and OSC (UDP) servers; { nodeKeys: N } makes N node keys;
    * { nodeId } a stable --node-id; { journal: true | '-' | path }; { pinFile: true | path } (with true, { pin } is the PIN written,
-   * '' for none); { secretsOut: true | path }; { args: [...] } adds options as given.
+   * '' for none); { secretsOut: true | path }; { args: [...] } adds options as given; { env: {...} } adds to its environment.
    */
   static async create(options = {}) {
     if (!fs.existsSync(DLL)) throw new Error(`the rig isn't built (${DLL}): dotnet build tools/Stagewatch.Rig`);
@@ -165,7 +167,7 @@ class Rig {
       if (this.journal) args.push('--journal', this.journal);
       if (this.secretsOut) args.push('--secrets-out', this.secretsOut);
       args.push(...this.extraArgs.map(String));
-      const proc = spawn('dotnet', args, { stdio: ['pipe', 'pipe', 'pipe'], env: RIG_ENV });
+      const proc = spawn('dotnet', args, { stdio: ['pipe', 'pipe', 'pipe'], env: this.env });
       this.proc = proc;
       const out = new Inbox();   // this run's lines: a restart's run has its own
       this.out = out;

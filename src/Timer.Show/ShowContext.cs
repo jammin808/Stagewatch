@@ -27,6 +27,13 @@ public sealed record ContextInput(
 public sealed record PlayoutRow(string Name, string Label, string Kind, bool Starts);
 
 /// <summary>
+/// A playout link as its context items take it (Show Bus 13.16.4): its name (the items' ids are built from it alone), its peer as
+/// people read it, the light of its record (13.16.3) and the words that go with it, and its clock as its matched pongs believe it.
+/// </summary>
+public sealed record PlayoutLinkFact(string Name, string Peer, string Light, string Words, IReadOnlyList<string>? Flags = null, double? ClockOffsetMs = null,
+    long? ClockErrMs = null, bool ClockApart = false);
+
+/// <summary>
 /// Stagewatch's Show Bus context (§6): its light, a one-line headline and its parts — the timer, the schedule, each
 /// department's cue, the speaker's message, every link — plus recent events, the verbs a peer or an AI may propose, and
 /// the peers it hears. Computed from facts by rules (no model), so the Eye, a dashboard, a Stream Deck and an AI all read
@@ -117,7 +124,8 @@ public static class ShowContext
             if (!l.Starts) continue;
             if (l.Kind == PlayoutRules.PlayMap)
             {
-                rows.Add(($"{on} go <playlist> [<item>] [together]", "high", $"Play a playlist's item on {l.Label} (its next item when none is named)", true));
+                // No [together] until a GO at one instant is carried (Show Bus 13.11.6): a row offers only what the executor sends.
+                rows.Add(($"{on} go <playlist> [<item>]", "high", $"Play a playlist's item on {l.Label} (its next item when none is named)", true));
                 rows.Add(($"{on} cue <playlist> <item>", "high", $"Load an item on {l.Label}: its first frame shows on air at once", true));
             }
             else if (l.Kind == PlayoutRules.Patterns)
@@ -128,6 +136,48 @@ public static class ShowContext
         }
         return [.. Commands.Where(c => c.Air), .. rows, .. Commands.Where(c => !c.Air)];
     }
+
+    /// <summary>
+    /// Each playout link's items, pure: <c>link:&lt;name&gt;</c> (kind <c>playout</c>), labelled with its peer, in its record's light
+    /// (13.16.4: no reader derives a light of its own — a level-0 link is amber, <c>legacy</c>) and its words; and while its clock is
+    /// apart (13.11.5: the offset less its error past <c>clock.apart.ms</c>) one amber <c>clock:&lt;name&gt;</c> (kind <c>health</c>). The
+    /// ids come from the link's name alone, which no other integration's slug may take (<see cref="PlayoutRules.Reserved"/>).
+    /// </summary>
+    public static IReadOnlyList<ContextItem> PlayoutItems(IEnumerable<PlayoutLinkFact> links)
+    {
+        var items = new List<ContextItem>();
+        foreach (var l in links)
+        {
+            var light = l.Light is Light.Green or Light.Amber or Light.Red ? l.Light : Light.Grey;
+            var flags = (l.Flags ?? []).Select(FlagWords).Where(w => w.Length > 0).ToList();
+            items.Add(new ContextItem("link:" + l.Name, "playout", l.Peer, light, flags.Count == 0 ? l.Words : l.Words + " · " + string.Join(" · ", flags)));
+            if (l is { ClockApart: true, ClockOffsetMs: { } offset })
+                items.Add(new ContextItem("clock:" + l.Name, "health", "Clock vs " + l.Peer, Light.Amber,
+                    FormattableString.Invariant($"CLOCKS APART: {l.Peer}'s clock is {Math.Abs(offset) / 1000:0.0} s {(offset > 0 ? "ahead" : "behind")} (± {l.ClockErrMs ?? 0} ms)")));
+        }
+        return items;
+    }
+
+    /// <summary>
+    /// A link record's flag (13.16.2) in a reader's words: what an amber light stands for, so a link that is up and amber says why.
+    /// A flag no row names is left out.
+    /// </summary>
+    public static string FlagWords(string flag) => flag switch
+    {
+        "plain" => "plain TCP — its wire offers no TLS",
+        "keyless" => "public view only",
+        "legacy" => "proved at level 0 — the peer does not prove itself to this link",
+        "open" => "it asks for no key",
+        "code-plain" => "proved with a pairing code over plain TCP",
+        "scope" => "its key's scope is below what the link is used for",
+        "first" => "pinned at first use — compare the fingerprint",
+        "note" => "a hello contradicts this link",
+        "apart" => "CLOCKS APART",
+        "unfit" => "its clock is not fit for timed commands",
+        "oversize" => "an over-long line read in part",
+        "malformed" => "lines it could not read",
+        _ => "",
+    };
 
     /// <summary>
     /// The context's light (the worst of every item, those trimming may leave out among them), its headline within

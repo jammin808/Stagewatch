@@ -245,45 +245,55 @@ section has every message and refusal.
 - Stagewatch's `/ws` speaks no PeerLink yet (Show Bus §13): a node link proves a bearer key or the operator's credential, at level 0
   (§7.1). The PeerLink kit — Stagewatch's core, the vectors and the scripted peer — runs in the suite only, in 2.19.
 
-## 5. The Patterns link (Stagewatch as a Patterns client)
+## 5. Playout links (Stagewatch as a Patterns and PlayMap client)
 
-Stagewatch reads the clip on air in Patterns over Patterns' own wire, as a playout source beside vMix. The link runs on
-Stagewatch's PeerLink core (Show Bus §13) at level 0: it keeps §13's rules a connector keeps on its own, and offers no LINK yet. This
-section is rewritten with the rest of Stagewatch's playout links in the release that brings them.
+Stagewatch reads the clip on air in Patterns desks and PlayMap nodes over their own line wires, as playout sources beside vMix, and
+drives them. Each link Settings → Integrations names — at most `playout.links` (8), each by a name such as `stage-left`; the 2.17
+*Patterns video* box is link `patterns` — runs on its own on Stagewatch's PeerLink core (Show Bus §13) at level 0: it keeps §13's
+rules a connector keeps on its own, and offers no LINK yet. A link runs while it is switched on and the licence (Production) runs
+playout links; one set to dial `wss` only waits for that carrier and is never dialled plain.
 
-- **Connect:** TCP `patterns.wire.port` (9697) at the address in Settings → Integrations → *Patterns video* (Find, §2, fills it).
-  Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe (`@hi PING`); once paired, a `PING` every `patterns.ping.ms` (2 s),
-  and only a pong that answers one of its last pings is a clock sample. A link heard within `link.stale.ms` (6 s) is live; silent
-  past it, it is stale — amber, and no countdown — and silent past `patterns.drop.ms` (12 s) it is dropped and redialled. A redial
-  waits `patterns.redial.first.ms` (500 ms) at first, doubling to `patterns.redial.max.ms` (5 s), each wait × (0.8 + 0.4 j), j
-  from a generator seeded once from the system's random generator; the count starts over only once a link that paired has stayed up
-  10 s, so a desk that answers and closes is backed off. A desk at its connection ceiling (`ERR busy …`) is shown in its own words
-  and backed off the same way; nothing is sent to it. The link's checks run every 250 ms on a timer of their own; a pause of this
-  PC longer than `link.selfgap.ms` (2 s) calls the link down for none of it, and puts one line in the show log (at most one a
-  minute, naming the pauses it folds in). Each connection writes its lines in order on a lane of its own, so neither those checks
-  nor the desk asking for a command ever waits on the socket; a write that has not finished within `link.write.deadline.max.ms`
-  (10 s) ends the connection, and the link says so.
-- **Pairing: the token never crosses the network.** The pairing token is stored DPAPI-protected. A desk's `NONCE` is answered with
+- **Connect:** TCP at the link's address and port — `patterns.wire.port` (9697) unless another is set; a PlayMap node's line wire is
+  9941 (*Patterns video*'s Find, §2, fills a Patterns desk's). Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe
+  (`@hi PING`); once paired, a `PING` every `patterns.ping.ms` (2 s), and only a pong that answers one of its last pings is a clock
+  sample. A link heard within `link.stale.ms` (6 s) is live; silent past it, it is stale — amber, and no countdown — and silent past
+  `patterns.drop.ms` (12 s) it is dropped and redialled. A redial waits `patterns.redial.first.ms` (500 ms) at first, doubling to
+  `patterns.redial.max.ms` (5 s), each wait × (0.8 + 0.4 j), j from a generator seeded once from the system's random generator; the
+  count starts over only once a link that paired has stayed up 10 s, so a peer that answers and closes is backed off. A desk at its
+  connection ceiling (`ERR busy …`) is shown in its own words and backed off the same way; nothing is sent to it. The link's checks
+  run every 250 ms on a timer of their own; a pause of this PC longer than `link.selfgap.ms` (2 s) calls the link down for none of
+  it, and puts one line in the show log (at most one a minute, naming the pauses it folds in). Each connection writes its lines in
+  order on a lane of its own, so neither those checks nor the desk asking for a command ever waits on the socket; a write that has
+  not finished within `link.write.deadline.max.ms` (10 s) ends the connection, and the link says so.
+- **Kind:** the peer's kind is what its STATE says — a whole STATE with no `t` is a Patterns desk, `"t":"playmap"` a PlayMap node —
+  and Settings may set it. A peer that answers as another kind than the one set is amber with both kinds named, and sent nothing; one
+  that names a kind Stagewatch does not speak to is sent nothing either. Neither feeds any reader but its own light: no clip for the
+  VT, the frame or a clip's end, no verbs among the context's commands, no playlists in the AI's facts and no context on the Show
+  network or for a proposal's risk, until its kind is set again. Until a STATE is heard, `go` and `cue` are refused ("its kind
+  is not known yet — no STATE heard"); the clip's transport needs no kind.
+- **Pairing: the token never crosses the network.** The pairing token is stored DPAPI-protected. A peer's `NONCE` is answered with
   `AUTH-PROOF` (HMAC-SHA256(token, nonce + "Stagewatch")) only when it is exactly 32 lowercase hex, once per connection — the token
   as Show Bus 13.6.8 keys it: dashes, spaces, tabs, CRs and LFs removed, the rest upper case. A token that still holds a character
   1.1 desks read apart (another kind of space, a line or paragraph separator, a byte order mark) is never proved: the link stays
   amber and says 13.6.8's words, "this token holds an invisible character — retype it". A refused proof (or token) is red, and the
   token is held for a minute (Show Bus 13.15.3): the connection ends and no proof goes again until the hold ends or the token
-  changes, so a wrong token never walks the desk's lockout. The hold is kept with its end in `playout-links.json` in Stagewatch's
-  data folder: the link holds it in the step that refused the proof, and nothing is proved or dialled before it ends, while a lane
-  of its own writes the file — never the show thread, never under the link's lock — so restarting Stagewatch, turning the link off
-  and on or changing its address keeps it. It is kept for the token it held (beside a tag of the token as Settings stores it,
-  protected, never the token or a hash of it), so a token changed in Settings is proved at once; a hold read back ends within a
-  minute of the start, whatever the file or a wall clock stepped back says, and a word the file holds outside Show Bus 13.16.3's
-  set holds as `key`. The file holds no token, proof or nonce. Words the desk sends back are shown with the token taken out, so
-  a service that echoes a plain `AUTH` line puts no token on the status line or in the show log. A desk that
-  sends no NONCE within `patterns.nonce.wait.ms` (1.5 s) asks this connection for none: plain `AUTH <token>` then goes only to a
-  Patterns on this PC (a loopback socket), never on a connection that heard a NONCE. Nothing the desk sends (STATE, receipts, clock
-  samples, context) is taken before the link pairs (`OK paired`) or is open (a desk that asks for no proof: a Show Bus 1.1 desk, or
-  one on this PC while this link holds no token), and no command is written to it before then. A Patterns older than Show Bus 1.1 on
-  another PC therefore stays amber ("update Patterns") and is not followed.
-- **State:** Patterns pushes `STATE <json>`, latest wins. Stagewatch reads `video{file,tag,position,length,playing,ended,loops}`,
-  and from Patterns Round 86 `positionMs`, `lengthMs` (null = not known yet), `paused`, `rate` and `seq`. An unknown length or
+  changes, so a wrong token never walks the peer's lockout. The hold is kept with its end in `playout-links.json` in Stagewatch's
+  data folder, by the link's name: the link holds it in the step that refused the proof, and nothing is proved or dialled before it
+  ends, while a lane of its own writes the file — never the show thread, never under the link's lock — so restarting Stagewatch,
+  turning the link off and on or changing its address keeps it. It is kept for the token it held (beside a tag of the token as
+  Settings stores it, protected, never the token or a hash of it), so a token changed in Settings is proved at once; a hold read back
+  ends within a minute of the start, whatever the file or a wall clock stepped back says, and a word the file holds outside Show Bus
+  13.16.3's set holds as `key`. The file holds no token, proof or nonce. Words the peer sends back are shown with the token taken out,
+  so a service that echoes a plain `AUTH` line puts no token on the status line or in the show log. A peer that sends no NONCE within
+  `patterns.nonce.wait.ms` (1.5 s) asks this connection for none: plain `AUTH <token>` then goes only to a peer on this PC (a
+  loopback socket), never on a connection that heard a NONCE. Nothing the peer sends (STATE, receipts, clock samples, context) is
+  taken before the link pairs (`OK paired`) or is open (a peer that asks for no proof: a Show Bus 1.1 desk, or one on this PC while
+  this link holds no token), and no command is written to it before then. A Patterns older than Show Bus 1.1 on another PC therefore
+  stays amber ("update Patterns") and is not followed.
+- **State:** the peer pushes `STATE <json>`, latest wins. Stagewatch reads `video{file,tag,position,length,playing,ended,loops}`,
+  and from Patterns Round 86 (and from PlayMap) `positionMs`, `lengthMs` (null = not known yet), `paused`, `rate` and `seq`, and
+  Patterns' `role` and `key` and, once Patterns publishes them, `pausable` and `stoppable`; and `t`, `id`, `seq`, `at`, PlayMap's
+  `playlists` (each with its item on air and its next), `sync` and `project.index`, and Patterns' `cuestack`. An unknown length or
   `loops` means no countdown; at a rate other than 1 the countdown is real time. Position counts on locally from a monotonic clock
   between frames; a playing clip with no frame for `patterns.clip.stale.ms` (3 s) is treated as stale and the VT countdown
   disappears rather than lie. A STATE longer than `patterns.line.bytes` (256 KB) is read in part (Show Bus 13.14): its clip when
@@ -291,37 +301,84 @@ section is rewritten with the rest of Stagewatch's playout links in the release 
   ("STATE 293 KB — over this link's 256 KB"), until a whole STATE comes. Any other line that long is counted and not read. A STATE
   that is not JSON, or whose names or strings are not whole UTF-8 text, is counted and not read, the link, its light and its last
   clip as they were; one whose `video` is of another shape (not an object or null) is amber with no countdown.
-- **Show Bus 1.1 desks** get request ids `s<n>-<inst>` (unique for the process, the hello's `inst` at the end, so a command's
+- **Show Bus 1.1 peers** get request ids `s<n>-<inst>` (unique for the process, the hello's `inst` at the end, so a command's
   answer is matched to it), timed pings (the clock offset, CLOCKS APART once the offset less its error is past `clock.apart.ms`,
-  2 s) and `CONTEXT` every `patterns.context.every.ms` (5 s), shown on the Show network; older desks get the plain lines they know.
-  The clock starts with no sample on each new connection (the link never learns the desk's `inst`, so it may be another desk, or
-  the same one restarted), and a step of this PC's own wall clock empties it (Show Bus 13.11.7).
-- **Its light** in Settings, on the Show network and in the context's `link:patterns` item is the link's own: green once paired and
-  live, amber while stale or pairing or when the desk is told what to fix, red when refused or held, and never green while the link
-  is down or dialling. The PeerLink core's record of the link (Show Bus 13.16.3) is amber at this level — `legacy`: the desk cannot
-  prove itself yet, so anything at its address could answer — and `plain` off this PC; those readers do not show that record's light
-  yet.
-- **Outcomes** (Show Bus 13.12.3): an answer is applied, accepted (taken, not run yet) or refused with the desk's words. At most 32
+  2 s), and once paired `STATUS` and `CONTEXT` at once, then `CONTEXT` every `patterns.context.every.ms` (5 s), shown on the Show
+  network (each link's, one per node id, the first link in Settings' order that gives one; a PlayMap node's only when it names the
+  id its STATE gives); a PlayMap node is also asked `WHOAMI` every 5 s once its kind is heard, and one that lets
+  this PC only read is amber — "… is armed and lets this PC only read — its desk can SHOW SET REMOTE-VIEW-ONLY OFF" — while its
+  commands still go, its own `ERR` the refusal. Older desks get the plain lines they know. The clock starts with no sample on each new
+  connection (the link never learns the peer's `inst`, so it may be another peer, or the same one restarted), and a step of this
+  PC's own wall clock empties it (Show Bus 13.11.7).
+- **Its light** in Settings is the link's own: green once paired and live, amber while stale or pairing or when the peer is told
+  what to fix, red when refused or held, and never green while the link is down or dialling. The PeerLink core's record of the link
+  (Show Bus 13.16.3) is amber at this level — `legacy`: the peer cannot prove itself to this link yet, so anything at its address
+  could answer — and `plain` off this PC; the context's `link:<name>` item (kind `playout`, labelled with its peer: "PlayMap Stage
+  left", "Patterns"), and so the Show network, the AI's facts and Companion that read that context, takes that record's light, its
+  flags in words beside the link's own words; `clock:<name>` (kind `health`) is amber while CLOCKS APART.
+- **Commands:** a fixed set, by the peer's kind, nothing else:
+  - the clip on air, to either: `VIDEO END <n>` — `playout [<link>] end [seconds]` (default 10), `patterns end`, the *Last 10 s*
+    button (on the link feeding the VT); `VIDEO RESTART`; and, Round 86 desks and PlayMap only (detected from the precise fields),
+    `VIDEO PLAY`, `VIDEO PAUSE`, `VIDEO STOP` (the clip back to its top, held) and `VIDEO SEEK <s>`. A Patterns desk whose context
+    lists the verb with `ON <key>` is sent the clip's own key with it (`VIDEO PAUSE ON <key>`), when the key reads back bare;
+  - to a PlayMap node: `PLAYLIST GO <playlist> <item>`, `PLAYLIST GO <playlist> EXPECT <its next item>` (`playout <link> go
+    <playlist>`), `PLAYLIST CUE <playlist> <item>`, each word quoted by PlayMap's line rule where it needs it;
+  - to a Patterns desk: `CUE GO <cue id>` and `CUE STANDBY <cue id>`, the id bare, never the two together — its own standby fence
+    decides a GO, and a standby moves that desk's own standby.
+
+  `playout [<link>] …` reaches the link it names, else the only link switched on, else — for the clip's transport — the link
+  feeding the VT; `go` and `cue` never guess between two. `patterns …` reaches link `patterns`, else the only link. No raw lines, and
+  never a bare `STOP`, which on Patterns turns every output off. Nothing is queued while disconnected or unpaired.
+- **Refused here, from the peer's own facts** (nothing sent): Patterns' `pause` or `stop` of a playlist item or a stinger's clip, in
+  Patterns' own words ("'opener.mp4' is a playlist item — its own clock keeps running, so it is not paused (end or seek move it)"),
+  until it publishes `video.pausable` / `video.stoppable`, which then decide — PlayMap is never refused by role; a GO or CUE on a
+  playlist of a sync group whose node's STATE says it is the follower ("… follows sync group main (leader …) — GO its leader"); a
+  `PLAYLIST CUE`, which puts the item's first frame on air at once, unless the playlist is seen idle or ended in a STATE at most
+  `playout.cue.idle.ms` (3 s) old ("not cued — Show is playing on PlayMap Stage left; GO will play it"); a `go <playlist>` whose
+  STATE names no next item; a Patterns cue that is not one bare id; `together`, which needs a clock fit for a GO at one instant on
+  every link (Show Bus 13.11.6) and is not carried yet.
+- **Outcomes** (Show Bus 13.12.3): an answer is applied, accepted (taken, not run yet) or refused with the peer's words. At most 32
   commands wait for answers and the next is not sent, nothing evicted; nothing is queued while the link is not up. A command
-  written before the link dropped, or with no answer in 30 s, is unconfirmed — it may have run: look at the desk — never failed; one
-  still on the connection's lane when it dropped, or after 30 s, is not sent — none of it reached the desk, and the lane passes
-  over it, never writing it later. A desk older than Show Bus 1.1 echoes no id, so its command is unconfirmed once written.
+  written before the link dropped, or with no answer in 30 s, is unconfirmed — it may have run: look at the peer — never failed; one
+  still on the connection's lane when it dropped, or after 30 s, is not sent — none of it reached the peer, and the lane passes over
+  it, never writing it later. A desk older than Show Bus 1.1 echoes no id, so its command is unconfirmed once written. Each command
+  carries a ticket: its first outcome and its final one; a stopped link hands every ticket still waiting an outcome.
+- **Receipts** (Show Bus §3): a sender with a request id hears the peer's own answer within the same 3 s — applied, in Stagewatch's
+  words where the peer gave none ("PlayMap Stage left took PLAYLIST GO pl1 it1"), refused in its words, accepted, unconfirmed or not
+  sent — and with none by then accepted, "sent to PlayMap Stage left — waiting for its answer"; `refs.peerRequest` names the peer's
+  request. On `/ws` and Companion TCP an accepted receipt is followed once, within 30 s of the send, by that command's final receipt
+  with the same id and `"final":true` (on Companion TCP, the word `final` after the id): the peer's final answer — never an accepted
+  that came after the first receipt went — and when it gives none in time, Stagewatch's own, accepted and "unconfirmed — PlayMap
+  Stage left took it and gave no final answer in 30 s — it may have run; look at its state". HTTP answers once.
+- **Seen in STATE:** after a PlayMap GO or CUE, or a clip's pause or play, that the peer took, its STATE is looked at for the
+  operator's lead (300 ms) and `playout.seen.ms` (3 s) from that answer: one row, "seen: Main show plays it1 on PlayMap Stage left"
+  or "not seen in PlayMap Stage left's STATE within 3.3 s: …". Only a STATE the link read after the command went counts, and when
+  the last one before it already showed the effect, only one read after the peer's answer — a STATE from before the command proves
+  nothing of it, while a peer that pushes its new STATE ahead of its answer is still seen. Seen means seen in its STATE, never on its
+  outputs. At most `playout.seen.max` (32) effects are looked for at once on one link; a command past that still goes, and the
+  status line and its sender say its effect is not looked for.
 - **The show log** (Show Bus 13.12.10, 13.16.7, 13.19.4), at the link's own time: one row when the outcome of a command that reached
-  the desk first settles (applied, accepted, refused or unconfirmed), filed against the running-order item it was asked for, and
+  the peer first settles (applied, accepted, refused or unconfirmed), filed against the running-order item it was asked for, and
   one more when an unconfirmed one is answered after all; any other move (accepted, then applied) and a command never written have
   the status line alone. One row per change of the link's state, its start among them — the peer and its address, from, to, its
   words and 13.15.1's attempt. A change already said within `log.repeat.summary.ms` (60 s) — a redial going round, a link flapping
   live and stale, its coming live again — is folded into one summary row that often, naming the last change it folds, never a row
   per change. The rows reach listeners in the order the link made them, and those that settle as Stagewatch closes reach the
   journal's file before it closes. No row carries the token, a proof or a nonce.
-- **Commands:** a fixed set, nothing else:
-  - `VIDEO END <n>` — Stagewatch `patterns end [seconds]` (default 10) and the *Last 10 s* button.
-  - `VIDEO RESTART` — `patterns restart`.
-  - Round 86 desks only (detected from the precise fields): `VIDEO PLAY`, `VIDEO PAUSE`, `VIDEO STOP` (the clip back to its top,
-    held) and `VIDEO SEEK <s>` — `patterns play | pause | stop | seek <m:ss>`. An older desk is told nothing it doesn't know.
-
-  No raw lines, and never a bare `STOP`, which on Patterns turns every output off. Nothing is queued while disconnected or unpaired.
-- **Both sources on:** the VT countdown follows whichever is playing (Patterns first if both).
+- **The VT and clips' ends:** the VT countdown follows, among the links that may feed it (*follow VT*) in Settings' order, the first
+  whose clip runs, else vMix's running clip, else the first with a clip; the frame's `playout` row names its `link` and `node`. Each
+  link's clip end is one row (and the "clip ends" trigger); it moves the running order on a video item only when that link fed the VT
+  at that moment and its *next on end* is on, and at most once an item execution, however many links end. A link stale or dropped a
+  while, or a clip gone stale, changes nothing of what was said: the same ended clip seen again after the gap is not a second end.
+- **An AI's line** to a playout link is always a proposal a person approves (Show Bus §11); the approved line runs through the link,
+  and the proposal settles on that command's final receipt: `done` only once the peer said it applied it; `failed` in the peer's
+  words when it refused or nothing was sent; one the peer only took (Patterns' Confirm among them) or never answered within 30 s is
+  never `done` — §11 has no state between, so it is `failed` with words that start "unconfirmed —" and say it may have run.
+- **A context pulled over a link** counts, as the operator's own link to an address the operator set, for its node's row on the
+  Show network (`verified` `key`, its words naming the link: "its context comes over this Stagewatch's playout link stage-left") and
+  for a proposal's risk, while no key speaks for that id (Show Bus §6, §11: a table read by the desk over its own link). At level 0
+  the peer does not prove itself, so this rests on the address alone; Stagewatch takes it only from a peer of the kind Settings
+  names, and from a PlayMap node only for the id its STATE gives. A LINK verdict replaces it (a later release).
 
 ## 6. AGMessage (board ↔ research messaging)
 
@@ -349,9 +406,10 @@ From Stagewatch's side; PlayMap's own `docs/SHOWBUS-NODE.md` is its reference.
   and `sync`, its clock exchange — and shown on the Show network as PlayMap (Show Bus §14's kind row).
 - **Follows the timer** as a node link (§4's table), with `detail=1`, its node key in the header; posts its context to
   `POST /api/peers/context` and collects approved proposals aimed at its id, as AGMessage does.
-- **No link of Stagewatch's own.** Stagewatch dials no PlayMap: its one line connector is the Patterns link (§5), and Show Bus §8.1
-  says so. That link can be pointed at a PlayMap node's line wire (its host and 9941), which answers in Patterns' grammar; Stagewatch
-  then shows and drives it as a Patterns link in every word (PlayMap's `docs/SHOWBUS-NODE.md` §2).
+- **A playout link to it** (§5): its line wire (9941) at level 0, paired by proof over plain TCP — PlayMap's TLS door (`wss`,
+  `playmap.lines.v1`) is not dialled yet, and a link set to `wss` only is never dialled plain. Heard to be PlayMap by its STATE's
+  `t`, it is driven in PlayMap's own verbs (`PLAYLIST GO`, `PLAYLIST CUE`, the clip's `VIDEO` transport), asked `WHOAMI`, and its
+  playlists, sync group and id read from its STATE; its context joins the Show network by its node id.
 
 ## 8. Joining
 
@@ -368,8 +426,8 @@ From Stagewatch's side; PlayMap's own `docs/SHOWBUS-NODE.md` is its reference.
 ### Stagewatch's numbers
 
 Each number the page names, as Stagewatch's code has it. A name that is a §14 row has §14's value: Stagewatch keeps that row. The
-`find.`, `slides.`, `cid.`, `http.`, `ws.`, `show.`, `pin.`, `key.`, `read.`, `ack.`, `signal.` and `patterns.` rows, and
-`hello.failed.beats`, are Stagewatch's own.
+`find.`, `slides.`, `cid.`, `http.`, `ws.`, `show.`, `pin.`, `key.`, `read.`, `ack.`, `signal.`, `patterns.` and `playout.` rows,
+and `hello.failed.beats`, are Stagewatch's own.
 
 | number | value | what it is |
 |---|---|---|
@@ -423,17 +481,21 @@ Each number the page names, as Stagewatch's code has it. A name that is a §14 r
 | `read.context.verb.chars` | 80 | a kept command's verb is cut to this |
 | `cert.days` | 825 | its certificate's whole span, NotBefore to NotAfter |
 | `cert.renew.days` | 30 | fewer days than this left, and a new certificate is made |
-| `patterns.wire.port` | 9697 | the Patterns link's port unless another is set |
-| `patterns.ping.ms` | 2000 | how often the Patterns link pings, once paired |
-| `link.stale.ms` | 6000 | a Patterns link silent longer than this is stale: amber, and no countdown |
-| `patterns.drop.ms` | 12000 | a Patterns link silent this long is dropped and redialled |
-| `link.selfgap.ms` | 2000 | a pause of this PC longer than this calls the Patterns link down for none of it, and is logged |
+| `playout.links` | 8 | the most playout links Stagewatch keeps |
+| `playout.cue.idle.ms` | 3000 | a PlayMap playlist is cued only when a STATE this fresh shows it idle or ended |
+| `playout.seen.ms` | 3000 | how long past the lead a command's effect is looked for in its peer's STATE |
+| `playout.seen.max` | 32 | the most commands whose effect is looked for at once on one link (`link.inflight.max`); one past it still goes, its effect not looked for |
+| `patterns.wire.port` | 9697 | a Patterns desk's port unless another is set |
+| `patterns.ping.ms` | 2000 | how often a playout link pings, once paired |
+| `link.stale.ms` | 6000 | a playout link silent longer than this is stale: amber, and no countdown |
+| `patterns.drop.ms` | 12000 | a playout link silent this long is dropped and redialled |
+| `link.selfgap.ms` | 2000 | a pause of this PC longer than this calls a playout link down for none of it, and is logged |
 | `patterns.redial.first.ms` | 500 | its first wait before a redial, before its jitter (× 0.8–1.2) |
 | `patterns.redial.max.ms` | 5000 | its longest wait before a redial, before its jitter |
-| `patterns.nonce.wait.ms` | 1500 | how long it waits for a NONCE before judging the desk asks for none |
+| `patterns.nonce.wait.ms` | 1500 | how long it waits for a NONCE before judging the peer asks for none |
 | `patterns.clip.stale.ms` | 3000 | a playing clip with no frame this long shows no countdown |
-| `patterns.line.bytes` | 262144 | the most of one line from the desk kept: a longer STATE is read in part, any other longer line counted and not read |
-| `patterns.context.every.ms` | 5000 | how often it asks a Show Bus 1.1 desk for its `CONTEXT` |
-| `clock.apart.ms` | 2000 | a Patterns desk's clock further off than this, less the sample's error, shows CLOCKS APART |
-| `link.write.deadline.max.ms` | 10000 | a Patterns link's write not finished this long ends its connection |
-| `log.repeat.summary.ms` | 60000 | a change of a Patterns link's state already said this recently goes to the show log in one summary row this often |
+| `patterns.line.bytes` | 262144 | the most of one line from the peer kept: a longer STATE is read in part, any other longer line counted and not read |
+| `patterns.context.every.ms` | 5000 | how often it asks a Show Bus 1.1 peer for its `CONTEXT` |
+| `clock.apart.ms` | 2000 | a playout peer's clock further off than this, less the sample's error, shows CLOCKS APART |
+| `link.write.deadline.max.ms` | 10000 | a playout link's write not finished this long ends its connection |
+| `log.repeat.summary.ms` | 60000 | a change of a playout link's state already said this recently goes to the show log in one summary row this often |

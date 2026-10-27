@@ -14,8 +14,10 @@ using Stagewatch.Show;
 //   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321 | --pin-file FILE]
 //       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--node-keys N] [--exit-after SECONDS]
 //       [--bus PORT [--bus-to ADDRESS:PORT]] [--node-id ID] [--journal FILE|-] [--secrets-out FILE] [--exit-on-eof] [--tls FOLDER]
+//       [--playout NAME=HOST:PORT[,patterns|playmap]]…
 // The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"node":…,
-// "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file","tls":"sha256:…"|null};
+// "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file","tls":"sha256:…"|null,
+// "playout":[{"name","kind","address"}]};
 // nodeKeys lists only the node keys made in this run (--node-keys N makes them on a first start; --state keeps their hashes and
 // the node each speaks for, never a secret).
 // Secrets: "pin" is "none" for no PIN, "set" when it came from --pin-file or --secrets-out is given, and the PIN itself only
@@ -47,9 +49,16 @@ using Stagewatch.Show;
 // other is refused, never narrowed. Its fingerprint (public) is "tls" in the ready line, and the hello names it with https. A
 // folder refused, or a certificate that cannot be kept or made, stops the rig before anything starts (exit 2, said on standard
 // error, never a key or a password).
+// --playout NAME=HOST:PORT[,KIND] (at most 8, each NAME a playout link's name by Settings' rule, KIND auto unless given) runs a
+// playout link to a Patterns desk or a PlayMap node as the app runs one (PlayoutLink, PlayoutDirector): its pairing token is
+// STAGEWATCH_RIG_PLAYOUT_TOKEN's (none when unset), proved and never sent in clear off this PC; `playout` and `patterns` lines go
+// through the app's executor, their receipts completed in the peer's own words (PlayoutReceipts, with a WS and Companion follow-up
+// marked final), the link's rows go to the journal, its record's light to the context's link:<name> item, the clip it has on air
+// to the frame's playout row (with its link and node), and the links to the config's playoutLinks. Its running order never moves
+// on a clip's end, and it keeps no hold across a restart.
 // The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo, windows,
-// screen commands (browsers only, never a show app's node link) and the contexts show apps post; any other command is
-// refused with words (in its receipt and its log), never pretended.
+// screen commands (browsers only, never a show app's node link), the contexts show apps post and, with --playout, the playout
+// links; any other command is refused with words (in its receipt and its log), never pretended.
 // A message that asks for its acknowledgement (message <text> <urgency> <flash> ack) is the app's: a speaker signal on the
 // app's own board (SignalBoard, ids counting from 1), its receipt's refs.messageId naming it, frames carrying messageId,
 // messageAck ("sent", then "done" once acknowledged: a message signal completes on its first answer) and messageAckBy, and the
@@ -100,6 +109,35 @@ enum PinSource { Default, Flag, File }
 sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool BindAll, string? StateFile, string ViewCode, string Room, int ExitAfterSeconds, int NodeKeys,
     int Bus = 0, IPEndPoint? BusTo = null)
 {
+    /// <summary>--playout: the playout links it runs, as Settings would keep them; none by default.</summary>
+    public IReadOnlyList<PlayoutLinkSettings> Playout { get; init; } = [];
+
+    /// <summary>
+    /// One --playout value, NAME=HOST:PORT[,KIND], as a link Settings keeps: a name by its rule, a host it can dial, a port, and kind
+    /// auto, patterns or playmap; anything else is refused, never guessed.
+    /// </summary>
+    public static PlayoutLinkSettings PlayoutLink(string value)
+    {
+        const string Takes = "--playout takes NAME=HOST:PORT[,patterns|playmap]";
+        var eq = value.IndexOf('=');
+        if (eq <= 0) throw new ArgumentException(Takes);
+        var name = value[..eq];
+        if (PlayoutRules.NameProblem(name) is { } why) throw new ArgumentException("--playout: " + why);
+        var rest = value[(eq + 1)..];
+        var kind = PlayoutRules.Auto;
+        if (rest.LastIndexOf(',') is var comma and >= 0)
+        {
+            kind = rest[(comma + 1)..];
+            rest = rest[..comma];
+            if (kind is not (PlayoutRules.Patterns or PlayoutRules.PlayMap or PlayoutRules.Auto)) throw new ArgumentException(Takes);
+        }
+        var colon = rest.LastIndexOf(':');
+        if (colon <= 0 || !int.TryParse(rest[(colon + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var port) || port is < 1 or > 65535
+            || !PlayoutRules.ValidHost(rest[..colon]))
+            throw new ArgumentException(Takes);
+        return new PlayoutLinkSettings { Name = name, Kind = kind, Host = rest[..colon], Port = port, Enabled = true, FollowVt = true };
+    }
+
     /// <summary>The longest first line --pin-file reads as a PIN.</summary>
     public const int PinFileMax = 256;
 
@@ -167,6 +205,9 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                     "--secrets-out" => o.SecretsOut is null ? o with { SecretsOut = File("--secrets-out") } : throw new ArgumentException("--secrets-out once"),
                     "--exit-on-eof" => o with { ExitOnEof = true },
                     "--tls" => o.Tls is null ? o with { Tls = Folder("--tls") } : throw new ArgumentException("--tls once"),
+                    "--playout" => o.Playout.Count < PlayoutRules.Max && RigOptions.PlayoutLink(Next()) is var link && o.Playout.All(l => l.Name != link.Name)
+                        ? o with { Playout = [.. o.Playout, link] }
+                        : throw new ArgumentException($"--playout: at most {PlayoutRules.Max.ToString(CultureInfo.InvariantCulture)} links, each named once"),
                     _ => throw new ArgumentException($"unknown option {args[i]}"),
                 };
             }
@@ -299,6 +340,11 @@ sealed class Rig : ICompanionBridge, IDisposable
     /// <summary>The show network as last joined (owner thread, once a second), for any thread to read.</summary>
     private volatile NetworkView _network = NetworkView.Empty;
 
+    // --playout: the links it runs and the app's executor over them; the peer step of the receipted command being run (owner thread).
+    private readonly PlayoutLinks _playout = new();
+    private readonly PlayoutDirector _director;
+    private PlayoutStep? _receiptPeer;
+
     // Screens: the names the operator gave them and the saved setups, immutable copies swapped whole on the owner thread.
     private volatile IReadOnlyDictionary<string, string> _screenNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private volatile IReadOnlyList<(string Name, string Path)> _presets = new[] { ("lobby", "/audience?holding=0") };
@@ -354,6 +400,9 @@ sealed class Rig : ICompanionBridge, IDisposable
         Settings.Holding.Images.Add(Sponsors);
         Engine.SetDuration(TimeSpan.FromSeconds(Agenda[_item].Seconds));
         _owner = new Thread(OwnerLoop) { IsBackground = true, Name = "rig owner" };
+        // The app's executor: the links' rows reach the journal on the owner thread at the link's own time, against the item asked for.
+        _director = new PlayoutDirector(_playout, () => _o.Playout, () => true, () => PlayoutRules.DefaultLeadMs,
+            (at, mark, row) => Post(() => _journal?.Add(at.UtcDateTime, JournalKind.Playout, mark, row)), line => Log("playout: " + line));
     }
 
     public SnapshotHub Snapshots { get; } = new();
@@ -383,6 +432,9 @@ sealed class Rig : ICompanionBridge, IDisposable
             return 3;
         }
         if (_o.Bus > 0) _beacon = new SlidesBeacon(SayHello, _o.Bus, _o.BusTo is { } to ? [to] : null);
+        // Each playout link dials once started: its token from the environment, never from argv or a file the rig writes.
+        var token = Environment.GetEnvironmentVariable("STAGEWATCH_RIG_PLAYOUT_TOKEN") ?? "";
+        foreach (var l in _o.Playout) _playout.Set(l.Name, PlayoutLinks.Make(l, token, _inst, TimeProvider.System, null, "", _director.Wire));
         _ticker = new Timer(_ => QueueTick(), null, 0, 250);
         // The windows as they stand at the ready line: the constructor's, before any command can change them.
         var windows = _windows.Windows;
@@ -424,6 +476,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             journal = _journal is not null,
             secrets = file ? "file" : "stdout",
             tls = _web?.Fingerprint,
+            playout = _o.Playout.Select(l => new { name = l.Name, kind = l.Kind, address = l.Host + ":" + l.Port.ToString(CultureInfo.InvariantCulture) }),
         };
     }
 
@@ -468,6 +521,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     {
         _ticker?.Dispose();
         _beacon?.Dispose();
+        StopPlayout();
         _stopping.Cancel();   // a stall in progress ends now
         if (_web is not null) await _web.StopAsync();
         if (_companion is not null) await _companion.StopAsync();
@@ -490,6 +544,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     {
         _ticker?.Dispose();
         _beacon?.Dispose();
+        StopPlayout();
         _stopping.Cancel();
         var ended = EndOwner();
         _nodes.Bound -= OnBound;
@@ -501,6 +556,16 @@ sealed class Rig : ICompanionBridge, IDisposable
         if (!ended) return;
         _queue.Dispose();
         _stopping.Dispose();
+    }
+
+    /// <summary>Its playout links stopped, their last rows posted to the owner thread before it ends (safe to call twice).</summary>
+    private void StopPlayout()
+    {
+        foreach (var link in _playout.All)
+        {
+            _playout.Set(link.LinkName, null);
+            link.Dispose();
+        }
     }
 
     /// <summary>How long a stopping rig waits for the owner thread to run what it was handed (a stall ends at once).</summary>
@@ -712,21 +777,33 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     public async Task<CommandReceipt> ExecuteWithReceiptAsync(ShowCommand command, string id, TimeSpan timeout)
     {
-        var done = new TaskCompletionSource<CommandReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var time = TimeProvider.System;
+        var sentAt = time.GetTimestamp();
+        var done = new TaskCompletionSource<(CommandReceipt Receipt, PlayoutStep? Peer)>(TaskCreationOptions.RunContinuationsAsynchronously);
         Post(() =>
         {
             // What the command makes (a message's signal) rides in its receipt's refs, as the app's receipts carry it; the
-            // refs exist only while a receipted command runs.
+            // refs exist only while a receipted command runs. A command handed to a playout link's peer is that peer's to answer.
             var refs = _receiptRefs = new Dictionary<string, long>();
+            _receiptPeer = null;
             (bool Ok, string Words) result;
+            PlayoutStep? peer;
             try { result = Run(command); }
-            finally { _receiptRefs = null; }
+            finally
+            {
+                _receiptRefs = null;
+                peer = _receiptPeer;
+                _receiptPeer = null;
+            }
             var (ok, words) = result;
             Log((ok ? "ran " : "refused ") + command.Kind + ": " + words);
-            done.TrySetResult(ok ? new CommandReceipt(id, true, "applied", words, null, refs.Count > 0 ? refs : null) : CommandReceipt.Refused(id, words));
+            done.TrySetResult(ok ? (new CommandReceipt(id, true, "applied", words, null, refs.Count > 0 ? refs : null), peer) : (CommandReceipt.Refused(id, words), null));
         });
         var first = await Task.WhenAny(done.Task, Task.Delay(timeout)).ConfigureAwait(false);
-        return first == done.Task ? await done.Task.ConfigureAwait(false) : CommandReceipt.Accepted(id);
+        if (first != done.Task) return CommandReceipt.Accepted(id);
+        var (receipt, handed) = await done.Task.ConfigureAwait(false);
+        // As the app's: the peer's own answer within what is left of the deadline, and its one follow-up when that says accepted.
+        return handed is { } step ? await PlayoutReceipts.Within(id, step, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false) : receipt;
     }
 
     /// <summary>Owner thread: one command, and what it did (or why not).</summary>
@@ -751,6 +828,8 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.Note => Did(() => Journal(JournalKind.Note, _item, c.Text ?? ""), "noted"),
             ShowCommandKind.Window => WindowCommand(c.Get<WindowArgs>()),
             ShowCommandKind.Screen => ScreenDirector.Run(c.Get<ScreenArgs>(), _web, PeerName, RenameScreen, SaveScreenPreset, ResolveScreenTarget),
+            ShowCommandKind.Playout => Handed(_director.Playout(c.Get<PlayoutArgs>(), c.Number, _item, VtLink())),
+            ShowCommandKind.Patterns => Handed(_director.Patterns(c.Text ?? "end", (int)c.Number, _item, VtLink())),
             _ => (false, $"the rig doesn't simulate {c.Kind.ToString().ToLowerInvariant()} (the app does)"),
         };
         if (result.Ok) { CommandRecorded?.Invoke(c.Kind.ToString().ToLowerInvariant()); Tick(); }
@@ -758,6 +837,22 @@ sealed class Rig : ICompanionBridge, IDisposable
 
         static (bool, string) Did(Action a, string words) { a(); return (true, words); }
     }
+
+    /// <summary>
+    /// Owner thread: a playout command as the app's executor left it — refused with why (nothing sent), or on its way to its peer, whose
+    /// own answer completes the receipt (the step is kept for it while a receipted command runs).
+    /// </summary>
+    private (bool, string) Handed(PlayoutStep step)
+    {
+        if (step.Error is { } why) return (false, why);
+        _receiptPeer = step;
+        return (true, $"{step.Peer}: {step.Asked} — on its way, waiting for its answer" + (step.Note.Length > 0 ? " · " + step.Note : ""));
+    }
+
+    /// <summary>The playout link whose clip feeds the VT, as the app picks it, or null.</summary>
+    private string? VtLink() => VtClip() is { Link.Length: > 0 } vt ? vt.Link : null;
+
+    private PlayoutState? VtClip() => PlayoutDirector.PickVt(_o.Playout, name => _playout[name]?.Value, null);
 
     private (bool, string) Item(int index)
     {
@@ -945,6 +1040,8 @@ sealed class Rig : ICompanionBridge, IDisposable
             Message = _message, Urgency = _urgency, Flash = _flash, Blackout = _blackout,
             MessageSignalId = messageAck.Id, MessageAck = messageAck.State, MessageAckBy = messageAck.By, Signals = _signals.Views(now),
             HoldingId = image?.Id ?? "", HoldingName = image?.Name ?? "",
+            Playout = VtClip() is { } vt
+                ? new PlayoutView(vt.Title, (long)Math.Ceiling(vt.RemainingSeconds), (long)Math.Round(vt.DurationSeconds), vt.Running, vt.Source, vt.Link, vt.Node) : null,
             Elements = DisplayElements.Timer | DisplayElements.Message | DisplayElements.NextUp | DisplayElements.ProgressBar | DisplayElements.TimeOfDay,
             Timings = timings.ToEquatableArray(),
         };
@@ -959,6 +1056,9 @@ sealed class Rig : ICompanionBridge, IDisposable
     {
         var now = DateTime.UtcNow;
         var links = ScreenWindows.ContextItems(_windows.Windows, _web?.WindowStatus() ?? Array.Empty<WindowObserved>()).ToList();
+        // As the app: each playout link's record (its light and flags) beside its own words, and its clock while apart.
+        links.AddRange(ShowContext.PlayoutItems(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>()
+            .Select(l => new PlayoutLinkFact(l.LinkName, l.Peer, l.Record.Light, l.Status, l.Record.Flags, l.Clock?.OffsetMs, l.Clock?.ErrMs, l.ClockApart))));
         var hello = _beacon?.Status ?? HelloStatus.NotYet;
         var twin = _beacon?.OwnConflict;
         if (ShowBusHello.Item(hello, twin) is { } cannot) links.Add(cannot);
@@ -971,12 +1071,18 @@ sealed class Rig : ICompanionBridge, IDisposable
         }
         var heard = (_beacon?.Peers() ?? Array.Empty<SlidesBeacon.Peer>())
             .Select(p => new HeardNode(p.Hello.Kind, p.Hello.Id, p.Hello.Name, p.Address, p.AgeSeconds) { Conflict = p.Conflict?.Words ?? "" });
-        var view = ShowNetwork.Summaries(heard, _peerContexts.Held(now), _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
+        // The contexts its playout links pulled join the network as the app's do, one per node id, in the links' order.
+        var contexts = _peerContexts.Held(now).ToList();
+        contexts.AddRange(PlayoutLinks.Pulled(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>(), contexts, _peerContexts.LinkedProof, now));
+        var view = ShowNetwork.Summaries(heard, contexts, _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
         foreach (var c in view.Conflicts.Where(c => !_conflictsLogged.Contains(c.Id))) Log($"hello: {c.Conflict} — its hello adds no peers row while the mark stands");
         _conflictsLogged = view.Conflicts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         _network = view;
+        // As the app: no rows for a link whose peer answers as another kind than its settings name, which is sent nothing.
+        var rows = _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>().Where(l => l.WrongKind is null)
+            .Select(l => new PlayoutRow(l.LinkName, l.Peer, l.Kind ?? "", Starts: l.Kind is not null)).ToList();
         return ShowContext.Build(new ContextInput(_nodeId, _o.Room, now, Snapshots.Latest, Snapshots.ProducerStuck, links,
-            view.Rows.Select(r => r.Peer).ToList(), (IReadOnlyList<JournalEntry>?)_journal?.Entries ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0));
+            view.Rows.Select(r => r.Peer).ToList(), (IReadOnlyList<JournalEntry>?)_journal?.Entries ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0, rows));
     }
 
     private HashSet<string> _conflictsLogged = new(StringComparer.Ordinal);   // owner thread: the ids in conflict it logged
@@ -1000,7 +1106,8 @@ sealed class Rig : ICompanionBridge, IDisposable
         new[] { (1, "Keynote", 1800), (2, "Panel", 2700) },
         new[] { ("Wrap", "Please wrap up", MessageUrgency.Warning, FlashRate.Slow) },
         Agenda.Select(a => (a.Title, (string?)a.Speaker, a.Seconds)).ToArray(),
-        Array.Empty<(string, string)>(), new[] { "Lighting", "Sound" }, _o.Room, "");
+        Array.Empty<(string, string)>(), new[] { "Lighting", "Sound" }, _o.Room, "",
+        PlayoutLinks: _o.Playout.Select(l => (l.Name, _playout[l.Name]?.Kind ?? (l.Kind == PlayoutRules.Auto ? "" : l.Kind), _playout[l.Name]?.Peer ?? PlayoutRules.Peer(null, l.Name))).ToList());
     public IReadOnlyList<ScreenWindow> Windows => _windows.Windows;
     public string? ViewCode => _o.ViewCode.Length == 0 ? null : _o.ViewCode;
     public bool McpAllowed => true;

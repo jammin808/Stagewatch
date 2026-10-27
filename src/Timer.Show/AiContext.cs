@@ -22,6 +22,18 @@ public sealed record PeerFact(string Kind, string Name, string Light, string Hea
 public sealed record IntegrationFact(string Name, string Health, string Status);
 
 /// <summary>
+/// A playout link as the copilot sees it, so a line it proposes names a real link and a real playlist: its name, the peer's kind once
+/// heard ("" while not), its peer as people read it, whether it is paired, whether its clock may time a GO (13.11.6), its record's light
+/// and words, what a PlayMap node's WHOAMI says, and its playlists (at most <see cref="AiContext.PlayoutPlaylistsMax"/>, each with the
+/// item on it and the next) or a Patterns desk's standing-by cue. Ids, as the peer gave them; no token, proof or nonce.
+/// </summary>
+public sealed record PlayoutFact(string Name, string Kind, string Peer, bool Paired, bool Timed, string Light, string Words, string Whoami,
+    IReadOnlyList<PlayoutPlaylistFact> Playlists, string Standby);
+
+/// <summary>One of a PlayMap node's playlists for the copilot: its id and name, its state, the item on it and the next (id · label).</summary>
+public sealed record PlayoutPlaylistFact(string Id, string Name, string State, string Item, string Next);
+
+/// <summary>
 /// Everything the copilot may reason about, gathered on the owner thread. The frame and remote config arrive already
 /// serialized as UTF-8 JSON (operator access), so this layer needs nothing from the web server.
 /// </summary>
@@ -38,7 +50,8 @@ public sealed record CopilotFacts(
     IReadOnlyList<RundownItem> Items,
     IReadOnlyList<JournalEntry> Journal,
     IReadOnlyList<PeerFact>? Peers = null,
-    IReadOnlyList<ContextItem>? Windows = null);
+    IReadOnlyList<ContextItem>? Windows = null,
+    IReadOnlyList<PlayoutFact>? Playout = null);
 
 /// <summary>
 /// What the AI sees, as JSON: the copilot's context, the cloud assistant's compact view of the show, and the journal
@@ -52,6 +65,9 @@ public static class AiContext
 
     /// <summary>How many journal entries a summary draft is written from.</summary>
     public const int SummaryEntries = 1500;
+
+    /// <summary>The most playlists of one playout link the copilot sees.</summary>
+    public const int PlayoutPlaylistsMax = 50;
 
     /// <summary>The copilot's context: the operator frame, presets and messages, screens, links, history, recent log.</summary>
     public static string Copilot(CopilotFacts f)
@@ -99,6 +115,15 @@ public static class AiContext
             // follow the timer over /ws, and what proves each one's facts: a context verified "none" is only claimed.
             w.WritePropertyName("other_apps");
             JsonSerializer.Serialize(w, (f.Peers ?? Array.Empty<PeerFact>()).Select(PeerJson));
+            // The playout links this Stagewatch runs: what "playout <link> go <playlist> <item>" can name, and how far each can be
+            // trusted now (its light, its words, whether its clock may time a GO). Every playout line is high risk and a proposal.
+            w.WritePropertyName("playout_links");
+            JsonSerializer.Serialize(w, (f.Playout ?? Array.Empty<PlayoutFact>()).Take(PlayoutRules.Max).Select(p => new
+            {
+                name = p.Name, kind = p.Kind, peer = p.Peer, paired = p.Paired, timed = p.Timed, light = p.Light, words = p.Words, whoami = p.Whoami,
+                playlists = p.Playlists.Take(PlayoutPlaylistsMax).Select(l => new { id = l.Id, name = l.Name, state = l.State, item = l.Item, next = l.Next }),
+                standby = p.Standby,
+            }));
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(ms.ToArray());

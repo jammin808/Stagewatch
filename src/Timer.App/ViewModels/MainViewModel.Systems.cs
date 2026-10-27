@@ -173,7 +173,7 @@ public sealed partial class MainViewModel
             Speech = _speech is { } sp && sp.Listening && sp.Sample(now) is { } pos
                 ? new SpeechView(pos.Percent, pos.WordsPerMinute, pos.ProjectedRemainingSeconds, true) : null,
             Playout = PickPlayout() is { } vt
-                ? new PlayoutView(vt.Title, (long)Math.Ceiling(vt.RemainingSeconds), (long)Math.Round(vt.DurationSeconds), vt.Running, vt.Source) : null,
+                ? new PlayoutView(vt.Title, (long)Math.Ceiling(vt.RemainingSeconds), (long)Math.Round(vt.DurationSeconds), vt.Running, vt.Source, vt.Link, vt.Node) : null,
             NotesVersion = Volatile.Read(ref _notesVersion),
             ChimeSeq = Volatile.Read(ref _chimeSeq),
             Chime = _chimeSpec,

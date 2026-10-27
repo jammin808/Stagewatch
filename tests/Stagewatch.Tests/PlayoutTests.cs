@@ -408,9 +408,10 @@ static class PlayoutTests
               "playout grammar: a word with a control character or a line break is refused");
 
         Check(Parse("patterns pause", out _) is { Kind: ShowCommandKind.Patterns, Text: "pause" }, "playout grammar: patterns pause stays the Patterns verb");
-        Check(ShowCommandParser.Help.Contains("playout [link] go <playlist> [item] [together]", StringComparison.Ordinal)
-              && ShowCommandParser.Help.Contains("playout [link] restart|play|pause|stop", StringComparison.Ordinal),
-              "playout grammar: the help names the verb's forms");
+        Check(ShowCommandParser.Help.Contains("playout [link] go <playlist> [item] | ", StringComparison.Ordinal)
+              && ShowCommandParser.Help.Contains("playout [link] restart|play|pause|stop", StringComparison.Ordinal)
+              && !ShowCommandParser.Help.Contains("together", StringComparison.Ordinal),
+              "playout grammar: the help names the verb's forms, and no together while the executor carries none");
         Check(Enum.GetValues<ShowCommandKind>()[^1] == ShowCommandKind.Playout && (int)ShowCommandKind.Playout == (int)ShowCommandKind.Window + 1,
               "playout grammar: ShowCommandKind.Playout appended after Window");
         Check(Enum.GetValues<JournalKind>()[^1] == JournalKind.Playout && (int)JournalKind.Playout == (int)JournalKind.ClockCheck + 1,
@@ -449,32 +450,31 @@ static class PlayoutTests
               "playout targets: a name no link has is refused listing the links");
         Check(PlayoutRules.Target(two, "stage-left", "go", "patterns") is ({ Name: "stage-left" }, null), "playout targets: a named link is the one reached");
 
-        // What this Stagewatch does with the command: every refusal in its order, and the one thing it runs.
+        // Which link a command reaches: the licence first, then the link, then whether it runs; what it carries there is the director's.
         PlayoutArgs A(string link, string action) => new(link, action, "", action is "cue" or "go" ? "c1" : "", false);
         var patterns = new PlayoutLinkSettings { Name = "patterns", Kind = "patterns" };
-        var playmap = new PlayoutLinkSettings { Name = "patterns", Kind = "playmap" };
         var stageLeft = new PlayoutLinkSettings { Name = "stage-left", Kind = "playmap" };
-        Check(PlayoutRules.Route([patterns], A("", "pause"), licensed: false, patternsRuns: true, null) is (null, { } lic) && lic == "playout links need Stagewatch Production. Help → License.",
+        bool All(string _) => true;
+        Check(PlayoutRules.Route([patterns], A("", "pause"), licensed: false, All, null) is (null, { } lic) && lic == "playout links need Stagewatch Production. Help → License.",
               "playout route: without the licence, refused naming the tier, before anything else");
-        Check(PlayoutRules.Route([], A("", "pause"), true, false, null) is (null, { } noLink) && noLink.Contains("no playout link is set up", StringComparison.Ordinal),
+        Check(PlayoutRules.Route([], A("", "pause"), true, All, null) is (null, { } noLink) && noLink.Contains("no playout link is set up", StringComparison.Ordinal),
               "playout route: no link, refused with where to set one up");
-        Check(PlayoutRules.Route([patterns, stageLeft], A("stage-left", "pause"), true, true, null) is (null, { } other)
-              && other == "Stage left isn't running: this Stagewatch runs one playout link, patterns, as its Patterns link",
-              "playout route: a link that is not link patterns is refused, nothing sent");
-        Check(PlayoutRules.Route([new PlayoutLinkSettings { Name = "patterns", Kind = "patterns", Enabled = false }], A("patterns", "pause"), true, false, null) is (null, { } routeOff)
+        Check(PlayoutRules.Route([patterns, stageLeft], A("stage-left", "go"), true, All, null) is ({ Name: "stage-left" }, null),
+              "playout route: a PlayMap link is reached by its name, go and cue among what it carries");
+        Check(PlayoutRules.Route([new PlayoutLinkSettings { Name = "patterns", Kind = "patterns", Enabled = false }], A("patterns", "pause"), true, All, null) is (null, { } routeOff)
               && routeOff == "Patterns is switched off (Settings → Integrations)",
-              "playout route: link patterns switched off is refused by name");
-        Check(PlayoutRules.Route([playmap], A("", "pause"), true, true, null) is (null, { } pm) && pm.Contains("set to a PlayMap node", StringComparison.Ordinal),
-              "playout route: link patterns set to a PlayMap node is refused, even were a Patterns link running");
-        Check(PlayoutRules.Route([patterns], A("", "pause"), true, patternsRuns: false, null) is (null, { } down) && down == "Patterns isn't running (Settings → Integrations → Patterns)",
-              "playout route: link patterns whose Patterns link is not running is refused");
-        foreach (var action in new[] { "cue", "go" })
-            Check(PlayoutRules.Route([patterns], A("patterns", action), true, true, null) is (null, { } notCarried)
-                  && notCarried == $"playout {action} isn't carried to Patterns by this Stagewatch: it sends end, restart, play, pause, stop and seek",
-                  $"playout route: {action} is refused on link patterns until a link carries it");
-        foreach (var action in PlayoutRules.TransportActions)
-            Check(PlayoutRules.Route([new PlayoutLinkSettings { Name = "patterns", Kind = "auto" }], A("", action), true, true, null) is ({ Name: "patterns" }, null),
-                  $"playout route: {action} on link patterns runs");
+              "playout route: a link switched off is refused by name");
+        Check(PlayoutRules.Route([patterns, stageLeft], A("stage-left", "pause"), true, name => name == "patterns", null) is (null, { } down)
+              && down.StartsWith("Stage left isn't running yet", StringComparison.Ordinal),
+              "playout route: a link that is not running is refused by name, nothing sent");
+        foreach (var action in PlayoutRules.Actions)
+            Check(PlayoutRules.Route([new PlayoutLinkSettings { Name = "patterns", Kind = "auto" }], A("", action), true, All, null) is ({ Name: "patterns" }, null),
+                  $"playout route: {action} reaches the only link");
+        Check(PlayoutRules.PatternsTarget([stageLeft, patterns]) == "patterns" && PlayoutRules.PatternsTarget([stageLeft]) == "",
+              "playout route: patterns … means link patterns, else the only link");
+        Check(PlayoutRules.Peer("playmap", "stage-left") == "PlayMap Stage left" && PlayoutRules.Peer("patterns", "patterns") == "Patterns"
+              && PlayoutRules.Peer(null, "stage-left") == "Stage left" && PlayoutRules.Peer("patterns", "foh") == "Patterns Foh",
+              "playout route: a link's peer as people read it, its app named once its kind is known");
     }
 
     static void Context(Action<bool, string> Check)
@@ -492,11 +492,12 @@ static class PlayoutTests
 
         var starts = ShowContext.CommandsFor([new PlayoutRow("stage-left", "Stage left", PlayoutRules.PlayMap, Starts: true), new PlayoutRow("patterns", "Patterns", PlayoutRules.Patterns, Starts: true),
                                               new PlayoutRow("odd", "Odd", "", Starts: true)]);
-        Check(starts.Any(c => c.Verb == "playout stage-left go <playlist> [<item>] [together]") && starts.Any(c => c.Verb == "playout stage-left cue <playlist> <item>")
+        Check(starts.Any(c => c.Verb == "playout stage-left go <playlist> [<item>]") && starts.Any(c => c.Verb == "playout stage-left cue <playlist> <item>")
+              && !starts.Any(c => c.Verb.Contains("together", StringComparison.Ordinal))
               && starts.Any(c => c.Verb == "playout patterns go <cue>") && starts.Any(c => c.Verb == "playout patterns cue <cue>")
               && !starts.Any(c => c.Verb.StartsWith("playout odd go", StringComparison.Ordinal) || c.Verb.StartsWith("playout odd cue", StringComparison.Ordinal))
               && starts.Where(c => c.Verb.StartsWith("playout ", StringComparison.Ordinal)).All(c => c.Risk == "high"),
-              "playout context: a link that can start lists go and cue in its kind's words, none while its kind is not known");
+              "playout context: a link that can start lists go and cue in its kind's words, none while its kind is not known, and no together the executor refuses");
         Check(ProposalDesk.RiskFromCommands(starts.Select(c => (c.Verb, c.Risk)).ToList(), "playout stage-left cue pl1 it1") == "high"
               && ProposalDesk.RiskFromCommands(transport.Select(c => (c.Verb, c.Risk)).ToList(), "playout patterns pause") == "high",
               "playout context: a peer's proposal of a playout line reads high");

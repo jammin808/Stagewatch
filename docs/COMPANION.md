@@ -73,7 +73,10 @@ On connect the server sends `READY stagewatch/2`, then either `STATE …` (licen
 - detail: `timings[]` (planned / expected / actual per item), `advice[]`, `questions[]`, `rooms[]`
 
 `CONFIG` contains `{presets:[{slot,label,seconds}], messages:[{label,text,urgency,flash}], rundown:[{title,speaker,seconds}],
-ladders:[{id,name}], departments:[…], room, ladder}`.
+ladders:[{id,name}], departments:[…], room, ladder}`, and from 2.20 `playoutLinks:[{name,kind,label}]` last: each playout link
+switched on under the licence, its kind as its peer's STATE said it (`playmap`, `patterns`; as Settings set it until then, empty
+for neither) and its peer as people read it (`PlayMap Stage left`, `Patterns`). A link whose kind is heard sends `CONFIG` again.
+The snapshot's `playout` (the clip feeding the VT) ends with `link` and `node`: the link's name and its peer's node id.
 
 `RECORD <command line>` is sent to JSON clients whenever the operator does something in Stagewatch itself
 (`nudge 60`, `next`, `message "Wrap up" warn slow`…). The Companion module turns these into actions while a
@@ -99,6 +102,7 @@ button is recording.
 | `AUX`, `SCREEN` | Extra timers and browser screens (2.8; see REMOTE.md). Module: *Extra timer* actions and keys, `aux_1`…`aux_3` variables, *Screens: send / identify*. From 2.18 screen commands reach browser screens only (below) |
 | `UNDO`, `REDO`, `ENDOFSHOW <HH:MM\|clear>`, `LOOP <off\|n\|forever>`, `SCREEN RELOAD\|DISCONNECT [screen]` | 2.10. Module: *Undo the last live edit*, *Redo*, *Running order: show ends at*, *Running order: loop*, *Screens: reload / disconnect* |
 | `WINDOW NEW\|SHOW\|CUE\|HOLD\|RELEASE\|IDENTIFY\|RELOAD\|LOSS\|FADE\|RENAME\|REVOKE\|DELETE …` | Windows Stagewatch controls (2.17; see REMOTE.md). Module: *Windows: show a page* (show or cue), *Windows: holding page* (on, toggle, words, image), *Windows: release*, *Windows: identify*; presets *holding page on every window (toggle)* and *identify all*. No window feedbacks yet: the module's frame doesn't carry windows |
+| `PLAYOUT [<link>] END [secs]\|RESTART\|PLAY\|PAUSE\|STOP\|SEEK <m:ss>`, `PLAYOUT <link> GO\|CUE …`, `PATTERNS …` | The clip on air, a PlayMap node's playlist items and a Patterns desk's cues over Stagewatch's playout links (2.20; see REMOTE.md), from this PC or an address in May drive playout. Module: the *Patterns* actions send `PATTERNS …` with no request id; playout link actions are a later release |
 | `STATE`, `SUBSCRIBE [JSON]`, `UNSUBSCRIBE`, `PING`, `QUIT` | Session |
 
 **Screen commands reach browsers only (2.18).** `SCREEN IDENTIFY|RELOAD|DISCONNECT|GO` with no screen, or `all`, reach
@@ -111,6 +115,18 @@ commands reach browsers only (Producer → Show network)`. The module's four scr
 field reads "empty = all browser screens", and each description adds that show apps and unproven claims are never
 included (*Screens: disconnect*: revoking a show app's key is the wall). The preset is *Screens: identify all browser
 screens*.
+
+**A playout line's receipt is its peer's answer (2.20).** With a request id, `@c1 PLAYOUT stage-left go pl1 it1` is answered
+in the node's own words, never a "done" it did not say: `OK @c1 applied PlayMap Stage left took PLAYLIST GO pl1 it1`, or
+`ERROR @c1 PlayMap Stage left refused PLAYLIST GO pl1 it9: Main show has no item it9`. A node that takes it and runs it later
+answers `OK @c1 accepted PlayMap Stage left: starting Intro`, and then comes its one follow-up, the word `final` after the id:
+`OK @c1 final applied PlayMap Stage left took PLAYLIST GO pl1 it1 (playing Intro)` (or `ERROR @c1 final …`), within 30 s of
+the send — the node's final word, never a later accepted; when it gives none by then, Stagewatch's own: `OK @c1 final accepted
+unconfirmed — PlayMap Stage left took it and gave no final answer in 30 s — it may have run; look at its state`. A line
+Stagewatch refuses from the peer's own facts (a Patterns
+playlist item's pause, a PlayMap playlist not idle for a CUE) is `ERROR @c1 <why>`, and nothing reaches the peer. A client
+that reads `OK @id` lines takes `final` after the id as the follow-up's mark; the module sends these lines with no id, so it
+reads none of them.
 
 Bad input gets `ERROR <reason>` and the connection stays open.
 

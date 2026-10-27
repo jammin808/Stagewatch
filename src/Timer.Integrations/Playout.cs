@@ -4,10 +4,17 @@ using System.Xml.Linq;
 
 namespace Stagewatch.Integrations;
 
-/// <summary>A clip playing out, as a playout server reports it.</summary>
+/// <summary>
+/// A clip playing out, as a playout server reports it: <see cref="Source"/> the app it plays on, and for a playout link's peer the
+/// link's name (<see cref="Link"/>) and the peer's Show Bus id (<see cref="Node"/>, "" while not known); both "" for vMix.
+/// </summary>
 public sealed record PlayoutState(string Source, string Title, double DurationSeconds, double PositionSeconds, bool Running)
 {
     public double RemainingSeconds => Math.Max(0, DurationSeconds - PositionSeconds);
+
+    public string Link { get; init; } = "";
+
+    public string Node { get; init; } = "";
 }
 
 /// <summary>Anything that can tell us how long the current video has left (vMix today; CasparCG / OBS later).</summary>

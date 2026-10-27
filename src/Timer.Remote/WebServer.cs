@@ -1834,9 +1834,20 @@ public sealed class WebServer : IAsyncDisposable
         return null;
     }
 
+    /// <summary>
+    /// The receipt, and after an <c>accepted</c> that waits on another node its one follow-up (Show Bus §3: the same id with
+    /// <c>"final":true</c>, within <c>receipt.final.ms</c> — that node's final answer, or unconfirmed when it gave none in time), on this
+    /// socket. HTTP answers once, so only a socket hears the follow-up.
+    /// </summary>
     private static async Task SendReceiptAsync(WsClient client, Task<CommandReceipt> receipt)
     {
-        try { await client.SendTextAsync((await receipt.ConfigureAwait(false)).ToJson(), CancellationToken.None).ConfigureAwait(false); }
+        try
+        {
+            var first = await receipt.ConfigureAwait(false);
+            await client.SendTextAsync(first.ToJson(), CancellationToken.None).ConfigureAwait(false);
+            if (first.Final is { } pending)
+                await client.SendTextAsync((await pending.ConfigureAwait(false)).ToJson(), CancellationToken.None).ConfigureAwait(false);
+        }
         catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or OperationCanceledException or IOException) { }
     }
 

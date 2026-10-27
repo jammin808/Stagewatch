@@ -165,8 +165,12 @@ public readonly record struct SlideView(int Slide, int Count, string NextTitle, 
 /// <summary>Live speech-to-script tracking (operator-facing).</summary>
 public readonly record struct SpeechView(double Percent, double WordsPerMinute, long? ProjectedRemainingSeconds, bool Listening);
 
-/// <summary>A video playing out of vMix (or another playout source).</summary>
-public readonly record struct PlayoutView(string Title, long RemainingSeconds, long DurationSeconds, bool Running, string Source);
+/// <summary>
+/// A video playing out of vMix or a playout link's peer: <see cref="Source"/> is the app it plays on ("vMix", "Patterns", "PlayMap"),
+/// <see cref="Link"/> the playout link that feeds it ("" for vMix) and <see cref="Node"/> that peer's Show Bus id ("" while not known),
+/// so a peer that reads Stagewatch's playout row can tell its own clip.
+/// </summary>
+public readonly record struct PlayoutView(string Title, long RemainingSeconds, long DurationSeconds, bool Running, string Source, string Link = "", string Node = "");
 
 /// <summary>
 /// One running-order line for producer views. Times are pre-formatted in the show's time zone. StartIn / EndIn are
@@ -689,7 +693,12 @@ public sealed record RemoteConfig(
     string? Tier = null,
     IReadOnlyList<string>? Features = null,
     /// <summary>The holding-image library (id, name), for remotes' buttons.</summary>
-    IReadOnlyList<(string Id, string Name)>? Holding = null);
+    IReadOnlyList<(string Id, string Name)>? Holding = null,
+    /// <summary>
+    /// The playout links a remote may name in <c>playout &lt;link&gt; …</c> (name, the peer's kind once set or heard, "" while not known,
+    /// and its label), empty without the licence that runs them; null for a host that runs none.
+    /// </summary>
+    IReadOnlyList<(string Name, string Kind, string Label)>? PlayoutLinks = null);
 
 /// <summary>
 /// The one command grammar. Verbs and arguments are plain strings so every transport
@@ -713,7 +722,7 @@ public static class ShowCommandParser
         "deptnote <item> <department> [text] | roll [on|off|toggle] | rundown <name> | undo | redo | endofshow <HH:MM|clear> | loop <off|n|forever> | " +
         "screen reload [screen] | screen disconnect [screen] | patterns end [seconds] | patterns restart | patterns play | patterns pause | patterns stop | patterns seek <m:ss> | " +
         "playout [link] end [seconds] | playout [link] restart|play|pause|stop | playout [link] seek <m:ss> | " +
-        "playout [link] cue <playlist> <item> | playout [link] cue <cue> | playout [link] go <playlist> [item] [together] | playout [link] go <cue> | " +
+        "playout [link] cue <playlist> <item> | playout [link] cue <cue> | playout [link] go <playlist> [item] | playout [link] go <cue> | " +
         "screen identify [screen] | screen go <preset|/page> [screen] | screen name <id> <name> | screen save <preset> <screen> | " +
         "window new <name> [page] | window show <window|all> <page|setup|holding|black> | window cue <window|all> <page> | " +
         "window hold <window|all> [toggle|text <words>|image <n|name|off>] | window release <window|all> | window identify|reload <window|all> | " +
@@ -1233,7 +1242,7 @@ public static class ShowCommandParser
                 if (rest.Count is 0 or > 2 || !rest.All(PlayoutRules.ValidWord))
                     throw new FormatException(action == "cue"
                         ? "playout cue takes a playlist and its item (PlayMap) or a cue (Patterns), each 1-64 characters"
-                        : "playout go takes a playlist and, if not its next, its item (PlayMap) or a cue (Patterns), each 1-64 characters, then together if it starts with the others");
+                        : "playout go takes a playlist and, if not its next, its item (PlayMap) or a cue (Patterns), each 1-64 characters");
                 (list, item) = rest.Count == 2 ? (rest[0], rest[1]) : ("", rest[0]);
                 break;
         }
@@ -1303,13 +1312,30 @@ public sealed record CommandReceipt(string Id, bool Ok, string Stage, string Eff
     public static CommandReceipt Accepted(string id) => new(id, true, "accepted", "", null);
     public static CommandReceipt Refused(string id, string error) => new(id, false, "applied", "", error);
 
+    /// <summary>
+    /// Show Bus §3's one follow-up of an <c>accepted</c> receipt that waits on another node (a playout link's peer): the same id's
+    /// final receipt, within <c>receipt.final.ms</c> — that node's final answer once it comes, else unconfirmed in this node's own
+    /// words (it may have run). Never serialised: a WS client and a line transport are sent the follow-up as a receipt of its own;
+    /// HTTP, which answers once, sends none. Null on a receipt that waits on nothing.
+    /// </summary>
+    public Task<CommandReceipt>? Final { get; init; }
+
+    /// <summary>This receipt is the follow-up (§3's <c>final</c>): its JSON ends with <c>"final":true</c>, and a line carries the word after the id.</summary>
+    public bool IsFinal { get; init; }
+
     /// <summary>A request id as the Show Bus allows it: 1–32 of letters, digits, '-' and '_'. Null when not.</summary>
     public static string? CleanId(string? id)
         => id is { Length: > 0 and <= 32 } && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? id : null;
 
-    public byte[] ToJson() => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?>
+    /// <summary>The receipt's JSON, its fields in §3's order; <c>final</c>, a new last field, only on the follow-up.</summary>
+    public byte[] ToJson()
     {
-        ["type"] = "receipt", ["id"] = Id, ["ok"] = Ok, ["stage"] = Stage, ["effect"] = Effect,
-        ["error"] = Error, ["refs"] = Refs ?? new Dictionary<string, long>(),
-    });
+        var fields = new Dictionary<string, object?>
+        {
+            ["type"] = "receipt", ["id"] = Id, ["ok"] = Ok, ["stage"] = Stage, ["effect"] = Effect,
+            ["error"] = Error, ["refs"] = Refs ?? new Dictionary<string, long>(),
+        };
+        if (IsFinal) fields["final"] = true;
+        return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(fields);
+    }
 }

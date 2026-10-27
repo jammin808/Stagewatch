@@ -15,7 +15,6 @@ public sealed partial class MainViewModel
 {
     private PowerPointSensor? _ppt;
     private VmixSource? _vmix;
-    private PlayoutLink? _patterns;
     /// <summary>What each playout link keeps across a restart: a hold and its end (Show Bus 13.15.3); never a token, proof or nonce.</summary>
     private readonly PlayoutKeptStore _playoutKept = new(Path.Combine(DataFolder, "playout-links.json"));
     private SpeechPacer? _speech;
@@ -41,35 +40,7 @@ public sealed partial class MainViewModel
             () => { var s = new PowerPointSensor(); s.Start(); return s; });
         _supervisor.Reconcile("vmix", $"{i.Vmix && FeatureGate.AllowsPlayout(t)}|{i.VmixHost}|{i.VmixPort}", v => _vmix = v,
             () => { var s = new VmixSource(i.VmixHost, i.VmixPort); s.Start(); return s; });
-        // Link "patterns" runs as the Patterns link: a Patterns desk, or a peer whose kind is not set (a PlayMap one never does).
-        var pl = PlayoutRules.PatternsLink(i);
-        var patternsOn = pl is { Enabled: true } && pl.Kind != PlayoutRules.PlayMap && FeatureGate.AllowsPlayout(t);
-        var (patternsHost, patternsPort) = (pl?.Host ?? "", pl?.Port ?? 0);
-        var patternsToken = patternsOn ? ProtectedKey.Unprotect(pl!.TokenProtected) : "";
-        // A hold the desk's refusal started holds the token it was for (Show Bus 13.15.3): kept with the tag of the token as Settings
-        // stores it, so a restart keeps it and a token changed in Settings is proved again at once. The tag is in the link's signature
-        // (it is no secret): the same token typed again is stored anew, and the link is made again with the tag Settings now holds,
-        // so a hold it starts is kept under the tag the next start looks for.
-        var patternsTag = PlayoutKeptStore.Tag(pl?.TokenProtected);
-        _supervisor.Reconcile("patterns", $"{patternsOn}|{patternsHost}|{patternsPort}|{patternsToken.GetHashCode()}|{patternsTag}", v => _patterns = v,
-            () =>
-            {
-                // Its request ids end with this process's hello inst (Show Bus 13.12.1), so a link made again never repeats one. It
-                // starts from what it kept, and keeps a hold before it writes or dials again; its time is the desk's clock.
-                var name = PlayoutRules.PatternsName;
-                var time = TimeProvider.System;
-                var s = new PlayoutLink(new PlayoutLinkOptions
-                {
-                    Host = patternsHost, Port = patternsPort, Token = patternsToken, Inst = _inst, Name = name, Time = time,
-                    Kept = _playoutKept.For(name, patternsTag, time.GetUtcNow().ToUnixTimeMilliseconds()),
-                    Keep = kept => _playoutKept.Keep(name, patternsTag, kept, time.GetUtcNow().ToUnixTimeMilliseconds()),
-                });
-                s.Changed += OnPatternsChanged;
-                s.Answered += OnPatternsAnswer;
-                s.Logged += OnPatternsLogged;
-                s.Start();
-                return s;
-            });
+        ReconcilePlayout(i, FeatureGate.AllowsPlayout(t));
         _supervisor.Reconcile("ntp", $"{i.Ntp && FeatureGate.AllowsTimecode(t)}|{i.NtpServer}", v => _ntp = v,
             () => { var s = new TimeSync(i.NtpServer); s.Start(); return s; });
         _supervisor.Reconcile("ltc", $"{i.Ltc && FeatureGate.AllowsTimecode(t)}|{i.LtcDevice}|{i.LtcFps}|{i.LtcSource}", v => _ltc = v,
@@ -92,6 +63,42 @@ public sealed partial class MainViewModel
         var key = i.AssistantCloud ? ProtectedKey.Unprotect(i.AssistantKeyProtected) : "";
         _supervisor.Reconcile("cloud", $"{i.Assistant && i.AssistantCloud && FeatureGate.AllowsAssistant(t) && key.Length > 0}|{key.GetHashCode()}", v => _cloud = v,
             () => new CloudAdvisor(key));
+    }
+
+    /// <summary>
+    /// Each playout link Settings has, started, restarted or retired as its settings change: a link runs while it is switched on, the
+    /// licence runs playout links, and its transport is one this Stagewatch carries (TCP: a link set to <c>wss</c> waits for that
+    /// carrier and is never dialled plain). Its request ids end with this process's hello inst (Show Bus 13.12.1), so a link made again
+    /// never repeats one; it starts from what it kept across a restart and keeps a hold before it writes or dials again (13.15.3), the
+    /// hold kept with the tag of the token as Settings stores it, so a token changed in Settings is proved at once — the tag is in the
+    /// signature (it is no secret), so the same token typed again remakes the link with the tag Settings now holds. A link no longer in
+    /// Settings is retired by its name. Its listeners are the director's, wired before it starts.
+    /// </summary>
+    private void ReconcilePlayout(IntegrationSettings i, bool licensed)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var s in i.PlayoutLinks)
+        {
+            var link = s.Clone();
+            names.Add(link.Name);
+            var on = link.Enabled && licensed && link.Transport != PlayoutRules.Wss;
+            var token = on ? ProtectedKey.Unprotect(link.TokenProtected) : "";
+            var tag = PlayoutKeptStore.Tag(link.TokenProtected);
+            _supervisor.Reconcile("playout:" + link.Name, $"{on}|{link.Kind}|{link.Host}|{link.Port}|{token.GetHashCode()}|{tag}", v => _playout.Set(link.Name, v),
+                () => PlayoutLinks.Make(link, token, _inst, TimeProvider.System, _playoutKept, tag, Director.Wire));
+        }
+        foreach (var gone in _playoutNames.Where(n => !names.Contains(n)))
+            _supervisor.Reconcile<PlayoutLink>("playout:" + gone, "False", v => _playout.Set(gone, v), () => throw new InvalidOperationException("a retired link is never made"));
+        _playoutNames = names;
+    }
+
+    /// <summary>Why a playout link Settings has is not running, in words, or null when it runs.</summary>
+    private string? PlayoutNotRunning(PlayoutLinkSettings s)
+    {
+        if (!s.Enabled) return "off";
+        if (!FeatureGate.AllowsPlayout(_license.Tier)) return FeatureGate.Needs(FeatureTier.Production);
+        if (s.Transport == PlayoutRules.Wss) return "set to dial wss only — this Stagewatch carries playout links over TCP, and never dials one set to wss plain";
+        return _playout[s.Name] is null ? "starting" : null;
     }
 
     /// <summary>LTC follows the time of day (default) or the countdown itself as timecode.</summary>
@@ -127,8 +134,11 @@ public sealed partial class MainViewModel
             TimerTick.FormatSeconds(Math.Max(0, s.Seconds)), detail, Settings.Integrations.RoomName));
     }
 
-    /// <summary>One line per integration for Settings and diagnostics.</summary>
-    public IReadOnlyList<(string Name, LinkHealth Health, string Status)> IntegrationStatus()
+    /// <summary>One line per integration for Settings and diagnostics, each playout link among them by its peer's name.</summary>
+    public IReadOnlyList<(string Name, LinkHealth Health, string Status)> IntegrationStatus() => IntegrationStatus(playout: true);
+
+    /// <summary>One line per integration; the playout links' only with <paramref name="playout"/> (their context items are their records').</summary>
+    private IReadOnlyList<(string Name, LinkHealth Health, string Status)> IntegrationStatus(bool playout)
     {
         var list = new List<(string, LinkHealth, string)>();
         var t = _license.Tier;
@@ -140,7 +150,12 @@ public sealed partial class MainViewModel
         Add(_ppt, "PowerPoint", FeatureGate.AllowsPowerPointAddIn(t), FeatureTier.Pro);
         if (FeatureGate.AllowsPowerPointAddIn(t)) { var (h, st) = PresenterStatus(); list.Add(("Presenter PCs", h, st)); }
         Add(_vmix, "vMix", FeatureGate.AllowsPlayout(t), FeatureTier.Production);
-        Add(_patterns, "Patterns", FeatureGate.AllowsPlayout(t), FeatureTier.Production);
+        if (playout)
+            foreach (var s in Settings.Integrations.PlayoutLinks)
+            {
+                if (_playout[s.Name] is { } link) list.Add((link.Peer, link.Health, link.Status));
+                else list.Add((PlayoutRules.Peer(s.Kind == PlayoutRules.Auto ? null : s.Kind, s.Name), LinkHealth.Off, PlayoutNotRunning(s) ?? "off"));
+            }
         Add(_speech, "Speech", FeatureGate.AllowsSpeechPace(t), FeatureTier.Production);
         Add(_ntp, "Time server", FeatureGate.AllowsTimecode(t), FeatureTier.Production);
         Add(_ltc, "LTC", FeatureGate.AllowsTimecode(t), FeatureTier.Production);
@@ -158,7 +173,7 @@ public sealed partial class MainViewModel
         _slidesBeacon = null;
         // In parallel, with a cap: closing the app never waits on one slow device for long.
         _supervisor.StopAll(TimeSpan.FromSeconds(3), _speech);
-        _ppt = null; _vmix = null; _patterns = null; _speech = null; _ntp = null; _ltc = null; _ltcIn = null; _lights = null; _triggers = null; _rooms = null; _cloud = null;
+        _ppt = null; _vmix = null; _speech = null; _ntp = null; _ltc = null; _ltcIn = null; _lights = null; _triggers = null; _rooms = null; _cloud = null;
         // The stopped links posted their last rows to this thread — outcomes their stop settled, "→ off" — and the journal takes them
         // here, before its file closes (Show Bus 13.12.10): the queue is run up to them, for a second at most. A hold a link kept as it
         // stopped reaches its file within a second too.

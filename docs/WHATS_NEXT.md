@@ -284,7 +284,39 @@ running app on a network: two copies of one install for the conflict, an old cer
   hold before its minute, is on no surface yet — the desk's buttons and menus are SW20.11's; the link's record, not yet its own
   light and words, reaches the Show network, the context's `link:patterns`, the AI's facts and Companion with SW20.5; the desk's
   new status and log words, and its close that runs its queue up to the links' last rows, compile here and are not walked on
-  Windows (`pwsh tools\smoke.ps1`).
+  Windows (`pwsh tools\smoke.ps1`). *Since then (SW20.5):* that link is one of up to 8 playout links (Settings → Integrations), each to a
+  Patterns desk or a PlayMap node, its kind heard from its STATE (or set; a peer that answers as another kind is amber and sent
+  nothing), each running on its own as SW20.4 left the Patterns link, asked for its STATE and its `CONTEXT` at once once paired,
+  and a PlayMap node for its `WHOAMI` (one that lets this PC only read is amber, with what its desk can do). `playout` and
+  `patterns` lines run through one executor, `PlayoutDirector`, in the desk and the rig alike. It refuses from the peer's own
+  facts, nothing sent — G48's Stagewatch half: Patterns' pause or stop of a playlist item or a stinger's clip, in Patterns' words,
+  until its `video.pausable` / `video.stoppable` say otherwise; `VIDEO … ON <key>` only to a desk whose context lists that form;
+  a PlayMap CUE only to a playlist seen idle or ended in a STATE at most 3 s old; never a sync follower's playlist; go and cue
+  only once the kind is heard — and hands the rest to the link with a ticket that completes in the peer's own words (G07): the
+  receipt is its first answer within the 3 s, and one that says accepted (or none by then) has one follow-up within 30 s of the
+  send — the peer's final answer, never a later accepted, else Stagewatch's own "unconfirmed — … it may have run" — `"final":true`
+  on a WebSocket and `OK @id final …` on Companion, with `refs.peerRequest`. An approved proposal (an AI's or a peer's playout
+  line) settles on that final receipt: `done` only when the peer applied it, `failed` otherwise — an unconfirmed one with words that
+  say it may have run, since §11 has no state between done and failed. The effect is looked for in a STATE read after the command
+  went (after the peer's answer, when the STATE as it went already showed it) for the lead and 3 s more, one show-log row either way, at most 32 at once a link (`playout.seen.max`). The record's light
+  reaches every reader: the context's `link:<name>` (amber at level 0, its flags in words) and `clock:<name>`, the Show network
+  (each link's pulled context, a PlayMap node's only for the id its STATE gives), the AI's `playout_links`, the frame's `playout`
+  row (`link`, `node`) and the config's `playoutLinks`; a peer that answers as another kind than set feeds none of them but its
+  light; a clip's end moves the running order at most once an item, and an ended clip seen again after the link was stale is not a
+  second end. The
+  rig takes `--playout` (`tests/e2e/playout.e2e.cjs`, against fake PlayMap and Patterns peers). Not done: Patterns' `pausable`,
+  `stoppable` and `ON <key>` land in its Round 94 (P93.2, P93.3), so today every pause or stop of a real Patterns playlist item is
+  refused here and no real desk is sent `ON <key>`; `together` is refused with words, and no help line or context row offers it
+  (the timed GO, with `INDEX` and `CUE LIST`, is SW20.7's); a link set to `wss` is not started (SW20.6); an AI's playout line is still a desk proposal, not re-targeted to
+  the peer's own approvals (that needs `proposal.collect.ms`, SW21.2); the module's playout actions are SW20.12's, and it sends
+  its Patterns lines with no id, so it reads no receipt; neither Patterns nor PlayMap sends a follow-up today, so a real peer's
+  accepted answer gets its `final` only if that peer answers the id again (the e2e fakes do). Show Bus §8.1's frozen row still
+  says Stagewatch's receipts carry no `final`: true of every receipt but a playout line's, and the contract stays as it is. A
+  context a level-0 link pulled still counts as `verified` `key` for its id, and for a proposal's risk, while no key speaks for
+  that id — the 2.19 rule for link patterns, kept for every link by choice (§11 counts a table read over the desk's own link) and
+  bounded as above; the peer proves nothing at level 0, so it rests on the typed address until a LINK verdict replaces it. The
+  desk's side — its status and show-log words for several links, the *Last 10 s* button on the link feeding the VT, the clip's
+  end moving the running order — compiles here and is not walked on Windows (`pwsh tools\smoke.ps1`).
 - **Find still listens on Patterns' beacon.** Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled:
   the release after that walk row is filled takes it. Find already reads a hello's `ports.wire` (else the top-level `wire` older
   senders give) and hears PlayMap's hello as well as Patterns', so a desk that names its wire only in `ports` is listed; Settings'
@@ -294,7 +326,7 @@ running app on a network: two copies of one install for the conflict, an old cer
   no `peers` row in Stagewatch's context, so other apps reading it and MCP's `get_context` do not list it, and the Companion
   module reads no peers at all.
 - **Stagewatch dials no link by hello.** §2's "dial 127.0.0.1 first" for a peer heard on this machine is not done: its one link,
-  to Patterns, is a typed address.
+  to Patterns, is a typed address. *Since then (SW20.5):* each of its playout links, up to 8, Patterns desks and PlayMap nodes, is a typed address still.
 - **As a reader of contexts, Stagewatch keeps 2.18's limits**: a context's first 64 items and 64 commands, a verb cut at 80
   characters, no links read, and an over-long post closed unanswered rather than refused with 413 (§8.1, with what ends each).
   *Since then (SW20.9):* a body over 64 KiB, a context's or any other's, is answered `413` with the length it declared, before

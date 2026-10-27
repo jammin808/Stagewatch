@@ -692,12 +692,15 @@ static class PlayoutLinkTests
         Check(answers.TryPeek(out var a) && a is { Outcome: PeerOutcome.Applied, Line: "VIDEO END 10", Words: "jumped to the last 10 s" } && a.Id == id
               && id.StartsWith('s') && id.EndsWith("-5e6f7a8b", StringComparison.Ordinal),
               $"playout link: the desk's answer comes back matched to the command by its request id, applied in its words ({a}; {id})");
-        // The readers' light is the link's own, not yet the core's record (13.16.3), which at level 0 is amber: NODES.md §5 says so, and
-        // this check fails once SW20.5 lays the record over the readers, so the page moves with it.
+        // Every reader takes the core's record (13.16.4), which at level 0 is amber (legacy): the context's link:<name> item is the
+        // record's light with its flag's words beside the link's own, while Settings' line keeps the link's own green from its pairing.
+        // NODES.md §5 says so.
         var nodes = ShowBusSpecTests.Master() is { } master ? File.ReadAllText(Path.Combine(Path.GetDirectoryName(master)!, "NODES.md")) : "";
+        var items = Stagewatch.Show.ShowContext.PlayoutItems([new Stagewatch.Show.PlayoutLinkFact(link.LinkName, link.Peer, link.Record.Light, link.Status, link.Record.Flags)]);
         Check(link.Record is { Light: "amber", Proof: "legacy" } rec && rec.Flags.Contains("legacy") && link.Health == LinkHealth.Ok
-              && Regex.Replace(nodes, @"\s+", " ").Contains("those readers do not show that record's light yet", StringComparison.Ordinal),
-              $"playout light: a level-0 link's record is amber (legacy) while the desk's light is green from its pairing, as NODES.md §5 says until SW20.5 ({link.Record.Light}, {link.Health})");
+              && items is [{ Id: "link:patterns", Kind: "playout", Light: "amber" } item] && item.State.Contains("proved at level 0", StringComparison.Ordinal)
+              && Regex.Replace(nodes, @"\s+", " ").Contains("Companion that read that context, takes that record's light", StringComparison.Ordinal),
+              $"playout light: a level-0 link's record is amber (legacy), and the context's item takes it while the desk's line is green from its pairing, as NODES.md §5 says ({link.Record.Light}, {link.Health})");
     }
 
     /// <summary>

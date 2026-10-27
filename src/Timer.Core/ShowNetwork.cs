@@ -15,10 +15,14 @@ public sealed record HeardNode(string Kind, string Id, string Name, string Addre
 
 /// <summary>
 /// A context held for a node, with what it proves now: <see cref="PeerContexts.ProofOf"/> for one posted here,
-/// <see cref="PeerContexts.LinkedProof"/> for one this Stagewatch pulled over its own Patterns link (<see cref="Pulled"/>),
-/// which proves the id by the address the operator set, never by a key the node holds.
+/// <see cref="PeerContexts.LinkedProof"/> for one this Stagewatch pulled over one of its own playout links (<see cref="Pulled"/>),
+/// which proves the id by the address the operator set, never by a key the node holds; <see cref="Via"/> names that link.
 /// </summary>
-public sealed record HeldContext(PeerContexts.Entry Entry, NodeProof Proof, bool Pulled = false);
+public sealed record HeldContext(PeerContexts.Entry Entry, NodeProof Proof, bool Pulled = false)
+{
+    /// <summary>The playout link a pulled context came over, by the name Settings gives it ("stage-left"); "" for one posted here.</summary>
+    public string Via { get; init; } = "";
+}
 
 /// <summary>
 /// One show app in the show network: the summary every reader takes (the context's peers row, the AI's facts, the desk's
@@ -29,8 +33,11 @@ public sealed record HeldContext(PeerContexts.Entry Entry, NodeProof Proof, bool
 /// </summary>
 public sealed record NetworkRow(PeerSummary Peer, PeerContexts.Entry? Context, NodeProof ContextProof, NodeLinkFact? Link, IReadOnlyList<NodeLinkFact> Unproven, bool Named)
 {
-    /// <summary><see cref="Context"/> came over this Stagewatch's own Patterns link, not from a post by the node.</summary>
+    /// <summary><see cref="Context"/> came over one of this Stagewatch's own playout links, not from a post by the node.</summary>
     public bool Pulled { get; init; }
+
+    /// <summary>The playout link <see cref="Context"/> came over, when <see cref="Pulled"/>: its name as Settings gives it.</summary>
+    public string Via { get; init; } = "";
 
     /// <summary>
     /// A context held for this id proves nothing while a link proves the id: it is set aside, so none of its light,
@@ -145,6 +152,7 @@ public static class ShowNetwork
             return new NetworkRow(peer, e, contextProof, link, unproven, toldName is not null)
             {
                 Pulled = e is not null && c!.Pulled,
+                Via = e is not null && c!.Pulled ? c.Via : "",
                 ClaimSetAside = setAside,
             };
         }
@@ -175,7 +183,7 @@ public static class ShowNetwork
 
     /// <summary>
     /// The shape that says what proves a row's facts, drawn beside its light so it is never colour alone: ✓ a key (its own,
-    /// or this Stagewatch's own Patterns link), △ the operator's credential, ○ nothing (unverified, or nothing spoke for it).
+    /// or one of this Stagewatch's own playout links), △ the operator's credential, ○ nothing (unverified, or nothing spoke for it).
     /// </summary>
     public static string Mark(string verified) => verified switch { "key" => "✓", "operator" => "△", _ => "○" };
 
@@ -190,8 +198,11 @@ public static class ShowNetwork
 
     /// <summary>What a row's mark means: <see cref="MarkWords"/>, but for a context pulled over this Stagewatch's own link, what proves it.</summary>
     public static string MarkTip(NetworkRow row) => row.Pulled && row.ContextProof == NodeProof.Key
-        ? "verified: its context comes over this Stagewatch's own Patterns link, to the address the operator set — not a key of its own"
+        ? $"verified: its context comes over this Stagewatch's own {LinkName(row)}, to the address the operator set — not a key of its own"
         : MarkWords(row.Peer.Verified);
+
+    /// <summary>The playout link a pulled context came over, for people: "playout link stage-left".</summary>
+    private static string LinkName(NetworkRow row) => row.Via.Length > 0 ? "playout link " + row.Via : "playout link";
 
     /// <summary>
     /// How a row's app reaches this Stagewatch, for the desk: its /ws link and the credential that proves it, else how its
@@ -225,7 +236,7 @@ public static class ShowNetwork
     {
         if (row.Pulled)
         {
-            var over = "its context comes over this Stagewatch's Patterns link" + (c.Address.Length > 0 ? $" ({c.Address})" : "");
+            var over = $"its context comes over this Stagewatch's {LinkName(row)}" + (c.Address.Length > 0 ? $" ({c.Address})" : "");
             return row.ContextProof == NodeProof.None ? over + ", but a key speaks for its id: it proves nothing, so it sets no risk" : over;
         }
         return row.ContextProof switch

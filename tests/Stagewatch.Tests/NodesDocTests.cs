@@ -80,7 +80,12 @@ static class NodesDocTests
         ("read.context.verb.chars", () => Heard(1, 1000) is { Commands: [var first, ..] } ? first.Verb.Length : -1),
         ("cert.days", () => (long)CertificateLife.Span.TotalDays),
         ("cert.renew.days", () => CertificateLife.RenewDays),
-        // The Patterns link is a PlayoutLink on the PeerLink core: its liveness and redial are the core's (Show Bus 13.10.3, 13.15.1).
+        // The playout links: how many, and the director's look at a peer's STATE before and after a command.
+        ("playout.links", () => PlayoutRules.Max),
+        ("playout.cue.idle.ms", () => PlayoutDirector.IdleFreshMs),
+        ("playout.seen.ms", () => PlayoutDirector.WatchMs),
+        ("playout.seen.max", () => PlayoutDirector.WatchesMax),
+        // A playout link is a PlayoutLink on the PeerLink core: its liveness and redial are the core's (Show Bus 13.10.3, 13.15.1).
         ("patterns.wire.port", () => PlayoutLink.DefaultPort),
         ("patterns.ping.ms", () => Ms(PlayoutLink.PingEvery)),
         ("link.stale.ms", () => PeerLink.StaleMs),

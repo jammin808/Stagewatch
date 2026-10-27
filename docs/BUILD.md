@@ -100,6 +100,11 @@ tools/test.sh help            # what each lane does, and the variables a person 
   its fingerprint (or null), and the hello names it with `https`;
   `--journal <file>|-` keeps the show journal as the app does (a file it can't open for appending is refused), and
   `/report` and `/api/report.csv` answer from it (404 "no report" while its show thread is stalled, as the app's);
+  `--playout NAME=HOST:PORT[,patterns|playmap]` (up to 8) runs a playout link to a Patterns desk or a PlayMap node as
+  the app runs one, its pairing token from `STAGEWATCH_RIG_PLAYOUT_TOKEN` (never a flag, so no secret is in its arguments):
+  `playout` and `patterns` lines go through the app's executor, each receipt the peer's own answer with its one follow-up
+  on a WebSocket and Companion, and the context, the frame, the config and the journal take the links as the app's do (its
+  running order never moves on a clip's end); the ready line's `playout` lists each link's name, kind and address;
   `--pin-file <file>` takes the PIN from a file's first line (never with `--pin`); `--secrets-out <file>` writes the
   PIN, the windows' addresses and the keys' secrets to a file of the user's own, so standard output and error carry none
   (each start rewrites it with that start's secrets, as its ready line would, so a key made on an earlier start isn't in
@@ -125,7 +130,9 @@ tools/test.sh help            # what each lane does, and the variables a person 
   load, link loss and a restarted rig, revoke), every public page drawing a real frame alone and inside a window, the
   same commands over HTTP, Companion TCP, OSC and MCP, show apps' node links on /ws (`nodes.e2e.cjs`), a stuck
   show's exact beat (`stall.e2e.cjs`), the speaker's message and its acknowledgement as a show app sends and answers it,
-  the bytes Patterns' fake Stagewatch is to copy (`message.e2e.cjs`), and the rig as the interop lane drives it
+  the bytes Patterns' fake Stagewatch is to copy (`message.e2e.cjs`), playout links to a fake PlayMap node and a fake
+  Patterns desk (`playout.e2e.cjs`, `fakepeers.cjs`: pairing by proof, receipts in the peer's words with their follow-up,
+  a refusal from the peer's own facts that sends nothing, every reader), and the rig as the interop lane drives it
   (`rig-faults.e2e.cjs`: its id across a restart, no secret on its output, `auth`, its input's end, the journal and
   report, no key kept by a start that failed). `SW_E2E_OUT=<folder>` keeps screenshots.
 - `tools/showbus-copies.sh` is Show Bus 1.3's comparison of the trees (`docs/SHOWBUS.md` §14.5): it holds the master's own

@@ -102,41 +102,44 @@ public sealed partial class MainViewModel
             PlayoutRows());
         _contextJson = ShowContext.Build(input);
         SyncPeerRows(now, view);
+        RefreshPlayoutConfig();
         var hello = OwnHello;
         var twin = OwnTwin;
         HelloLine = ShowBusHello.Line(hello, input.Name, _nodeId, twin);
         HelloLineWarns = ShowBusHello.Item(hello, twin) is not null;   // in step with the context's amber bus:hello
     }
 
-    /// <summary>Every link this Stagewatch runs, as context items (off ones left out), plus the Patterns clock check.</summary>
+    /// <summary>
+    /// Every link this Stagewatch runs, as context items (off ones left out): each integration's by its own light, each playout link's
+    /// by its record (<see cref="ShowContext.PlayoutItems"/>: <c>link:&lt;name&gt;</c> and, while its clock is apart, <c>clock:&lt;name&gt;</c>).
+    /// </summary>
     private List<ContextItem> LinkItems()
     {
         var list = new List<ContextItem>();
-        foreach (var (name, health, status) in IntegrationStatus())
+        foreach (var (name, health, status) in IntegrationStatus(playout: false))
         {
             if (health == LinkHealth.Off) continue;
             var light = health switch { LinkHealth.Ok => Light.Green, LinkHealth.Starting => Light.Amber, _ => Light.Red };
-            list.Add(new ContextItem("link:" + name.ToLowerInvariant().Replace(' ', '-'), name is "vMix" or "Patterns" ? "playout" : "link", name, light, status));
+            list.Add(new ContextItem("link:" + name.ToLowerInvariant().Replace(' ', '-'), name is "vMix" ? "playout" : "link", name, light, status));
         }
+        // 13.16.4: each playout link's light is its record's; 13.11.5: its clock apart when the offset less its error is past
+        // clock.apart.ms, from its matched pongs alone (13.10.2).
+        list.AddRange(ShowContext.PlayoutItems(PlayoutLinkFacts()));
         list.AddRange(WindowItems());
         if (ShowBusHello.Item(OwnHello, OwnTwin) is { } hello) list.Add(hello);   // its own health: other apps can't find it, or can't tell it from a copy
-        // 13.11.5: apart when the offset less its error is past clock.apart.ms, from the link's matched pongs alone (13.10.2).
-        if (_patterns is { ClockApart: true, Clock: { } clock })
-            list.Add(new ContextItem("clock:patterns", "health", "Clock vs Patterns", Light.Amber,
-                FormattableString.Invariant($"CLOCKS APART: Patterns' clock is {Math.Abs(clock.OffsetMs) / 1000:0.0} s {(clock.OffsetMs > 0 ? "ahead" : "behind")} (± {clock.ErrMs} ms)")));
         return list;
     }
 
     /// <summary>
-    /// The show apps heard (hello), what they told us (context, the one Patterns gave over our own link last) and the ones
-    /// following over /ws, joined by node id (<see cref="ShowNetwork.Summaries"/>). One hop; presenter PCs are links, not peers.
+    /// The show apps heard (hello), what they told us (context, and the ones each playout link pulled over its own connection, one per
+    /// node id) and the ones following over /ws, joined by node id (<see cref="ShowNetwork.Summaries"/>). One hop; presenter PCs are
+    /// links, not peers.
     /// </summary>
     private NetworkView Network(DateTime now)
     {
         var hellos = NetworkPeers().Select(p => new HeardNode(p.Hello.Kind, p.Hello.Id, p.Hello.Name, p.Address, p.AgeSeconds) { Conflict = p.Conflict?.Words ?? "" });
         var contexts = _peerContexts.Held(now).ToList();
-        if (_patterns?.Context is { } pc && PeerContexts.Parse(pc, PlayoutRules.PatternsLink(Settings.Integrations)?.Host ?? "", now) is { } pe)
-            contexts.Add(new HeldContext(pe, _peerContexts.LinkedProof(pe.Id), Pulled: true));
+        contexts.AddRange(PlayoutLinks.Pulled(OrderedLinks(), contexts, _peerContexts.LinkedProof, now));
         return ShowNetwork.Summaries(hellos, contexts, _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
     }
 

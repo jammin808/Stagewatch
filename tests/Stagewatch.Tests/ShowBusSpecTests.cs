@@ -242,9 +242,6 @@ static class ShowBusSpecTests
         ("its Patterns link proves at level 0 only", "SW23.1", "it answers NONCE with AUTH-PROOF and runs no LINK",
             () => Source("src/Timer.Integrations/PlayoutLink.cs") is { } link && link.Contains("\"@pa AUTH-PROOF \"", StringComparison.Ordinal)
                   && link.Contains("OffersLink = false", StringComparison.Ordinal) && !Regex.IsMatch(link, @"""(?:@l\d+ )?LINK ")),
-        ("no playout link to PlayMap", "SW20.5", "its Patterns link is its only line connector",
-            () => Source("src/Timer.App/ViewModels/MainViewModel.Integrations.cs") is { } desk && Regex.Matches(desk, @"new PlayoutLink\(").Count == 1
-                  && desk.Contains("PlayoutRules.PatternsLink(i)", StringComparison.Ordinal)),
         ("its `/ws` speaks no LINK", "SW22.1a", "a node link proves a bearer key or the operator's credential, §7.1",
             () => Source("src/Timer.Core/NodeLinks.cs") is { } links && !links.Contains("snonce", StringComparison.Ordinal)
                   && Source("src/Timer.Remote/WebServer.cs") is { } server && !server.Contains("snonce", StringComparison.Ordinal)),
@@ -2173,13 +2170,15 @@ static class ShowBusSpecTests
         var json = ShowContext.Build(input);
 
         // P6, for its own parts but its vMix link (P6's entry): the kinds the context builder and the desk's link items write. Its
-        // Patterns link's kind is P2's entry.
+        // playout links' kind is P2's entry; their clocks' items are health.
         var linkItems = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems()") ?? "";
         var own = items.Where(i => i.Id != "link:patterns").Select(i => i.Kind).Distinct().ToList();
+        var playoutItems = ShowContext.PlayoutItems([new PlayoutLinkFact("stage-left", "PlayMap Stage left", Light.Amber, "Show: 0:42 left", ["legacy"], 2400, 3, ClockApart: true)]);
         Check(own.Count >= 7 && own.All(ShowBusKinds.Known)
-              && linkItems.Contains("? \"playout\" : \"link\"", StringComparison.Ordinal) && linkItems.Contains("new ContextItem(\"clock:patterns\", \"health\",", StringComparison.Ordinal),
+              && linkItems.Contains("? \"playout\" : \"link\"", StringComparison.Ordinal) && linkItems.Contains("ShowContext.PlayoutItems(", StringComparison.Ordinal)
+              && playoutItems is [{ Id: "link:stage-left", Kind: "playout" }, { Id: "clock:stage-left", Kind: "health" }],
             "showbus spec: Stagewatch keeps P6 for its own parts but its vMix link: its timer, schedule, cues, message, links, health and windows are the kind "
-            + "table's words, and every integration but vMix and Patterns is a link (" + string.Join(", ", own) + ")");
+            + "table's words, and every integration but vMix and the playout links is a link (" + string.Join(", ", own) + ")");
 
         // P1, P5 for its timer, P8's no-secret rule, and its rows' kinds.
         Check(light != Light.Red && !headline.Contains(patterns.Headline, StringComparison.Ordinal)
@@ -2254,7 +2253,8 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// Whether Stagewatch's own rows are still as the header says (P2, for its links): its only rows run from its timer, none names a
-    /// peer, and the desk's link items still give its Patterns link the kind playout.
+    /// peer, and the desk's link items still give each playout link, its Patterns link among them, the kind playout
+    /// (<see cref="ShowContext.PlayoutItems"/>, which the desk's LinkItems calls).
     /// </summary>
     static bool OwnRowsAsToday()
     {
@@ -2264,7 +2264,8 @@ static class ShowBusSpecTests
         var links = Items(doc.RootElement, "links");
         var desk = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems()") ?? "";
         return links.Count > 0 && links.All(l => Str(l, "from") == "timer" && Str(l, "to") is { } to && !to.StartsWith('@'))
-               && Regex.IsMatch(desk, @"""Patterns""[^?;]*\? ""playout""");
+               && desk.Contains("ShowContext.PlayoutItems(", StringComparison.Ordinal)
+               && ShowContext.PlayoutItems([new PlayoutLinkFact("patterns", "Patterns", Light.Green, "VT1: 0:42 left")]) is [{ Id: "link:patterns", Kind: "playout" }];
     }
 
     /// <summary>Whether Stagewatch still lists a node link it accepted only as a peers row, with link and verified (P2, as acceptor).</summary>
@@ -2754,6 +2755,15 @@ static class ShowBusSpecTests
         foreach (var (row, unit, today, _) in later)
             Check(notKept.Contains("`" + row + "` (today " + today + ")", StringComparison.Ordinal),
                 $"showbus spec: §8's Stagewatch row says it does not keep {row} yet, in NotKeptYet's words ({unit}): today {today}");
+        // Kept since SW20.5, its words in the frozen row still standing: a playout link to PlayMap. The desk runs every link Settings has,
+        // of either kind, each on the PeerLink core (one PeerLinkConnector), and a link heard to be PlayMap carries its playlists' verbs;
+        // that it speaks LINK where its peer offers it is the next entry's (its Patterns link proves at level 0 only, SW23.1).
+        Check(notKept.Contains("no playout link to PlayMap (today its Patterns link is its only line connector)", StringComparison.Ordinal)
+              && Source("src/Timer.App/ViewModels/MainViewModel.Integrations.cs") is { } desk
+              && Regex.IsMatch(desk, @"foreach \(var s in i\.PlayoutLinks\)[\s\S]*PlayoutLinks\.Make\(") && !desk.Contains("PlayoutRules.PatternsLink(i)", StringComparison.Ordinal)
+              && OnTheCore() && typeof(PlayoutLink).GetMethod(nameof(PlayoutLink.Playlist)) is not null,
+            "showbus spec: Stagewatch keeps what §8's row names as no playout link to PlayMap: the desk runs every playout link Settings has, a PlayMap "
+            + "node's among them, on the PeerLink core, and a link heard to be PlayMap carries PLAYLIST GO and CUE");
         foreach (var (what, unit, today, differs) in WordsNotKeptYet)
         {
             Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),

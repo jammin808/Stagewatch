@@ -182,6 +182,8 @@ public static class SnapshotJson
                 w.WriteNumber("duration", po.DurationSeconds);
                 w.WriteBoolean("running", po.Running);
                 w.WriteString("source", po.Source);
+                w.WriteString("link", po.Link);
+                w.WriteString("node", po.Node);
                 w.WriteEndObject();
             }
             else w.WriteNull("playout");
@@ -381,6 +383,19 @@ public static class SnapshotJson
             {
                 w.WriteStartArray("features");
                 foreach (var f in c.Features) w.WriteStringValue(f);
+                w.WriteEndArray();
+            }
+            if (c.PlayoutLinks is not null)
+            {
+                w.WriteStartArray("playoutLinks");
+                foreach (var l in c.PlayoutLinks)
+                {
+                    w.WriteStartObject();
+                    w.WriteString("name", l.Name);
+                    w.WriteString("kind", l.Kind);
+                    w.WriteString("label", l.Label);
+                    w.WriteEndObject();
+                }
                 w.WriteEndArray();
             }
             w.WriteEndObject();

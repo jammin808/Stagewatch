@@ -70,7 +70,7 @@ public sealed partial class MainViewModel
 
     /// <summary>
     /// How risky a line is for its target: the desk's own rules for itself, the target's listed verbs otherwise. Unknown is
-    /// high, and so is a target whose context proves nothing now. Patterns' context, pulled over this desk's own link to
+    /// high, and so is a target whose context proves nothing now. A playout link's peer's context, pulled over this desk's own link to
     /// the address the operator set, counts while no key speaks for that id (<see cref="PeerContexts.RiskFor"/>).
     /// </summary>
     private string RiskFor(NodeRef target, string line)
@@ -81,7 +81,7 @@ public sealed partial class MainViewModel
             if (tokens.Count == 0 || !ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out _)) return "high";
             return Copilot.Classify(cmd) switch { CopilotRisk.Low => "low", CopilotRisk.Review => "review", _ => "high" };
         }
-        return _peerContexts.RiskFor(target.Id, line, DateTime.UtcNow, _patterns?.Context);
+        return _peerContexts.RiskFor(target.Id, line, DateTime.UtcNow, LinkedContext(target.Id));
     }
 
     private static List<string> McpTokens(string line) => Stagewatch.Remote.McpEndpoint.Tokenize(line);
@@ -118,6 +118,8 @@ public sealed partial class MainViewModel
                 if (step is not null) step.Result = p.State switch
                 {
                     SharedProposalState.Done => "done" + (p.Result.Length > 0 ? ": " + p.Result : ""),
+                    // An unconfirmed line failed only for want of a "done": it may have run, and its words say so.
+                    SharedProposalState.Failed when p.Result.StartsWith(PlayoutReceipts.Unconfirmed, StringComparison.Ordinal) => p.Result,
                     SharedProposalState.Failed => "refused: " + p.Result,
                     _ => "not delivered: " + p.Result,
                 };
@@ -155,8 +157,27 @@ public sealed partial class MainViewModel
             Desk.Finished(id, false, "not a valid Stagewatch command: " + error);
             return;
         }
-        var receipt = RunWithReceipt(cmd, id);
-        Desk.Finished(id, receipt.Ok, receipt.Ok ? receipt.Effect : receipt.Error ?? "refused");
+        var sentAt = TimeProvider.System.GetTimestamp();
+        var (receipt, peer) = RunWithReceipt(cmd, id);
+        if (peer is null)
+        {
+            Desk.Finished(id, receipt.Ok, receipt.Ok ? receipt.Effect : receipt.Error ?? "refused");
+            return;
+        }
+        _ = FinishedByPeerAsync(id, peer, sentAt);
+    }
+
+    /// <summary>
+    /// An approved line that went to a playout link's peer is finished by that command's final receipt (Show Bus §3), within
+    /// receipt.final.ms of the send, on the show thread: done only once the peer said it applied it; a refusal or a command never sent
+    /// failed in its words; one the peer only took, or never answered, failed as unconfirmed — it may have run
+    /// (<see cref="PlayoutReceipts.ProposalOutcome"/>). Never a "done" the peer did not say.
+    /// </summary>
+    private async Task FinishedByPeerAsync(string id, PlayoutStep peer, long sentAt)
+    {
+        var final = await PlayoutReceipts.Settled(id, peer, TimeProvider.System, sentAt).ConfigureAwait(false);
+        var (done, words) = PlayoutReceipts.ProposalOutcome(final);
+        _ = _ui.BeginInvoke(() => Desk.Finished(id, done, words));
     }
 
     private void DiscardShared(CopilotProposal p)

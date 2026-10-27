@@ -317,7 +317,7 @@ static class NodeTests
     /// <summary>
     /// A row's verified is what proves the facts it shows: a context that proves nothing never rides under an id a link
     /// proves (set aside, so its light, headline, items and name reach no reader), and a context this Stagewatch pulled
-    /// over its own Patterns link says so rather than claiming a key of its own.
+    /// over one of its own playout links says so rather than claiming a key of its own.
     /// </summary>
     static void NetworkProof(Action<bool, string> Check)
     {
@@ -373,22 +373,22 @@ static class NodeTests
               }),
               $"proof: a proven context's red parts are urgent, two at most, worst first ({string.Join(" | ", proven.Select(a => a.Text))})");
 
-        // Pulled over this Stagewatch's own Patterns link: key on the wire (decision 10), and the desk says what proves it.
-        var pulled = new HeldContext(PeerContexts.Parse(Context("patterns", "pat9", "Linked"), "10.0.0.30", now)!, peers.LinkedProof("pat9"), Pulled: true);
+        // Pulled over one of this Stagewatch's own playout links: key on the wire (decision 10), and the desk says what proves it — the link by name.
+        var pulled = new HeldContext(PeerContexts.Parse(Context("patterns", "pat9", "Linked"), "10.0.0.30", now)!, peers.LinkedProof("pat9"), Pulled: true) { Via = "patterns" };
         var linked = ShowNetwork.Summaries(Array.Empty<HeardNode>(), new[] { pulled }, Array.Empty<NodeLinkFact>(), "desk01", now).Rows.Single();
-        Check(linked.Peer is { Verified: "key", Link: "", HasContext: true } && linked.Pulled && linked.ContextProof == NodeProof.Key
-              && ShowNetwork.LinkLine(linked, Names) == "its context comes over this Stagewatch's Patterns link (10.0.0.30) · not linked on /ws"
+        Check(linked.Peer is { Verified: "key", Link: "", HasContext: true } && linked.Pulled && linked.Via == "patterns" && linked.ContextProof == NodeProof.Key
+              && ShowNetwork.LinkLine(linked, Names) == "its context comes over this Stagewatch's playout link patterns (10.0.0.30) · not linked on /ws"
               && ShowNetwork.Mark(linked.Peer.Verified) == "✓"
-              && ShowNetwork.MarkTip(linked) == "verified: its context comes over this Stagewatch's own Patterns link, to the address the operator set — not a key of its own",
+              && ShowNetwork.MarkTip(linked) == "verified: its context comes over this Stagewatch's own playout link patterns, to the address the operator set — not a key of its own",
               $"proof: a pulled context is verified key, and its words say this Stagewatch's own link proves it, never a key it posted with ({ShowNetwork.LinkLine(linked, Names)})");
         var pinLinked = ShowNetwork.Summaries(Array.Empty<HeardNode>(), new[] { pulled }, new[] { Fact("patterns", "pat9", NodeProof.Operator, null, "", address: "10.0.0.30") }, "desk01", now).Rows.Single();
         Check(pinLinked.Peer is { Verified: "key", Link: "ws", HasContext: true }
-              && ShowNetwork.LinkLine(pinLinked, Names) == "follows over /ws · the PIN (the operator's, not a key of its own) · 10.0.0.30 · its context comes over this Stagewatch's Patterns link (10.0.0.30)",
+              && ShowNetwork.LinkLine(pinLinked, Names) == "follows over /ws · the PIN (the operator's, not a key of its own) · 10.0.0.30 · its context comes over this Stagewatch's playout link patterns (10.0.0.30)",
               $"proof: following over /ws with the PIN, its pulled context still says where it came from ({ShowNetwork.LinkLine(pinLinked, Names)})");
-        var bound = new HeldContext(PeerContexts.Parse(Context("patterns", "pat1", "Pulled"), "10.0.0.30", now)!, peers.LinkedProof("pat1"), Pulled: true);
+        var bound = new HeldContext(PeerContexts.Parse(Context("patterns", "pat1", "Pulled"), "10.0.0.30", now)!, peers.LinkedProof("pat1"), Pulled: true) { Via = "stage-left" };
         var boundRow = ShowNetwork.Summaries(Array.Empty<HeardNode>(), new[] { bound }, Array.Empty<NodeLinkFact>(), "desk01", now).Rows.Single();
         Check(boundRow.Peer.Verified == "none" && ShowNetwork.Mark(boundRow.Peer.Verified) == "○" && ShowNetwork.MarkTip(boundRow) == ShowNetwork.MarkWords("none")
-              && ShowNetwork.LinkLine(boundRow, Names) == "its context comes over this Stagewatch's Patterns link (10.0.0.30), but a key speaks for its id: it proves nothing, so it sets no risk · not linked on /ws",
+              && ShowNetwork.LinkLine(boundRow, Names) == "its context comes over this Stagewatch's playout link stage-left (10.0.0.30), but a key speaks for its id: it proves nothing, so it sets no risk · not linked on /ws",
               $"proof: once a key speaks for the id, a pulled context proves nothing and says so ({ShowNetwork.LinkLine(boundRow, Names)})");
     }
 

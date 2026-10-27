@@ -250,7 +250,7 @@ public sealed partial class MainViewModel
         ListScreens().Select(x => new ScreenFact(x.Id, x.Name, x.Page, x.Device, x.Control, x.Claim)).ToList(),
         Settings.Remote.ScreenPresets,
         IntegrationStatus().Select(x => new IntegrationFact(x.Name, x.Health.ToString(), x.Status)).ToList(),
-        _history.Records.Count, _model, Settings.Rundown.Items, _journal.Entries, PeerFacts(), WindowItems()));
+        _history.Records.Count, _model, Settings.Rundown.Items, _journal.Entries, PeerFacts(), WindowItems(), PlayoutFactsForAi()));
 
     /// <summary>Draft the narrative for the show report from the journal (the operator edits it before it's kept).</summary>
     public async Task<string> DraftShowSummaryAsync()
