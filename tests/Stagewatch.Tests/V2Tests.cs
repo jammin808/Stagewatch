@@ -88,6 +88,41 @@ static class V2Tests
         b.Update(t0.AddMinutes(5));
         Check(b.Find(1) is null && b.Find(go.Id) is not null, "signals: finished ones expire, open ones stay");
         Check(b.Ack(999, "x", "seen", t0) is null, "signals: unknown id ignored");
+
+        // The frame's three message fields, one rule for the app's frames and the rig's: the signal behind the stage's message
+        // while it is sent or answered, nothing once it is cancelled, gone from the board or never asked.
+        var mb = new SignalBoard { KeepDoneFor = TimeSpan.FromSeconds(30) };
+        Check(mb.MessageAck(0) == MessageAckView.None && mb.MessageAck(7) == MessageAckView.None, "message ack: none asked, or no such signal → 0, \"\", \"\"");
+        var w1 = mb.Send(SignalKind.Message, "speaker", "Wrap up", t0);
+        Check(mb.MessageAck(w1.Id) == new MessageAckView(w1.Id, "sent", ""), "message ack: sent, by nobody yet");
+        mb.Ack(w1.Id, "Patterns FOH (127.0.0.1)", "seen", t0.AddSeconds(3));
+        Check(mb.MessageAck(w1.Id) == new MessageAckView(w1.Id, "done", "Patterns FOH (127.0.0.1)"), "message ack: a message's first answer is done, by whom");
+        var w2 = mb.Send(SignalKind.Message, "speaker", "Two minutes", t0.AddSeconds(5));
+        mb.Cancel(w2.Id, t0.AddSeconds(6));
+        Check(mb.MessageAck(w2.Id) == MessageAckView.None, "message ack: a cancelled signal says nothing");
+        var call2 = mb.Send(SignalKind.Call, "backstage", "Ana to stage", t0);
+        mb.Ack(call2.Id, "Wrangler", "seen", t0.AddSeconds(1));
+        Check(mb.MessageAck(call2.Id) == new MessageAckView(call2.Id, "seen", "Wrangler"), "message ack: seen is said as seen");
+        mb.Update(t0.AddMinutes(5));
+        Check(mb.MessageAck(w1.Id) == MessageAckView.None, "message ack: a signal gone from the board says nothing");
+
+        // Who answered, as the web server names a device the PIN does not speak for: the address is kept whole and ends it,
+        // only the name is cut, so neither a long desk name nor a made-up "(address)" pushes the real address out.
+        Check(SignalBoard.AnsweredBy("Patterns FOH", "127.0.0.1") == "Patterns FOH (127.0.0.1)", "answered by: the name, then the address");
+        var longDesk = "Patterns Front of House 2nd Main Hall AB";
+        Check(longDesk.Length == SignalBoard.ByMax
+              && SignalBoard.AnsweredBy(longDesk, "127.0.0.1") == "Patterns Front of House 2nd (127.0.0.1)",
+            "answered by: a 40-character name is cut (and trimmed) to fit, never the address");
+        Check(SignalBoard.AnsweredBy("Patterns FOH (10.0.0.5)".PadRight(SignalBoard.ByMax), "127.0.0.1") == "Patterns FOH (10.0.0.5) (127.0.0.1)",
+            "answered by: a name dressed as an address stays a name; the real address still ends it");
+        Check(SignalBoard.AnsweredBy("", "127.0.0.1") == "127.0.0.1" && SignalBoard.AnsweredBy("   ", "10.0.0.5") == "10.0.0.5",
+            "answered by: no name, the address alone");
+        Check(SignalBoard.AnsweredBy("Desk", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") == "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+            "answered by: no room for a name beside a long IPv6 address, the address alone");
+        var w3 = mb.Send(SignalKind.Message, "speaker", "Lights", t0.AddMinutes(5));
+        var ackBy = SignalBoard.AnsweredBy(longDesk, "127.0.0.1");
+        mb.Ack(w3.Id, ackBy, "seen", t0.AddMinutes(5).AddSeconds(1));
+        Check(mb.MessageAck(w3.Id).By == ackBy, "answered by: the board keeps it as the web server made it");
         var v1 = b.Views(t0.AddMinutes(5));
         var v2 = b.Views(t0.AddMinutes(5).AddSeconds(2));
         Check(v1 == v2, "signals: views stable within the age quantum");

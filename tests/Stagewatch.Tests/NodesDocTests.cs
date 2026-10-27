@@ -70,6 +70,8 @@ static class NodesDocTests
         ("context.links", () => ShowContext.MaxLinks),
         ("context.commands", () => ShowContext.MaxCommands),
         ("context.kept.ms", () => Ms(PeerContexts.KeepFor)),
+        ("ack.by.chars", () => SignalBoard.ByMax),
+        ("signal.kept.ms", () => Ms(new SignalBoard().KeepDoneFor)),
         ("read.context.items", () => Heard(1000, 1)?.Items.Count ?? -1),
         ("read.context.commands", () => Heard(1000, 1)?.Commands.Count ?? -1),
         ("read.context.verb.chars", () => Heard(1, 1000) is { Commands: [var first, ..] } ? first.Verb.Length : -1),

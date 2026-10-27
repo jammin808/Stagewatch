@@ -225,6 +225,20 @@ section has every message and refusal.
   listed under its key, speaking for no node) and hears no screen command; with a control key, the PIN, a read key or no key it is
   still a browser screen to Stagewatch, so "all" reaches it until the app dials as a node.
 - `?pin=` on a node link is refused (400): the key rides only in the header.
+- **The speaker's message and its answer** (AGMessage today, Patterns from its Round 93):
+  `POST /api/message/<text>/<urgency>/<flash>/ack` with the node key and an `X-Request-Id`. A receipt `applied` with
+  `refs.messageId` names the speaker's signal; `applied` without it asked no answer (a licence with no crew cues puts the message
+  up alone), so none will follow; `accepted` names nothing yet, and the signal is the next frame's new `messageId` beside the text
+  sent. Frames carry `messageId`, `messageAck` and `messageAckBy`: a message's signal completes on its first answer, so
+  `messageAck` goes `sent` → `done` and is never `seen` — read `seen` or `done` as the speaker's answer. A show app forwards its
+  own page's answer as `POST /api/ack/<id>/seen/<its desk's name>`; Stagewatch adds the device's address to the name, cutting the
+  name, never the address, to fit `ack.by.chars` (40). An answer that would change nothing is refused: at the door, 403
+  `{"ok":false,"error":…}`, once the signal has left the frame's `signals` (or, with crew links required, from anything but the
+  speaker's crew link or the operator: "This screen can't confirm cues for speaker…"); with a 409 receipt while it is listed but
+  already answered.
+  `signal.kept.ms` (30 s) after the answer, or after a newer message or a clear cancels it, the three fields go back to `0`, `""`,
+  `""` while the message may stay on stage: keep `done` for the `messageId` you sent. A receipt's `effect` is free words; show or
+  assert none of it.
 - Stagewatch's `/ws` speaks no PeerLink yet (Show Bus §13): a node link proves a bearer key or the operator's credential, at level 0
   (§7.1). The PeerLink kit — Stagewatch's core, the vectors and the scripted peer — runs in the suite only, in 2.19.
 
@@ -307,8 +321,8 @@ From Stagewatch's side; PlayMap's own `docs/SHOWBUS-NODE.md` is its reference.
 ### Stagewatch's numbers
 
 Each number the page names, as Stagewatch's code has it. A name that is a §14 row has §14's value: Stagewatch keeps that row. The
-`find.`, `slides.`, `cid.`, `http.`, `ws.`, `show.`, `pin.`, `key.`, `read.` and `patterns.` rows, and `hello.failed.beats`, are
-Stagewatch's own.
+`find.`, `slides.`, `cid.`, `http.`, `ws.`, `show.`, `pin.`, `key.`, `read.`, `ack.`, `signal.` and `patterns.` rows, and
+`hello.failed.beats`, are Stagewatch's own.
 
 | number | value | what it is |
 |---|---|---|
@@ -352,6 +366,8 @@ Stagewatch's own.
 | `context.links` | 400 | the most links in Stagewatch's own context |
 | `context.commands` | 256 | the most commands in Stagewatch's own context |
 | `context.kept.ms` | 30000 | how long a context posted here is kept |
+| `ack.by.chars` | 40 | the most characters of who answered a cue: a name, or a name and the device's address |
+| `signal.kept.ms` | 30000 | an answered or cancelled cue stays on the board, and in the frame, this long |
 | `read.context.items` | 64 | the items Stagewatch keeps of a context posted to it |
 | `read.context.commands` | 64 | the commands it keeps of one |
 | `read.context.verb.chars` | 80 | a kept command's verb is cut to this |

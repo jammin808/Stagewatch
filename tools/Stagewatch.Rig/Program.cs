@@ -29,10 +29,11 @@ using Stagewatch.Show;
 // --node-id ID (6-40 letters, digits, - or _) is the id it says in its hello, context and node links, the same on every start;
 // without it each start draws "rig-" and a random id.
 // --journal FILE keeps the show journal as the app does (JSON lines, appended; a restart reads the file back and goes on), "-"
-// keeps it in memory: item starts and ends, phase changes, blackout, messages, notes, window changes and key bindings. A FILE
-// the rig cannot open for appending is refused (exit 2) before any ready line says it keeps a journal. /report and
-// /api/report.csv answer from it and the rig's running order; the show thread builds the report, so while it is stalled (or
-// with no --journal) both answer 404 "no report", as the app's do. The context's recent lines are its rows; without it, none.
+// keeps it in memory: item starts and ends, phase changes, blackout, messages, their signals, acknowledgements and
+// escalations, notes, window changes and key bindings. A FILE the rig cannot open for appending is refused (exit 2) before
+// any ready line says it keeps a journal. /report and /api/report.csv answer from it and the rig's running order; the show
+// thread builds the report, so while it is stalled (or with no --journal) both answer 404 "no report", as the app's do. The
+// context's recent lines are its rows; without it, none.
 // --bus PORT puts the rig on the Show Bus (off by default): it hears hellos on that port, joins the nodes it hears into its
 // context as the app does, and says the app's own hello (ShowBusHello.Main over its servers' doors and --bind) — to §2's targets
 // on that port, or only to --bus-to. As the app, it says nothing while --bind is local, and its context's bus:hello is amber while
@@ -49,6 +50,15 @@ using Stagewatch.Show;
 // The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo, windows,
 // screen commands (browsers only, never a show app's node link) and the contexts show apps post; any other command is
 // refused with words (in its receipt and its log), never pretended.
+// A message that asks for its acknowledgement (message <text> <urgency> <flash> ack) is the app's: a speaker signal on the
+// app's own board (SignalBoard, ids counting from 1), its receipt's refs.messageId naming it, frames carrying messageId,
+// messageAck ("sent", then "done" once acknowledged: a message signal completes on its first answer) and messageAckBy, and the
+// signal in signals, so a page without the PIN may answer it. ack <id> [seen|done] [by] moves it, from a page, a show app or
+// the operator alike (the web server adds the address of one the PIN does not speak for to its name, cutting the name, never
+// the address, to 40 characters, as the app's); an ack that would change nothing (no such signal, or one already answered or
+// cleared) is refused with the app's words. A newer message cancels the old signal, clearmessage clears it, and an unanswered
+// one escalates after the app's 20 s; the journal keeps the signal, the answer and the escalation as the app's does (a cancel
+// or a clear writes no row). A receipt's effect is the rig's own words, which a peer neither shows nor asserts.
 // Control lines on standard input, answered in JSON lines on standard output; a blank line is ignored:
 //   stall <ms>   1-30000: the show thread is blocked that long, so every link hears the real stuck beat; answered twice,
 //                → {"rig":"stalled","ms":…,"at":<unix ms>} as it stops, {"rig":"running","at":<unix ms>} as it turns over
@@ -269,6 +279,11 @@ sealed class Rig : ICompanionBridge, IDisposable
     private string _message = "";
     private MessageUrgency _urgency;
     private FlashRate _flash;
+    // The speaker's acknowledgements, owner thread only, as the app's show thread keeps them: the board, the signal behind the
+    // message on the stage (0 when none is asked) and, only while a receipted command runs, what it made, for its refs.
+    private readonly SignalBoard _signals = new();
+    private int _messageSignalId;
+    private Dictionary<string, long>? _receiptRefs;
     private bool _blackout;
     private readonly HoldingSelection _holding = new();
     private volatile string? _context;
@@ -700,9 +715,15 @@ sealed class Rig : ICompanionBridge, IDisposable
         var done = new TaskCompletionSource<CommandReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
         Post(() =>
         {
-            var (ok, words) = Run(command);
+            // What the command makes (a message's signal) rides in its receipt's refs, as the app's receipts carry it; the
+            // refs exist only while a receipted command runs.
+            var refs = _receiptRefs = new Dictionary<string, long>();
+            (bool Ok, string Words) result;
+            try { result = Run(command); }
+            finally { _receiptRefs = null; }
+            var (ok, words) = result;
             Log((ok ? "ran " : "refused ") + command.Kind + ": " + words);
-            done.TrySetResult(ok ? new CommandReceipt(id, true, "applied", words, null, null) : CommandReceipt.Refused(id, words));
+            done.TrySetResult(ok ? new CommandReceipt(id, true, "applied", words, null, refs.Count > 0 ? refs : null) : CommandReceipt.Refused(id, words));
         });
         var first = await Task.WhenAny(done.Task, Task.Delay(timeout)).ConfigureAwait(false);
         return first == done.Task ? await done.Task.ConfigureAwait(false) : CommandReceipt.Accepted(id);
@@ -719,8 +740,9 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.Reset => Did(Engine.Reset, "reset"),
             ShowCommandKind.Nudge => Did(() => Engine.Nudge(TimeSpan.FromSeconds(c.Number)), $"nudged {c.Number.ToString(CultureInfo.InvariantCulture)} s"),
             ShowCommandKind.SetDuration => Did(() => Engine.SetDuration(TimeSpan.FromSeconds(c.Number)), "duration set"),
-            ShowCommandKind.Message => Did(() => SetMessage(c.Text ?? "", c.Urgency, c.Flash), "message on"),
+            ShowCommandKind.Message => MessageCommand(c),
             ShowCommandKind.ClearMessage => Did(() => SetMessage("", MessageUrgency.Info, FlashRate.Off), "message cleared"),
+            ShowCommandKind.Ack => AckCommand((int)c.Number, c.Get<AckArgs>()),
             ShowCommandKind.Blackout => Did(() => _blackout = c.Number < 0 ? !_blackout : c.Number > 0, "blackout"),
             ShowCommandKind.Next => Item(_item + 1),
             ShowCommandKind.Previous => Item(_item - 1),
@@ -749,6 +771,41 @@ sealed class Rig : ICompanionBridge, IDisposable
         return (true, $"item {index + 1}: {Agenda[index].Title}");
     }
 
+    /// <summary>
+    /// Owner thread: a message, as the app's show thread runs one. With <c>ack</c> and words, the speaker's signal goes on the
+    /// board first and the message carries it (the journal's Signal row, not a Message row, as the app's); without, the message
+    /// alone. Either way a signal the message on the stage carried before is cancelled.
+    /// </summary>
+    private (bool, string) MessageCommand(ShowCommand c)
+    {
+        var text = c.Text ?? "";
+        if (c.Flag && text.Length > 0)
+        {
+            var signal = _signals.Send(SignalKind.Message, "speaker", text, DateTime.UtcNow);
+            Journal(JournalKind.Signal, _item, "Message speaker: " + text);
+            SetMessage(text, c.Urgency, c.Flash, signal.Id);
+            return (true, "message on — waiting for the speaker to acknowledge (message " + signal.Id.ToString(CultureInfo.InvariantCulture) + ")");
+        }
+        SetMessage(text, c.Urgency, c.Flash);
+        return (true, text.Length > 0 ? "message on" : "message cleared");
+    }
+
+    /// <summary>
+    /// Owner thread: an acknowledgement, on the app's board with the app's words. One that would change nothing — no such signal,
+    /// or one already answered or cleared — is refused with the words the web server's door and the app refuse it with.
+    /// </summary>
+    private (bool, string) AckCommand(int id, AckArgs ack)
+    {
+        var now = DateTime.UtcNow;
+        var before = _signals.Find(id);
+        if (_signals.Ack(id, ack.By, ack.State, now) is not { } s) return (false, SignalBoard.GoneWords);
+        var latency = before is null ? 0 : (now - before.SentUtc).TotalSeconds;
+        var by = s.By.Length > 0 ? " by " + s.By : "";
+        Journal(JournalKind.Ack, _item, $"{s.Kind} {s.Target}: {s.Text} ({s.State}{by})", Math.Round(latency, 1));
+        var what = s.Text.Length > 0 ? s.Text : s.Kind.ToString();
+        return (true, $"✓ {s.Target} {(s.State == SignalState.Done ? "confirmed" : "saw")} \"{what}\"" + (s.By.Length > 0 ? $" ({s.By})" : ""));
+    }
+
     private (bool, string) HoldingImage(string key)
     {
         var image = _holding.Choose(Settings.Holding.Images, key, out var error);
@@ -770,6 +827,11 @@ sealed class Rig : ICompanionBridge, IDisposable
     private void Tick()
     {
         Snapshots.MarkAlive();
+        // An acknowledgement nobody gave escalates once, after the app's default 20 s, and is journalled as the app journals it;
+        // an answered or cancelled one leaves the board 30 s later.
+        var now = DateTime.UtcNow;
+        foreach (var escalated in _signals.Update(now))
+            Journal(JournalKind.Escalated, _item, $"{escalated.Kind} {escalated.Target}: {escalated.Text}");
         var frame = Frame();
         JournalEdges(frame);
         Snapshots.Publish(frame);
@@ -779,8 +841,9 @@ sealed class Rig : ICompanionBridge, IDisposable
     // ---------------------------------------------------------------- the journal (--journal), owner thread
     // What the app's show thread writes, for what the rig simulates: an item's start (its timer first counting) and end (the
     // running order moving on, with the seconds it ran), the phase as it changes while a countdown runs, blackout on and off, a
-    // message put up, a note, a window changed, and a key coming to speak for a node. Positions identify items: the rig has one
-    // running order, and its report matches rows to items by position.
+    // message put up (or, when it asks for its acknowledgement, its signal), an acknowledgement and an escalation, a note, a
+    // window changed, and a key coming to speak for a node. Positions identify items: the rig has one running order, and its
+    // report matches rows to items by position.
     private ShowSnapshot? _journalled;   // the last frame the journal's edges were read from
     private DateTime? _itemStartUtc;     // when the item in hand started, or null when it has not
 
@@ -871,6 +934,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             at += seconds;
         }
         var image = Settings.Holding.Images.FirstOrDefault(h => h.Id == _holding.OnAirId);
+        var messageAck = _signals.MessageAck(_messageSignalId);
         return new ShowSnapshot
         {
             Mode = Engine.Mode, State = Engine.State, Seconds = secs, Text = tick.Format(), SpeakerText = tick.Format(), TotalSeconds = (long)Engine.BaseDuration.TotalSeconds,
@@ -879,6 +943,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             TimeOfDay = local.ToString("HH:mm:ss", CultureInfo.InvariantCulture), ClockSeconds = clock, UtcSeconds = new DateTimeOffset(now).ToUnixTimeSeconds(),
             DateText = local.ToString("dddd d MMMM", CultureInfo.InvariantCulture), Room = _o.Room,
             Message = _message, Urgency = _urgency, Flash = _flash, Blackout = _blackout,
+            MessageSignalId = messageAck.Id, MessageAck = messageAck.State, MessageAckBy = messageAck.By, Signals = _signals.Views(now),
             HoldingId = image?.Id ?? "", HoldingName = image?.Name ?? "",
             Elements = DisplayElements.Timer | DisplayElements.Message | DisplayElements.NextUp | DisplayElements.ProgressBar | DisplayElements.TimeOfDay,
             Timings = timings.ToEquatableArray(),
@@ -958,11 +1023,21 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     // ---------------------------------------------------------------- Companion's direct calls
     public void LoadPreset(int slot, bool autoStart) => Post(() => { Item(Math.Clamp(slot - 1, 0, Agenda.Length - 1)); if (autoStart) Engine.Start(); Tick(); });
-    public void SetMessage(string text, MessageUrgency urgency, FlashRate flash)
+    public void SetMessage(string text, MessageUrgency urgency, FlashRate flash) => SetMessage(text, urgency, flash, 0);
+
+    /// <summary>
+    /// The message on the stage, as the app's SetMessage: <paramref name="signalId"/> is the acknowledgement behind it (0 = none
+    /// asked). The signal the stage carried before is cancelled unless it is this one, a cleared stage carries none, and a signal
+    /// carried is named in the receipt of the command being run.
+    /// </summary>
+    private void SetMessage(string text, MessageUrgency urgency, FlashRate flash, int signalId)
     {
-        if (Thread.CurrentThread != _owner) { Post(() => SetMessage(text, urgency, flash)); return; }
+        if (Thread.CurrentThread != _owner) { Post(() => SetMessage(text, urgency, flash, signalId)); return; }
+        if (_messageSignalId > 0 && _messageSignalId != signalId) _signals.Cancel(_messageSignalId, DateTime.UtcNow);
+        _messageSignalId = text.Length == 0 ? 0 : signalId;
+        if (_messageSignalId > 0 && _receiptRefs is { } refs) refs["messageId"] = _messageSignalId;
         _message = text; _urgency = urgency; _flash = flash;
-        if (text.Length > 0) Journal(JournalKind.Message, _item, text);
+        if (text.Length > 0 && signalId == 0) Journal(JournalKind.Message, _item, text);
         MessageChanged?.Invoke(new MessageState { Text = text, Urgency = urgency, Flash = flash });
         Tick();
     }

@@ -89,7 +89,7 @@ One grammar is shared by every transport — HTTP, WebSocket, OSC and the Compan
 | `signal` | `<message\|standby\|go\|call\|nudge> <target> [text] [noack]` | Send a cue the target confirms. Targets: `speaker`, `moderator`, `backstage`, `interpreter` or a department (`Lighting`) |
 | `signal go all` | | ALL GO: a GO to every department standing by, at once (each with the cue its standby named) |
 | `signal clear` / `signal resend` | `<target\|id>` / `<id>` | Cancel cues / send one again |
-| `ack` | `<id> [seen\|done] [name]` | Acknowledge a cue (**no PIN needed**: speaker tablets and phones) |
+| `ack` | `<id> [seen\|done] [name]` | Acknowledge a cue (**no PIN needed**: speaker tablets and phones; without the PIN the device's address is added to the name, and the name, never the address, is cut to fit 40 characters). A message's cue completes on its first answer (`done`, never `seen`). One that would change nothing is refused (2.20): 403 at the door once the cue has left the frame's `signals` (cancelled, or 30 s after its answer; or, with crew links required, from anything but its crew link or the operator), and a 409 receipt or Companion `ERROR @id` while it is listed but already answered |
 | `trim` | `<item> <±seconds>` | Cut or extend a running-order item (kept apart from the plan for the report) |
 | `delay` | `<seconds \| mm:ss \| clear>` | Announce a delay before the next item; it ripples on until a gap, buffer or fixed start absorbs it |
 | `catchup` | | Re-time the live item (elastic) so it lands on its planned end |

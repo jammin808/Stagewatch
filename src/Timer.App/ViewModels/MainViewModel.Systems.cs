@@ -137,13 +137,7 @@ public sealed partial class MainViewModel
         var slides = BuildSlides(now, t);
         MaybeForecast(now, projection);
         var advice = BuildAdvice(now, projection, t, slides);
-        var ack = "";
-        var ackBy = "";
-        if (_messageSignalId > 0 && _signals.Find(_messageSignalId) is { } ms)
-        {
-            ack = ms.State switch { SignalState.Sent => "sent", SignalState.Seen => "seen", SignalState.Done => "done", _ => "" };
-            ackBy = ms.By;
-        }
+        var messageAck = _signals.MessageAck(_messageSignalId);
         var ambient = new ShowSnapshot
         {
             Blackout = Blackout,
@@ -160,9 +154,9 @@ public sealed partial class MainViewModel
             Watermark = _license.ShowsWatermark ? FeatureGate.WatermarkText : "",
             Holographic = settings.Display.Holographic && FeatureGate.AllowsHolographic(_license.Tier),
             ConfigVersion = _configVersion,
-            MessageSignalId = ack.Length > 0 ? _messageSignalId : 0,
-            MessageAck = ack,
-            MessageAckBy = ackBy,
+            MessageSignalId = messageAck.Id,
+            MessageAck = messageAck.State,
+            MessageAckBy = messageAck.By,
             Signals = _signals.Views(now),
             Slides = slides,
             Speech = _speech is { } sp && sp.Listening && sp.Sample(now) is { } pos
@@ -438,6 +432,9 @@ public sealed partial class MainViewModel
                     FireTrigger(TriggerEvent.Ack, s.Target, s.Text);
                     StatusLine = $"✓ {s.Target} {(s.State == SignalState.Done ? "confirmed" : "saw")} \"{(s.Text.Length > 0 ? s.Text : s.Kind.ToString())}\"" + (s.By.Length > 0 ? $" ({s.By})" : "");
                 }
+                // An acknowledgement that changes nothing (no such cue, or one already answered or cleared) is refused in the
+                // sender's receipt, never applied; the desk's status line stays the operator's.
+                else ReceiptRefused(SignalBoard.GoneWords);
                 break;
             }
             case ShowCommandKind.SignalClear:

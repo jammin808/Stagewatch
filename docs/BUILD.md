@@ -74,9 +74,21 @@ tools/test.sh help            # what each lane does, and the variables a person 
   are never counted or touched.
 - `tools/Stagewatch.Rig` is the real web server, Companion server and OSC server around a simulated show (timer,
   messages, blackout, a holding image, Next/Previous/GoTo, windows, screen commands, the contexts show apps post and
-  their node links); anything else is refused with words. Its first output line is JSON with its ports, its node id and
-  the node keys made in this run (`--port`, `--companion`, `--osc`, `--pin`, `--bind`, `--state`, `--view`, `--room`,
-  `--node-keys`, `--exit-after`). For the interop lane: `--node-id <id>` keeps one id across restarts;
+  their node links); anything else is refused with words. A message that asks for its acknowledgement (`ack`) is the
+  app's, on the app's own signal board: its receipt's `refs.messageId` names the signal, frames carry `messageId`,
+  `messageAck` (`sent`, then `done`: a message completes on its first answer, never `seen`) and `messageAckBy` and
+  list it in `signals`; `ack <id>` answers it from a page, a show app or the operator, a newer message cancels it and
+  `clearmessage` clears it, as the app's do. One the PIN does not speak for is named by its name and the device's
+  address, the name cut to fit 40 characters, never the address. An ACK that would change nothing is refused: with a
+  403 at the door once the cue has left the frame's `signals` (cancelled, or 30 s after its answer), with a 409
+  receipt while it is listed but already answered. The three fields go back to `0`, `""`, `""` 30 s after the answer
+  or the cancel, the message maybe still on stage, so a peer keeps `done` for the `messageId` it sent. The rig always
+  makes the signal; the app, under a licence with no crew cues, puts the message up alone, and an `applied` receipt
+  without `refs.messageId` means no answer will follow. A receipt's `effect` is free words (the rig's own; the app's
+  is the status line it made, often empty for a remote message): a peer shows and asserts none of it. Its first output
+  line is JSON with its ports, its node id and the node keys made in this run (`--port`, `--companion`, `--osc`,
+  `--pin`, `--bind`, `--state`, `--view`, `--room`, `--node-keys`, `--exit-after`). For the interop lane:
+  `--node-id <id>` keeps one id across restarts;
   `--bus PORT [--bus-to ADDRESS:PORT]` puts it on the Show Bus: it hears hellos on that port, joins the nodes it hears
   into its context as the app does, and says the app's own hello to Show Bus §2's targets on that port, or only to
   `--bus-to` (nothing while `--bind` is local, as the app; the ready line's `bus` is the port, or 0);
@@ -112,9 +124,10 @@ tools/test.sh help            # what each lane does, and the variables a person 
 - `tests/e2e` drives it with Playwright: the window workflows (swap only when drawn, hold/cue/release, a page that won't
   load, link loss and a restarted rig, revoke), every public page drawing a real frame alone and inside a window, the
   same commands over HTTP, Companion TCP, OSC and MCP, show apps' node links on /ws (`nodes.e2e.cjs`), a stuck
-  show's exact beat (`stall.e2e.cjs`) and the rig as the interop lane drives it (`rig-faults.e2e.cjs`: its id across a
-  restart, no secret on its output, `auth`, its input's end, the journal and report, no key kept by a start that
-  failed). `SW_E2E_OUT=<folder>` keeps screenshots.
+  show's exact beat (`stall.e2e.cjs`), the speaker's message and its acknowledgement as a show app sends and answers it,
+  the bytes Patterns' fake Stagewatch is to copy (`message.e2e.cjs`), and the rig as the interop lane drives it
+  (`rig-faults.e2e.cjs`: its id across a restart, no secret on its output, `auth`, its input's end, the journal and
+  report, no key kept by a start that failed). `SW_E2E_OUT=<folder>` keeps screenshots.
 - `tools/showbus-copies.sh` is Show Bus 1.3's comparison of the trees (`docs/SHOWBUS.md` §14.5): it holds the master's own
   header and §14 to its body and its scripted peer (`tools/showbus/peerlink-peer.mjs`), then each tree the header's Landed
   line names — at `../Patterns`, `../Mapper`, `../AGMessage`, or `$SW_PATTERNS_DIR`, `$SW_MAPPER_DIR`, `$SW_AGMESSAGE_DIR`,

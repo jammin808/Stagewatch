@@ -1233,13 +1233,13 @@ public sealed class WebServer : IAsyncDisposable
     {
         var id = (int)cmd.Number;
         var signal = _control.Snapshots.Latest.Signals.FirstOrDefault(g => g.Id == id);
-        if (signal.Id != id || id == 0) return "That cue has already been answered or cleared.";
+        if (signal.Id != id || id == 0) return SignalBoard.GoneWords;
         var (secret, required) = _control.CrewKeyPolicy;
         if (required && !string.IsNullOrEmpty(secret)
             && CrewLinkFor(secret, signal.Target, key, remote, $"This screen can't confirm cues for {signal.Target}. Open its crew link (Showcaller page → Crew links).", socket) is { } refused)
             return refused;
         var ack = cmd.Get<AckArgs>();
-        var by = (ack.By.Length > 0 ? $"{ack.By} ({remote})" : remote.ToString()).Replace("|", "/");
+        var by = SignalBoard.AnsweredBy(ack.By.Replace("|", "/"), remote.ToString());
         cmd = cmd with { Text = by + "|" + ack.State, Args = new AckArgs(by, ack.State) };
         return null;
     }

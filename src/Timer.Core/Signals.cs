@@ -50,6 +50,16 @@ public sealed record Signal
 public readonly record struct SignalView(int Id, SignalKind Kind, string Target, string Text, SignalState State, bool Escalated, long AgeSeconds, string By);
 
 /// <summary>
+/// What a frame says of the acknowledgement asked for the message on the stage (<c>messageId</c>, <c>messageAck</c>,
+/// <c>messageAckBy</c>): the signal's id, "sent" | "seen" | "done", and who answered. <see cref="None"/> (0, "", "") while no
+/// acknowledgement is asked, once its signal was cancelled (a newer message, a clear) and once it has left the board.
+/// </summary>
+public readonly record struct MessageAckView(int Id, string State, string By)
+{
+    public static MessageAckView None => new(0, "", "");
+}
+
+/// <summary>
 /// The two-way cue channel nobody else ships: cues go out, the target acknowledges, the operator
 /// sees the tick (or an escalation when nobody answers). Owner-thread only — the app is the single
 /// writer — so no locking: remote acks arrive as commands like everything else.
@@ -66,6 +76,32 @@ public sealed class SignalBoard
 
     public IReadOnlyList<Signal> All => _signals;
     public int Version { get; private set; }
+
+    /// <summary>
+    /// The words an acknowledgement that would change nothing is refused with — no such signal, or one already answered or
+    /// cleared: at the web server's door for a page or a show app, and in the receipt of the show thread's own refusal.
+    /// </summary>
+    public const string GoneWords = "That cue has already been answered or cleared.";
+
+    /// <summary>The longest "by" an acknowledgement keeps: the parser's cut of a name, the board's, and <see cref="AnsweredBy"/>'s.</summary>
+    public const int ByMax = 40;
+
+    /// <summary>
+    /// Who answered, as the web server names a page or a show app the PIN does not speak for: the name it gave, then the
+    /// device's address in brackets. The address is the half nobody can fake, so it is kept whole and always ends the result;
+    /// only the name is cut (and trimmed) to fit <see cref="ByMax"/>, so neither a long name nor one that ends in a made-up
+    /// "(address)" can push the real address out. No name, or no room for one, leaves the address alone (an IPv6 address
+    /// is at most 39 characters).
+    /// </summary>
+    public static string AnsweredBy(string name, string address)
+    {
+        var suffix = " (" + address + ")";
+        var given = name.Trim();
+        var room = ByMax - suffix.Length;
+        if (given.Length == 0 || room <= 0) return address;
+        var cut = given[..Math.Min(given.Length, room)].TrimEnd();
+        return cut.Length == 0 ? address : cut + suffix;
+    }
 
     public event Action<Signal>? Changed;
 
@@ -102,7 +138,7 @@ public sealed class SignalBoard
             State = done ? SignalState.Done : SignalState.Seen,
             SeenUtc = s.SeenUtc ?? nowUtc,
             DoneUtc = done ? nowUtc : null,
-            By = string.IsNullOrWhiteSpace(by) ? s.By : by.Trim()[..Math.Min(by.Trim().Length, 40)],
+            By = string.IsNullOrWhiteSpace(by) ? s.By : by.Trim()[..Math.Min(by.Trim().Length, ByMax)],
             Escalated = false
         };
         Replace(i, next);
@@ -146,6 +182,17 @@ public sealed class SignalBoard
     }
 
     public Signal? Find(int id) => _signals.FirstOrDefault(s => s.Id == id);
+
+    /// <summary>
+    /// The frame's account of the message signal <paramref name="signalId"/> (0 = no acknowledgement asked): one rule for the
+    /// app's frames and the rig's, so a peer reads the same three fields from either.
+    /// </summary>
+    public MessageAckView MessageAck(int signalId)
+    {
+        if (signalId <= 0 || Find(signalId) is not { } s) return MessageAckView.None;
+        var state = s.State switch { SignalState.Sent => "sent", SignalState.Seen => "seen", SignalState.Done => "done", _ => "" };
+        return state.Length == 0 ? MessageAckView.None : new MessageAckView(signalId, state, s.By);
+    }
 
     /// <summary>The departments standing by, in the order they were stood by (one standby each).</summary>
     public IReadOnlyList<Signal> StandingBy() => _signals.Where(s => s.IsStandingBy).ToList();

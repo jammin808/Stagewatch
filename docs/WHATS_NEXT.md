@@ -165,7 +165,24 @@ connected): look at them in the running app with a show app linked.
   the strict parse the node routes use is the fix.
 - **A node key may still put any message on the stage.** It runs only `message` and `clearmessage`, but with any
   urgency and flash, so a show app's key can flash the speaker's screen. What a show app may say there is left to the
-  stage-message work in 2.20 (message signals and acknowledgements on the rig).
+  stage-message work in 2.20 (message signals and acknowledgements on the rig). *Since then (SW20.10):* the rig keeps a
+  message's acknowledgement as the app does, on the app's own signal board: the receipt's `refs.messageId`, the frame's
+  `messageId`, `messageAck` and `messageAckBy` and its `signals`, `ack`, a newer message cancelling the old signal and
+  `clearmessage` clearing it. The journal keeps the signal, the answer and an escalation; a cancel or a clear writes no
+  row, in the app as on the rig. `tests/e2e/message.e2e.cjs` pins the bytes a show app sends and reads (the bytes
+  Patterns' fake Stagewatch is to copy), and `docs/NODES.md` §4 says them for show apps. A message signal completes on
+  its first answer, so a forwarded `ack … seen` reads `done`, never `seen`: Patterns' design for its Round 93 expects
+  `seen`, and is to read `seen` or `done` as the speaker's answer. Who answered keeps the device's address whole: a long
+  or made-up name is cut, never the address. An ACK that would change nothing is refused: with a 403 at the door once
+  the cue has left the frame's `signals` (cancelled, or 30 s after its answer), and with a 409 receipt (Companion
+  `ERROR @id`) while it is listed but already answered. The rig's half runs here; the app's half (before, its receipt
+  said applied with no effect) is compiled here and not run, and its walk is the maintainer's (`pwsh tools\smoke.ps1`,
+  whose review step ACKs twice and reads the refusal). Still open: what a show app may say there (its urgency and
+  flash); a message the app puts up without its signal (a licence with no crew cues) is answered `applied` with no
+  `refs.messageId`, which the papers now say means no answer follows, where the doctrine would refuse it or say so in
+  the receipt; with crew links required, a show app's forwarded ACK is refused at the door (403, "This screen can't
+  confirm cues for speaker…"), and the crew-key policy that would let it through is declined for now (the owner's call).
+  The rig's escalation after 20 s is journalled, but no test waits for it; SignalBoard's own checks cover the rule.
 - **The rig isn't the interop lane's yet.** Each run makes a new node id, it prints its PIN and the node keys it made
   in its ready line, it has no line to read the lockout and doesn't stop when its input closes. *Since then (2.19's lane
   track):* `--node-id`, `--journal` with `/report`, `--pin-file`, `--secrets-out`, `--exit-on-eof` and the `auth` and

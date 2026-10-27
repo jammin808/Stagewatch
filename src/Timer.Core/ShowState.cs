@@ -815,7 +815,7 @@ public static class ShowCommandParser
                     var isStage = a1 is "" or "seen" or "done" or "ok" or "found" or "inposition" or "in-position";
                     var stage = a1 is "done" or "ok" or "found" or "inposition" or "in-position" ? "done" : "seen";
                     var by = isStage ? Arg(2) : Arg(1);
-                    if (by.Length > 40) by = by[..40];
+                    if (by.Length > SignalBoard.ByMax) by = by[..SignalBoard.ByMax];
                     cmd = new(ShowCommandKind.Ack, Number: id, Text: by.Replace("|", "/") + "|" + stage);
                     return true;
                 }

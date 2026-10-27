@@ -369,6 +369,21 @@ public static class Program
             var okR2 = !missing.Ok && missing.Error!.Contains("Nowhere") && !noPatterns.Ok && noPatterns.Error!.Contains("Patterns") && fine is { Ok: true, Stage: "applied" };
             Console.WriteLine((okR2 ? "OK   " : "FAIL ") + $"receipts: refusals are refusals ({missing.Ok}/{missing.Error} · {noPatterns.Ok}/{noPatterns.Error} · {fine.Stage})");
             if (!okR2) failures++;
+            // A speaker message that asks for its acknowledgement, as a show app sends one: the receipt names its signal, the
+            // first ACK applies and the frame says done by whom, and an ACK that would change nothing is refused with the board's
+            // words, never applied (the rig's tests/e2e/message.e2e.cjs pins the same steps' bytes).
+            var asked = vm.ExecuteWithReceiptAsync(Cmd("message Wrap info slow ack"), "m1", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            var signalId = asked.Refs is { } askedRefs && askedRefs.TryGetValue("messageId", out var named) ? named : 0;
+            var ackLine = "ack " + signalId.ToString(System.Globalization.CultureInfo.InvariantCulture) + " seen Patterns";
+            var firstAck = vm.ExecuteWithReceiptAsync(Cmd(ackLine), "m2", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            var secondAck = vm.ExecuteWithReceiptAsync(Cmd(ackLine), "m3", TimeSpan.FromSeconds(2)).GetAwaiter().GetResult();
+            Pump(200);
+            var answered = vm.Snapshots.Latest;
+            var okM = asked is { Ok: true, Stage: "applied" } && signalId > 0 && firstAck is { Ok: true, Stage: "applied" }
+                      && secondAck is { Ok: false } && secondAck.Error == SignalBoard.GoneWords
+                      && answered.MessageSignalId == signalId && answered.MessageAck == "done" && answered.MessageAckBy == "Patterns";
+            Console.WriteLine((okM ? "OK   " : "FAIL ") + $"message ack: refs.messageId {signalId}, first ACK {firstAck.Stage}, second refused ({secondAck.Ok}/{secondAck.Error}), frame {answered.MessageAck} by {answered.MessageAckBy}");
+            if (!okM) failures++;
 
             // The shared approval queue: another app's proposal lands in the Copilot list; approving it here lets that app
             // collect it; one aimed at this Stagewatch runs here with a receipt.
