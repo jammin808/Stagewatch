@@ -3,11 +3,14 @@
 // the only place the driver learns where an app is), and the register of every secret the run makes or learns. Secrets go
 // to the apps through 0600 files in run/secrets, a tmpfs of the run's own mount namespace that ends with the run (or, for
 // AGMessage's admin token, its environment, its one door; for the three PlayMap is given, its token, Patterns' token and its
-// node key, PlayMap's 0600 settings file in its home, where it reads them, on the disk), never through argv, standard output
-// or a log; the register lets a reader check that (the sweep, row S7.1) without printing one. A file an app keeps a secret in
-// by design (its settings with its token, its TLS key) is named by the app (secretFiles()) and removed once the app has
-// stopped; until then it is 0600 on the disk in a 0700 folder, and a run killed before its after() hook leaves it until
-// run.sh's next run of that topology removes the folder.
+// node key, PlayMap's 0600 settings file in its home, where it reads them, on the disk; the rig's keys given to PlayMap in row
+// S2.1b, beside PlayMap's token, go through the 0600 files here to PlayMap's operator helper, which pairs by proof and says
+// each key to PlayMap's wire at 127.0.0.1 from inside its namespace, as its operator types it at its own machine), never
+// through argv, standard output or a log; the register lets a
+// reader check that (the sweep, row S7.1) without printing one. A file an app keeps a secret in by design (its settings with
+// its token, its TLS key) is named by the app (secretFiles()) and removed once the app has stopped; until then it is 0600 on
+// the disk in a 0700 folder, and a run killed before its after() hook leaves it until run.sh's next run of that topology
+// removes the folder.
 'use strict';
 const crypto = require('node:crypto');
 const fs = require('node:fs');

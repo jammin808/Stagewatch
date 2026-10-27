@@ -169,7 +169,8 @@ connected): look at them in the running app with a show app linked.
 - **The rig isn't the interop lane's yet.** Each run makes a new node id, it prints its PIN and the node keys it made
   in its ready line, it has no line to read the lockout and doesn't stop when its input closes. *Since then (2.19's lane
   track):* `--node-id`, `--journal` with `/report`, `--pin-file`, `--secrets-out`, `--exit-on-eof` and the `auth` and
-  `exit` control lines (`docs/BUILD.md`, `tests/e2e/rig-faults.e2e.cjs`). The lane that drives it against the real
+  `exit` control lines (`docs/BUILD.md`, `tests/e2e/rig-faults.e2e.cjs`), and since SW19.13m the `nodes` line, the rig's own
+  record of each node link and what speaks for it (`tests/e2e/nodes.e2e.cjs`). The lane that drives it against the real
   apps has its ground and its first cross-app rows since then too (`tools/test.sh interop`, below).
 - **A resumed show's earlier journal rows can go missing on Windows.** The app starts the journal's writer before it
   reads the file back (`OpenJournal`); the writer's handle shares reading only, so on Windows the read can fail and the
@@ -191,7 +192,9 @@ connected): look at them in the running app with a show app linked.
   keys in the lane, and Patterns and PlayMap dial it as nodes with their own, over TLS; S2.1, S2.3 and S2.7 hold one key per
   node against the real apps (below), and S2.1 reads PlayMap's paired verdict at its pin. The verdict's own row (a key the
   rig refuses, held red) and S1.6's leg for PlayMap's Show Bus 1.3 reader are SW19.13m's, which waits on Mapper's PM-4 being
-  pushed (rule R3).
+  pushed (rule R3). *Since then (SW19.13m):* PlayMap's pin holds PM-4 and PM-5; S2.1b reads the rig's verdict on PlayMap's node
+  link both ways, from PlayMap's link and the rig's own record of it (the rig's `nodes` line), and S1.6 PlayMap's 1.3 reader
+  (below).
 - **The agent brief's doctrine line** still says keys lock a device out; it is the maintainer's to change (keys no
   longer count, wrong PINs, viewing codes and window addresses do). *Since then:* the brief says unknown and revoked keys
   never count; 2.19 splits the count in two, which its line does not say yet (2.19, below).
@@ -319,17 +322,55 @@ running app on a network: two copies of one install for the conflict, an old cer
   names AGMessage's (AGMessage is keyed by its own rows), and reads the forgery in the rig's context alone: the rig keeps no
   peer's context in its journal or report, so neither could show one, and a `Peer` row in the report comes with 2.21's report
   work.
+- **PlayMap's legs at its new pin (SW19.13m).** PlayMap's pin moves to 952940b5, Mapper's newest pushed commit, which adds its
+  Show Bus 1.3 copy and hello reader (PM-4) to the node link and paired verdict eda7cd4 already held (PM-5); every row before
+  passes at it unchanged. Two legs are added, each once it passed against the real apps:
+  - S1.6 reads PlayMap's STATE peers and its context's peers beside its NODES, each listing every show app once for 20 s; at
+    every read the rig's row is live and unmarked, heard at the rig's one address, and the context (which lists no id in
+    conflict, §6) lists it. A control after the watch makes "unmarked" mean something: the driver says hellos of an id of its
+    own from two senders in turn (inst A, B, A…), from a port of its own to PlayMap alone, and PlayMap's STATE shows that id
+    amber in its mark's words, naming both senders at the switch's address, while its context lists no row for it and the
+    rig's row stays unmarked. No other app hears those hellos; the id is left to go stale and be forgotten.
+  - S2.1b reads the rig's verdict on PlayMap's node link from both ends: PlayMap's link, and the rig's own record of it, read
+    by the rig's `nodes` control line (each node link on its `/ws` by the id it named, what speaks for that id, key, operator
+    or none, the key that admitted it by its id, and the rig's words for one it verifies none; `tests/e2e/nodes.e2e.cjs` and
+    `rig-faults.e2e.cjs` hold the line). PlayMap's link is first taken off (`LINK STAGEWATCH OFF`, until STATE says off and
+    the rig holds no node link for PlayMap, so a refused link is told from no link at all). Then given the free key, which
+    speaks for no node (`LINK STAGEWATCH <rig> <key>`), PlayMap dials the rig and is refused in the rig's own words (`playmap
+    <id> speaks with its own key`) within 5 s, and the rig's record has that key's link verified none in the same words. From
+    that answer on its link is never paired, though live: refused through a 7 s watch past its next context post, amber in
+    its own context, the rig's row for PlayMap there with no proven link at every read, and never a proven link in the rig's
+    record. Given its own key again it is paired again within 5 s, the rig's certificate still pinned, its context's link
+    item green, the rig's record its key's link alone, verified key, and the rig's row its key's on its node link (the key's
+    binding is to playmap and PlayMap's id, so paired is the link dialled as `node=<its id>&t=playmap`). Every key stays
+    bound as it was, no address is counted, and S7.1 finds neither key anywhere the run kept. The two key lines are said as
+    PlayMap's operator says them at its own machine: a helper started in PlayMap's namespace
+    (`tests/interop/apps/playmap-operator.cjs`) reads each key from an owner-only file of the run's secrets folder, pairs by
+    proof and says it to PlayMap's wire at 127.0.0.1, so no key crosses the run's LAN. PlayMap answers each with a receipt
+    (`accepted`), and the row reads what the link did from STATE. A row that fails partway keeps what it read in its matrix
+    row, gives PlayMap its own key back and waits up to 5 s for it to pair again, saying how that went on standard error, so
+    the rows after it fail for their own reasons.
+  - For PlayMap's owner, found while building S2.1b and read by no row: `LINK STAGEWATCH OFF` answers `{"stage":"accepted",
+    "effect":"LINK STAGEWATCH started"}`, the words of a start for a stop (its router words every network line's receipt
+    that way); and a `LINK STAGEWATCH` or `LINK PATTERNS` line carrying a key or a token is taken over plain TCP from
+    another machine, accepted and recorded nowhere as seen in clear, where plain `AUTH` from another machine is refused and
+    its token reported, and `CREDENTIAL SET` is this machine's only. The lane says its key lines at 127.0.0.1 and depends on
+    neither.
+  - Departure from the design, on purpose: the design names a refused key "held red". Stagewatch keeps a socket whose key it
+    refuses, for the public frame (§7.1: no socket is closed for a key reason), so PlayMap's link stays live, not paired and
+    amber; PlayMap says held (red) only while a refusal's hold runs with no connection up, which the watch accepts should the
+    connection drop. Not read: PlayMap hearing one id at every address it says hellos from (a node heard at two addresses is
+    one peer), since on the LAN each app has one address and on the laptop the rig is off the show network until SW-R7.
 - **Interop rows that wait on another app.** Each is named here and not in the lane, which holds only rows that pass:
   - S2.2 and S2.5 (AGMessage's context reaching the rig, and AGMessage reading the rig's) are AGMessage's rows (SW-INT-AG):
     they come with the lane giving AGMessage a key of its own (0.5.0 posts no context without one).
-  - The row for the rig's verdict on PlayMap's node link (a key the rig refuses, held red; S2.1 already reads the paired
-    verdict at the pin), and S1.6's leg for PlayMap's Show Bus 1.3 reader (every address of one id, the conflict mark), are
-    SW19.13m's: they wait on Mapper's fix-showbus-1.3 (PM-4) being pushed and pinned (rule R3).
   - The show laptop topology still runs the rig off the show network and gives no app a key: the rig on the laptop and nobody
     locking the laptop out (S1c.3), and the offline laptop (S1b.1), are SW-R7's, after F1's fix.
-  - S6.4 (Patterns killed) and S6.7 (Patterns' cable pulled) wait on PlayMap: at the pinned commit its air stays blacked out
-    by a Patterns that is gone (`air.blackout` and `air.patternsBlackout` still true 22 s after the desk was killed or its
-    cable pulled, the link down and still said `paired`), until that Patterns comes back and says otherwise. Whether a gone
+  - S6.4 (Patterns killed) and S6.7 (Patterns' cable pulled) wait on PlayMap: at eda7cd4 (the pin then; not run again at
+    952940b5, the pin since, whose diff touches no code of PlayMap's Patterns link) its air stays blacked out by a Patterns
+    that is gone (`air.blackout` and
+    `air.patternsBlackout` still true 22 s after the desk was killed or its cable pulled, the link down and still said
+    `paired`), until that Patterns comes back and says otherwise. Whether a gone
     desk's blackout is held or let go is PlayMap's owner's call; the rows assert the design's "let go".
   - S6.2c (AGMessage shows no time while Stagewatch is stuck) waits on AGMessage: its link's pongs keep it fresh through the
     stuck beat, so it stays connected and green with the last time.

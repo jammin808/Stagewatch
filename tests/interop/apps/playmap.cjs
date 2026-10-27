@@ -5,7 +5,11 @@
 // the node key the rig made for it when the rig makes keys, and none otherwise (PlayMap moves the key into its own credential
 // store at its start and writes the settings file again without it). It is ready when its log says "is up" with both doors
 // open and a renderer.
-// The lane reads it as a deck would: over its wire, paired by proof (lib/wire.cjs): STATE, NODES and CONTEXT.
+// The lane reads it as a deck would: over its wire from the switch, paired by proof (lib/wire.cjs): STATE, NODES and CONTEXT,
+// lines that carry no secret. A line that carries one (LINK STAGEWATCH <rig> <key>, as its operator types it, and LINK
+// STAGEWATCH OFF beside it) is said as its operator says it at PlayMap's own machine: by apps/playmap-operator.cjs, started in
+// its namespace, on its wire at 127.0.0.1, so no key crosses the run's LAN; the key reaches the helper in an owner-only file
+// of the run's secrets folder.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -108,9 +112,89 @@ class PlayMap {
   /** A verb on its wire, paired; its answer line. */
   async say(line) { return (await this.wireConn()).ask(line); }
 
+  /** Its link to Stagewatch as STATE gives it now: { state, host, paired, detail, timer }. */
+  async stagewatchLink() { return (await this.state()).links.stagewatch; }
+
+  /** Its operator at its own machine (apps/playmap-operator.cjs in its namespace, paired on its wire at 127.0.0.1 with its
+   *  token from an owner-only file); started once, at the first line that needs it. */
+  operator() {
+    if (this.op && this.op.running) return this.op;
+    const tokenFile = this.run.secrets.file('playmap.token', this.token);
+    this.op = new AppProcess(this.run, {
+      name: 'playmap-operator',
+      ns: this.host.ns,
+      command: process.execPath,
+      args: [path.join(__dirname, 'playmap-operator.cjs'), '--token-file', tokenFile, '--secrets-dir', this.run.secrets.dir,
+        '--capture', this.run.log('playmap-operator.wire'), '--port', String(DOORS.wire)],
+      env: baseEnv(this.folders),
+      cwd: this.folders.user,
+      stdin: true,
+    });
+    return this.op;
+  }
+
+  /** A line to its operator; the line PlayMap said back, as the operator printed it. `what` names the line in a failure's
+   *  words, never a secret. */
+  async ask(line, what, ms = 8000) {
+    const op = this.operator();
+    const from = op.out.items.length;
+    const parsed = (l) => { try { return JSON.parse(l.line); } catch { return null; } };
+    const word = line.split(' ')[0];
+    const answer = op.out.wait((l) => { const j = parsed(l); return j && (j.operator === word || j.operator === 'refused'); }, ms,
+      `PlayMap's operator's answer to ${what}`, from).catch((e) => { throw op.why(e); });
+    op.say(line);
+    const j = parsed(await answer);
+    if (j.error || typeof j.said !== 'string') throw new Error(`PlayMap's operator, saying ${what}: ${j.error || 'no answer line'}`);
+    return j.said;
+  }
+
+  /**
+   * LINK STAGEWATCH, as its operator types it at its own machine (operator()): Stagewatch at `address` (host:port) with `key`
+   * ({ id, secret }, a node key the rig made), which PlayMap keeps in its own credential store. The key goes to the operator in
+   * an owner-only file of the run's secrets folder and from there only into the line it says to 127.0.0.1. The answer is a
+   * receipt (Show Bus §3) that holds no secret: accepted (the link started) or applied, never refused; what the link then does
+   * is read from STATE, not from the receipt. Resolves with the receipt.
+   */
+  async linkStagewatch(address, key) {
+    const file = this.run.secrets.file(`stagewatch.nodeKey.${key.id}`, key.secret);
+    const receipt = await this.receipt(`link ${address} ${path.basename(file)}`, `LINK STAGEWATCH (key ${key.id})`);
+    this.key = key;
+    return receipt;
+  }
+
+  /** LINK STAGEWATCH OFF, as its operator types it: it follows no Stagewatch, and STATE says its link off once that is done.
+   *  Resolves with the receipt. */
+  unlinkStagewatch() { return this.receipt('off', 'LINK STAGEWATCH OFF'); }
+
+  /** A line its operator says whose answer is a receipt (Show Bus §3), accepted or applied and holding no secret: the receipt.
+   *  `what` names the line in a failure's words, never its secret. */
+  async receipt(line, what) {
+    const said = await this.ask(line, what);
+    const leaked = this.run.secrets.foundIn(said);
+    if (leaked.length) throw new Error(`PlayMap's answer to ${what} holds ${leaked.join(', ')}`);
+    let receipt = null;
+    try { receipt = /^OK [{]/.test(said) ? JSON.parse(said.slice(3)) : null; } catch { receipt = null; }
+    if (!receipt || !['accepted', 'applied'].includes(receipt.stage) || receipt.error) {
+      throw new Error(`PlayMap answered ${what} with ${JSON.stringify(said.slice(0, 160))}`);
+    }
+    return receipt;
+  }
+
   closeWire() { if (this.conn) { this.conn.close(); this.conn = null; } }
 
-  stop() { this.closeWire(); return this.proc ? this.proc.stop('SIGTERM') : null; }
+  /** Stop its operator (the end of its input ends it); how it ended, or null when it never started. */
+  async closeOperator() {
+    if (!this.op) return null;
+    const how = await this.op.stop('eof', 5000);
+    this.op = null;
+    return how;
+  }
+
+  async stop() {
+    this.closeWire();
+    await this.closeOperator();
+    return this.proc ? this.proc.stop('SIGTERM') : null;
+  }
 
   /** What it keeps a secret in by design: playmap.node.json (its token and Patterns') and its TLS key's folder. */
   secretFiles() { return [this.settings, path.join(this.folders.home, 'keys')]; }

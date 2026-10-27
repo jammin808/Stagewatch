@@ -1,11 +1,15 @@
 // The interop lane on its LAN topology: four real apps, each in a network namespace of its own on one bridge, at its own
 // address (Stagewatch's rig 10.99.0.2, Patterns' bench 10.99.0.3, PlayMap's node 10.99.0.4, AGMessage 10.99.0.5) with its
 // own loopback and every app on its default ports; the driver is the switch (10.99.0.1) and never listens on the Show Bus
-// port. The rig is on the show network as the app runs on a show laptop: on the Show Bus port, serving its certificate beside
-// plain HTTP, and making three node keys: one for Patterns and one for PlayMap, each handed over in that app's own settings,
-// and one handed to nobody, which row S2.7 tries against an id that has a key of its own. The rows read PlayMap's link with
-// the rig's certificate pinned and Patterns' link carried over TLS with its key; that neither app ever sends its key in clear
-// off its own machine is held by that app's own tests (Patterns' Round 89.5, PlayMap's PM-2), not read here. AGMessage is
+// port (it says hellos only in S1.6's control: an id of its own, from a port of its own, to PlayMap alone). The rig is on the
+// show network as the app runs on a show laptop: on the Show Bus port, serving its certificate beside plain HTTP, and making
+// three node keys: one for Patterns and one for PlayMap, each handed over in that app's own settings, and one handed to
+// nobody, which row S2.7 tries against an id that has a key of its own and row S2.1b gives PlayMap (LINK STAGEWATCH, said
+// as its operator says it at PlayMap's own machine: on its wire at 127.0.0.1, from inside its namespace, so no key crosses
+// this LAN) before giving it its own key again. The rows read PlayMap's link with the rig's certificate pinned and Patterns'
+// link carried over TLS with its key; that neither app ever sends its key in clear off its own machine is held by that app's
+// own tests (Patterns' Round 89.5, PlayMap's PM-2), not read here; the rig's verdict on a node link is read from both ends,
+// the app's link and the rig's own record of it (its `nodes` line). AGMessage is
 // given none (its keyed rows are another unit's). The rows run in order, each a node:test test that writes its matrix row;
 // S0.1 starts the apps (the rig first, which the others link to) and every later row reads the apps it started; the rows
 // that take an app down come last but one, and S7.1 (no secret anywhere) last, as it stops the apps to sweep what they left
@@ -31,7 +35,7 @@ const { Wire } = require('./lib/wire.cjs');
 const { Lan } = require('./lib/lan.cjs');
 const { Matrix } = require('./lib/matrix.cjs');
 const { until, fatal } = require('./lib/inbox.cjs');
-const { Stagewatch, NODE_ID } = require('./apps/stagewatch.cjs');
+const { Stagewatch, NODE_ID, BUS_PORT } = require('./apps/stagewatch.cjs');
 const { Patterns } = require('./apps/patterns.cjs');
 const { PlayMap } = require('./apps/playmap.cjs');
 const { AGMessage } = require('./apps/agmessage.cjs');
@@ -57,9 +61,11 @@ const CONTEXT_MS = 9500;
 const ONE_PEER_MS = 20000;
 /** The rig builds its context once a second (every fourth 250 ms tick): one built after a moment is read within this. */
 const CONTEXT_BUILT_MS = 3000;
+/** S2.1b watches PlayMap's link carry a key the rig refuses this long: past its next context post (one every 5 s), with 2 s more. */
+const REFUSED_WATCH_MS = 7000;
 /** §14: a context is 64 KiB at most, as the wire carries it. */
 const CONTEXT_BYTES = 64 * 1024;
-/** The rig's node keys: Patterns', PlayMap's, and one handed to nobody (S2.7). */
+/** The rig's node keys: Patterns', PlayMap's, and one handed to nobody (S2.7; S2.1b gives it to PlayMap and takes it back). */
 const RIG_KEYS = 3;
 /** A stall long enough that the stuck beat is certain before it ends: StuckAfter + 2 × HeartbeatEvery + 5 s. */
 const STALL_MS = 12000;
@@ -111,6 +117,24 @@ let readyAt = 0;
 /** Every app's view of its Stagewatch link (lib/scenarios.cjs). */
 const stagewatchLinks = () => S.stagewatchLinks(apps);
 const { allLive } = S;
+
+/** The rig's three node keys as the lane hands them out: Patterns', PlayMap's, and the free one, handed to nobody. */
+const rigKeys = () => ({ patterns: apps.stagewatch.keyFor('patterns'), playmap: apps.stagewatch.keyFor('playmap'), free: apps.stagewatch.keyFor('nobody') });
+
+/**
+ * What the rig's --state holds of each of its keys now (the node each speaks for and that node's kind, ids and names, never
+ * a secret), which must be as the lane handed them out: Patterns' and PlayMap's each bound to its own node, the free key to
+ * none. Returns what was read; `when` says when, in the words of a failure.
+ */
+function boundAsHanded(when) {
+  const read = Object.fromEntries(Object.entries(rigKeys()).map(([who, k]) => {
+    const saved = apps.stagewatch.savedKeys().find((x) => x.id === k.id);
+    return [who, saved ? { node: saved.node, nodeKind: saved.nodeKind } : null];
+  }));
+  const handed = { patterns: { node: ids.patterns, nodeKind: 'patterns' }, playmap: { node: ids.playmap, nodeKind: 'playmap' }, free: { node: null, nodeKind: null } };
+  if (JSON.stringify(read) !== JSON.stringify(handed)) throw new Error(`the keys' bindings ${when} are ${JSON.stringify(read)}, not ${JSON.stringify(handed)}`);
+  return read;
+}
 
 test('S0.1 each app is ready in its own namespace', row({
   id: 'S0.1',
@@ -256,12 +280,13 @@ test('S1.5 every app hears the rig', row({
 
 test('S1.6 one id is one peer', row({
   id: 'S1.6',
-  title: "one id is one peer: read every 500 ms for 20 s, the rig (its hello table and its context's peers), Patterns and PlayMap each list every show app they hear once, by its id, and never twice",
+  title: "one id is one peer: read every 500 ms for 20 s, the rig (its hello table and its context's peers), Patterns and PlayMap (its NODES, its STATE's peers and its context's) each list every show app they hear once, by its id, and never twice; PlayMap reads the rig's 1.3 hello as live and unmarked at the rig's one address at every read, and marks an id two senders say in turn (the control)",
   apps: ['stagewatch', 'patterns', 'playmap', 'agmessage'],
   // A window watched, not a deadline: its length is a fact of the row.
   deadlineMs: null,
 }, async (r) => {
   r.evidence.push(run.log('patterns.wire'), run.log('playmap.wire'));
+  const rig = { id: NODE_ID, addr: lan.host('stagewatch').addr };
   const readers = {
     'the rig (its hello table)': {
       read: async () => (await apps.stagewatch.heard()).peers.map((p) => p.id),
@@ -279,8 +304,28 @@ test('S1.6 one id is one peer', row({
       read: async () => (await apps.playmap.nodes()).map((n) => n.id),
       expect: [NODE_ID, ids.patterns, ids.agmessage],
     },
+    // Its reader of Show Bus 1.3's hello: the rig's row live and unmarked, at the one address it says its hello from, at every read.
+    "PlayMap (STATE's peers)": {
+      read: async () => {
+        const peers = (await apps.playmap.state()).peers || [];
+        const wrong = S.playmapUnmarked(peers, rig);
+        if (wrong) throw wrong;
+        return peers.map((p) => p.id);
+      },
+      expect: [NODE_ID, ids.patterns, ids.agmessage],
+    },
+    // Its context lists no id it marks in conflict (§6), so the rig listed there is the rig unmarked as well.
+    "PlayMap (its context's peers)": {
+      read: async () => ((await apps.playmap.context()).json.peers || []).map((p) => p.id),
+      expect: [NODE_ID, ids.patterns, ids.agmessage],
+    },
   };
   r.facts = { watchMs: ONE_PEER_MS, ...(await S.oneIdOnePeer(readers, ONE_PEER_MS)) };
+  r.facts.playmapRig = (await apps.playmap.state()).peers.find((p) => p.id === NODE_ID);
+  // The control's id stays in PlayMap's hello table until it is forgotten (60 s after its last hello), past the rows that
+  // follow; its kind is messenger, AGMessage's, so a later row picks PlayMap's peers by id, never by kind.
+  r.facts.conflictControl = await S.playmapMarksConflict(apps.playmap,
+    { at: lan.host('playmap').addr, port: BUS_PORT, from: lan.map.switch, rig }, HELLO_MS);
   await lockoutAfter(r);
 }));
 
@@ -468,7 +513,7 @@ test('S2.7 a node key cannot speak for another node', row({
   // Words no app says, as the forged context's name and headline: found in a read of the rig, they are the forgery applied.
   const forgedWords = `interop forged ${hex(4)}`;
   const forged = (t, id) => ({ v: 1, node: { t, id, name: forgedWords }, light: 'green', headline: forgedWords, items: [], recent: [], commands: [] });
-  const keys = { patterns: sw.keyFor('patterns'), playmap: sw.keyFor('playmap'), free: sw.keyFor('nobody') };
+  const keys = rigKeys();
   // AGMessage's id is one no app posts a context for here (it is heard by its hello alone), so a forgery the rig applied for it
   // would stay in every context the rig builds after it; one for PlayMap's or Patterns' id only until that app's next post.
   const tries = [
@@ -481,15 +526,9 @@ test('S2.7 a node key cannot speak for another node', row({
     { who: 'the free key', key: keys.free, t: 'playmap', id: ids.playmap,
       words: `playmap ${ids.playmap} speaks with its own key` },
   ];
-  // What --state holds of each key: Patterns' and PlayMap's each bound to its own node (the binding the rig saves, which is
-  // what a refused post could change, and what shows the reader sees bindings at all), the free key bound to none.
-  const bindings = () => Object.fromEntries(Object.entries(keys).map(([who, k]) => {
-    const saved = sw.savedKeys().find((x) => x.id === k.id);
-    return [who, saved ? { node: saved.node, nodeKind: saved.nodeKind } : null];
-  }));
-  const expected = { patterns: { node: ids.patterns, nodeKind: 'patterns' }, playmap: { node: ids.playmap, nodeKind: 'playmap' }, free: { node: null, nodeKind: null } };
-  const before = bindings();
-  if (JSON.stringify(before) !== JSON.stringify(expected)) throw new Error(`the keys' bindings before the posts are ${JSON.stringify(before)}, not ${JSON.stringify(expected)}`);
+  // Patterns' and PlayMap's keys each bound to its own node (the binding the rig saves, which is what a refused post could
+  // change, and what shows the reader sees bindings at all), the free key bound to none.
+  const before = boundAsHanded('before the posts');
 
   const refused = [];
   for (const t of tries) {
@@ -525,9 +564,162 @@ test('S2.7 a node key cannot speak for another node', row({
     const own = async () => { const c = (await app.context()).json; return { light: c.light, headline: c.headline }; };
     kept[name] = await S.rigShowsContext(sw, id, own, CONTEXT_MS, name, (ctx) => unforged(ctx, 'on a later read'));
   }
-  const still = bindings();
-  if (JSON.stringify(still) !== JSON.stringify(expected)) throw new Error(`a refused post changed the keys' bindings: ${JSON.stringify(still)}`);
-  r.facts = { refused, atOnce, builtAfter: { ms: built.at - answeredAt, rows: builtAfter }, kept, bindings: still };
+  r.facts = { refused, atOnce, builtAfter: { ms: built.at - answeredAt, rows: builtAfter }, kept, bindings: { before, after: boundAsHanded('after the refused posts') } };
+  await lockoutAfter(r);
+}));
+
+/** PlayMap's own context's item for its Stagewatch link ({ light, state }), as its CONTEXT says it now; null when it has none. */
+async function playmapLinkItem() {
+  const item = ((await apps.playmap.context()).json.items || []).find((i) => i.id === 'link:stagewatch');
+  return item ? { light: item.light, state: item.state } : null;
+}
+
+test("S2.1b PlayMap reads the rig's verdict on its node link", row({
+  id: 'S2.1b',
+  title: "PlayMap reads the rig's verdict on its node link: its link taken off until the rig holds no node link for it, then given the free key, which speaks for no node, by its operator at its own machine, it dials the rig and is refused in the rig's own words within 5 s, the rig's own record of the link verified none in those words; from the answer on its link is live and never paired, watched for 7 s past its next context post: amber in its context, the rig's row for it with no proven link at every read and no proven node link in the rig's record; given its own key again, which speaks for it, it is paired again within 5 s with the rig's certificate still pinned, the rig's record its key's alone, verified key; every key stays bound as it was, and no address is counted",
+  apps: ['playmap', 'stagewatch'],
+  deadlineMs: [HELLO_MS, HELLO_MS],
+}, async (r) => {
+  r.evidence.push(run.log('playmap.wire'), run.log('playmap-operator.wire'), run.log('playmap-operator.out'), apps.playmap.engineLog,
+    run.log('stagewatch.err'));
+  const pm = apps.playmap;
+  const sw = apps.stagewatch;
+  const keys = rigKeys();
+  // Kept in the row as each step reads it, so a row that fails keeps what it read up to the failure.
+  const facts = {};
+  r.facts = facts;
+  facts.bindings = { before: boundAsHanded('before the row') };
+  const pinned = `certificate is the one pinned (${shortFingerprint(sw.tls)})`;
+  // The rig's verdict for a node key on a link naming an id another key speaks for: verified none, in these words (§7.1).
+  const words = `playmap ${ids.playmap} speaks with its own key`;
+  // The rig's own record of the node links naming PlayMap's id (its `nodes` line), as the fields a verdict is read by.
+  const rigLinks = async () => (await sw.nodes()).filter((n) => n.id === ids.playmap)
+    .map(({ t, verified, keyId, links, words: w }) => ({ t, verified, keyId, links, words: w }));
+  // The rig's record holds the free key's link refused in its words, or no link at all; never a proven one, never another key's.
+  const refusedOnly = (rows, when) => {
+    const other = rows.filter((n) => n.t !== 'playmap' || n.verified !== 'none' || n.keyId !== keys.free.id || n.words !== words);
+    if (other.length) throw fatal(`the rig's record of PlayMap's node link ${when}, with the free key, holds ${JSON.stringify(other)}`);
+    return rows;
+  };
+  // The rig's context row for PlayMap, which must be there, with no proven link (link is "ws" only for a node link its key proves).
+  const rigRowUnproven = async (when) => {
+    const row = ((await sw.context()).peers || []).find((p) => p.id === ids.playmap);
+    if (!row) throw fatal(`the rig's context has no row for ${ids.playmap} ${when}`);
+    if (row.link !== '') throw fatal(`the rig's row for PlayMap says link "${row.link}" ${when}, with the free key: ${JSON.stringify(row)}`);
+    return row;
+  };
+  // Paired by the rig's verdict for the key that speaks for PlayMap's id as a playmap: a link that named another id or kind
+  // would be refused in the rig's words ("this key speaks for playmap …"), so paired is the link dialled as this node, t=playmap.
+  const pairedWithOwnKey = async () => {
+    const l = await pm.stagewatchLink();
+    if (l.state !== 'live' || l.paired !== true) throw new Error(`PlayMap's link to the rig is ${l.state}, paired ${l.paired}: ${l.detail}`);
+    if (!(l.detail || '').includes(pinned)) throw new Error(`PlayMap's link to the rig does not say the rig's certificate is pinned: ${l.detail}`);
+    if ((l.detail || '').includes(words)) throw new Error(`PlayMap's paired link still says the rig's refusal: ${l.detail}`);
+    return l;
+  };
+  // With the free key, every read from LINK STAGEWATCH's answer on: off (the link not started yet: PlayMap followed no
+  // Stagewatch before it) or not paired, whatever the link's state.
+  const notPaired = (l, when) => {
+    if (l.state !== 'off' && l.paired !== false) throw fatal(`PlayMap's link says paired ${l.paired} ${when}, with the free key: ${l.state} "${l.detail}"`);
+    return l;
+  };
+  // The rig's record once PlayMap's own key speaks again: its key's link alone, verified key, and the free key's gone.
+  const ownKeyOnly = async () => {
+    const rows = await rigLinks();
+    const own = [{ t: 'playmap', verified: 'key', keyId: keys.playmap.id, links: 1, words: null }];
+    if (JSON.stringify(rows) !== JSON.stringify(own)) throw new Error(`the rig's record of PlayMap's node link is ${JSON.stringify(rows)}, not ${JSON.stringify(own)}`);
+    return rows;
+  };
+  const own = await until(pairedWithOwnKey, HELLO_MS, "PlayMap's link to the rig live and paired with its own key");
+  const ownItem = await playmapLinkItem();
+  if (!ownItem || ownItem.light !== 'green') throw new Error(`PlayMap's context says its paired Stagewatch link is ${JSON.stringify(ownItem)}, not green`);
+  facts.ownKey = { state: own.state, paired: own.paired, detail: own.detail, item: ownItem, rig: await until(ownKeyOnly, HELLO_MS, "the rig's record of PlayMap's link its own key's") };
+
+  // Set before each line is said: a line whose answer fails may still have been taken. `restored` once PlayMap's own key is
+  // given again and taken; `done` once the row has read all it reads.
+  let changed = false;
+  let restored = false;
+  let done = false;
+  try {
+    // First no link at all (LINK STAGEWATCH OFF, until STATE says off and the rig holds no node link for PlayMap), so every
+    // read after the free key's line is of the link that key dials, never of the one PlayMap's own key had paired.
+    changed = true;
+    facts.offReceipt = await pm.unlinkStagewatch();
+    const off = await until(async () => { const l = await pm.stagewatchLink(); return l.state === 'off' ? l : null; }, HELLO_MS,
+      "PlayMap's link to the rig off");
+    const offRig = await until(async () => ((await rigLinks()).length === 0 ? [] : null), HELLO_MS, "the rig holding no node link for PlayMap");
+    facts.off = { state: off.state, item: await playmapLinkItem(), rig: offRig };
+    facts.freeReceipt = await pm.linkStagewatch(sw.address, keys.free);
+    const givenAt = Date.now();
+    const refused = await until(async () => {
+      const l = notPaired(await pm.stagewatchLink(), "before the rig's verdict was read");
+      return l.state === 'live' && (l.detail || '').includes(words) ? l : null;
+    }, HELLO_MS, "PlayMap's link to the rig live and refused in the rig's words");
+    const refusedMs = S.inTime(givenAt, HELLO_MS, "PlayMap's link refused in the rig's words");
+    const refusedAt = Date.now();
+    facts.freeKey = { refusedMs, state: refused.state, paired: refused.paired, detail: refused.detail };
+    // The rig's own record of the same verdict: the free key's link to PlayMap's id, verified none in its words.
+    facts.freeKey.rigRecord = await until(async () => {
+      const rows = refusedOnly(await rigLinks(), 'once PlayMap was refused');
+      return rows.length ? rows : null;
+    }, HELLO_MS, "the rig's record of PlayMap's link: the free key's, verified none in the rig's words");
+    facts.freeKey.item = await until(async () => {
+      notPaired(await pm.stagewatchLink(), 'while its context caught up');
+      const i = await playmapLinkItem();
+      return i && i.light === 'amber' && i.state.includes(words) ? i : null;
+    }, HELLO_MS, "PlayMap's context saying its Stagewatch link amber in the rig's words");
+    // The rig's context built after the refusal: its row for PlayMap there, with no proven link.
+    facts.freeKey.rig = await until(async () => {
+      const c = await sw.context();
+      if (!(c.at > refusedAt)) return null;
+      const row = await rigRowUnproven('after the refusal');
+      return { builtMs: c.at - refusedAt, light: row.light, verified: row.verified, link: row.link };
+    }, CONTEXT_BUILT_MS, "a context the rig built after the refusal");
+    // Then for the watch, at every read: refused in the rig's words (live, or held once a refused post holds the key and the
+    // connection is down), never paired, never green in PlayMap's context; the rig's row for PlayMap there with no proven link;
+    // the rig's record the free key's link refused in its words, or none while PlayMap's connection is down.
+    const watch = { ms: REFUSED_WATCH_MS, reads: 0, states: {}, items: {}, rigRecord: { refused: 0, none: 0 } };
+    facts.freeKey.watch = watch;
+    const end = Date.now() + REFUSED_WATCH_MS;
+    while (Date.now() < end) {
+      const l = notPaired(await pm.stagewatchLink(), 'during the watch');
+      if (!['live', 'held'].includes(l.state) || !(l.detail || '').includes(words)) {
+        throw new Error(`PlayMap's link with the free key says ${l.state} "${l.detail}", not refused in the rig's words`);
+      }
+      const i = await playmapLinkItem();
+      if (!i || i.light === 'green') throw new Error(`PlayMap's context says its Stagewatch link is ${JSON.stringify(i)} with the free key`);
+      await rigRowUnproven('during the watch');
+      const rows = refusedOnly(await rigLinks(), 'during the watch');
+      watch.reads++;
+      watch.states[l.state] = (watch.states[l.state] || 0) + 1;
+      watch.items[i.light] = (watch.items[i.light] || 0) + 1;
+      watch.rigRecord[rows.length ? 'refused' : 'none']++;
+      await new Promise((res) => setTimeout(res, 250));
+    }
+
+    facts.ownReceipt = await pm.linkStagewatch(sw.address, keys.playmap);
+    restored = true;
+    const againAt = Date.now();
+    const again = await until(pairedWithOwnKey, HELLO_MS, "PlayMap's link to the rig paired again with its own key");
+    const againMs = S.inTime(againAt, HELLO_MS, "PlayMap's link paired again with its own key");
+    facts.ownKeyAgain = { pairedMs: againMs, state: again.state, paired: again.paired, detail: again.detail };
+    facts.ownKeyAgain.rigRecord = await until(ownKeyOnly, HELLO_MS, "the rig's record of PlayMap's link its own key's alone again");
+    facts.ownKeyAgain.item = await until(async () => { const i = await playmapLinkItem(); return i && i.light === 'green' ? i : null; }, HELLO_MS,
+      "PlayMap's context saying its Stagewatch link green again");
+    const ownContext = async () => { const c = (await pm.context()).json; return { light: c.light, headline: c.headline }; };
+    facts.ownKeyAgain.rig = (await S.rigShowsContext(sw, ids.playmap, ownContext, CONTEXT_MS, 'PlayMap')).rig;
+    done = true;
+  } finally {
+    // The rows after this one find PlayMap paired with its own key, whatever happened here; what the cleanup did is said on
+    // standard error, never thrown over the row's own failure.
+    if (changed && !done) {
+      const said = (m) => console.error(`S2.1b's cleanup: ${run.secrets.scrub(m)}`);
+      if (!restored) await pm.linkStagewatch(sw.address, keys.playmap).then(() => said('PlayMap given its own key again'), (e) => said(`giving PlayMap its own key again: ${e.message}`));
+      await until(pairedWithOwnKey, HELLO_MS, "PlayMap's link paired again with its own key")
+        .then(() => said('PlayMap paired again with its own key'), (e) => said(`PlayMap not paired again with its own key: ${e.message}`));
+    }
+  }
+  facts.bindings.after = boundAsHanded('after the row');
   await lockoutAfter(r);
 }));
 

@@ -1,7 +1,7 @@
 // The rig for browser workflows: starts tools/Stagewatch.Rig on free ports, talks to it over HTTP like any remote, and
 // stops it. Restarting with the same state file and port is how a test makes "Stagewatch restarted" happen. Its first line
 // on standard output is its ready line, or it has not started. Its standard input takes control lines (stall <ms>, auth,
-// exit), answered in JSON lines on its standard output (a stall twice: stalled, then running); a show app's link on /ws is
+// heard, nodes, exit), answered in JSON lines on its standard output (a stall twice: stalled, then running); a show app's link on /ws is
 // dialled as a peer dials it (Link). The interop lane's options ride on create: a stable node id, a journal, the PIN from a
 // file and every secret to a file instead of standard output; each keeps its meaning across a restart.
 'use strict';

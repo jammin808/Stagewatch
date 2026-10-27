@@ -60,6 +60,11 @@ using Stagewatch.Show;
 //   heard        the hellos it hears on the Show Bus (--bus) as its hello table holds them, hellos alone (a node link or a posted
 //                context adds nothing), no secret in them → {"rig":"heard","at":<unix ms>,"bus":<port, 0 without --bus>,
 //                "listening":true|false,"peers":[{"t","id","address","addresses":[…],"ageS","conflict":"…"|null}]}
+//   nodes        the show apps' node links on /ws as its web server holds them (WebServer.ListNodes), no secret in them →
+//                {"rig":"nodes","at":<unix ms>,"nodes":[{"t","id","verified":"key"|"operator"|"none","keyId","address","links",
+//                "words":"…"|null}]}: one row per id named and what speaks for it, the key that admitted it by its id (never
+//                its secret), and the rig's own words for a link it verifies none; a socket that only claims an id, with no
+//                credential that proves one, is a claim and not listed
 //   exit         stops the rig as Ctrl+C does → {"rig":"exiting"}
 //   anything else is refused, never guessed → {"rig":"refused","line":"<first word>","error":"…"}
 // The end of standard input ends the reader; with --exit-on-eof it also stops the rig as Ctrl+C does (so does input that can no
@@ -541,7 +546,7 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     // ---------------------------------------------------------------- the control reader (standard input)
     /// <summary>The words a control line that is none of the reader's is refused with: the lines there are.</summary>
-    public const string UnknownControl = "unknown (stall <ms>, auth, heard, exit)";
+    public const string UnknownControl = "unknown (stall <ms>, auth, heard, nodes, exit)";
 
     /// <summary>
     /// One line at a time from standard input, each answered in JSON lines (a stall twice); a blank line is ignored, and an
@@ -562,12 +567,13 @@ sealed class Rig : ICompanionBridge, IDisposable
                     case "stall": Stall(words); break;
                     case "auth" when words.Length == 1: Say(Lockout()); break;
                     case "heard" when words.Length == 1: Say(Heard()); break;
+                    case "nodes" when words.Length == 1: Say(NodeLinkRows()); break;
                     case "exit" when words.Length == 1:
                         Say(new { rig = "exiting" });
                         Log("exit: stopping (control line)");
                         _stop.TrySetResult();
                         return;
-                    case "auth" or "heard" or "exit": Say(new { rig = "refused", line = words[0], error = words[0] + " takes no words" }); break;
+                    case "auth" or "heard" or "nodes" or "exit": Say(new { rig = "refused", line = words[0], error = words[0] + " takes no words" }); break;
                     default: Say(new { rig = "refused", line = Clip(words[0]), error = UnknownControl }); break;
                 }
             }
@@ -623,6 +629,28 @@ sealed class Rig : ICompanionBridge, IDisposable
             {
                 t = p.Hello.Kind, id = p.Hello.Id, address = p.Address, addresses = p.Addresses,
                 ageS = Math.Round(p.AgeSeconds, 1), conflict = p.Conflict?.Words,
+            }),
+        };
+    }
+
+    /// <summary>
+    /// <c>nodes</c>: the show apps' node links on /ws as the web server holds them (<see cref="WebServer.ListNodes"/>), read off the
+    /// show thread: one row per id named and what speaks for it, with its kind, the proof that speaks for its id (key, operator
+    /// or none), the key that admitted it by its id, its address, how many sockets it is and, for one verified none, why in the
+    /// rig's own words. A key's id is public (the ready line names it); its secret never leaves --secrets-out. A socket that only
+    /// claims an id, with no credential that proves one, is a claim, not a node link, and is not listed.
+    /// </summary>
+    private object NodeLinkRows()
+    {
+        var web = _web;
+        return new
+        {
+            rig = "nodes",
+            at = UnixMs(),
+            nodes = (web?.ListNodes() ?? Array.Empty<NodeLinkFact>()).Select(n => new
+            {
+                t = n.Kind, id = n.Id, verified = NodeBindings.Word(n.Verified), keyId = n.KeyId, address = n.Address, links = n.Links,
+                words = n.Words,
             }),
         };
     }

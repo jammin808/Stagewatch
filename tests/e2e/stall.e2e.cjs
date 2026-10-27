@@ -114,7 +114,7 @@ test('a stalled show sends the plain beat, then the stuck beat, exactly, every 2
 test('the control reader refuses what it does not know, a stall out of range and a second stall while one runs', async () => {
   const unknown = await rig.control('wiggle 3', (j) => j.rig === 'refused');
   assert.equal(unknown.line, 'wiggle');
-  assert.equal(unknown.error, 'unknown (stall <ms>, auth, heard, exit)');
+  assert.equal(unknown.error, 'unknown (stall <ms>, auth, heard, nodes, exit)');
   for (const bad of ['stall', 'stall 0', 'stall 30001', 'stall 1.5', 'stall -4', 'stall 5 6']) {
     const r = await rig.control(bad, (j) => j.rig === 'refused');
     assert.equal(r.line, 'stall', bad);

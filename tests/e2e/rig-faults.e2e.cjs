@@ -1,7 +1,7 @@
 // The rig as the interop lane drives it: a node id that survives a restart; with --pin-file and --secrets-out no secret on
 // standard output or standard error, every one in its file, whole and owner-only, and each one working; the lockout tables
 // read by the `auth` control line (three wrong PINs, then the right one; a wrong window address counted apart), answered
-// while the show thread is stalled; unknown control lines, and words auth and exit do not take, refused; the end of standard
+// while the show thread is stalled; unknown control lines, and words auth, heard, nodes and exit do not take, refused; the end of standard
 // input stopping the rig only with --exit-on-eof, and `exit` stopping it as Ctrl+C does; a journal kept across a restart,
 // with the report and the context's recent lines answering from it (or kept in memory, no file written); a start that cannot
 // listen (exit 3) or cannot write its secrets file (exit 4) keeping no key whose secret never went out; and options it cannot
@@ -16,7 +16,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { Rig, until, DLL, freePort } = require('./rig.cjs');
 
-const UNKNOWN = 'unknown (stall <ms>, auth, heard, exit)';
+const UNKNOWN = 'unknown (stall <ms>, auth, heard, nodes, exit)';
 const rigs = [];
 async function make(options) {
   const rig = await Rig.create(options);
@@ -182,12 +182,15 @@ test('auth reads the lockout tables: three wrong PINs are 127.0.0.1 with 3, the 
   assert.deepEqual(view.viewPasses.map((v) => [v.address, v.failures]), [['127.0.0.1', 1]], 'a wrong window address counts apart, and the right PIN leaves it');
 });
 
-test('the control reader refuses an unknown line, and words auth, heard and exit do not take; heard off the Show Bus lists no one', async () => {
+test('the control reader refuses an unknown line, and words auth, heard, nodes and exit do not take; heard off the Show Bus and nodes with no show app list no one', async () => {
   const unknown = await plain.control('wiggle 3', (j) => j.rig === 'refused');
   assert.deepEqual(unknown, { rig: 'refused', line: 'wiggle', error: UNKNOWN, receivedAt: unknown.receivedAt });
   const heard = await plain.control('heard', (j) => j.rig === 'heard');
   assert.deepEqual([heard.bus, heard.listening, heard.peers], [0, false, []], 'without --bus it hears nothing');
-  for (const word of ['auth', 'heard', 'exit']) {
+  const nodes = await plain.control('nodes', (j) => j.rig === 'nodes');
+  assert.deepEqual(nodes.nodes, [], 'no show app has dialled it');
+  assert.ok(Number.isInteger(nodes.at) && nodes.at > 0, 'nodes says when it read');
+  for (const word of ['auth', 'heard', 'nodes', 'exit']) {
     const r = await plain.control(word + ' now', (j) => j.rig === 'refused');
     assert.deepEqual([r.line, r.error], [word, word + ' takes no words']);
   }

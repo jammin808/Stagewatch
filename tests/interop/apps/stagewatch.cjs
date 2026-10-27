@@ -1,7 +1,7 @@
 // Stagewatch in the lane: the rig (tools/Stagewatch.Rig, the real web, Companion and OSC servers around a simulated show) in
 // its own namespace, on its default ports on every interface, with a stable node id, a journal, the PIN from a file and every
 // secret it makes written to a file instead of its output (--pin-file, --secrets-out). Its first output line is its ready
-// line, which holds no secret; its standard input takes control lines (auth, heard, stall, exit) and its end stops it
+// line, which holds no secret; its standard input takes control lines (auth, heard, nodes, stall, exit) and its end stops it
 // (--exit-on-eof).
 // A restart is the same rig again: the same node id, --state, journal, PIN, certificate, address and ports, in a process of its
 // own whose output is kept apart (stagewatch.2.out, ...).
@@ -161,6 +161,20 @@ class Stagewatch {
     if (said.rig !== 'heard') throw new Error(`heard refused: ${said.error}`);
     if (!Array.isArray(said.peers)) throw new Error("the rig's heard line holds no peers");
     return said;
+  }
+
+  /**
+   * Its own record of the show apps' node links on /ws as its `nodes` line reads it: [{ t, id, verified, keyId, address, links,
+   * words }], one row per id named and what speaks for it (key, operator or none), the key that admitted it by its id, and its
+   * own words for a link it verifies none; a socket that only claims an id is not one. No secret in it.
+   */
+  async nodes() {
+    const said = await this.control('nodes', (j) => j.rig === 'nodes' || j.rig === 'refused');
+    if (said.rig !== 'nodes') throw new Error(`nodes refused: ${said.error}`);
+    if (!Array.isArray(said.nodes)) throw new Error("the rig's nodes line holds no nodes");
+    const leaked = this.run.secrets.foundIn(JSON.stringify(said));
+    if (leaked.length) throw new Error(`the rig's nodes line holds ${leaked.join(', ')}`);
+    return said.nodes;
   }
 
   /**

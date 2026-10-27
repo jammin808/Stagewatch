@@ -4,10 +4,12 @@
 // 127.0.0.1; the rig's own lines and frames. Each wait polls until its fact holds or its deadline passes (the contract's number × 1.5 + 2 s, as
 // each row says), and nothing is retried: a fact that does not come in time fails the row with the last thing read.
 'use strict';
+const dgram = require('node:dgram');
 const fs = require('node:fs');
 const path = require('node:path');
-const { until } = require('./inbox.cjs');
+const { until, fatal } = require('./inbox.cjs');
 const { request, get } = require('./net.cjs');
+const { hex } = require('./run.cjs');
 const { sweep } = require('./sweep.cjs');
 
 /** Whether text names addr as a whole address (10.99.0.2 is not named by 10.99.0.25, and is by a sentence that ends on it). */
@@ -127,6 +129,67 @@ async function rigHears(sw, peers, ms) {
     }
     return read;
   }, ms, 'the rig hearing ' + peers.map((p) => p.t).join(', '));
+}
+
+/**
+ * PlayMap's own reading of a peer's hello by Show Bus 1.3 §2 (row S1.6's PlayMap leg): its STATE's peers row for `p` ({ id,
+ * addr }) is live and unmarked, said as heard at that one address (an id two machines say is amber, in the mark's words), or
+ * the error that says how it is not. A row that is not there is the caller's to judge.
+ */
+function playmapUnmarked(peers, p) {
+  const row = peers.find((x) => x.id === p.id);
+  if (!row) return null;
+  if (row.live !== true || row.light === 'amber' || row.headline !== `heard at ${p.addr}`) {
+    return new Error(`PlayMap's STATE peers row for ${p.id} is ${row.live === true ? 'live' : 'not live'}, ${row.light} "${row.headline}", not live and unmarked at ${p.addr}`);
+  }
+  return null;
+}
+
+/**
+ * The control that keeps PlayMap's "unmarked" reading honest (row S1.6): an id of the driver's own, said in hellos by two
+ * senders in turn (inst A, B, A, …, two hosts' names) from the switch to PlayMap alone (unicast to `at` on the Show Bus port,
+ * from a port of the driver's own: the driver never listens on the bus port, and no other app hears these), is marked by
+ * PlayMap's reader within ms: its STATE's peers row for that id is amber in the mark's words, naming both senders at the
+ * switch's address `from`, and its context lists no row for it; in the same reads `rig` ({ id, addr }) stays live and
+ * unmarked and listed in its context. Resolves with what was read; the id is left to go stale and be forgotten (60 s after its
+ * last hello), and until then it is one more peer of kind messenger in PlayMap's table: a reader after this picks PlayMap's
+ * peers by id, never by kind.
+ */
+async function playmapMarksConflict(pm, { at, port, from, rig }, ms) {
+  const id = `interop-ghost-${hex(4)}`;
+  const senders = [{ host: 'ghost-a', inst: hex(4) }, { host: 'ghost-b', inst: hex(4) }];
+  const hello = (s) => Buffer.from(JSON.stringify({ v: 1, t: 'messenger', proto: 3, id, name: 'Interop ghost', host: s.host, inst: s.inst, ports: { http: 9 } }));
+  const socket = dgram.createSocket('udp4');
+  await new Promise((resolve, reject) => { socket.once('error', reject); socket.bind(0, from, () => { socket.off('error', reject); resolve(); }); });
+  let said = 0;
+  const say = () => new Promise((resolve, reject) => socket.send(hello(senders[said++ % 2]), port, at, (e) => (e ? reject(e) : resolve())));
+  try {
+    const startedAt = Date.now();
+    const marked = await until(async () => {
+      // One hello more each read, the senders in turn: A, B, A is §2's two running nodes with one id.
+      await say();
+      const peers = (await pm.state()).peers || [];
+      const rigWrong = playmapUnmarked(peers, rig);
+      if (rigWrong) throw fatal(rigWrong.message);
+      if (!peers.some((x) => x.id === rig.id)) throw fatal(`PlayMap's STATE peers lost ${rig.id} while the ghost was said`);
+      const ghost = peers.find((x) => x.id === id);
+      if (!ghost) throw new Error(`PlayMap's STATE peers have no ${id} after ${said} hellos`);
+      const words = `two machines say they are ${id}: `;
+      const both = senders.every((s) => (ghost.headline || '').includes(`${s.host} at ${from}`));
+      if (ghost.light !== 'amber' || !(ghost.headline || '').startsWith(words) || !both) {
+        throw new Error(`PlayMap's STATE peers row for ${id} is ${ghost.light} "${ghost.headline}", not marked`);
+      }
+      return { id, light: ghost.light, headline: ghost.headline, live: ghost.live };
+    }, ms, `PlayMap marking ${id}, said by two senders in turn`);
+    const markedMs = since(startedAt);
+    const ctx = (await pm.context()).json;
+    const listed = (ctx.peers || []).map((x) => x.id);
+    if (listed.includes(id)) throw new Error(`PlayMap's context lists ${id}, an id it marks in conflict: ${JSON.stringify(listed)}`);
+    if (!listed.includes(rig.id)) throw new Error(`PlayMap's context lists no ${rig.id}: ${JSON.stringify(listed)}`);
+    return { ghost: marked, hellos: said, markedMs, contextPeers: listed };
+  } finally {
+    socket.close();
+  }
 }
 
 /** The ids a list names more than once, each with its count. */
@@ -377,6 +440,7 @@ async function noSecretAnywhere({ run, matrix, apps }) {
 }
 
 module.exports = {
-  patternsHears, playmapHears, agmessageHears, rigHears, oneIdOnePeer, rigShowsContext, playmapFollowsPatterns, unknownWordsRefused, noSecretAnywhere,
+  patternsHears, playmapHears, agmessageHears, rigHears, oneIdOnePeer, playmapUnmarked, playmapMarksConflict, rigShowsContext,
+  playmapFollowsPatterns, unknownWordsRefused, noSecretAnywhere,
   stagewatchLinks, allLive, stillHeld, readLockout, lockoutAfter, namesAddress, since, left, inTime, HELLO_ONLY,
 };

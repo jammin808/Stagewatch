@@ -2,7 +2,9 @@
 // proves its node key hears its verdict before any frame, is never listed in Screens and never hears a screen command;
 // one node key speaks for one node id on /ws and on the context route; a socket that only claims an id stays a screen,
 // flagged and out of "all"; an unknown key is refused once, keeps the public frame and locks no address out; and a
-// restarted rig keeps what each key speaks for. These are the bytes Patterns, PlayMap and AGMessage dial against.
+// restarted rig keeps what each key speaks for. The rig's `nodes` line is its own record of each node link: what speaks
+// for its id, by which key's id, and its words for one verified none. These are the bytes Patterns, PlayMap and AGMessage
+// dial against.
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -40,6 +42,12 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** A Show Bus §6 context, as a show app posts its own. */
 const context = (kind, id, name, light, headline) => ({ v: 1, node: { t: kind, id, name }, light, headline, items: [], recent: [], commands: [] });
+
+/** The rig's own record of the node links naming these ids (its `nodes` line), as the fields a verdict is read by. */
+async function nodeLinks(...ids) {
+  const said = await rig.control('nodes', (j) => j.rig === 'nodes');
+  return said.nodes.filter((n) => ids.includes(n.id)).map(({ t, id, verified, keyId, links, words }) => ({ t, id, verified, keyId, links, words }));
+}
 
 /** The context's peers row for an id, once the rig has joined it (once a second). */
 const peerRow = (id, pred = () => true) =>
@@ -121,6 +129,13 @@ test('one key speaks for one node: under another id it is verified none and keep
   assert.equal(row.verified, 'key');
   const ctxNow = await rig.context();
   assert.ok(!ctxNow.peers.some((p) => p.id === 'pat00002'), 'a link nothing proves adds no row');
+  // The rig's own record of both links: the key's own id proved by it, the other id verified none in the words it was told.
+  assert.deepEqual(await nodeLinks('pat00001', 'pat00002'), [
+    { t: 'patterns', id: 'pat00001', verified: 'key', keyId: key1.id, links: 1, words: null },
+    { t: 'patterns', id: 'pat00002', verified: 'none', keyId: key1.id, links: 1, words: 'this key speaks for patterns pat00001 — make a key for patterns pat00002' },
+  ]);
+  const listed = await rig.control('nodes', (j) => j.rig === 'nodes');
+  assert.ok(!JSON.stringify(listed).includes(key1.secret) && !JSON.stringify(listed).includes(key2.secret), 'no key\'s secret in the nodes line');
   assert.equal((await rig.screens()).length, 1, 'a show app verified none is still not a screen');
   assert.equal(rig.savedState().keys.find((k) => k.id === key2.id).node, null, 'a refused request binds no key');
 
@@ -137,6 +152,7 @@ test('a socket that only claims an id stays a screen: flagged, out of "all", rea
   });
   const claim = await until(async () => (await rig.screens()).find((s) => s.claim === 'patterns pat00003'), 5000, 'the claim in Screens');
   assert.match(claim.id, /^claim-[0-9a-f]{12}$/);
+  assert.deepEqual(await nodeLinks('pat00003'), [], 'a claim is not a node link');
 
   const from = c.messages.length;
   const all = await rig.run('screen identify all');
@@ -157,6 +173,7 @@ test('the operator\'s PIN on a node link proves the operator: verified operator,
   const row = await peerRow('agm00001');
   assert.equal(row.link, 'ws');
   assert.equal(row.verified, 'operator');
+  assert.deepEqual(await nodeLinks('agm00001'), [{ t: 'messenger', id: 'agm00001', verified: 'operator', keyId: null, links: 1, words: null }]);
   assert.ok(!(await rig.screens()).some((s) => s.id.includes('agm00001')));
 });
 

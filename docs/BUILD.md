@@ -85,7 +85,10 @@ tools/test.sh help            # what each lane does, and the variables a person 
   stops its show thread that long, as a stuck show (`stalled`, then `running`); `auth` reads the lockout tables, each
   address in its open minute (`addresses` for wrong PINs, `viewPasses` for wrong window addresses, viewing codes and
   crew links, so a check that nothing is locked out reads both); `heard` reads its hello table, the hellos it hears with
-  `--bus` and nothing else (each id's kind, address, age and conflict mark); `exit` stops it as Ctrl+C does; anything else is
+  `--bus` and nothing else (each id's kind, address, age and conflict mark); `nodes` reads its own record of the show
+  apps' node links on `/ws` (each by the id it named, what speaks for that id, key, operator or none, the key that admitted
+  it by its id, never its secret, and its words for one it verifies none; a socket that only claims an id is not one);
+  `exit` stops it as Ctrl+C does; anything else is
   refused and a blank line is ignored. It exits 0 when stopped, 2 on an option it can't take, 3 when a server can't
   listen and 4 when the secrets file can't be written; on 3 and 4 the node keys made in that start aren't kept.
   `tools/test.sh rig` passes `$SW_RIG_ARGS` on to it (`SW_RIG_ARGS="--node-keys 2"`).
@@ -177,7 +180,11 @@ password (kept unsealed beside the key off Windows), each app's token, and AGMes
 hands a secret to an app through an owner-only file in the run's secrets folder, a tmpfs of the run's own mount namespace
 that is gone with the run; AGMessage's admin token through its environment, its one door for it; and PlayMap's own token,
 Patterns' token and PlayMap's node key through an owner-only settings file in PlayMap's home (`playmap.node.json`, its door
-for them), on the disk. None goes on a command line, and the one line an app prints a secret in by design
+for them), on the disk; and, in row S2.1b, two of the rig's keys (the free key, then PlayMap's own again) through
+owner-only files in the secrets folder to a helper started in PlayMap's namespace, which pairs by proof with PlayMap's
+token (from a file there too) and says each key to PlayMap's wire at 127.0.0.1 (`LINK STAGEWATCH`), as its operator types
+it at its own machine, so no key crosses the run's LAN; the lane keeps what that wire says back, never what it sends. None
+goes on a command line, and the one line an app prints a secret in by design
 (AGMessage's start banner, with its admin token) is redacted by name before it is kept; every other line is kept as said.
 The files an app keeps a secret in by design are on the disk, owner-only in the run's owner-only folder, until the app has
 stopped and the driver removes them: PlayMap's settings and its keys, Patterns' settings, recovery record and certificate,
@@ -208,8 +215,9 @@ once those are removed, for every secret of the register, in either case. A row'
 | S1.3 | lan | AGMessage hears Patterns from its own address |
 | S1.4 | lan | the rig's hello table lists Patterns, PlayMap and AGMessage, each from its own address, live and unmarked, and its context's peers are each live |
 | S1.5 | lan | every app hears the rig: kind `main`, its node id, from the rig's own address where the reader says one |
-| S1.6 | lan | one id is one peer: read every 500 ms for 20 s, the rig, Patterns and PlayMap each list every show app they hear once |
+| S1.6 | lan | one id is one peer: read every 500 ms for 20 s, the rig, Patterns and PlayMap (its NODES, its STATE's peers and its context's) each list every show app they hear once; PlayMap reads the rig's Show Bus 1.3 hello as live and unmarked at the rig's one address at every read, and marks an id two senders say in turn (a control: hellos of the driver's own id, sent to PlayMap alone) |
 | S2.1 | lan | PlayMap's context reaches the rig: its link paired with the rig's certificate pinned, the rig's row for it proved by its own key, and a change of it there and back within 9.5 s |
+| S2.1b | lan | PlayMap reads the rig's verdict on its node link from both ends, its link and the rig's own record (`nodes`): its link taken off until the rig holds none for it, then given the free key, which speaks for no node, at its own machine, it is refused in the rig's own words and the rig's record says that key's link verified none in them; its link live and never paired through a 7 s watch (amber in its context, no proven link in the rig's row or record); given its own key again, it is paired again with the rig's certificate still pinned, the rig's record its key's alone |
 | S2.3 | lan | Patterns' context reaches the rig: its link over TLS with its key, the rig's row for it proved by that key, and a change of it there and back within 9.5 s |
 | S2.4 | lan | Patterns reads the rig's context: its STATE says the rig's own headline, and a change of it there and back within 9.5 s |
 | S2.6 | lan | PlayMap's, Patterns' and the rig's own contexts are each under 64 KiB as carried |
@@ -255,9 +263,11 @@ AppArmor confinement of unprivileged user namespaces. A fork's pull request gets
 not run". `docs/WHATS_NEXT.md` has the job's details and the maintainer's actions.
 
 **What it proves.** That the four apps, at the pinned commits, built from their own sources and run as they run:
-- find each other on the Show Bus by real hellos on UDP 9928, each from its own address, one peer per id;
+- find each other on the Show Bus by real hellos on UDP 9928, each from its own address, one peer per id, PlayMap's reader
+  marking an id two senders say;
 - link with real keys, tokens and proofs: PlayMap paired with Patterns by proof, Patterns' link to the rig over TLS with its
-  key, PlayMap's with the rig's certificate pinned;
+  key, PlayMap's with the rig's certificate pinned, paired by the rig's verdict for its own key and never by a live link
+  alone (a key that speaks for no node refused in the rig's words);
 - carry PlayMap's and Patterns' contexts to the rig and the rig's to Patterns, within Show Bus §14's bounds, and refuse
   unknown words and a key speaking for another node;
 - let every link to the rig go when the rig is killed or its cable pulled, and come back; PlayMap shows no time while the
