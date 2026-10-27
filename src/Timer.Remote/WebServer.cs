@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -94,6 +95,12 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>Refuse plain HTTP and WebSockets from other machines (this machine and the certificate pages still work).</summary>
     public bool RequireHttps { get; set; }
+
+    /// <summary>
+    /// The clock an oversize body's drain is timed on (<see cref="HttpRequest.DrainFor"/>): the system's, or a manual one that reaches
+    /// the drain's deadline without waiting it out. Fixed when the server is made.
+    /// </summary>
+    public TimeProvider DrainClock { get; init; } = TimeProvider.System;
 
     /// <summary>The certificate's fingerprint ("sha256:…"), or null without one.</summary>
     public string? Fingerprint => Certificate is { } c ? TlsPins.Fingerprint(c.RawData) : null;
@@ -408,6 +415,20 @@ public sealed class WebServer : IAsyncDisposable
             }
             if (req is null) return;
 
+            // A request whose body this server will not read is answered first, whatever its path or credential: a Content-Length it
+            // cannot read 400, a body over the cap 413. No route, credential check, lockout count, Require HTTPS redirect or /ws upgrade
+            // sees either, so anything that must see every request's credential (13.6.9's mark) stands above these two answers.
+            if (req.LengthUnreadable)
+            {
+                await WriteJsonError(stream, 400, HttpRequest.UnreadableLength, ct);
+                return;
+            }
+            if (req.Oversize > 0)
+            {
+                await RefuseOversizeAsync(stream, req, ct);
+                return;
+            }
+
             // Require HTTPS: plain requests from other machines go to the encrypted address (the certificate pages stay
             // reachable, so a screen can fetch the certificate it needs to trust).
             if (!secure && RequireHttps && !IPAddress.IsLoopback(remote) && req.Path is not ("/tls" or "/tls.cer"))
@@ -433,6 +454,36 @@ public sealed class WebServer : IAsyncDisposable
         {
             tcp.Dispose();
             _connectionSlots.Release();
+        }
+    }
+
+    /// <summary>
+    /// A body over <see cref="HttpRequest.MaxBody"/> on a path that is not deferred (Show Bus §6: "413 and its size"): drained, up to
+    /// <see cref="HttpRequest.MaxDrain"/> for at most <see cref="HttpRequest.DrainFor"/> on <see cref="DrainClock"/>, so the sender
+    /// reads the 413 instead of the reset a close with unread data makes; then answered with what it declared, and closed. One
+    /// declared past MaxDrain is answered at once, undrained, and its sender may see the reset instead. Nothing of the body is kept
+    /// or logged. The drain's read is never cut by the deadline: past it, the 413 is written beside the read still pending, and the
+    /// close that follows ends that read, so no answer is ever written after a cancelled read, which a socket or a TLS stream need
+    /// not survive.
+    /// </summary>
+    private async Task RefuseOversizeAsync(Stream stream, HttpRequest req, CancellationToken ct)
+    {
+        var drained = Absorbed(req.DrainOversizeAsync(stream, ct));
+        using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            await Task.WhenAny(drained, Task.Delay(HttpRequest.DrainFor, DrainClock, deadline.Token));
+            await deadline.CancelAsync();
+        }
+        await WriteJsonError(stream, 413, HttpRequest.OversizeWords(req.Oversize), ct);
+
+        // A connection that ends under the drain ends it: the 413 is written to it all the same, and fails as any write to a gone client.
+        static async Task Absorbed(Task drain)
+        {
+            try { await drain; }
+            catch (Exception ex) when (ex is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+            {
+                // The sender went away or the server is stopping: either way the drain is over.
+            }
         }
     }
 
@@ -1871,9 +1922,41 @@ internal sealed class HttpRequest
     public string Path { get; private init; } = "/";
     public IReadOnlyDictionary<string, string> Query { get; private init; } = new Dictionary<string, string>();
     public IReadOnlyDictionary<string, string> Headers { get; private init; } = new Dictionary<string, string>();
-    /// <summary>Request body (POST), capped at 64 KB. Empty for GET.</summary>
+    /// <summary>Request body (POST), capped at 64 KB. Empty for GET, and for a request whose body is <see cref="Oversize"/>.</summary>
     public byte[] Body { get; private init; } = Array.Empty<byte>();
     public const int MaxBody = 64 * 1024;
+
+    /// <summary>
+    /// The length a request declares for a body over <see cref="MaxBody"/> on a path that is not deferred; 0 for any other request.
+    /// Such a body is never read into memory, parsed or kept: the server drains it and answers 413 before any route, credential or
+    /// count sees the request (<see cref="DrainOversizeAsync"/>).
+    /// </summary>
+    public long Oversize { get; private init; }
+
+    /// <summary>The most of an oversize body drained so its sender reads the 413; one declared longer is answered at once and closed.</summary>
+    public const int MaxDrain = 1024 * 1024;
+
+    /// <summary>How long an oversize body is drained for: the 413 follows when it ends, drained or not.</summary>
+    public static readonly TimeSpan DrainFor = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// The 413's words: the most a body may be, and what this one declares (Show Bus §6: "413 and its size"). A length past a long's
+    /// range is held as <see cref="long.MaxValue"/>, so that value's words say "at least", true of both. ASCII only, so a reader that
+    /// matches the raw answer shows them as sent, not as a JSON escape.
+    /// </summary>
+    public static string OversizeWords(long declared)
+        => "a request body is at most " + MaxBody.ToString(CultureInfo.InvariantCulture) + " bytes; this one declares "
+           + (declared == long.MaxValue ? "at least " : "") + declared.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Whether the request carries a Content-Length this server cannot read: one that is not a plain decimal number of bytes, or
+    /// two such headers. It is answered 400 with <see cref="UnreadableLength"/> before anything else sees it (RFC 9112 §6.3), never
+    /// read as a request with no body.
+    /// </summary>
+    public bool LengthUnreadable { get; private init; }
+
+    /// <summary>The 400's words for <see cref="LengthUnreadable"/>.</summary>
+    public const string UnreadableLength = "a Content-Length this server cannot read: a request's length is one decimal number of bytes";
 
     /// <summary>Uploads (holding images) are read after routing, with their own size cap and timeout.</summary>
     public const string UploadPath = "/api/holding/upload";
@@ -1887,13 +1970,23 @@ internal sealed class HttpRequest
     /// Read and discard a deferred body before refusing it: closing with unread data makes Windows reset
     /// the connection, and the client would see a network error instead of our answer.
     /// </summary>
-    public async Task SkipDeferredBodyAsync(Stream stream, CancellationToken ct)
+    public Task SkipDeferredBodyAsync(Stream stream, CancellationToken ct) => SkipAsync(stream, DeferredLength, ct);
+
+    /// <summary>
+    /// Read and discard an <see cref="Oversize"/> body, for the same reason, up to <see cref="MaxDrain"/>: one declared longer is not
+    /// read at all. Its bytes go through one scratch buffer and are dropped; nothing of them is kept or logged.
+    /// </summary>
+    public Task DrainOversizeAsync(Stream stream, CancellationToken ct)
+        => Oversize is > 0 and <= MaxDrain ? SkipAsync(stream, Oversize, ct) : Task.CompletedTask;
+
+    /// <summary>Read and drop what is left of a body of <paramref name="length"/> bytes past what came with the headers; ends early at the sender's end.</summary>
+    private async Task SkipAsync(Stream stream, long length, CancellationToken ct)
     {
-        var left = DeferredLength - Math.Min(_prefix.Length, DeferredLength);
+        var left = length - Math.Min(_prefix.Length, length);
         var scratch = new byte[64 * 1024];
         while (left > 0)
         {
-            var n = await stream.ReadAsync(scratch.AsMemory(0, Math.Min(scratch.Length, left)), ct);
+            var n = await stream.ReadAsync(scratch.AsMemory(0, (int)Math.Min(scratch.Length, left)), ct);
             if (n == 0) return;
             left -= n;
         }
@@ -1939,31 +2032,49 @@ internal sealed class HttpRequest
         if (start.Length < 3 || !start[2].StartsWith("HTTP/1.", StringComparison.Ordinal)) return null;
 
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var lengths = 0;
         foreach (var line in lines.Skip(1))
         {
             var colon = line.IndexOf(':');
             if (colon <= 0) continue;
-            headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
+            var name = line[..colon].Trim();
+            if (name.Equals("content-length", StringComparison.OrdinalIgnoreCase)) lengths++;
+            headers[name] = line[(colon + 1)..].Trim();
         }
 
         var target = start[1];
         var q = target.IndexOf('?');
         var path = q >= 0 ? target[..q] : target;
 
-        // Body: whatever followed the headers in the first read, plus the rest up to Content-Length.
+        // Body: whatever followed the headers in the first read, plus the rest up to Content-Length. The length is digits alone,
+        // read as a long, so one past int's range is an oversize body and one past a long's is held as long.MaxValue; anything else
+        // in it, or a second length, is a length this server cannot read: the request carries no body and is answered 400 unrouted.
         var body = Array.Empty<byte>();
         var deferred = 0;
+        long oversize = 0;
         var prefix = Array.Empty<byte>();
-        if (headers.TryGetValue("content-length", out var cl) && int.TryParse(cl, out var length) && length > 0
-            && path is UploadPath or ScriptPath && start[0].Equals("POST", StringComparison.OrdinalIgnoreCase))
+        long declared = 0;
+        var unreadable = false;
+        if (headers.TryGetValue("content-length", out var cl))
         {
-            if (length > (path == ScriptPath ? SlideFeed.MaxScript : MaxUpload)) return null;
-            deferred = length;
+            unreadable = lengths > 1 || cl.Length == 0 || !cl.All(char.IsAsciiDigit);
+            if (!unreadable) declared = long.TryParse(cl, NumberStyles.None, CultureInfo.InvariantCulture, out var l) ? l : long.MaxValue;
+        }
+        if (declared > 0 && path is UploadPath or ScriptPath && start[0].Equals("POST", StringComparison.OrdinalIgnoreCase))
+        {
+            // A deferred path keeps its own cap and its own refusal: past it, the connection closes unanswered.
+            if (declared > (path == ScriptPath ? SlideFeed.MaxScript : MaxUpload)) return null;
+            deferred = (int)declared;
             prefix = buffer.AsSpan(headerEnd + 4, count - (headerEnd + 4)).ToArray();
         }
-        else if (headers.TryGetValue("content-length", out cl) && int.TryParse(cl, out length) && length > 0)
+        else if (declared > MaxBody)
         {
-            if (length > MaxBody) return null;
+            oversize = declared;
+            prefix = buffer.AsSpan(headerEnd + 4, count - (headerEnd + 4)).ToArray();
+        }
+        else if (declared > 0)
+        {
+            var length = (int)declared;
             body = new byte[length];
             var have = Math.Min(length, count - (headerEnd + 4));
             Array.Copy(buffer, headerEnd + 4, body, 0, have);
@@ -1995,6 +2106,8 @@ internal sealed class HttpRequest
             Headers = headers,
             Body = body,
             DeferredLength = deferred,
+            Oversize = oversize,
+            LengthUnreadable = unreadable,
             _prefix = prefix
         };
     }

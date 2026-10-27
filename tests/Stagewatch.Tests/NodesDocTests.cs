@@ -59,6 +59,8 @@ static class NodesDocTests
         ("cid.min", () => Shortest(Screens.ValidId)),
         ("cid.max", () => Longest(Screens.ValidId)),
         ("http.body.bytes", () => Private<int>(typeof(WebServer).Assembly.GetType("Stagewatch.Remote.HttpRequest"), "MaxBody")),
+        ("http.drain.bytes", () => Private<int>(typeof(WebServer).Assembly.GetType("Stagewatch.Remote.HttpRequest"), "MaxDrain")),
+        ("http.drain.ms", () => Ms(Private<TimeSpan>(typeof(WebServer).Assembly.GetType("Stagewatch.Remote.HttpRequest"), "DrainFor"))),
         ("ws.beat.ms", () => Ms(WebServer.HeartbeatEvery)),
         ("show.stuck.ms", () => Ms(SnapshotHub.StuckAfter)),
         ("pin.wrong.per.minute", () => WebServer.WrongPinsPerMinute),

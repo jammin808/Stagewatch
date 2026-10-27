@@ -175,10 +175,10 @@ Rules (game netcode, on purpose):
   commands that are not panic, air or transport from the end, grey items, then green) and says what it left out in a grey
   `context:trimmed` item. MCP's `get_context` is the same JSON. Another app posts its own to `POST /api/peers/context` (its node
   key, or a control key or the PIN while no key speaks for its id), at most `context.bytes` as sent, counted in UTF-8 bytes (a
-  longer one closes the connection with no answer today: Show Bus §8.1); one is kept `context.kept.ms` (30 s). As a reader of
-  those, Stagewatch does not keep §14's numbers yet (it keeps a context's first `read.context.items` (64) items and
-  `read.context.commands` (64) commands, cuts a verb at `read.context.verb.chars` (80) characters and reads no links: Show Bus
-  §8.1).
+  longer one is answered `413` with the size it declared, and stored nowhere, as any body over `http.body.bytes` is); one is kept
+  `context.kept.ms` (30 s). As a reader of those, Stagewatch does not keep §14's numbers yet (it keeps a context's first
+  `read.context.items` (64) items and `read.context.commands` (64) commands, cuts a verb at `read.context.verb.chars` (80)
+  characters and reads no links: Show Bus §8.1).
 - **Proposals.** Stagewatch keeps the show's approval queue (cap `approvals`, Show Bus §11): `POST /api/proposals`; another app
   collects what was approved for it with `GET /api/proposals?target=<its id>&state=approved` and its node key, and reports
   `POST /api/proposals/<id>/result`. REMOTE.md's 2.16 section has the shapes.
@@ -355,7 +355,9 @@ Each number the page names, as Stagewatch's code has it. A name that is a §14 r
 | `slides.script.hex` | 16 | the hex digits of a script's id |
 | `cid.min` | 6 | the fewest characters of a `cid` Screens keeps |
 | `cid.max` | 32 | the most |
-| `http.body.bytes` | 65536 | the most bytes of a request's body: a feed, a context, a proposal |
+| `http.body.bytes` | 65536 | the most bytes of a request's body: a feed, a context, a proposal; a longer one is answered `413` with its size |
+| `http.drain.bytes` | 1048576 | the most of a longer body read and dropped first, so its sender reads the `413`; one declared longer is answered at once |
+| `http.drain.ms` | 10000 | how long that reading lasts at most; the `413` follows either way |
 | `ws.beat.ms` | 2000 | the most time between two messages on `/ws` |
 | `show.stuck.ms` | 3000 | a show thread silent this long is stuck: `{"type":"beat","live":false}` |
 | `pin.wrong.per.minute` | 5 | wrong PINs that lock a device out of the PIN and keys for the rest of its minute |

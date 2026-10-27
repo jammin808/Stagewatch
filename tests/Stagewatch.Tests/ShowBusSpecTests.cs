@@ -272,8 +272,6 @@ static class ShowBusSpecTests
             () => !Enum.GetNames<ShowCommandKind>().Any(k => k is "Peer" or "Desk")),
         ("verified peers' `recent` in its report", "SW21.7", "its report holds its own journal alone",
             () => Source("src/Timer.Show/ShowReports.cs") is { } reports && !reports.Contains("Peer", StringComparison.Ordinal)),
-        ("an over-long context's `413`", "SW20.9", "a context over `context.bytes` closes its connection with no answer",
-            () => Source("src/Timer.Remote/WebServer.cs") is { } server && server.Contains("if (length > MaxBody) return null;", StringComparison.Ordinal)),
         ("12.2's page rule for a page opened with a viewing code or a crew link", "not scheduled",
             "it serves those pages without the window page's no-referrer, noindex and no-framing headers", PageRuleAtWindowsOnly),
         ("12.2's revocation at once for a viewing code or a crew link", "not scheduled", "a screen already open on a changed one keeps its link until it reconnects",
@@ -1623,8 +1621,8 @@ static class ShowBusSpecTests
         // §6: a peer's context as PeerContexts reads it, and Stagewatch's own.
         Keeps((long)PeerContexts.KeepFor.TotalMilliseconds == n.Of("context.kept.ms") && PeerContexts.MaxBytes == n.Of("context.bytes")
               && ContextDoorKeepsBytes(n.Of("context.bytes")),
-            "PeerContexts keeps a posted context that long, and the one door a context comes through, /api/peers/context, refuses one over "
-            + "that many UTF-8 bytes", "context.kept.ms", "context.bytes");
+            "PeerContexts keeps a posted context that long, and the one door a context comes through, /api/peers/context, answers one over "
+            + "that many UTF-8 bytes 413 with its size, unread", "context.kept.ms", "context.bytes");
         string Xs(string name) => new('x', (int)n.Of(name));
         var item = $"{{\"id\":\"{Xs("context.item.id.chars")}\",\"kind\":\"{Xs("context.item.kind.chars")}\",\"label\":\"{Xs("context.item.label.chars")}\",\"light\":\"green\",\"state\":\"{Xs("context.item.state.chars")}\"}}";
         var context = Peer($",\"light\":\"green\",\"headline\":\"{Xs("context.headline.chars")}\",\"items\":[{item}]" + Many("recent", $"{{\"text\":\"{Xs("context.recent.chars")}\"}}", n.Of("context.recent")));
@@ -2817,34 +2815,54 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// Whether the one door a peer's context comes through keeps <c>context.bytes</c> in UTF-8 bytes: HttpRequest, WebServer's
-    /// reader (internal to Remote, reached by reflection), reads a body of exactly <paramref name="bytes"/> bytes whole and refuses
-    /// one byte more, here of two-byte characters whose UTF-16 length is half the row, so a count of characters would take it;
-    /// and the route /api/peers/context measures the body's bytes before it decodes them. PeerContexts.Accept, behind the door,
-    /// counts UTF-16 code units, which a body the door took never exceeds.
+    /// reader (internal to Remote, reached by reflection), reads a body of exactly <paramref name="bytes"/> bytes whole and reads
+    /// none of one byte more, here of two-byte characters whose UTF-16 length is half the row, so a count of characters would take
+    /// it: that request carries the length it declared as oversize and no body. The server answers an oversize request 413 with
+    /// words that give its size, and one whose length it cannot read 400, both before the Require HTTPS redirect, the /ws upgrade
+    /// and the routes (WebV2Tests holds each on a real socket); and the route
+    /// /api/peers/context measures the body's bytes before it decodes them. PeerContexts.Accept, behind the door, counts UTF-16
+    /// code units, which a body the door took never exceeds.
     /// </summary>
     static bool ContextDoorKeepsBytes(long bytes)
     {
         var request = typeof(WebServer).Assembly.GetType("Stagewatch.Remote.HttpRequest");
         var read = request?.GetMethod("ReadAsync", BindingFlags.Public | BindingFlags.Static);
         var body = request?.GetProperty("Body");
-        if (read is null || body is null) return false;
-        byte[]? Read(byte[] content)
+        var oversize = request?.GetProperty("Oversize");
+        var words = request?.GetMethod("OversizeWords", BindingFlags.Public | BindingFlags.Static);
+        if (read is null || body is null || oversize is null || words is null) return false;
+        (byte[]? Body, long Oversize)? Read(byte[] content)
         {
             var head = Encoding.ASCII.GetBytes("POST /api/peers/context HTTP/1.1\r\nHost: stagewatch\r\nContent-Length: "
                                                + content.Length.ToString(CultureInfo.InvariantCulture) + "\r\n\r\n");
             using var stream = new MemoryStream(head.Concat(content).ToArray());
             var task = (Task)read.Invoke(null, [stream, 16 * 1024, CancellationToken.None])!;
             task.GetAwaiter().GetResult();
-            return task.GetType().GetProperty("Result")?.GetValue(task) is { } taken ? body.GetValue(taken) as byte[] : null;
+            return task.GetType().GetProperty("Result")?.GetValue(task) is { } taken
+                ? (body.GetValue(taken) as byte[], oversize.GetValue(taken) as long? ?? -1) : null;
         }
         var half = new string('\u00e9', (int)(bytes / 2));
         var whole = Encoding.UTF8.GetBytes(half);
         var over = Encoding.UTF8.GetBytes(half + "a");
-        var route = Source("src/Timer.Remote/WebServer.cs") is { } server && Between(server, "case \"/api/peers/context\":", "case \"") is { } c ? c : "";
+        var said = words.Invoke(null, [bytes + 1]) as string ?? "";
+        var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
+        var route = Between(server, "case \"/api/peers/context\":", "case \"") ?? "";
         var measured = route.IndexOf("req.Body.Length is 0 or >", StringComparison.Ordinal);
         var decoded = route.IndexOf("Encoding.UTF8.GetString(req.Body)", StringComparison.Ordinal);
-        return whole.Length == bytes && Read(whole)?.Length == bytes
-               && over.Length == bytes + 1 && half.Length + 1 < bytes && Read(over) is null
+        // In the connection's handler, both answers to a body it will not read come before anything that reads a request: the
+        // Require HTTPS redirect, the /ws upgrade and the routes.
+        var handler = Method(server, "private async Task HandleConnectionAsync(") ?? "";
+        int At(string text) => handler.IndexOf(text, StringComparison.Ordinal);
+        var refused = Math.Max(At("if (req.LengthUnreadable)"), At("if (req.Oversize > 0)"));
+        var first = new[] { At("RequireHttps &&"), At("await HandleWebSocketAsync(stream, req, remote, ct);"), At("await RouteAsync(stream, req, remote, ct);") };
+        return whole.Length == bytes && Read(whole) is ({ } kept, 0) && kept.Length == bytes
+               && over.Length == bytes + 1 && half.Length + 1 < bytes && Read(over) is ({ Length: 0 }, var declared) && declared == bytes + 1
+               && said.Contains(bytes.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+               && said.Contains((bytes + 1).ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+               && Method(server, "private async Task RefuseOversizeAsync(") is { } refuse
+               && refuse.Contains("WriteJsonError(stream, 413, HttpRequest.OversizeWords(req.Oversize), ct)", StringComparison.Ordinal)
+               && handler.Contains("await RefuseOversizeAsync(stream, req, ct);", StringComparison.Ordinal)
+               && At("if (req.LengthUnreadable)") >= 0 && At("if (req.Oversize > 0)") >= 0 && first.All(at => at > refused)
                && measured >= 0 && decoded > measured;
     }
 

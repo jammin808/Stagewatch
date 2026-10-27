@@ -454,6 +454,16 @@ static class WebV2Tests
         var newId = upJson.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
         Check(upReply.StatusCode == HttpStatusCode.OK && newId is not null && control.Uploads[newId].Name == "Walk-in" && control.Uploads[newId].Data.Length == big.Length,
               "holding upload: 300 KB image stored intact");
+        // A deferred path keeps its own cap: 25 MB, over the 1 MiB an oversize body is drained to, is read whole by the upload's own route.
+        var large = new byte[25_000_000];
+        big.AsSpan(0, 8).CopyTo(large);
+        var upLarge = new HttpRequestMessage(HttpMethod.Post, "/api/holding/upload?name=Large") { Content = new ByteArrayContent(large) };
+        upLarge.Headers.Add("X-Stagewatch-Pin", "4321");
+        var largeReply = await http.SendAsync(upLarge);
+        var largeId = JsonDocument.Parse(await largeReply.Content.ReadAsStringAsync()).RootElement.TryGetProperty("id", out var largeEl) ? largeEl.GetString() : null;
+        Check(largeReply.StatusCode == HttpStatusCode.OK && largeId is not null && control.Uploads[largeId].Data.Length == large.Length,
+              $"holding upload: a 25 MB image is read whole by the upload's own path, never refused as an oversize body ({largeReply.StatusCode})");
+        if (largeId is not null) control.Uploads.TryRemove(largeId, out _);
         var junk = new HttpRequestMessage(HttpMethod.Post, "/api/holding/upload?name=x") { Content = new ByteArrayContent("hello"u8.ToArray()) };
         junk.Headers.Add("X-Stagewatch-Pin", "4321");
         Check((await http.SendAsync(junk)).StatusCode == HttpStatusCode.BadRequest, "holding upload: non-image refused");
@@ -469,6 +479,7 @@ static class WebV2Tests
               && (await http.GetStringAsync("/holo-page.js")).Contains("chrome.webview"), "holo page and three.js bundle served");
 
         await NodeRoutes(Check);
+        await OversizeBodies(Check);
         await NodeLinksOnWire(Check);
         GuessCounts(Check);
         await ViewPassCounts(Check);
@@ -867,6 +878,247 @@ static class WebV2Tests
         Check(lockedPin is (HttpStatusCode.Unauthorized, "too many wrong PINs — wait a minute", _) && lockedKey is (HttpStatusCode.Unauthorized, "too many wrong PINs — wait a minute", _),
               $"node routes: five wrong PINs lock the address out, the right PIN and a valid key too ({lockedPin.Error} / {lockedKey.Error})");
     }
+
+    /// <summary>
+    /// A request body over 64 KiB, on a real server and real sockets (Show Bus §6: a desk answers a context over context.bytes with
+    /// 413 and its size). The sender reads the 413 and its words, the size it declared among them, not a reset: the server drains a
+    /// body of up to 1 MiB first (waiting for it while it has not come), and answers one declared longer at once, undrained. Nothing
+    /// of the body reaches a route: no context is stored, no key bound, no credential classed, and a wrong PIN on it is no guess. The
+    /// next request is read as before, a body of exactly 64 KiB taken; the deferred paths keep their own caps and refusals.
+    /// </summary>
+    static async Task OversizeBodies(Action<bool, string> Check)
+    {
+        var request = typeof(WebServer).Assembly.GetType("Stagewatch.Remote.HttpRequest");
+        var maxBody = request?.GetField("MaxBody")?.GetValue(null) as int? ?? 0;
+        var maxDrain = request?.GetField("MaxDrain")?.GetValue(null) as int? ?? 0;
+        var drainFor = request?.GetField("DrainFor")?.GetValue(null) as TimeSpan? ?? TimeSpan.Zero;
+        var maxUpload = request?.GetField("MaxUpload")?.GetValue(null) as int? ?? 0;
+        Check(maxBody == 65_536 && maxDrain == 1_048_576 && drainFor == TimeSpan.FromSeconds(10) && maxUpload > maxDrain,
+            $"oversize: a body is at most 64 KiB; one over it is drained up to 1 MiB, for 10 s ({maxBody}, {maxDrain}, {drainFor})");
+
+        var control = new ShowBusTests.BusControl();
+        var (patKey, patSecret) = ApiKeys.Create("Patterns FOH", ApiKeyScope.Node, DateTime.UtcNow);
+        control.ApiKeys = new[] { patKey };
+        var port = FreePort();
+        await using var web = new WebServer(control, () => "4321");
+        web.Start(port, bindAll: false);
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        static string Words(long declared) => "a request body is at most 65536 bytes; this one declares " + declared.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // A context of exactly that many UTF-8 bytes, its headline padding it out.
+        static string Ctx(int bytes)
+        {
+            var head = "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"FOH\"},\"light\":\"red\",\"headline\":\"";
+            return head + new string('x', bytes - head.Length - 2) + "\"}";
+        }
+        async Task<(HttpStatusCode Code, string? Error)> Post(string path, byte[] body, string? bearer)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = new ByteArrayContent(body) };
+            if (bearer is not null) req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
+            using var res = await http.SendAsync(req);
+            var text = await res.Content.ReadAsStringAsync();
+            string? error = null;
+            if (text.StartsWith('{'))
+            {
+                using var d = JsonDocument.Parse(text);
+                if (d.RootElement.TryGetProperty("error", out var e)) error = e.GetString();
+            }
+            return (res.StatusCode, error);
+        }
+
+        // A context over the cap, with a node key: the sender reads 413 with what it declared; nothing is stored, bound or classed.
+        var classed = control.Credentials.Count;
+        var over = Encoding.UTF8.GetBytes(Ctx(70_000));
+        var refused = await Post("/api/peers/context", over, patSecret);
+        Check(over.Length == 70_000 && refused == (HttpStatusCode.RequestEntityTooLarge, Words(70_000)),
+            $"oversize: a 70,000-byte context is answered 413 with its size, read by the sender, not a reset ({refused.Code}: {refused.Error})");
+        Check(control.Peers.Find("pat1", DateTime.UtcNow) is null && control.Nodes.NodeOf(patKey.Id) is null && control.Credentials.Count == classed,
+            "oversize: no route reads it — no context stored, the key bound to nothing, no credential classed");
+
+        // Over the cap anywhere but a deferred path: a command, a proposal, MCP. A wrong PIN on one is never read, so never counted.
+        var elsewhere = new List<(HttpStatusCode, string?)>();
+        foreach (var path in new[] { "/api/proposals", "/mcp", "/api/slides/feed", "/api/start?pin=0000" })
+            elsewhere.Add(await Post(path, new byte[maxBody + 1], null));
+        var guesses = new List<(HttpStatusCode, string?)>();
+        for (var i = 0; i < 6; i++) guesses.Add(await Post("/api/peers/context?pin=0000", over, null));
+        Check(elsewhere.All(r => r == (HttpStatusCode.RequestEntityTooLarge, Words(maxBody + 1))) && control.Commands.Count == 0
+              && control.Desk.All().Count == 0,
+            $"oversize: a body one byte over is 413 on any path that is not deferred, and runs and queues nothing ({string.Join(", ", elsewhere)})");
+        Check(guesses.All(r => r == (HttpStatusCode.RequestEntityTooLarge, Words(70_000))) && web.AuthFailures().Count == 0,
+            $"oversize: six wrong PINs on bodies over the cap are never read, so count nothing ({string.Join(", ", guesses)})");
+
+        // The next request, on a new connection, is read as before: a context of exactly 64 KiB is taken, and the PIN still opens.
+        var whole = await Post("/api/peers/context", Encoding.UTF8.GetBytes(Ctx(maxBody)), patSecret);
+        var pin = await http.GetAsync("/api/context?pin=4321");
+        Check(whole == (HttpStatusCode.OK, null) && control.Peers.Find("pat1", DateTime.UtcNow) is { Proof: NodeProof.Key } && pin.StatusCode == HttpStatusCode.OK,
+            $"oversize: after the 413s, a 65,536-byte context is taken whole and the PIN opens this machine's address ({whole.Code}, {pin.StatusCode})");
+
+        // Drained: declared and not yet sent, the server waits for the body before it answers; sent, the answer follows, then the close.
+        const string Head = "POST /api/peers/context HTTP/1.1\r\nHost: stagewatch\r\nContent-Type: application/json\r\nContent-Length: ";
+        var waited = await RawRequest(port, Head + "70000\r\n\r\n", over, quietMs: 1000);
+        Check(!waited.AnsweredEarly && waited.Closed && waited.Text.StartsWith("HTTP/1.1 413 Payload Too Large\r\n", StringComparison.Ordinal)
+              && waited.Text.Contains("Connection: close\r\n", StringComparison.Ordinal) && JsonError(waited.Text) == Words(70_000),
+            $"oversize: the server drains a declared body before answering — nothing for 1 s while it is unsent, then the 413 and a clean close ({First(waited.Text)})");
+        var most = await Post("/api/state", new byte[maxDrain], null);
+        Check(most == (HttpStatusCode.RequestEntityTooLarge, Words(maxDrain)),
+            $"oversize: a body of 1 MiB is drained whole and its sender reads the 413 ({most.Code}: {most.Error})");
+
+        // Past 1 MiB: answered at once, with nothing of the body sent or read — well within the drain's 10 s.
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var past = await RawRequest(port, Head + (maxDrain + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "\r\n\r\n", null,
+            timeoutMs: (int)drainFor.TotalMilliseconds / 2);
+        Check(past.Closed && timer.Elapsed < drainFor / 2 && past.Text.StartsWith("HTTP/1.1 413 ", StringComparison.Ordinal) && JsonError(past.Text) == Words(maxDrain + 1),
+            $"oversize: a body declared past 1 MiB is answered 413 at once, undrained, and closed ({timer.ElapsedMilliseconds} ms, {First(past.Text)})");
+        var huge = await RawRequest(port, Head + "5000000000\r\n\r\n", null, timeoutMs: (int)drainFor.TotalMilliseconds / 2);
+        Check(huge.Closed && JsonError(huge.Text) == Words(5_000_000_000),
+            $"oversize: a length past int's range is an oversize body, never one with none ({First(huge.Text)})");
+        var vast = await RawRequest(port, Head + "99999999999999999999\r\n\r\n", null, timeoutMs: (int)drainFor.TotalMilliseconds / 2);
+        Check(vast.Closed && vast.Text.StartsWith("HTTP/1.1 413 ", StringComparison.Ordinal)
+              && JsonError(vast.Text) == "a request body is at most 65536 bytes; this one declares at least 9223372036854775807",
+            $"oversize: a length past a long's range is an oversize body too, answered 413 at once with words true of it ({First(vast.Text)}: {JsonError(vast.Text)})");
+
+        // A /ws upgrade is a request like any other: a body over the cap on one is answered 413, never upgraded.
+        var upgrade = await RawRequest(port, "GET /ws?cid=oversize HTTP/1.1\r\nHost: stagewatch\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+            + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nContent-Length: 70000\r\n\r\n", over);
+        Check(upgrade.Closed && upgrade.Text.StartsWith("HTTP/1.1 413 ", StringComparison.Ordinal) && JsonError(upgrade.Text) == Words(70_000)
+              && web.ConnectedClients == 0,
+            $"oversize: a /ws upgrade declaring a body over the cap is answered 413 and closed, never 101 ({First(upgrade.Text)})");
+
+        // A Content-Length this server cannot read is answered 400 before anything reads the request, never taken as no body: letters,
+        // a sign, a list, two lengths. A wrong PIN on one is never read either, so it counts nothing.
+        var unreadable = new List<string>();
+        foreach (var length in new[] { "Content-Length: abc", "Content-Length: -5", "Content-Length: +70000", "Content-Length: 70000, 70000",
+                     "Content-Length: 0x11170", "Content-Length:", "Content-Length: 12\r\nContent-Length: 12" })
+        {
+            var reply = await RawRequest(port, "POST /api/start?pin=0000 HTTP/1.1\r\nHost: stagewatch\r\n" + length + "\r\n\r\n", null);
+            unreadable.Add(reply.Closed && reply.Text.StartsWith("HTTP/1.1 400 ", StringComparison.Ordinal) ? JsonError(reply.Text) ?? "" : First(reply.Text));
+        }
+        var unreadableWords = request?.GetField("UnreadableLength")?.GetValue(null) as string;
+        Check(unreadableWords is { Length: > 0 } && unreadable.All(e => e == unreadableWords) && control.Commands.Count == 0 && web.AuthFailures().Count == 0,
+            $"oversize: a Content-Length that is not one decimal number is answered 400 unrouted, never taken as no body, and its wrong PIN counts nothing ({string.Join(" | ", unreadable)})");
+        var padded = await RawRequest(port, "GET /api/context?pin=4321 HTTP/1.1\r\nHost: stagewatch\r\nContent-Length: 00000\r\n\r\n", null);
+        Check(padded.Text.StartsWith("HTTP/1.1 200 ", StringComparison.Ordinal),
+            $"oversize: a length of digits alone is read, leading zeros and all ({First(padded.Text)})");
+
+        // The deferred paths keep their own caps: past its cap, an upload closes unanswered as before, never with this 413.
+        var upload = await RawRequest(port, "POST /api/holding/upload?name=x HTTP/1.1\r\nHost: stagewatch\r\nX-Stagewatch-Pin: 4321\r\nContent-Length: "
+            + (maxUpload + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) + "\r\n\r\n", null);
+        Check(upload.Closed && upload.Text.Length == 0, $"oversize: a deferred path keeps its own cap and refusal, an upload past it closed unanswered ({First(upload.Text)})");
+
+        await OversizeDeadline(Check, over, drainFor);
+        await OversizeBeforeRedirect(Check, over);
+    }
+
+    /// <summary>
+    /// The drain's deadline, on a manual clock: a sender that declares 70,000 bytes, sends 1,000 and goes quiet is waited for until
+    /// the deadline and not a tick less; then it reads the 413 its size gets, written beside the read still pending, and the close.
+    /// </summary>
+    static async Task OversizeDeadline(Action<bool, string> Check, byte[] over, TimeSpan drainFor)
+    {
+        var clock = new ShowWorkflowTests.ManualTime(DateTime.UtcNow);
+        var port = FreePort();
+        await using var web = new WebServer(new ShowBusTests.BusControl(), () => "4321") { DrainClock = clock };
+        web.Start(port, bindAll: false);
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(IPAddress.Loopback, port);
+        var stream = tcp.GetStream();
+        await stream.WriteAsync(Encoding.ASCII.GetBytes("POST /api/peers/context HTTP/1.1\r\nHost: stagewatch\r\nContent-Length: 70000\r\n\r\n"));
+        await stream.WriteAsync(over.AsMemory(0, 1000));
+        using var cts = new CancellationTokenSource(15_000);
+        var answer = ReadToClose(stream, cts.Token);
+        var armed = await Until(() => clock.Timers > 0, 5000);
+        clock.Advance(drainFor - TimeSpan.FromTicks(1));
+        var early = await Task.WhenAny(answer, Task.Delay(500)) == answer;
+        clock.Advance(TimeSpan.FromTicks(1));
+        var (text, closed) = await answer;
+        Check(armed && !early && closed && text.StartsWith("HTTP/1.1 413 ", StringComparison.Ordinal)
+              && JsonError(text) == "a request body is at most 65536 bytes; this one declares 70000",
+            $"oversize: a sender that stops partway is drained until the deadline on the drain's clock and not a tick less, then reads the 413 and the close (armed {armed}, early {early}: {First(text)})");
+    }
+
+    /// <summary>
+    /// The 413 comes before Require HTTPS: a plain request from this machine's own LAN address (not loopback, so Require HTTPS applies
+    /// to it) is redirected when its body fits, and answered 413 when it is over the cap, never redirected with its <c>?pin=</c>.
+    /// </summary>
+    static async Task OversizeBeforeRedirect(Action<bool, string> Check, byte[] over)
+    {
+        var lan = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
+            .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(u => u.Address)
+            .FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a));
+        Check(lan is not null, "oversize: this machine has a LAN address that is not loopback, to reach Require HTTPS at");
+        if (lan is null) return;
+        var port = FreePort();
+        await using var web = new WebServer(new ShowBusTests.BusControl(), () => "4321") { RequireHttps = true };
+        web.Start(port, bindAll: true);
+        const string Head = "POST /api/peers/context?pin=4321 HTTP/1.1\r\nHost: stagewatch\r\nContent-Length: ";
+        var fits = await RawRequest(port, Head + "2\r\n\r\n", "{}"u8.ToArray(), host: lan);
+        var refused = await RawRequest(port, Head + "70000\r\n\r\n", over, host: lan);
+        Check(fits.Text.StartsWith("HTTP/1.1 302 ", StringComparison.Ordinal)
+              && refused.Closed && refused.Text.StartsWith("HTTP/1.1 413 ", StringComparison.Ordinal) && !refused.Text.Contains("Location:", StringComparison.Ordinal)
+              && !refused.Text.Contains("4321", StringComparison.Ordinal),
+            $"oversize: from another address under Require HTTPS, a body that fits is redirected and one over the cap is answered 413, its PIN never echoed ({First(fits.Text)}; {First(refused.Text)})");
+    }
+
+    /// <summary>
+    /// One request on a socket of its own: <paramref name="head"/>, then <paramref name="body"/>, sent only once nothing has come back
+    /// for <paramref name="quietMs"/>; what came back until the server closed, whether anything came before the body was sent, and
+    /// whether the server closed it (not a reset, and not <paramref name="timeoutMs"/> running out).
+    /// </summary>
+    static async Task<(string Text, bool AnsweredEarly, bool Closed)> RawRequest(int port, string head, byte[]? body, int quietMs = 0, int timeoutMs = 5000,
+        IPAddress? host = null)
+    {
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(host ?? IPAddress.Loopback, port);
+        var stream = tcp.GetStream();
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head));
+        using var cts = new CancellationTokenSource(timeoutMs);
+        var answer = ReadToClose(stream, cts.Token);
+        var early = body is not null && quietMs > 0 && await Task.WhenAny(answer, Task.Delay(quietMs)) == answer;
+        try
+        {
+            if (body is not null && !early) await stream.WriteAsync(body, cts.Token);
+        }
+        catch (Exception e) when (e is OperationCanceledException or IOException or SocketException)
+        {
+            var (sent, _) = await answer;
+            return (sent + "[" + e.GetType().Name + " sending]", early, false);
+        }
+        var (text, closed) = await answer;
+        return (text, early, closed);
+    }
+
+    /// <summary>What a socket reads until its far end closes; and whether it did close (not a reset, and not <paramref name="ct"/> ending first).</summary>
+    static async Task<(string Text, bool Closed)> ReadToClose(Stream stream, CancellationToken ct)
+    {
+        var buffer = new byte[8192];
+        var text = new StringBuilder();
+        try
+        {
+            for (var n = await stream.ReadAsync(buffer, ct); n > 0; n = await stream.ReadAsync(buffer, ct))
+                text.Append(Encoding.UTF8.GetString(buffer, 0, n));
+            return (text.ToString(), true);
+        }
+        catch (Exception e) when (e is OperationCanceledException or IOException or SocketException)
+        {
+            return (text.ToString() + "[" + e.GetType().Name + "]", false);
+        }
+    }
+
+    /// <summary>The <c>error</c> of a raw HTTP answer's JSON body, or null.</summary>
+    static string? JsonError(string response)
+    {
+        var at = response.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        if (at < 0) return null;
+        try
+        {
+            using var d = JsonDocument.Parse(response[(at + 4)..]);
+            return d.RootElement.TryGetProperty("error", out var e) ? e.GetString() : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>A raw answer's first line, for a check's words.</summary>
+    static string First(string response) => response.Split("\r\n")[0];
 
     /// <summary>
     /// Show apps on /ws, on a real server (Show Bus §7.1): a node link hears its verdict before any frame and never a screen

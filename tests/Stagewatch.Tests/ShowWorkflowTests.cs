@@ -130,6 +130,9 @@ static class ShowWorkflowTests
 
         internal void Remove(ManualTimer t) { lock (_timers) _timers.Remove(t); }
 
+        /// <summary>The timers made on this clock and not yet disposed: one is armed once its owner has started waiting on it.</summary>
+        public int Timers { get { lock (_timers) return _timers.Count; } }
+
         internal sealed class ManualTimer(ManualTime owner, TimerCallback callback, object? state) : ITimer
         {
             public long? DueAt;

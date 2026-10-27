@@ -281,6 +281,19 @@ running app on a network: two copies of one install for the conflict, an old cer
   to Patterns, is a typed address.
 - **As a reader of contexts, Stagewatch keeps 2.18's limits**: a context's first 64 items and 64 commands, a verb cut at 80
   characters, no links read, and an over-long post closed unanswered rather than refused with 413 (§8.1, with what ends each).
+  *Since then (SW20.9):* a body over 64 KiB, a context's or any other's, is answered `413` with the length it declared, before
+  any route, credential, lockout count, Require HTTPS redirect or `/ws` upgrade sees the request. A body of up to 1 MiB is read
+  and dropped first, for at most 10 s, so its sender reads the answer, not a reset; one declared longer, or one still coming
+  when the 10 s are up, is answered at once and closed, and its sender may see the reset. Nothing of it is kept or logged. A
+  `Content-Length` that is not one decimal number is answered `400` the same way, never read as no body. Uploads and a deck's
+  script keep their own caps, and past them still close unanswered. The other three limits are SW21.1's, whose byte caps count
+  on this 413. A poster reads it as 13.12.3's table has it, refused with the body's words; fitting PlayMap's posted context to
+  64 KiB is PlayMap's own (its PM-8). Left as they are: a sender holds one of the 64 connection slots for up to 15 s per such
+  request (5 s for its head, 10 s draining), with no cap on drains at once until a rig measures slots running out; a body sent
+  chunked, with no `Content-Length`, is still read as none; and 13.6.9's mark of a key seen in clear (SW22.1b) must stand above
+  both these answers and the Require HTTPS redirect, which all return before any credential is read. The 413's words are
+  ASCII, so the Slides agent's status, which matches the raw answer, shows them as sent; it still shows other words' em dash
+  as its JSON escape, a fix of its own.
 - **A non-English show fills its context sooner.** The context is written with the default JSON encoder, which writes each
   character outside ASCII as a six-byte escape, so such a show reaches 64 KiB with about a third of an English show's text. A
   relaxed encoder waits for every reader's parser to be measured with it.

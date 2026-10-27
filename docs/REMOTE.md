@@ -122,6 +122,19 @@ Q&A and rooms), `/api/config` (presets, quick messages, running order, departmen
 `ack` and `question` need no PIN — speaker tablets and audience phones send them. Questions are rate-limited
 (one every 10 s, 20 an hour per device).
 
+**A request's body is at most 64 KiB** (65,536 bytes as sent; 2.20). A longer one is answered
+`413 {"ok":false,"error":"a request body is at most 65536 bytes; this one declares 70000"}`, with the length it declared,
+before any route reads the request: no route runs, no PIN or key is checked, a wrong PIN on it is no guess toward a lockout,
+Require HTTPS redirects nothing and `/ws` upgrades nothing. Stagewatch first reads and drops a body of up to 1 MiB, for at most
+10 s, so its sender reads the answer instead of a reset; when the 10 s are up, or for one declared longer, it answers at once
+and closes, and a sender still sending may see the reset instead. Nothing of the body is kept or logged. A length past what a
+64-bit number holds is answered the same, its words saying `at least 9223372036854775807`. A `Content-Length` that is not one
+decimal number of bytes (letters, a sign, a list, or two of them) is answered
+`400 {"ok":false,"error":"a Content-Length this server cannot read: a request's length is one decimal number of bytes"}` the
+same way, unrouted and undrained, never taken as a request with no body. Uploads (`/api/holding/upload`, 25 MB) and a deck's
+script (`/api/slides/script`, 2 MB) keep their own caps and refusals. Before 2.20 a longer body closed the connection with no
+answer, and an unreadable length was taken as no body.
+
 ### WebSocket
 
 Connect to `/ws` (viewer) or `/ws?role=control&pin=1234`; add `&detail=1` (or `?detail=1`) for detail frames.
