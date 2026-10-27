@@ -183,7 +183,10 @@ public partial class SettingsDialog : Window
         root.Children.Add(content);
         root.Children.Add(buttons);
         win.Content = root;
-        return win.ShowDialog() == true;
+        var answered = win.ShowDialog() == true;
+        // The content may be asked again (a refused edit keeps what was typed): it leaves this window with it.
+        root.Children.Clear();
+        return answered;
     }
 
     private void RefreshSounds()
@@ -275,13 +278,10 @@ public partial class SettingsDialog : Window
         VmixOn.IsChecked = i.Vmix;
         VmixHost.Text = i.VmixHost;
         VmixPort.Text = i.VmixPort.ToString();
-        // The Patterns box shows link "patterns" (the other playout links are kept as they are).
-        var patterns = PlayoutRules.PatternsLink(i);
-        PatternsOn.IsChecked = patterns?.Enabled == true;
-        PatternsNextOnEnd.IsChecked = patterns?.NextOnEnd == true;
-        PatternsHost.Text = patterns?.Host ?? PlayoutRules.DefaultHost;
-        PatternsPort.Text = (patterns?.Port ?? PlayoutRules.PatternsPort).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (patterns is { TokenProtected.Length: > 0 }) PatternsToken.Password = "••••••••";
+        // Settings' own copy of the playout links: Add, Edit and Remove change it, Save writes it whole.
+        _links = i.PlayoutLinks.Select(l => l.Clone()).ToList();
+        PlayoutLead.Text = i.PlayoutLeadMs.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        RefreshPlayoutLinks();
         ArtNetOn.IsChecked = i.ArtNet;
         ArtNetHost.Text = i.ArtNetHost;
         SacnOn.IsChecked = i.Sacn;
@@ -395,11 +395,10 @@ public partial class SettingsDialog : Window
         i.Vmix = VmixOn.IsChecked == true;
         i.VmixHost = VmixHost.Text.Trim();
         if (int.TryParse(VmixPort.Text, out var vp) && vp is > 0 and < 65536) i.VmixPort = vp;
-        var patternsPort = int.TryParse(PatternsPort.Text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var pp) ? pp : 0;
-        var patternsToken = PatternsToken.Password == "••••••••" ? null
-            : PatternsToken.Password.Length == 0 ? "" : ViewModels.ProtectedKey.Protect(PatternsToken.Password);
-        // Inside the store's lock: what could not be written is said once the lock is let go (OnSave).
-        _patternsNotSet = PlayoutRules.EditPatterns(i, PatternsOn.IsChecked == true, PatternsHost.Text, patternsPort, patternsToken, PatternsNextOnEnd.IsChecked == true);
+        // The links as edited here, whole; a renamed link's running-order cues move with it, in every running order of the show.
+        i.PlayoutLinks = _links.Select(l => l.Clone()).ToList();
+        foreach (var (from, to) in _renames) PlayoutRules.RenameCues(s, from, to);
+        i.PlayoutLeadMs = _lead;
         i.ArtNet = ArtNetOn.IsChecked == true;
         i.ArtNetHost = ArtNetHost.Text.Trim();
         i.Sacn = SacnOn.IsChecked == true;
@@ -510,6 +509,7 @@ public partial class SettingsDialog : Window
         OscBindAll.IsChecked = s.Remote.OscBindAll;
         OscFeedbackHost.Text = s.Remote.OscFeedbackHost;
         OscFeedbackPort.Text = s.Remote.OscFeedbackPort.ToString();
+        PlayoutFromBox.Text = PlayoutGate.Shown(s.Remote.PlayoutFrom);
         RefreshRemoteUrls();
 
         OvertimeColorCombo.SelectedValue = s.Display.OvertimeColorHex;
@@ -566,27 +566,6 @@ public partial class SettingsDialog : Window
 
     private string? _crewSecret;
 
-    /// <summary>
-    /// Listen for Patterns' hellos and beacons and offer what's heard (host:port) in the host box; a miss names every port Find listens
-    /// on. Find hears PlayMap's hellos too: this box is link patterns, a Patterns desk's, so it asks for Patterns desks only, and no
-    /// other node takes one of the places it lists.
-    /// </summary>
-    private async void OnFindPatterns(object sender, RoutedEventArgs e)
-    {
-        PatternsNote.Text = "Listening for Patterns on this network…";
-        var found = await PlayoutWire.DiscoverAsync(PlayoutWire.FindListen, [PlayoutRules.Patterns]);
-        PatternsHost.Items.Clear();
-        foreach (var m in found) PatternsHost.Items.Add(m.Address);
-        if (found.Count > 0)
-        {
-            PatternsHost.Text = found[0].Address;
-            PatternsPort.Text = found[0].WirePort.ToString();
-            PatternsNote.Text = "Found: " + string.Join(", ", found.Select(m => $"{(m.Name.Length > 0 ? m.Name : m.Address)} ({m.Address}:{m.WirePort})"));
-        }
-        else PatternsNote.Text = "No Patterns heard. Check its remote control is on, the same network, and that the firewall allows UDP "
-            + string.Join(" and ", PlayoutWire.FindPorts.Select(p => p.ToString(System.Globalization.CultureInfo.InvariantCulture))) + " — or type the address.";
-    }
-
     private void OnNewCrewKeys(object sender, RoutedEventArgs e)
     {
         _crewSecret = CrewKeys.NewSecret();
@@ -640,7 +619,22 @@ public partial class SettingsDialog : Window
             MessageBox.Show(this, "Not saved:\n" + string.Join("\n", refused), "Triggers", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        var warned = rules.Select(t => TriggerAuthRules.Warning(t) is { } why ? $"{TriggerAuthRules.Named(t)}: {why}" : null).OfType<string>().ToList();
+        // The playout links' lead and who may drive playout: what can't be kept is said, and nothing is saved until it is fixed.
+        if (PlayoutRules.LeadProblem(PlayoutLead.Text, out var lead) is { } leadWhy)
+        {
+            MessageBox.Show(this, "Not saved: " + leadWhy + ".", "Playout links", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        _lead = lead;
+        var (from, fromNotes) = PlayoutGate.Typed(PlayoutFromBox.Text);
+        if (fromNotes.Count > 0)
+        {
+            PlayoutFromNote.Text = string.Join("\n", fromNotes);
+            PlayoutFromNote.Visibility = Visibility.Visible;
+            MessageBox.Show(this, "Not saved:\n" + string.Join("\n", fromNotes), PlayoutGate.SettingWords, MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        var warned = WarnTriggers(rules);
         _store.Update(s =>
         {
             s.Display.TargetMonitorDeviceName = (MonitorCombo.SelectedItem as ComboBoxItem)?.Tag as string;
@@ -694,6 +688,7 @@ public partial class SettingsDialog : Window
             if (int.TryParse(OscPort.Text, out var op) && op is > 0 and < 65536) s.Remote.OscPort = op;
             s.Remote.OscBindAll = OscBindAll.IsChecked == true;
             s.Remote.OscFeedbackHost = OscFeedbackHost.Text.Trim();
+            s.Remote.PlayoutFrom = from;
             if (int.TryParse(OscFeedbackPort.Text, out var ofp) && ofp is > 0 and < 65536) s.Remote.OscFeedbackPort = ofp;
             if (ExpiredFlashCombo.SelectedValue is string fr && Enum.TryParse<FlashRate>(fr, out var fra))
                 s.Display.ExpiredFlashRate = fra;
@@ -704,13 +699,9 @@ public partial class SettingsDialog : Window
             SaveV2(s);
         });
         _store.SaveNow();
-        if (_patternsNotSet is { } notSet) MessageBox.Show(this, notSet, "Patterns", MessageBoxButton.OK, MessageBoxImage.Warning);
         if (warned.Count > 0) MessageBox.Show(this, string.Join("\n", warned), "Triggers", MessageBoxButton.OK, MessageBoxImage.Warning);
         DialogResult = true;
     }
-
-    /// <summary>Why the Patterns box's link could not be written by the last Save, or null.</summary>
-    private string? _patternsNotSet;
 
     private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
 

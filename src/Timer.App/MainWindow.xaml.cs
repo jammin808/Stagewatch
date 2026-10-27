@@ -343,7 +343,7 @@ public partial class MainWindow : Window, IContextActions
 
     private void OnEditRundown(object sender, RoutedEventArgs e)
     {
-        var dlg = new RundownEditor(App.SettingsStore, _vm.CopilotUnavailable is null ? _vm.DraftAgendaAsync : null) { Owner = this, PreviewChime = _vm.PreviewChime };
+        var dlg = new RundownEditor(App.SettingsStore, _vm.CopilotUnavailable is null ? _vm.DraftAgendaAsync : null) { Owner = this, PreviewChime = _vm.PreviewChime, PlayoutSources = _vm.PlayoutCueSources };
         if (dlg.ShowDialog() == true)
             _vm.OnRundownEdited();
     }
@@ -502,7 +502,7 @@ public partial class MainWindow : Window, IContextActions
     private void EditRundown(string name)
     {
         var live = _vm.IsLiveRundown(name);
-        var dlg = new RundownEditor(App.SettingsStore, _vm.CopilotUnavailable is null ? _vm.DraftAgendaAsync : null, live ? null : name) { Owner = this, PreviewChime = _vm.PreviewChime };
+        var dlg = new RundownEditor(App.SettingsStore, _vm.CopilotUnavailable is null ? _vm.DraftAgendaAsync : null, live ? null : name) { Owner = this, PreviewChime = _vm.PreviewChime, PlayoutSources = _vm.PlayoutCueSources };
         if (dlg.ShowDialog() == true && live) _vm.OnRundownEdited();
     }
 
@@ -567,6 +567,7 @@ public partial class MainWindow : Window, IContextActions
             Owner = this,
             Sounds = new SettingsDialog.SoundHooks(_vm.AddSound, _vm.RemoveSound, _vm.PreviewChime),
             Keys = new SettingsDialog.KeyHooks(_vm.CreateApiKey, _vm.RevokeApiKey, _vm.ApiKeyLastUsed, _vm.ApiKeyBindingLine, _vm.ApiKeyNodeChoices, _vm.RebindApiKey),
+            Playout = new SettingsDialog.PlayoutHooks(_vm.PlayoutLinkState, _vm.CertificateWaitingFor, _vm.TrustCertificate),
         };
         if (dlg.ShowDialog() == true)
         {
@@ -662,8 +663,30 @@ public partial class MainWindow : Window, IContextActions
                 yield return I("Extend 1 minute", () => _vm.RunOperatorLine($"trim {row.Index} 60"));
                 if (row.AdjustSeconds != 0)
                     yield return I("Undo trims", () => _vm.RunOperatorLine($"trim {row.Index} {-row.AdjustSeconds}"));
+                if (row.PlayoutCues > 0)
+                {
+                    // The item's playout cues by hand: stood by or GOne now through the planner its load and start run, the running
+                    // order left where it is; greyed with why (no licence) as a press would be refused.
+                    var playoutWhy = _vm.PlayoutRowWhy(row);
+                    yield return new Separator();
+                    yield return ContextHelp.Offer("Cue playout now", () => _vm.CuePlayoutNow(row), playoutWhy);
+                    yield return ContextHelp.Offer("GO playout now", () => _vm.GoPlayoutNow(row), playoutWhy);
+                }
                 yield return new Separator();
                 yield return I("Edit running order…", () => OnEditRundown(this, new RoutedEventArgs()));
+                break;
+
+            case "chip-vt":
+            case "patterns-last10":
+                // The clip feeding the VT on its playout link: the chip's entries and the Last 10 s button run the same press, greyed by
+                // the plan that press runs or the peer's own WHOAMI, with why. None while vMix feeds the VT: Stagewatch moves no vMix clip.
+                if (_vm.VtOffers() is { } vt)
+                {
+                    yield return new MenuItem { Header = $"The clip on {vt.Peer}", IsEnabled = false };
+                    foreach (var offer in vt.Offers)
+                        yield return ContextHelp.Offer(offer.Header, () => RunVtOffer(vt.Link, vt.Peer, offer.Action), offer.Why);
+                }
+                yield return I("Integrations settings…", () => OnOpenSettings(this, new RoutedEventArgs()));
                 break;
 
             case "rundown-start":
@@ -883,6 +906,21 @@ public partial class MainWindow : Window, IContextActions
     }
 
     /// <summary>
+    /// A VT chip entry: Seek asks where to (seconds, m:ss or h:mm:ss — the grammar reads it, and refuses what it can't with words on the
+    /// status line); every other entry runs at once.
+    /// </summary>
+    private void RunVtOffer(string link, string peer, string action)
+    {
+        if (action != "seek")
+        {
+            _vm.RunVtOffer(link, action);
+            return;
+        }
+        if (Help.Prompt.Ask(this, "Seek", $"Move the clip on {peer} to (seconds, m:ss or h:mm:ss):", "") is { } to && to.Trim().Length > 0)
+            _vm.RunVtOffer(link, action, to.Trim());
+    }
+
+    /// <summary>
     /// Revoke the node key a Show network row is verified by, once the operator confirms: the same revocation as Settings →
     /// Remote → API keys, so the app's context and proposals are refused and its link on /ws drops to the public frame at once.
     /// </summary>
@@ -911,19 +949,7 @@ public partial class MainWindow : Window, IContextActions
     /// fingerprint it showed. A changed one opens an entry that is never filled in: the person compares the certificate on the node's
     /// own screen and types at least 8 hex of it, the short form beside the box; nothing else trusts it, and no pad, line or assistant can.
     /// </summary>
-    private void TrustCertificate(CertificateWaiting waiting)
-    {
-        if (!waiting.Wait.Changed)
-        {
-            _vm.TrustCertificate(waiting, waiting.Wait.Fingerprint, typed: false);
-            return;
-        }
-        var pinned = waiting.Wait.Pinned.Length > 0 ? $" (the one pinned for it began {Stagewatch.Integrations.PlayoutWire.Short(waiting.Wait.Pinned)} …)" : "";
-        var label = $"{waiting.Peer} now shows a certificate that begins {waiting.Short} …, not the one it was pinned with{pinned}. Nothing is sent to it "
-                    + $"until you trust this one. Compare it on {waiting.Peer}'s own screen, then type at least {PlayoutRules.TrustHexMin.ToString(System.Globalization.CultureInfo.InvariantCulture)} hex of it:";
-        if (Help.Prompt.Ask(this, "Certificate changed", label, "") is { } typed)
-            _vm.TrustCertificate(waiting, typed, typed: true);
-    }
+    private void TrustCertificate(CertificateWaiting waiting) => Help.TrustPrompt.Run(this, waiting, _vm.TrustCertificate);
 
     /// <summary>
     /// Let a node key speak for a Show network row's node: the keys refused for it first, then free keys, then keys that

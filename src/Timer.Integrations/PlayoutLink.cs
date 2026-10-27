@@ -614,6 +614,12 @@ public sealed class PlayoutLink : IPlayoutSource
     /// <summary>The peer's Show Bus id: its STATE's (PlayMap's <c>id</c>), else its context's <c>node.id</c>; null while neither said one.</summary>
     public string? NodeId => _pub.NodeId;
 
+    /// <summary>
+    /// The words for a PlayMap node whose WHOAMI lets this PC only read (armed and remote-view-only), with what its desk can do: the
+    /// link's status says them, and the desk's entries greyed by it (<see cref="PlayoutMenus.Why"/>) say the same.
+    /// </summary>
+    public static string ReadOnlyWords(string peer) => $"{peer} is armed and lets this PC only read — its desk can SHOW SET REMOTE-VIEW-ONLY OFF";
+
     /// <summary>A PlayMap node's answer to <c>WHOAMI</c> on the connection up now, asked once its kind is known and every 5 s; null otherwise.</summary>
     public PlayoutWhoami? Whoami => _pub is { Pairing: not PlayoutPairing.None } pub ? pub.Whoami : null;
 
@@ -2226,7 +2232,7 @@ public sealed class PlayoutLink : IPlayoutSource
         var conflict = state == PeerLinkState.Held && _m.Refusal(now) == "conflict";
         var status = state switch
         {
-            PeerLinkState.Live when readOnly => _said + TlsNote(waiting) + $" · {Peer} is armed and lets this PC only read — its desk can SHOW SET REMOTE-VIEW-ONLY OFF",
+            PeerLinkState.Live when readOnly => _said + TlsNote(waiting) + " · " + ReadOnlyWords(Peer),
             PeerLinkState.Live => _said + TlsNote(waiting),
             PeerLinkState.Stale => $"{_label} at {_host}:{_port} quiet for {Seconds(record.HeardMs)} — no countdown until it is heard again",
             PeerLinkState.Down when live => record.Words,

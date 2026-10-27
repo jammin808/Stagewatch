@@ -444,7 +444,26 @@ public static class Program
                 }
                 case "copilot": Shot(new CopilotWindow(vm2), "copilot"); break;
                 case "slides-agent": Shot(new SlidesAgentWindow(), "slides-agent"); break;
-                case "rundown-editor": Shot(new RundownEditor(store, _ => Task.FromResult(new Stagewatch.Integrations.AgendaDraft(Array.Empty<Stagewatch.Integrations.AgendaDraftItem>(), Array.Empty<string>()))), "rundown-editor"); break;
+                case "rundown-editor":
+                {
+                    // An item's playout cues: the grid's button says how many, and the editor is given the desk's links to pick from.
+                    store.Update(s => s.Rundown.Items = new List<RundownItem>
+                    {
+                        new() { Title = "Walk-in", DurationSeconds = 600 },
+                        new() { Title = "Open", DurationSeconds = 300, Playout = { new PlayoutCue { Link = "stage-left", List = "pl1", Item = "it1", Label = "Show · Intro", Together = true }, new PlayoutCue { Link = "patterns", Item = "c1", Label = "12 Walk-in", Standby = true } } },
+                    });
+                    var editor = new RundownEditor(store, _ => Task.FromResult(new Stagewatch.Integrations.AgendaDraft(Array.Empty<Stagewatch.Integrations.AgendaDraftItem>(), Array.Empty<string>())))
+                    {
+                        PlayoutSources = vm2.PlayoutCueSources,
+                    };
+                    Shot(editor, "rundown-editor", w =>
+                    {
+                        var rows = ((DataGrid)w.FindName("Grid")).Items.OfType<RundownEditor.Row>().ToList();
+                        Expect(rows is [{ PlayoutLabel: "Add…" }, { PlayoutLabel: "2 cues" } open] && open.Playout.Count == 2,
+                               $"running-order editor: each item's Playout button says how many cues it has ({string.Join(", ", rows.Select(r => r.PlayoutLabel))})");
+                    });
+                    break;
+                }
                 case "settings":
                 {
                     // Settings on the view model's own key hooks (as the desk opens it): a node key's row says what it speaks
@@ -462,9 +481,22 @@ public static class Program
                     Expect(vm2.RebindApiKey(nodeKey, "", own) is (false, var ownWords) && ownWords == $"Not changed: {own} is this Stagewatch's own id."
                            && vm2.ApiKeyBindingLine(nodeKey) == "speaks for patterns 9f8e7d6c" && vm2.ApiKeyNodeChoices(nodeKey).All(c => c.Id != own),
                            "settings: this Stagewatch's own id, typed, is refused with the reason and never offered; the key keeps its node");
+                    // Two playout links (switched off: nothing dials), one address that may drive playout, a trigger with a secret.
+                    var secretRule = new TriggerRule { Name = "GO VT", Action = Stagewatch.Core.TriggerAction.Http, Target = "https://10.0.0.12:9940/api/cmd", Payload = "PLAYLIST GO show #4", Auth = new TriggerAuth { Kind = "playmap", SecretProtected = "eA==" } };
+                    store.Update(s =>
+                    {
+                        s.Integrations.PlayoutLinks = new List<PlayoutLinkSettings>
+                        {
+                            new() { Name = "patterns", Enabled = false, Host = "10.0.0.5" },
+                            new() { Name = "stage-left", Kind = "playmap", Enabled = false, Host = "10.0.0.12", Port = 9941, Transport = "wss", Node = "a1b2c3d4" },
+                        };
+                        s.Remote.PlayoutFrom = new List<string> { "10.0.0.40" };
+                        s.Triggers = new List<TriggerRule> { secretRule.Clone() };
+                    });
                     var dlg = new SettingsDialog(store, license, null, vm2.IntegrationStatus, vm2.PresenterPcs)
                     {
                         Keys = new SettingsDialog.KeyHooks(vm2.CreateApiKey, vm2.RevokeApiKey, vm2.ApiKeyLastUsed, vm2.ApiKeyBindingLine, vm2.ApiKeyNodeChoices, vm2.RebindApiKey),
+                        Playout = new SettingsDialog.PlayoutHooks(vm2.PlayoutLinkState, vm2.CertificateWaitingFor, vm2.TrustCertificate),
                     };
                     Shot(dlg, "settings", w =>
                     {
@@ -497,6 +529,39 @@ public static class Program
                         Expect(InStep(speakOn: false, revokeOn: false), $"settings: nothing selected — both off, the buttons and the right-click alike ({State()})");
                         list.SelectedItem = nodeRow;
                         Save(w, "settings-remote-keys");
+                        Expect(((TextBox)w.FindName("PlayoutFromBox")).Text == "10.0.0.40", "settings: May drive playout shows the listed addresses, one a line");
+
+                        // Integrations → Playout links: the list, and its buttons and right-click menu enabled together by one rule.
+                        tabs.SelectedItem = tabs.Items.OfType<TabItem>().FirstOrDefault(t => t.Header as string == "Integrations");
+                        Pump(300);
+                        var links = (ListBox)w.FindName("PlayoutLinkList");
+                        var linkButtons = new[] { "PlayoutFindButton", "PlayoutAddButton", "PlayoutEditButton", "PlayoutRemoveButton", "PlayoutTrustButton" }
+                            .Select(n => (Button)w.FindName(n)).ToList();
+                        var linkMenu = links.ContextMenu?.Items.OfType<MenuItem>().ToDictionary(m => m.Tag as string ?? "", m => m) ?? new Dictionary<string, MenuItem>();
+                        bool LinksInStep(bool selected)
+                            => linkMenu.Count == 5 && linkButtons.Zip(new[] { "find", "add", "edit", "remove", "trust" })
+                                   .All(p => linkMenu.TryGetValue(p.Second, out var m) && m.Header as string == p.First.Content as string && m.IsEnabled == p.First.IsEnabled)
+                               && linkButtons[1].IsEnabled && linkButtons[2].IsEnabled == selected && linkButtons[3].IsEnabled == selected && !linkButtons[4].IsEnabled;
+                        string LinkState() => string.Join("/", linkButtons.Select(b => $"{b.Content}={b.IsEnabled}"));
+                        string Words(object? row) => row?.GetType().GetProperty("Line")?.GetValue(row) as string ?? "";
+                        string Status(object? row) => row?.GetType().GetProperty("Status")?.GetValue(row) as string ?? "";
+                        object? Waiting(object? row) => row?.GetType().GetProperty("Waiting")?.GetValue(row);
+                        links.SelectedItem = null;
+                        Pump(100);
+                        Expect(links.Items.Count == 2 && LinksInStep(selected: false), $"settings: playout links listed, nothing selected — Add and Find on, Edit, Remove and Trust off, the buttons and the right-click alike ({LinkState()})");
+                        links.SelectedIndex = 1;
+                        Pump(100);
+                        Expect(LinksInStep(selected: true), $"settings: a link selected — Edit and Remove on, Trust off with no certificate waiting, the buttons and the right-click alike ({LinkState()})");
+                        Expect(links.Items.Cast<object>().All(r => Waiting(r) is null) && !linkButtons[4].IsEnabled && linkMenu.TryGetValue("trust", out var trustItem) && !trustItem.IsEnabled,
+                               "settings: a row drawn without a certificate waiting offers no Trust — the button and the right-click are bound to what the row showed");
+                        Expect(Words(links.SelectedItem) == "stage-left · PlayMap Stage left at 10.0.0.12:9941 · wss · VT · node a1b2c3d4 (off)" && Status(links.SelectedItem) == "switched off",
+                               $"settings: a link's row says where it dials, what it feeds and that it is off ({Words(links.SelectedItem)} · {Status(links.SelectedItem)})");
+                        Expect(((TextBox)w.FindName("PlayoutLead")).Text == "300", "settings: the GO-together lead shows its 300 ms");
+                        Save(w, "settings-playout-links");
+
+                        // Triggers: a rule's secret is shown by its kind, never by itself.
+                        Expect(new TriggerSecretLabel().Convert(secretRule, typeof(string), null!, System.Globalization.CultureInfo.InvariantCulture) as string == "PlayMap token (X-PlayMap-Token) · secret set",
+                               "settings: a trigger's Secret column names its kind and that a secret is set, never the secret");
                         tabs.SelectedIndex = first;
                     });
                     break;
@@ -515,7 +580,7 @@ public static class Program
                 s.Rundown.Items = new List<RundownItem>
                 {
                     new() { Title = "Welcome", Speaker = "Host", DurationSeconds = 600, Group = "Morning" },
-                    new() { Title = "Keynote", Speaker = "Ana Ruiz", DurationSeconds = 2700, Group = "Morning" },
+                    new() { Title = "Keynote", Speaker = "Ana Ruiz", DurationSeconds = 2700, Group = "Morning", Playout = { new PlayoutCue { Link = "stage-left", List = "pl1", Item = "it1", Label = "Show · Intro" } } },
                     new() { Title = "Coffee", DurationSeconds = 900, Kind = SegmentKind.Break },
                     new() { Title = "Panel", DurationSeconds = 2700, Group = "Panels" },
                 };
@@ -557,6 +622,38 @@ public static class Program
                 using (var tfs = File.Create(Path.Combine(outDir, "timers-tab.png"))) tenc.Save(tfs);
                 Console.WriteLine($"tab={tabs.SelectedIndex}/{tabs.Items.Count} header={(tabs.SelectedItem as TabItem)?.Header} aux0={vm.AuxItems[0].Name} {vm.AuxItems[0].Text} running={vm.AuxItems[0].Running} stage={vm.AuxItems[0].OnStage} aux1Up={vm.AuxItems[1].CountUp}");
             });
+            if (only == "main-ro")
+            {
+                // A running-order item with a playout cue: ▶ on its row, and Cue and GO playout now on its right-click, greyed with why
+                // exactly when the press is refused; an item with none offers neither. The VT chip with nothing feeding it offers no clip.
+                var keynote = vm.RundownRows.FirstOrDefault(r => r.Title == "Keynote");
+                var entries = keynote is null ? new List<MenuItem>() : main.ActionsFor("rundown-row", new Button { Tag = keynote }).OfType<MenuItem>().ToList();
+                var cueNow = entries.FirstOrDefault(m => m.Header as string == "Cue playout now");
+                var goNow = entries.FirstOrDefault(m => m.Header as string == "GO playout now");
+                var why = keynote is null ? "no row" : vm.PlayoutRowWhy(keynote);
+                Expect(keynote is { PlayoutCues: 1, ItemId.Length: > 0 } && keynote.Subtitle.Contains("▶ 1", StringComparison.Ordinal) && cueNow is not null && goNow is not null
+                       && cueNow.IsEnabled == (why is null) && goNow.IsEnabled == (why is null) && (why is null || (cueNow.ToolTip as string == why && goNow.ToolTip as string == why)),
+                       $"running order: an item's playout cues on its row and its right-click, greyed with why as the press is refused ({why ?? "live"})");
+                var welcome = vm.RundownRows.FirstOrDefault(r => r.Title == "Welcome");
+                Expect(welcome is not null && !main.ActionsFor("rundown-row", new Button { Tag = welcome }).OfType<MenuItem>().Any(m => (m.Header as string ?? "").Contains("playout", StringComparison.Ordinal)),
+                       "running order: an item with no playout cues offers no playout entries");
+                // A row whose item is no longer at its place under that id (the running order changed under its menu) sends nothing.
+                if (keynote is not null)
+                {
+                    vm.GoPlayoutNow(new RundownRow { Index = keynote.Index, ItemId = "gone", PlayoutCues = 1 });
+                    Pump(100);
+                    Expect(vm.StatusLine.Contains(Stagewatch.Integrations.PlayoutMenus.ChangedUnder, StringComparison.Ordinal),
+                           $"running order: a press whose item changed under its menu is refused, nothing sent ({vm.StatusLine})");
+                    vm.GoPlayoutNow(keynote);
+                }
+                Pump(300);
+                Expect(why is null ? vm.StatusLine.StartsWith("Item 2: playout cue Show · Intro on Stage left: skipped — no playout link called stage-left on this PC", StringComparison.Ordinal)
+                                   : vm.StatusLine.Contains(why, StringComparison.Ordinal),
+                       $"running order: GO playout now runs the planner and says what became of each cue ({vm.StatusLine})");
+                var vtEntries = main.ActionsFor("chip-vt", new Border()).OfType<MenuItem>().Select(m => m.Header as string).ToList();
+                Expect(vm.VtOffers() is null && vtEntries.SequenceEqual(new[] { "Integrations settings…" }),
+                       $"VT chip: nothing feeds the VT, so no clip entries — Integrations settings… alone ({string.Join(", ", vtEntries)})");
+            }
         }
         catch (Exception ex) { failures++; Console.WriteLine("FAIL MainWindow: " + ex); }
         Console.WriteLine(failures == 0 ? "ALL OK" : $"{failures} FAILED");

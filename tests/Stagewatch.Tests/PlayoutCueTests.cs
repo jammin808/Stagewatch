@@ -31,6 +31,7 @@ static class PlayoutCueTests
         await Receipts(Check);
         await LinkLists(Check);
         await Planner(Check);
+        await DeskPresses(Check);
         await TogetherOverLinks(Check);
         await SyncGroups(Check);
         await LateStart(Check);
@@ -392,6 +393,83 @@ static class PlayoutCueTests
             await Task.Delay(200);
             Check(Commands(playmap).Count + Commands(patterns).Count == heard, "playout cues: and sends nothing");
             Check(!playmap.Heard.Concat(patterns.Heard).Any(l => l.Contains(Token, StringComparison.OrdinalIgnoreCase)), "playout cues: neither peer saw the token");
+        }
+        finally
+        {
+            foreach (var l in links.All) l.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A running-order row's presses on the desk, over a fake PlayMap node and a fake Patterns desk: "Cue playout now" stands every
+    /// cue of the item by — neither set to stand by at load — with PlayMap's CUE on an idle playlist and Patterns' STANDBY, and sends no
+    /// GO; "GO playout now" GOes them as a start does and stands nothing by; a playlist playing is never cued, its row saying why while
+    /// Patterns' STANDBY still goes. Each link's lane writes in order, so each peer's commands heard after a later press are the whole
+    /// of what the presses before it sent — no wait on a quiet moment decides a "sent nothing".
+    /// </summary>
+    static async Task DeskPresses(Action<bool, string> Check)
+    {
+        var pmState = PmState("idle");
+        await using var playmap = new PlayoutLinkTests.FakeDesk();
+        PlayMap(playmap, () => pmState, () => IndexJson());
+        await using var patterns = new PlayoutLinkTests.FakeDesk();
+        Patterns(patterns);
+        var settings = new List<PlayoutLinkSettings> { L("stage-left", "playmap", playmap.Port), L("patterns", "auto", patterns.Port) };
+        var rows = new ConcurrentQueue<(int Mark, string Row)>();
+        var licensed = true;
+        var links = new PlayoutLinks();
+        var director = new PlayoutDirector(links, () => settings, () => licensed, () => Lead, (_, mark, row) => rows.Enqueue((mark, row)), _ => { });
+        foreach (var s in settings) links.Set(s.Name, PlayoutLinks.Make(s, Token, "2b3c4d5e", TimeProvider.System, null, "", director.Wire));
+        List<string> Played() => Commands(playmap).Where(c => c.StartsWith("PLAYLIST ", StringComparison.Ordinal)).ToList();
+        List<string> Cued() => Commands(patterns).Where(c => c is not "CUE LIST" && c.StartsWith("CUE ", StringComparison.Ordinal)).ToList();
+        bool Fresh() => links["stage-left"] is { } l && PlayoutFacts.Of(l).StateAgeMs < 1_000;
+        try
+        {
+            Check(await PlayoutLinkTests.Until(() => links["stage-left"]?.Index is not null && links["patterns"]?.Index is not null
+                                                    && links["stage-left"]?.Reading?.State.Playlists is [{ State: "idle" }], 10_000),
+                  "playout desk presses: both links paired, their kinds heard and their lists read");
+            var item = Item("a", Cue("stage-left", "pl1", "it1", label: "Intro"), Cue("patterns", "", "c1"));
+
+            playmap.Say("STATE " + pmState);
+            await PlayoutLinkTests.Until(Fresh);
+            director.CueNow(0, item);
+            Check(await PlayoutLinkTests.Until(() => Played().Count == 1 && Cued().Count == 1)
+                  && Played() is ["PLAYLIST CUE pl1 it1"] && Cued() is ["CUE STANDBY c1"],
+                  $"playout desk presses: Cue playout now stands both cues by though neither is set to stand by at load — PlayMap's CUE, Patterns' STANDBY ({string.Join(" | ", Played().Concat(Cued()))})");
+
+            director.GoNow(0, item);
+            Check(await PlayoutLinkTests.Until(() => Played().Count >= 2 && Cued().Count >= 2)
+                  && Played() is ["PLAYLIST CUE pl1 it1", "PLAYLIST GO pl1 it1"] && Cued() is ["CUE STANDBY c1", "CUE GO c1"],
+                  $"playout desk presses: GO playout now GOes each cue as a start does, and Cue playout now sent no GO before it ({string.Join(" | ", Played().Concat(Cued()))})");
+
+            playmap.Say("STATE " + pmState);
+            await PlayoutLinkTests.Until(Fresh);
+            director.CueNow(0, item);
+            Check(await PlayoutLinkTests.Until(() => Played().Count >= 3 && Cued().Count >= 3)
+                  && Played() is ["PLAYLIST CUE pl1 it1", "PLAYLIST GO pl1 it1", "PLAYLIST CUE pl1 it1"] && Cued() is ["CUE STANDBY c1", "CUE GO c1", "CUE STANDBY c1"],
+                  $"playout desk presses: GO playout now stood nothing by — each peer heard the next press's standby straight after its GO ({string.Join(" | ", Played().Concat(Cued()))})");
+
+            // A playlist playing is never cued by hand either: its row says why, and Patterns' STANDBY still goes.
+            pmState = PmState("playing");
+            playmap.Say("STATE " + pmState);
+            await PlayoutLinkTests.Until(() => links["stage-left"]?.Reading?.State.Playlists is [{ State: "playing" }]);
+            director.CueNow(1, item);
+            Check(await PlayoutLinkTests.Until(() => Cued().Count >= 4)
+                  && rows.Any(r => r.Mark == 1 && r.Row == "playout cue Intro on Stage left: not stood by — not cued — Main show is playing on PlayMap Stage left; GO will play it")
+                  && Cued()[3] == "CUE STANDBY c1" && Played().Count(c => c.StartsWith("PLAYLIST CUE", StringComparison.Ordinal)) == 2,
+                  "playout desk presses: Cue playout now never cues a playlist that is playing — the row says why — and the Patterns standby goes");
+
+            // No cues, or no licence: a row each, against the row's item, and nothing planned.
+            director.CueNow(2, Item("b"));
+            director.GoNow(2, Item("b"));
+            licensed = false;
+            director.CueNow(3, item);
+            director.GoNow(3, item);
+            Check(rows.Where(r => r.Mark == 2).Select(r => r.Row).SequenceEqual(["no playout cues to stand by — nothing sent", "no playout cues to GO — nothing sent"])
+                  && rows.Where(r => r.Mark == 3).Select(r => r.Row).SequenceEqual(["2 playout cues not stood by: " + PlayoutRules.LicenceWords, "2 playout cues not sent: " + PlayoutRules.LicenceWords]),
+                  "playout desk presses: an item with no cues, or no licence, is said in a row each, and nothing is sent");
+            Check(item.Playout.All(c => !c.Standby), "playout desk presses: Cue playout now changes no cue's own standby setting");
+            Check(!playmap.Heard.Concat(patterns.Heard).Any(l => l.Contains(Token, StringComparison.OrdinalIgnoreCase)), "playout desk presses: neither peer saw the token");
         }
         finally
         {

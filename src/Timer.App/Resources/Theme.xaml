@@ -10,6 +10,7 @@
     <app:InverseBoolToVis x:Key="InverseBoolToVis" />
     <app:NonEmptyToVis x:Key="NonEmptyToVis" />
     <app:NonEmptyToBool x:Key="NonEmptyToBool" />
+    <app:TriggerSecretLabel x:Key="TriggerSecretLabel" />
 
     <!-- Palette: dark, calm, high-contrast for stage operators. -->
     <Color x:Key="BgDeep">#000000</Color>

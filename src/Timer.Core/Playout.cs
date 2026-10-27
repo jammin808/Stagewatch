@@ -30,7 +30,17 @@ public sealed class PlayoutLinkSettings
     [JsonPropertyName("nextOnEnd")] public bool NextOnEnd { get; set; }
 
     public PlayoutLinkSettings Clone() => (PlayoutLinkSettings)MemberwiseClone();
+
+    /// <summary>This link as Settings' dialog starts an edit of it, its token kept (null) unless a person types another.</summary>
+    public PlayoutLinkEdit Edit() => new(Name, Enabled, Kind, Host, Port, null, Node, Transport, FollowVt, NextOnEnd);
 }
+
+/// <summary>
+/// A link as Settings' Add and Edit dialog gives it (<see cref="PlayoutRules.EditLink"/>): every field a person sets, the token as
+/// protected text — null keeps the one kept, "" keeps none.
+/// </summary>
+public sealed record PlayoutLinkEdit(string Name, bool Enabled, string Kind, string Host, int Port, string? TokenProtected, string Node,
+    string Transport, bool FollowVt, bool NextOnEnd);
 
 /// <summary>
 /// One playout cue on a running-order item (at most <see cref="PlayoutRules.MaxCuesPerItem"/>): what goes on <see cref="Link"/>
@@ -344,30 +354,165 @@ public static class PlayoutRules
         i.LegacyPatternsNextOnEnd = own?.NextOnEnd;
     }
 
+    // ------------------------------------------------------------------ Settings' own edits
+
     /// <summary>
-    /// The Patterns box in Settings writes link "patterns": made, first in the list, when it is ticked or given an address, a port,
-    /// a token or next-on-end, else left as it is (a link nobody set up is never made). A token of null keeps the one kept; a port
-    /// out of range keeps the one it had. Null when written; else why not (an address no link may dial, no room for another link),
-    /// and nothing changed.
+    /// Add a link (<paramref name="was"/> null) to <paramref name="links"/>, Settings' copy, or change link <paramref name="was"/> there:
+    /// null when written; else why not, in words naming the box, and nothing changed. Each rule a settings file's links keep
+    /// (<see cref="Sanitise"/>) is said here rather than mended: a name by the name rule that no other link has; at most
+    /// <see cref="Max"/> links; a kind and a transport this Stagewatch knows, and no TLS asked of a Patterns desk, whose wire offers
+    /// none; an address it can dial (<see cref="ValidHost"/>, a blank one being this PC) and a port of 1–65535; a node a Show Bus id
+    /// that no other link has. A token of null keeps the one kept, "" keeps none. A link added goes last; one changed keeps its place.
+    /// A renamed link's running-order cues are the caller's to move (<see cref="RenameCues"/>).
     /// </summary>
-    public static string? EditPatterns(IntegrationSettings i, bool on, string host, int port, string? tokenProtected, bool nextOnEnd)
+    public static string? EditLink(List<PlayoutLinkSettings> links, string? was, PlayoutLinkEdit e)
     {
-        host = host.Trim().Length > 0 ? host.Trim() : DefaultHost;
-        if (!ValidHost(host)) return $"Patterns isn't changed: \"{host}\" isn't an address it can dial (a name or an address; the port has its own box)";
-        var own = PatternsLink(i);
+        var name = (e.Name ?? "").Trim().ToLowerInvariant();
+        var own = was is null ? null : Find(links, was);
+        if (was is not null && own is null) return $"no playout link called {was} to change";
+        if (NameProblem(name) is { } why) return Capital(why);
+        if (links.Any(l => l.Name == name && !ReferenceEquals(l, own))) return $"Another playout link is called {name}: a name names one link";
+        if (own is null && links.Count >= Max)
+            return $"Stagewatch keeps {Max.ToString(CultureInfo.InvariantCulture)} playout links and has {Max.ToString(CultureInfo.InvariantCulture)} already — remove one first";
+        var kind = Word(e.Kind);
+        if (kind.Length == 0) kind = Auto;
+        if (kind is not (Auto or Patterns or PlayMap)) return $"\"{LoadNotes.Shown(e.Kind)}\" isn't a kind of link this Stagewatch knows (auto, patterns or playmap)";
+        var transport = Word(e.Transport);
+        if (transport.Length == 0) transport = Auto;
+        if (transport is not (Auto or Tcp or Wss)) return $"\"{LoadNotes.Shown(e.Transport)}\" isn't a transport this Stagewatch knows (auto, tcp or wss)";
+        if (kind == Patterns && transport == Wss)
+            return "A Patterns desk offers no TLS on its wire: its link runs over TCP, paired by proof (transport auto or tcp)";
+        var host = (e.Host ?? "").Trim();
+        if (host.Length == 0) host = DefaultHost;
+        if (!ValidHost(host)) return $"\"{LoadNotes.Shown(host)}\" isn't an address a link can dial (a name or an address; the port has its own box)";
+        if (e.Port is not (> 0 and < 65536)) return $"{e.Port.ToString(CultureInfo.InvariantCulture)} isn't a port (1-65535)";
+        var node = (e.Node ?? "").Trim();
+        if (node.Length > 0 && !NodeBindings.ValidId(node))
+            return $"\"{LoadNotes.Shown(node)}\" isn't a Show Bus node id (1-40 letters, digits, - or _) — leave it empty and the link finds its node";
+        if (node.Length > 0 && links.FirstOrDefault(l => l.Node == node && !ReferenceEquals(l, own)) is { } other)
+            return $"Node {node} is link {other.Name}'s, and one node has one link";
         if (own is null)
         {
-            if (!on && host == DefaultHost && port == PatternsPort && string.IsNullOrEmpty(tokenProtected) && !nextOnEnd) return null;
-            if (i.PlayoutLinks.Count >= Max) return $"Patterns isn't set up: Stagewatch keeps {Max.ToString(CultureInfo.InvariantCulture)} playout links and has {Max.ToString(CultureInfo.InvariantCulture)} already";
-            own = new PlayoutLinkSettings { Name = PatternsName };
-            i.PlayoutLinks.Insert(0, own);
+            own = new PlayoutLinkSettings();
+            links.Add(own);
         }
-        own.Enabled = on;
+        own.Name = name;
+        own.Enabled = e.Enabled;
+        own.Kind = kind;
         own.Host = host;
-        if (port is > 0 and < 65536) own.Port = port;
-        if (tokenProtected is not null) own.TokenProtected = tokenProtected;
-        own.NextOnEnd = nextOnEnd;
+        own.Port = e.Port;
+        if (e.TokenProtected is not null) own.TokenProtected = e.TokenProtected;
+        own.Node = node;
+        own.Transport = transport;
+        own.FollowVt = e.FollowVt;
+        own.NextOnEnd = e.NextOnEnd;
         return null;
+
+        static string Capital(string words) => words.Length == 0 ? words : char.ToUpperInvariant(words[0]) + words[1..];
+    }
+
+    /// <summary>
+    /// A name for a new link to a peer heard as <paramref name="heard"/> (its own name, as its hello gives it): lower case, each run of
+    /// other characters one '-', cut to fit; else the name of its <paramref name="kind"/> (or "link"); then one no name in
+    /// <paramref name="taken"/> has, by a number after it ("stage-left-2"). Always a name <see cref="NameProblem"/> takes.
+    /// </summary>
+    public static string SuggestName(string? heard, string? kind, IEnumerable<string> taken)
+    {
+        var names = taken.ToHashSet(StringComparer.Ordinal);
+        var b = new System.Text.StringBuilder();
+        foreach (var c in (heard ?? "").ToLowerInvariant())
+        {
+            if (c is (>= 'a' and <= 'z') or (>= '0' and <= '9')) b.Append(c);
+            else if (b.Length > 0 && b[^1] != '-') b.Append('-');
+        }
+        var stem = b.ToString().Trim('-');
+        if (stem.Length > MaxNameChars - 3) stem = stem[..(MaxNameChars - 3)].TrimEnd('-');
+        if (!ValidName(stem)) stem = kind is Patterns or PlayMap ? kind : "link";
+        if (!names.Contains(stem)) return stem;
+        for (var n = 2; ; n++)
+            if (stem + "-" + n.ToString(CultureInfo.InvariantCulture) is var name && !names.Contains(name)) return name;
+    }
+
+    /// <summary>The running orders this Stagewatch keeps: the live one and every other one of the show.</summary>
+    private static IEnumerable<Rundown> Rundowns(AppSettings s)
+        => new[] { s.Rundown }.Concat(s.OtherRundowns.Select(r => r.Rundown)).OfType<Rundown>();
+
+    /// <summary>How many running-order cues of the show's running orders name link <paramref name="name"/>.</summary>
+    public static int CuesNaming(AppSettings s, string name)
+        => Rundowns(s).Sum(r => r.Items.Sum(i => i?.Playout?.Count(c => c?.Link == name) ?? 0));
+
+    /// <summary>
+    /// How many of the show's running-order cues will name link <paramref name="name"/> once <see cref="RenameCues"/> has moved them
+    /// through <paramref name="renames"/>, in their order, as Save does: walked back from the last rename, a name renamed away no longer
+    /// names it, one renamed onto it does, and cues that already named a rename's new name keep it (and are counted).
+    /// </summary>
+    public static int CuesNaming(AppSettings s, string name, IReadOnlyList<(string From, string To)> renames)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal) { name };
+        for (var i = renames.Count - 1; i >= 0; i--)
+        {
+            var (from, to) = renames[i];
+            var landsHere = names.Contains(to);
+            names.Remove(from);
+            if (landsHere) names.Add(from);
+        }
+        return names.Sum(n => CuesNaming(s, n));
+    }
+
+    /// <summary>
+    /// The link of <paramref name="links"/> that already reaches a peer found at <paramref name="host"/>:<paramref name="port"/> with Show
+    /// Bus id <paramref name="nodeId"/> ("" for none): one set to that node (one node has one link, as <see cref="EditLink"/> keeps), else
+    /// one dialling that address and port; null for none.
+    /// </summary>
+    public static PlayoutLinkSettings? Reaching(IEnumerable<PlayoutLinkSettings> links, string nodeId, string host, int port)
+    {
+        var all = links.ToList();
+        return (nodeId.Length > 0 ? all.FirstOrDefault(l => l.Node == nodeId) : null)
+               ?? all.FirstOrDefault(l => l.Port == port && string.Equals(l.Host.Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// A link renamed in Settings takes its running-order cues with it, in every running order of the show (one in a show file not
+    /// open moves only when that file is): the cues naming <paramref name="from"/> name <paramref name="to"/>. How many moved.
+    /// </summary>
+    public static int RenameCues(AppSettings s, string from, string to)
+    {
+        var moved = 0;
+        foreach (var cue in Rundowns(s).SelectMany(r => r.Items).SelectMany(i => i?.Playout ?? []).Where(c => c?.Link == from))
+        {
+            cue.Link = to;
+            moved++;
+        }
+        return moved;
+    }
+
+    /// <summary>
+    /// The lead of a GO at one instant as Settings' box gives it, in ms: null when it is a whole number within
+    /// <see cref="MinLeadMs"/>–<see cref="MaxLeadMs"/>, else why not (and the lead kept is unchanged).
+    /// </summary>
+    public static string? LeadProblem(string? typed, out int ms)
+    {
+        ms = 0;
+        if (int.TryParse((typed ?? "").Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n is >= MinLeadMs and <= MaxLeadMs)
+        {
+            ms = n;
+            return null;
+        }
+        return $"The lead of a GO at one instant is {MinLeadMs.ToString(CultureInfo.InvariantCulture)} to {MaxLeadMs.ToString(CultureInfo.InvariantCulture)} ms — \"{LoadNotes.Shown(typed)}\" isn't";
+    }
+
+    /// <summary>
+    /// How Settings' list shows a link, beside its own status: its name and peer, where it dials, its kind and transport as set, and
+    /// what it feeds — "stage-left · PlayMap Stage left at 10.0.0.12:9941 · wss · VT, next on end" — "(off)" when switched off.
+    /// </summary>
+    public static string Describe(PlayoutLinkSettings l)
+    {
+        var host = l.Host.Contains(':') ? "[" + l.Host + "]" : l.Host;
+        var peer = Peer(l.Kind == Auto ? null : l.Kind, l.Name);
+        var feeds = (l.FollowVt ? "VT" : "") + (l.NextOnEnd ? (l.FollowVt ? ", next on end" : "next on end") : "");
+        return $"{l.Name} · {peer} at {host}:{l.Port.ToString(CultureInfo.InvariantCulture)}"
+               + (l.Kind == Auto ? " · kind heard" : "") + (l.Transport != Auto ? " · " + l.Transport : "")
+               + (feeds.Length > 0 ? " · " + feeds : "") + (l.Node.Length > 0 ? " · node " + l.Node : "") + (l.Enabled ? "" : " (off)");
     }
 
     /// <summary>Link "patterns" when the 2.17 keys can describe it: a Patterns desk, or a peer whose kind is not set.</summary>

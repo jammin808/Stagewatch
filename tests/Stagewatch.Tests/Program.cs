@@ -2100,6 +2100,7 @@ await PlayoutLinkTests.Run(Check);
 await PlayoutTlsTests.Run(Check);
 await PlayoutDirectorTests.Run(Check);
 await PlayoutCueTests.Run(Check);
+PlayoutDeskTests.Run(Check);
 SupervisorTests.Run(Check);
 SupervisorTests.Holding(Check);
 await IntegrationTests.Run(Check);

@@ -361,6 +361,12 @@
                             <TextBox x:Name="OscFeedbackHost" Grid.Column="1" ToolTip="IP or host name. Blank = no feedback." />
                             <TextBox x:Name="OscFeedbackPort" Grid.Column="2" Width="80" Margin="8,0,0,0" ToolTip="UDP port" />
                         </Grid>
+                        <TextBlock Text="May drive playout" FontWeight="SemiBold" Margin="0,8,0,4" />
+                        <TextBlock Opacity="0.6" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
+                                   Text="playout and patterns lines drive another node's air through this Stagewatch's links. Over OSC and Companion TCP — which carry no PIN — they are taken only from this PC and from the addresses listed here; over HTTP, a WebSocket or MCP, from anyone with the PIN or a control (MCP) key, and with no PIN set, from these addresses too. One IPv4 or IPv6 address a line, written out (no names, ranges, ports or loopback), up to 16. List only machines on a show network you trust: OSC's sender address can be forged." />
+                        <TextBox x:Name="PlayoutFromBox" AcceptsReturn="True" Height="70" FontFamily="Consolas" VerticalScrollBarVisibility="Auto"
+                                 help:ContextHelp.Tip="may-drive-playout" Margin="0,0,0,4" />
+                        <TextBlock x:Name="PlayoutFromNote" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed" />
                         <TextBlock Opacity="0.5" FontSize="12" TextWrapping="Wrap"
                                    Text="Full command list: docs/REMOTE.md, or /api/help in a browser." />
                     </StackPanel>
@@ -466,23 +472,51 @@
                             <TextBlock Text=":" VerticalAlignment="Center" />
                             <TextBox x:Name="VmixPort" Width="70" Margin="4,0,0,0" />
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <CheckBox x:Name="PatternsOn" Content="Patterns video from" VerticalAlignment="Center"
-                                      ToolTip="The clip on air in Patterns drives the VT countdown, and Last 10 s jumps it to its end (Patterns' wire, TCP 9697)" />
-                            <ComboBox x:Name="PatternsHost" Width="150" Margin="8,0,4,0" IsEditable="True" />
-                            <TextBlock Text=":" VerticalAlignment="Center" />
-                            <TextBox x:Name="PatternsPort" Width="70" Margin="4,0,0,0" />
-                            <Button Content="Find" Click="OnFindPatterns" Margin="8,0,0,0" Padding="10,2" MinHeight="0"
-                                    ToolTip="Listen for Patterns machines on this network for 3 seconds (their hello, UDP 9928, and their beacon, UDP 9700)" />
+                        <TextBlock Text="Playout links (Patterns desks, PlayMap nodes)" Opacity="0.8" Margin="0,0,0,2" help:ContextHelp.Tip="playout-links" />
+                        <TextBlock Opacity="0.55" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
+                                   Text="Each link's clip on air can feed the VT countdown; it takes playout commands by its name (playout stage-left go …), and running-order items cue it. Up to 8. Find listens for them on this network; Add or Edit sets one by hand." />
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <!-- The buttons and the right-click menu offer the same actions, enabled by the same rule (SyncPlayoutActions). -->
+                            <ListBox x:Name="PlayoutLinkList" Height="130" SelectionChanged="OnPlayoutLinkSelected" MouseDoubleClick="OnEditPlayoutLink"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,1">
+                                            <TextBlock Text="{Binding Line}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Status}" Opacity="0.6" FontSize="12" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                                <ListBox.ContextMenu>
+                                    <ContextMenu Opened="OnPlayoutLinkMenuOpened">
+                                        <MenuItem Header="Find…" Click="OnFindPlayout" Tag="find" />
+                                        <MenuItem Header="Add…" Click="OnAddPlayoutLink" Tag="add" />
+                                        <MenuItem Header="Edit…" Click="OnEditPlayoutLink" Tag="edit" />
+                                        <MenuItem Header="Remove" Click="OnRemovePlayoutLink" Tag="remove" />
+                                        <MenuItem Header="Trust its certificate…" Click="OnTrustPlayoutLink" Tag="trust" />
+                                    </ContextMenu>
+                                </ListBox.ContextMenu>
+                            </ListBox>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                <Button x:Name="PlayoutFindButton" Content="Find…" Click="OnFindPlayout" Margin="0,0,0,4"
+                                        ToolTip="Listen for Patterns desks and PlayMap nodes on this network for 3 seconds (their hello, UDP 9928, and Patterns' beacon, UDP 9700)" />
+                                <Button x:Name="PlayoutAddButton" Content="Add…" Click="OnAddPlayoutLink" Margin="0,0,0,4" />
+                                <Button x:Name="PlayoutEditButton" Content="Edit…" Click="OnEditPlayoutLink" Margin="0,0,0,4" IsEnabled="False" />
+                                <Button x:Name="PlayoutRemoveButton" Content="Remove" Click="OnRemovePlayoutLink" Margin="0,0,0,4" IsEnabled="False" />
+                                <Button x:Name="PlayoutTrustButton" Content="Trust its certificate…" Click="OnTrustPlayoutLink" IsEnabled="False"
+                                        ToolTip="The selected link's certificate that waits for you: compare its short form with the node's own screen. After CERTIFICATE CHANGED, type at least 8 hex of the new one." />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock x:Name="PlayoutNote" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,4" Visibility="Collapsed" />
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,4">
+                            <TextBlock Text="A GO at one instant is set" Opacity="0.8" VerticalAlignment="Center" />
+                            <TextBox x:Name="PlayoutLead" Width="60" Margin="8,0,6,0"
+                                     ToolTip="100 to 2000 ms. Running-order cues marked together, and playout … go … together, start this far ahead, where each link's clock allows." />
+                            <TextBlock Text="ms ahead (cues marked together)" Opacity="0.8" VerticalAlignment="Center" />
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="24,0,0,4">
-                            <TextBlock Text="Pairing token" Opacity="0.7" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <PasswordBox x:Name="PatternsToken" Width="180" ToolTip="Patterns → Remote → TRUST. Leave empty if the desk asks for none." />
-                        </StackPanel>
-                        <CheckBox x:Name="PatternsNextOnEnd" Content="When the clip ends on a video item, go to the next item" Margin="24,2,0,4"
-                                  ToolTip="The live item must be a Video item (or labelled VT). The clip ending is also a trigger (Triggers → Clip ends)." />
-                        <TextBlock x:Name="PatternsNote" Opacity="0.55" FontSize="12" TextWrapping="Wrap" Margin="24,0,0,14"
-                                   Text="With vMix and Patterns both on, the VT countdown follows whichever is playing (Patterns if both)." />
+                        <TextBlock Opacity="0.55" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,14"
+                                   Text="With vMix and playout links on, the VT countdown follows the first link (in this order) whose clip runs, else vMix's. A token never crosses the network: Stagewatch proves it, and sends it in clear only to a desk or node on this PC (a loopback socket)." />
 
                         <TextBlock Text="Cue lights · Production" FontWeight="SemiBold" />
                         <TextBlock Opacity="0.55" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,6"
@@ -568,6 +602,16 @@
                                                     ElementStyle="{StaticResource GridCombo}" EditingElementStyle="{StaticResource GridCombo}" />
                             <DataGridTextColumn Header="Target" Binding="{Binding Target}" Width="1*" EditingElementStyle="{StaticResource GridEditBox}" />
                             <DataGridTextColumn Header="Payload" Binding="{Binding Payload}" Width="1.4*" EditingElementStyle="{StaticResource GridEditBox}" />
+                            <DataGridTemplateColumn Header="Secret" Width="170">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding Converter={StaticResource TriggerSecretLabel}}" Tag="{Binding}" Click="OnTriggerSecret"
+                                                Padding="6,1" MinWidth="0" MinHeight="0" FontSize="12" HorizontalContentAlignment="Left"
+                                                help:ContextHelp.Tip="trigger-secret"
+                                                ToolTip="An HTTP trigger's secret: a PlayMap or Patterns token, a Stagewatch PIN or key, or a bearer token — kept encrypted, sent only to this PC or over https:// to a certificate you trusted." />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
                     <TextBlock Grid.Row="2" Opacity="0.55" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"

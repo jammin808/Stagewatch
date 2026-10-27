@@ -33,6 +33,26 @@ public static class Prompt
     }
 }
 
+/// <summary>
+/// A person trusts a certificate the desk drew (Show Bus 13.8.2–3), the one flow every place offering it runs — the Show network row,
+/// the status line's right-click, Settings' playout links: one pinned first is one press, bound to the fingerprint it showed; a changed
+/// one opens an entry that is never filled in, where the person types at least 8 hex of it after comparing it on the node's own screen.
+/// Nothing else trusts it, and no pad, line or assistant can.
+/// </summary>
+public static class TrustPrompt
+{
+    /// <summary>What <paramref name="trust"/> answered, or null when the person cancelled the typed entry.</summary>
+    public static (bool Trusted, string Words)? Run(Window owner, ViewModels.CertificateWaiting waiting,
+        Func<ViewModels.CertificateWaiting, string, bool, (bool Trusted, string Words)> trust)
+    {
+        if (!waiting.Wait.Changed) return trust(waiting, waiting.Wait.Fingerprint, false);
+        var pinned = waiting.Wait.Pinned.Length > 0 ? $" (the one pinned for it began {Stagewatch.Integrations.PlayoutWire.Short(waiting.Wait.Pinned)} …)" : "";
+        var label = $"{waiting.Peer} now shows a certificate that begins {waiting.Short} …, not the one it was pinned with{pinned}. Nothing is sent to it "
+                    + $"until you trust this one. Compare it on {waiting.Peer}'s own screen, then type at least {PlayoutRules.TrustHexMin.ToString(System.Globalization.CultureInfo.InvariantCulture)} hex of it:";
+        return Prompt.Ask(owner, "Certificate changed", label, "") is { } typed ? trust(waiting, typed, true) : null;
+    }
+}
+
 /// <summary>Choose one of a few labelled items, in the app's dark style: the first is selected; null when cancelled.</summary>
 public static class Pick
 {

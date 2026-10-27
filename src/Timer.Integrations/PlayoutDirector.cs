@@ -515,6 +515,28 @@ public sealed class PlayoutDirector
         if (item.Playout is { Count: > 0 } cues) Start(index, cues.Select(c => c.Clone()).ToList());
     }
 
+    /// <summary>
+    /// A person's "GO playout now" on a running-order row (owner thread): the item's cues GO as they do when it starts — one GO per sync
+    /// group, those marked together at one instant, each a link cannot take skipped with its row — whether or not the item is loaded.
+    /// The running order does not move. An item with no cues says so on the status line and sends nothing.
+    /// </summary>
+    public void GoNow(int index, RundownItem item)
+    {
+        if (item.Playout is { Count: > 0 } cues) Start(index, cues.Select(c => c.Clone()).ToList());
+        else Row(index, "no playout cues to GO — nothing sent");
+    }
+
+    /// <summary>
+    /// A person's "Cue playout now" on a running-order row (owner thread): every cue of the item stands by — set to stand by at load or
+    /// not, since a person asked — by the same guards a load's standby keeps: a PlayMap CUE only on a playlist seen idle a moment ago
+    /// (a CUE shows its first frame on air), a Patterns STANDBY moving that desk's own standby. Nothing GOes.
+    /// </summary>
+    public void CueNow(int index, RundownItem item)
+    {
+        if (item.Playout is { Count: > 0 } cues) Standby(index, cues.Select(c => { var k = c.Clone(); k.Standby = true; return k; }).ToList());
+        else Row(index, "no playout cues to stand by — nothing sent");
+    }
+
     /// <summary>The owner thread's turn that loaded an item is over: its standby cues stand by, unless it started in that turn.</summary>
     public void EndOfTurn()
     {

@@ -146,6 +146,14 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Playout" Width="85">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding PlayoutLabel}" Tag="{Binding}" Click="OnPlayoutCues" Padding="6,1" MinWidth="0" MinHeight="0" FontSize="12"
+                                    ToolTip="Up to 4 playout cues: a PlayMap playlist's item or a Patterns cue that GOes when the item starts; standby at load only where you set it" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
                 <DataGridTemplateColumn Header="Auto" Width="60">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>

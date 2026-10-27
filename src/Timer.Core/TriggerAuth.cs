@@ -241,6 +241,68 @@ public static class TriggerAuthRules
     public static string Body(string kind, string requestId, string payload)
         => kind == Patterns && payload.Length > 0 ? "@" + requestId + " " + payload : payload;
 
+    /// <summary>What each kind's secret is and the header it rides in, as Settings offers the kinds.</summary>
+    public static string KindWords(string kind) => kind switch
+    {
+        PlayMap => "PlayMap token (X-PlayMap-Token)",
+        Patterns => "Patterns token (X-Patterns-Token)",
+        Stagewatch => "Stagewatch PIN or key (X-Stagewatch-Pin)",
+        Bearer => "Bearer token (Authorization)",
+        _ => "none",
+    };
+
+    /// <summary>
+    /// A rule's auth profile as Settings' grid shows it, never its secret: "none", "none — a secret in its address" (the warning's case),
+    /// or the kind with "secret set" or "no secret — type it".
+    /// </summary>
+    public static string Label(TriggerRule rule)
+    {
+        if (!Carries(rule)) return Warning(rule) is not null ? "none — a secret in its address" : "none";
+        var kind = KindOf(rule);
+        var name = Kinds.Contains(kind) ? KindWords(kind) : $"'{LoadNotes.Shown(kind)}' (not a kind Stagewatch knows)";
+        return name + (string.IsNullOrEmpty(rule.Auth!.SecretProtected) ? " · no secret — type it" : " · secret set");
+    }
+
+    /// <summary>
+    /// Settings' profile box for one rule: <paramref name="kind"/> one of <see cref="Kinds"/> — <see cref="None"/> takes the profile
+    /// away, secret and all — and the secret as protected text, null to keep the one kept (a kind changed keeps it too). Null when
+    /// set; else why not, and nothing changed. Whether the rule may then be saved is <see cref="Problem"/>'s, said at Save.
+    /// </summary>
+    public static string? SetProfile(TriggerRule rule, string? kind, string? secretProtected)
+    {
+        var k = (kind ?? "").Trim().ToLowerInvariant();
+        if (k.Length == 0) k = None;
+        if (!Kinds.Contains(k)) return $"'{LoadNotes.Shown(kind)}' isn't a kind of secret Stagewatch knows ({string.Join(", ", Kinds)})";
+        if (k == None)
+        {
+            rule.Auth = null;
+            return null;
+        }
+        rule.Auth = new TriggerAuth { Kind = k, SecretProtected = secretProtected ?? rule.Auth?.SecretProtected ?? "" };
+        return null;
+    }
+
+    /// <summary>
+    /// The move a <see cref="Warning"/> offers for a Stagewatch PIN in an address (<see cref="QueryPin"/>): the PIN out of the address and
+    /// into a profile of kind <see cref="Stagewatch"/>, protected by <paramref name="protect"/>. Made only when the rule would then be
+    /// sent as it stands (<see cref="SecretProblem"/>, <see cref="Problem"/>): null when moved; else why not — plain HTTP to another
+    /// machine among them — and the rule is left as it was, firing as before with its warning.
+    /// </summary>
+    public static string? MovePin(TriggerRule rule, Func<string, string> protect, Func<IPAddress, bool>? isLoopback = null)
+    {
+        if (rule.Action != TriggerAction.Http || Carries(rule)) return "only an HTTP trigger with no secret of its own moves a PIN out of its address";
+        if (QueryPin(rule) is not { } found) return "its address names no PIN to move (pin=, typed out, not a placeholder)";
+        var (target, pin) = found;
+        if (SecretProblem(pin) is { } bad) return "its PIN can't be sent in a header: " + bad;
+        var moved = rule.Clone();
+        moved.Target = target;
+        moved.Auth = new TriggerAuth { Kind = Stagewatch, SecretProtected = "set" };
+        if (Problem(moved, isLoopback) is { } why) return "it would then be refused: " + why;
+        rule.Target = target;
+        rule.Auth = new TriggerAuth { Kind = Stagewatch, SecretProtected = protect(pin) };
+        return null;
+    }
+
     /// <summary>A rule's name as a refusal or note quotes it.</summary>
     public static string Named(TriggerRule rule) => $"trigger '{LoadNotes.Shown(rule.Name.Length > 0 ? rule.Name : "(no name)")}'";
 

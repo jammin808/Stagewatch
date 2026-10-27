@@ -231,6 +231,21 @@ public static class PlayoutGate
         return kept;
     }
 
+    /// <summary>
+    /// The list as Settings' box gives it — addresses separated by commas, semicolons, spaces or lines — kept by the rules a settings
+    /// file's list keeps (<see cref="Sanitise"/>), with each entry left out said in <c>Notes</c>: a person sees what was not kept before
+    /// anything relies on it. Fails closed: nothing is widened to an address the person did not write.
+    /// </summary>
+    public static (List<string> Kept, IReadOnlyList<string> Notes) Typed(string? text)
+    {
+        var notes = new LoadNotes();
+        var kept = Sanitise((text ?? "").Split([',', ';', ' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries), notes);
+        return (kept, notes.Words);
+    }
+
+    /// <summary>The list as Settings' box shows it: one address a line.</summary>
+    public static string Shown(IEnumerable<string>? from) => string.Join(Environment.NewLine, from ?? []);
+
     /// <summary>The listed addresses as the gate compares them: the first <see cref="MaxFrom"/> readable ones, an immutable copy.</summary>
     public static IReadOnlyList<IPAddress> Addresses(IEnumerable<string?>? from)
         => Sanitise(from).Select(a => Parse(a)!).ToArray();

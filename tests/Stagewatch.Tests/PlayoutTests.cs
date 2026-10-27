@@ -248,22 +248,46 @@ static class PlayoutTests
         Check(taken.PlayoutLinks is [{ Kind: "auto", Node: "", Transport: "auto", Enabled: true }] && takenNotes.Words is [var back] && back.Contains("a Patterns desk's again", StringComparison.Ordinal),
               "playout settings: 2.17 keys an older Stagewatch changed take link patterns back from a PlayMap node, said");
 
-        // The Settings box writes link patterns: nothing for a box nobody touched, made when ticked, refused with words when full.
-        var box = new IntegrationSettings();
-        Check(PlayoutRules.EditPatterns(box, false, "", PlayoutRules.PatternsPort, null, false) is null && box.PlayoutLinks.Count == 0,
-              "playout settings: an untouched Patterns box makes no link");
-        Check(PlayoutRules.EditPatterns(box, true, " 10.0.0.5 ", 9697, "dG9r", true) is null
-              && box.PlayoutLinks is [{ Name: "patterns", Enabled: true, Host: "10.0.0.5", TokenProtected: "dG9r", NextOnEnd: true }],
-              "playout settings: a ticked Patterns box makes link patterns");
-        Check(PlayoutRules.EditPatterns(box, true, "10.0.0.6", 0, null, false) is null && box.PlayoutLinks is [{ Host: "10.0.0.6", Port: 9697, TokenProtected: "dG9r" }],
-              "playout settings: a token left as it was is kept, and a port out of range keeps the one it had");
-        Check(PlayoutRules.EditPatterns(box, false, "10.0.0.7:9697", 9697, null, false) is { } badHost && badHost.Contains("its own box", StringComparison.Ordinal)
-              && box.PlayoutLinks is [{ Enabled: true, Host: "10.0.0.6" }],
-              "playout settings: an address with its port in it is said, and nothing changes");
-        var crowded = new IntegrationSettings { PlayoutLinks = many.Take(8).Select(l => l.Clone()).ToList() };
-        Check(PlayoutRules.EditPatterns(crowded, true, "10.0.0.5", 9697, null, false) is { } full8 && full8.Contains("8 playout links", StringComparison.Ordinal)
-              && crowded.PlayoutLinks.Count == 8 && PlayoutRules.PatternsLink(crowded) is null,
-              "playout settings: no room for link patterns is said, and nothing changes");
+        // Settings' Add and Edit write a link by the rules a file's links keep, each refusal said and nothing changed.
+        static PlayoutLinkEdit E(string name, string kind = "auto", string host = "10.0.0.5", int port = 9697, string? token = null, string node = "", string transport = "auto")
+            => new(name, true, kind, host, port, token, node, transport, true, false);
+        var edits = new List<PlayoutLinkSettings>();
+        Check(PlayoutRules.EditLink(edits, null, E(" Stage-Left ", "playmap", " 10.0.0.12 ", 9941, "dG9r", "a1b2c3d4", "WSS")) is null
+              && edits is [{ Name: "stage-left", Kind: "playmap", Host: "10.0.0.12", Port: 9941, TokenProtected: "dG9r", Node: "a1b2c3d4", Transport: "wss", Enabled: true, FollowVt: true }],
+              "playout settings: Add writes a link, its name and words tidied as a file's are");
+        Check(PlayoutRules.EditLink(edits, "stage-left", E("stage-left", "playmap", "", 9941, null, "a1b2c3d4")) is null
+              && edits is [{ Host: PlayoutRules.DefaultHost, TokenProtected: "dG9r" }],
+              "playout settings: Edit keeps the token kept when none is typed, and a blank address is this PC");
+        Check(PlayoutRules.EditLink(edits, "stage-left", E("stage-left", "playmap", "", 9941, "", "a1b2c3d4")) is null && edits[0].TokenProtected == "",
+              "playout settings: a token emptied is none");
+        Check(PlayoutRules.EditLink(edits, null, E("patterns")) is null && edits.Count == 2 && edits[1].Name == "patterns", "playout settings: a link added goes last");
+        var before = JsonSerializer.Serialize(edits);
+        string? Refused(string? was, PlayoutLinkEdit e) => PlayoutRules.EditLink(edits, was, e);
+        Check(Refused(null, E("pause")) is { } action && action.Contains("one of its commands", StringComparison.Ordinal)
+              && Refused(null, E("vmix")) is { } reserved && reserved.Contains("another integration", StringComparison.Ordinal)
+              && Refused(null, E("Stage left")) is { } spaced && spaced.StartsWith("A playout link is named with", StringComparison.Ordinal)
+              && Refused("patterns", E("stage-left")) is { } takenName && takenName.Contains("Another playout link is called stage-left", StringComparison.Ordinal),
+              "playout settings: a name the rules refuse, or another link's, is said");
+        Check(Refused(null, E("x1", kind: "vmix")) is { } kind && kind.Contains("isn't a kind", StringComparison.Ordinal)
+              && Refused(null, E("x1", transport: "udp")) is { } tr && tr.Contains("isn't a transport", StringComparison.Ordinal)
+              && Refused(null, E("x1", kind: "patterns", transport: "wss")) is { } tls && tls.Contains("offers no TLS on its wire", StringComparison.Ordinal),
+              "playout settings: a kind or transport not known, and TLS asked of a Patterns desk, are said");
+        Check(Refused(null, E("x1", host: "10.0.0.7:9697")) is { } hostPort && hostPort.Contains("its own box", StringComparison.Ordinal)
+              && Refused(null, E("x1", port: 0)) is { } portZero && portZero.Contains("isn't a port", StringComparison.Ordinal)
+              && Refused(null, E("x1", port: 70000)) is not null,
+              "playout settings: an address with its port in it, and a port out of range, are said");
+        Check(Refused(null, E("x1", node: "a1b2 c3")) is { } badNode && badNode.Contains("isn't a Show Bus node id", StringComparison.Ordinal)
+              && Refused("patterns", E("patterns", node: "a1b2c3d4")) is { } nodeTwice && nodeTwice.Contains("is link stage-left's", StringComparison.Ordinal),
+              "playout settings: a node id that isn't one, or another link's, is said");
+        Check(Refused("gone", E("gone")) is { } gone && gone.Contains("no playout link called gone", StringComparison.Ordinal),
+              "playout settings: an edit of a link that isn't there is said");
+        Check(JsonSerializer.Serialize(edits) == before, "playout settings: a refused edit changes nothing");
+        Check(PlayoutRules.EditLink(edits, "patterns", E("foh")) is null && edits.Select(l => l.Name).SequenceEqual(new[] { "stage-left", "foh" }),
+              "playout settings: a link renamed keeps its place");
+        var full8 = many.Take(8).Select(l => l.Clone()).ToList();
+        Check(PlayoutRules.EditLink(full8, null, E("one-more")) is { } room && room.Contains("has 8 already", StringComparison.Ordinal) && full8.Count == 8
+              && PlayoutRules.EditLink(full8, full8[0].Name, full8[0].Edit() with { Enabled = false }) is null && !full8[0].Enabled,
+              "playout settings: no room for a ninth link is said, and a full list's links still change");
 
         // The settings JSON names every field.
         var json = JsonSerializer.Serialize(new PlayoutLinkSettings { Name = "stage-left" });

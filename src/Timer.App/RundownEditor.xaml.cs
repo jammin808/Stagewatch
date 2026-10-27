@@ -560,6 +560,8 @@ public partial class RundownEditor : Window
         public Dictionary<string, string> DeptNotes { get; private set; } = new(StringComparer.OrdinalIgnoreCase);
         /// <summary>The item's playout cues, carried through the editor whole (a row keeps them until it is deleted).</summary>
         public List<PlayoutCue> Playout { get; private set; } = new();
+        public string PlayoutLabel => Stagewatch.Integrations.PlayoutCueChoices.Summary(Playout);
+        public void SetPlayout(List<PlayoutCue> cues) { Playout = cues; Notify(nameof(PlayoutLabel)); }
         /// <summary>True once notes were changed in this editor (otherwise notes made live on crew pages are kept on save).</summary>
         public bool DeptNotesEdited { get; private set; }
         public string DeptNotesLabel => DeptNotes.Count == 0 ? "Add…" : $"{DeptNotes.Count} note{(DeptNotes.Count == 1 ? "" : "s")}";

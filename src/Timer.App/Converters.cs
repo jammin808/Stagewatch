@@ -77,3 +77,11 @@ public sealed class OutputModeLabel : IValueConverter
         } : "";
     public object ConvertBack(object v, Type t, object p, CultureInfo c) => throw new NotSupportedException();
 }
+
+/// <summary>An HTTP trigger's auth profile as Settings' grid shows it (<see cref="Stagewatch.Core.TriggerAuthRules.Label"/>), never its secret.</summary>
+public sealed class TriggerSecretLabel : IValueConverter
+{
+    public object Convert(object value, Type t, object p, CultureInfo c)
+        => value is Stagewatch.Core.TriggerRule rule ? Stagewatch.Core.TriggerAuthRules.Label(rule) : "none";
+    public object ConvertBack(object v, Type t, object p, CultureInfo c) => throw new NotSupportedException();
+}

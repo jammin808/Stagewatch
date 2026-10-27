@@ -638,7 +638,9 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
                 Kind = it.Kind,
                 Fixed = it.StartMode == StartMode.Fixed,
                 HardOut = it.HardOut ?? "",
-                AdjustSeconds = it.AdjustSeconds
+                AdjustSeconds = it.AdjustSeconds,
+                PlayoutCues = it.Playout.Count,
+                ItemId = it.Id,
             });
         }
         HasRundown = items.Count > 0;
@@ -1354,10 +1356,15 @@ public sealed partial class RundownRow : ObservableObject
     public bool HasLabels => LabelChips.Count > 0;
     public string GroupDetail { get; init; } = "";
     public bool GroupOver { get; init; }
-    /// <summary>Planned start (📌 fixed), curfew, trims, plus ↪ when the item rolls into the next on its own.</summary>
+    /// <summary>How many playout cues the item has (its right-click cues and GOes them now).</summary>
+    public int PlayoutCues { get; init; }
+    /// <summary>The id of the item this row drew: a press from its menu finds the item by its place and this id, or refuses.</summary>
+    public string ItemId { get; init; } = "";
+    /// <summary>Planned start (📌 fixed), curfew, trims, ▶ and the number of its playout cues, plus ↪ when the item rolls into the next on its own.</summary>
     public string Subtitle => (PlannedStartText + (Fixed ? " 📌" : "")
         + (HardOut.Length > 0 ? $"  ⏹ {HardOut}" : "")
         + (AdjustSeconds != 0 ? $"  {(AdjustSeconds < 0 ? "−" : "+")}{TimerTick.FormatSeconds(Math.Abs(AdjustSeconds))}" : "")
+        + (PlayoutCues > 0 ? $"  ▶ {PlayoutCues.ToString(System.Globalization.CultureInfo.InvariantCulture)}" : "")
         + (AutoAdvance ? "  ↪" : "")).Trim();
 
     [ObservableProperty] private bool _isCurrent;

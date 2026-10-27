@@ -190,7 +190,7 @@
                             </Border>
                             <Button help:ContextHelp.Tip="patterns-last10" Content="Last 10 s" Command="{Binding PatternsLast10Command}" FontSize="12" Padding="8,2" MinHeight="0" MinWidth="0" Margin="0,0,6,0"
                                     Visibility="{Binding PatternsCanJump, Converter={StaticResource BoolToVis}}"
-                                    ToolTip="Patterns: jump the clip on air to its last 10 seconds (its end and whatever follows still play). Command: patterns end 10" />
+                                    ToolTip="Jump the clip feeding the VT to its last 10 seconds, over its own playout link (its end and whatever follows still play). Right-click for the clip's other entries. Command: playout &lt;link&gt; end 10" />
                             <Border help:ContextHelp.Tip="chip-curfew" Visibility="{Binding HardOutLine, Converter={StaticResource NonEmptyToVis}}">
                                 <Border.Style>
                                     <Style TargetType="Border" BasedOn="{StaticResource Chip}">

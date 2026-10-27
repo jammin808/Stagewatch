@@ -175,9 +175,9 @@ so Stagewatch never relays one for a sender that proved nothing. It runs when it
 - from this PC: a loopback address, and over HTTP, a WebSocket or MCP also a `Host` that names this PC there (none,
   `localhost` or a loopback address, at Stagewatch's port);
 - over HTTP, a WebSocket or MCP, with the PIN Stagewatch asks for or a key (a control key; MCP an MCP key);
-- or from an address listed in **Settings → Remote → May drive playout** (`remote.playoutFrom` in the settings file: at
-  most 16, each one IPv4 or IPv6 address written out; names, ranges, ports and loopback addresses are left out at load,
-  and said).
+- or from an address listed in **Settings → Remote → May drive playout** (one a line in its box; `remote.playoutFrom` in the
+  settings file: at most 16, each one IPv4 or IPv6 address written out; names, ranges, ports and loopback addresses are left
+  out at load, and said; the box refuses to save one it can't keep, and says which).
 
 A listed address is trusted by its source address alone. Over OSC, which is UDP, any machine on that network can send
 from an address it does not own, so list addresses only on a show network you trust; over HTTP, a WebSocket or MCP a key
@@ -410,8 +410,9 @@ file, the secret DPAPI-protected for this Windows user, never in clear — and s
 | `stagewatch` | `X-Stagewatch-Pin: <PIN or key>` | `X-Request-Id: tr<n>-<inst>` |
 | `bearer` | `Authorization: Bearer <secret>` | — |
 
-A profile is made only through the desk's Settings fields for it (the kind, a password box the desk protects, the save-time
-words), which are the maintainer's work on the PC and not run here; the file holds only what the desk protected. A secret typed
+A profile is made in **Settings → Triggers**, the rule's **Secret** column: its kind, and a password box the desk checks
+(printable ASCII) and protects; Save says why a rule can't keep it, and keeps nothing until it can. The file holds only what the
+desk protected. A secret typed
 into the file in clear is not one this PC can read: the trigger says so and sends nothing. A secret is printable ASCII, at most
 256 characters — anything else no header carries, and it is refused before anything is dialled.
 
@@ -439,7 +440,8 @@ no cookie and follows no redirect: a 3xx after the request went reads unconfirme
 set its address to where it points" — since a 303 can follow a command that ran. A secret in the query beside a profile is
 refused. A rule with no profile fires as it always did (its whole address filled in, redirects followed): one whose query carries
 a secret (`?pin=`, `token=`, `api_key=`…) gets a warning at save and in its status, naming the parameter, never its value, and
-the PIN's move into a `stagewatch` profile is offered.
+the PIN's move into a `stagewatch` profile is offered at Save — made only where the rule would then be sent (to this PC, or over
+`https://`); to another machine over plain HTTP it is not made, said, and the rule fires as before.
 
 A fire has 3 s to reach its target and, once its request may have gone, 5 s for its answer (`receipt.deadline.ms` and 2 s), so
 an `accepted` said at the acceptor's own deadline is read. Every HTTP trigger's answer is read by 13.12.3: `applied`, `refused`
@@ -708,7 +710,7 @@ asked for. There is no command that disconnects a show app: revoking its key is 
 
 ### Stagewatch's Patterns link: the token never crosses the network
 
-Stagewatch's own link to a Patterns desk (TCP 9697, Settings → Integrations → Patterns video):
+Stagewatch's own link to a Patterns desk (TCP 9697, Settings → Integrations → Playout links):
 - **A proof, never the token.** The desk's `NONCE` is answered with `AUTH-PROOF` only when it is exactly 32 lowercase
   hex, once per connection: a desk that refuses the proof and sends a fresh NONCE gets no second one.
 - **Plain `AUTH <token>` only on this PC.** It goes only to a socket whose remote address is loopback, and never on a

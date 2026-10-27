@@ -34,6 +34,7 @@ static class PlayoutTlsTests
     {
         Heard(Check);
         KeptForItsNode(Check);
+        KeptHoldFollowsItsToken(Check);
         Hellos(Check);
         await HelloSource(Check);
         using var files = new KitFiles();
@@ -264,6 +265,43 @@ static class PlayoutTlsTests
         Check(PlayoutWire.Short("03e9b152ca42518c" + new string('0', 48)) == "03e9 b152 ca42 518c"
               && PlayoutWire.Fingerprint([1, 2, 3]) == Convert.ToHexStringLower(SHA256.HashData([1, 2, 3])),
               "playout tls: a fingerprint is SHA-256 of the DER in lowercase hex, shown by its first 16 hex in fours");
+    }
+
+    /// <summary>
+    /// 13.15.3: a hold holds the token it was for. A link renamed in Settings, its token kept, starts from the hold its old name kept at
+    /// the same address or node — so it never proves at once the token its peer refused — capped as any restored hold is; never a hold
+    /// for another token, at another address or node, or one that has ended; and a link's own hold comes before another's.
+    /// </summary>
+    static void KeptHoldFollowsItsToken(Action<bool, string> Check)
+    {
+        var now = 1_700_000_000_000L;
+        string tag1 = PlayoutKeptStore.Tag("token one"), tag2 = PlayoutKeptStore.Tag("token two");
+        const string Here = "10.0.0.12:9941", There = "10.0.0.13:9941";
+        var store = new PlayoutKeptStore(null);
+        store.Keep("stage-left", tag1, new PeerKept(null, null, now + 30_000, "key"), now, Here);
+        Check(store.For("renamed", tag1, now, null, Here) is { HeldUntilWall: var until, HeldRefusal: "key", Pin: null } && until == now + 30_000,
+              "playout kept: a link renamed, its token kept, starts held as its old name was at the same address — it never proves the refused token again at once");
+        Check(store.For("renamed", tag2, now, null, Here) is null && store.For("renamed", tag1, now, null, There) is null && store.For("renamed", tag1, now) is null
+              && store.For("renamed", tag1, now + 30_000, null, Here) is null,
+              "playout kept: never another token's hold, one kept at another address, one with no address to match, or one that has ended");
+
+        // With its node set, a hold kept for that node (its binding, or its pin's node) follows the token to another address.
+        store.Keep("by-node", tag1, new PeerKept(null, null, now + 20_000, "locked", NodeId, "playmap"), now + 1, "10.0.0.20:9941");
+        Check(store.For("renamed-2", tag1, now, NodeId, "10.0.0.99:9941") is { HeldRefusal: "locked", NodeId: null } && store.For("renamed-2", tag1, now, "pm000000", "10.0.0.99:9941") is null,
+              "playout kept: with a node set, the hold kept for that node follows its token — its binding does not — and none kept for another node");
+
+        // A restored hold that would end too late is capped from now, carried or its own.
+        store.Keep("far", tag2, new PeerKept(null, null, now + 10 * PlayoutKeptStore.HoldMaxMs, "busy"), now, There);
+        Check(store.For("far-renamed", tag2, now, null, There)?.HeldUntilWall == now + PlayoutKeptStore.HoldMaxMs,
+              "playout kept: a carried hold ends within the longest a hold may be held, as a restored one does");
+
+        // A link's own hold for its token comes first; its own entry with no hold takes one kept for its token elsewhere.
+        store.Keep("own", tag1, new PeerKept(null, null, now + 5_000, "scope"), now + 2, Here);
+        store.Keep("plain", tag1, new PeerKept(new PeerPin(null, new string('d', 64), PinTrust.First), null, null, null), now, Here);
+        Check(store.For("own", tag1, now, null, Here) is { HeldRefusal: "scope", HeldUntilWall: var ownUntil } && ownUntil == now + 5_000
+              && store.For("stage-left", tag1, now, null, Here) is { HeldRefusal: "key" }
+              && store.For("plain", tag1, now, null, Here) is { HeldRefusal: "scope", Pin: not null },
+              "playout kept: a link's own hold comes first; a link holding none starts from the newest hold its token has at its address, keeping its own pin");
     }
 
     /// <summary>

@@ -111,15 +111,17 @@ Stagewatch (and every Slides agent) listens on UDP 9928 on every interface, shar
 - **Who reads it.** Producer → Show network lists every kind but presenter PCs, joined with the contexts and node links of the same
   id (§4). A Slides agent reads the `main` hellos to choose `https` (§3).
 
-### Find: the Patterns link's address
+### Find: a playout link's address
 
-Settings → Integrations → *Patterns video* → **Find** listens for `find.listen.ms` (3 s) on UDP `find.hello.port` (9928) and,
-beside it, on Patterns' own beacon, UDP `find.beacon.port` (9700), and lists each Patterns machine with its wire port: from a
-hello `{"t":"patterns","v":1,…,"ports":{"wire":9697}}` or a beacon `{"patterns":1,…,"wire":9697}`. Hearing none, it names both
-ports for the firewall. It reads a hello's line wire from `ports.wire`, else from the top-level `wire` the older senders give, and
-keeps a hello's id, `ports.https` and `tls` only where each has §2's shape. Find hears PlayMap's hello (`t` `playmap`, its line
-wire 9941) the same way, for the playout links; the *Patterns video* box is link `patterns`, a Patterns desk's, so it asks Find for
-Patterns machines only, and no other node takes one of the `find.max` (32) places it lists. A datagram that is not UTF-8 text names
+Settings → Integrations → *Playout links* → **Find** listens for `find.listen.ms` (3 s) on UDP `find.hello.port` (9928) and,
+beside it, on Patterns' own beacon, UDP `find.beacon.port` (9700), and lists each Patterns desk and PlayMap node with its wire
+port: from a hello `{"t":"patterns","v":1,…,"ports":{"wire":9697}}` or `{"t":"playmap",…,"ports":{"wire":9941}}`, or a beacon
+`{"patterns":1,…,"wire":9697}`. Hearing none, it names both ports for the firewall. It reads a hello's line wire from `ports.wire`,
+else from the top-level `wire` the older senders give, and keeps a hello's id, `ports.https` and `tls` only where each has §2's
+shape. It asks for those two kinds only, so no other node takes one of the `find.max` (32) places it lists; the one a person picks
+becomes a new link of its kind, its address, port and node id filled in, and one a link already reaches — its node, or its address
+and port — is that link's: it is said so in the list, and picking it selects that link, never adds another beside it (one node has
+one link). A datagram that is not UTF-8 text names
 no machine. 9700 stays in Find until Patterns' own hello on 9928 has been heard on a real network (Patterns' OPEN row L47, a walk);
 `WHATS_NEXT.md` names the change that drops it then. Stagewatch never sends on 9700. (The older multi-room beacon on UDP 9927 is
 separate and carries each room's timer summary: `FEATURES.md`.)
@@ -249,13 +251,13 @@ section has every message and refusal.
 
 Stagewatch reads the clip on air in Patterns desks and PlayMap nodes over their own line wires, as playout sources beside vMix, and
 drives them. Each link Settings → Integrations names — at most `playout.links` (8), each by a name such as `stage-left`; the 2.17
-*Patterns video* box is link `patterns` — runs on its own on Stagewatch's PeerLink core (Show Bus §13) at level 0: it keeps §13's
+*Patterns video* box became link `patterns` — runs on its own on Stagewatch's PeerLink core (Show Bus §13) at level 0: it keeps §13's
 rules a connector keeps on its own, and offers no LINK yet. A link runs while it is switched on and the licence (Production) runs
 playout links; its transport (`auto`, `tcp` or `wss`) says how it reaches its peer, and a PlayMap node is reached over TLS where
 it can be (*TLS to a PlayMap node*, below).
 
 - **Connect:** TCP at the link's address and port — `patterns.wire.port` (9697) unless another is set; a PlayMap node's line wire is
-  9941 (*Patterns video*'s Find, §2, fills a Patterns desk's). Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe
+  9941 (Find, §2, fills each in). Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe
   (`@hi PING`); once paired, a `PING` every `patterns.ping.ms` (2 s), and only a pong that answers one of its last pings is a clock
   sample. A link heard within `link.stale.ms` (6 s) is live; silent past it, it is stale — amber, and no countdown — and silent past
   `patterns.drop.ms` (12 s) it is dropped and redialled. A redial waits `patterns.redial.first.ms` (500 ms) at first, doubling to
@@ -398,7 +400,8 @@ it can be (*TLS to a PlayMap node*, below).
   `clock.window` (8), one a ping every `patterns.ping.ms` (2 s), as Show Bus 13.11.3 has it — so it can be up to about 16 s old
   while fresher samples are kept, and a timed GO then falls back (held, or at once) and says the clock is not fit. The design's
   "the smallest round trip among the samples at most 10 s old" is not what 13.11.3 says, and the contract is followed.
-- **The running order's cues** (at most `playout.cues.per.item` (4) an item; the desk's editor for them is the maintainer's PC work):
+- **The running order's cues** (at most `playout.cues.per.item` (4) an item; *Edit running order → Playout* picks them from what each
+  peer lists, its walk on Windows the maintainer's):
   each names its link and a PlayMap playlist's item or a Patterns cue, by id. A load sends nothing unless a cue is set to stand by
   (off by default: a PlayMap standby shows the item's first frame on air, a Patterns one moves that desk's own standby); then, once
   the show thread's turn that loaded it is over, and only when the item did not start in that turn, PlayMap's `PLAYLIST CUE` (on a

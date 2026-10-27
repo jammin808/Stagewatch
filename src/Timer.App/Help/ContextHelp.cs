@@ -130,6 +130,21 @@ public static class ContextHelp
         return item;
     }
 
+    /// <summary>
+    /// A menu item that is live when <paramref name="why"/> is null, else greyed with why — the words its press would be refused in —
+    /// shown when the pointer rests on it, greyed as it is.
+    /// </summary>
+    public static MenuItem Offer(string header, Action run, string? why, string? gesture = null)
+    {
+        var item = Item(header, run, why is null, gesture);
+        if (why is not null)
+        {
+            item.ToolTip = why;
+            ToolTipService.SetShowOnDisabled(item, true);
+        }
+        return item;
+    }
+
     /// <summary>The help text block at the foot of a menu: title in bold, then one or two lines.</summary>
     private static MenuItem Explanation(string? title, string? text)
     {

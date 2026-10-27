@@ -388,12 +388,43 @@ running app on a network: two copies of one install for the conflict, an old cer
   `companion-module/test/playout-lines.tsv` holds the module's lines to the grammar from both ends (the module's tests press every
   action against it; the suite reads every line as the Companion server does). Left: Companion itself has not loaded these
   definitions here — the module's tests and `companion-module-check` ran, a deck has not (the maintainer's PC); the module reads
-  no `INDEX` or `CUE LIST`, so GO and cue take ids or names typed, not picked (the desk's pickers are SW20.11's); and a press's
+  no `INDEX` or `CUE LIST`, so GO and cue take ids or names typed, not picked (the desk's cue editor picks them); and a press's
   answer reaches the log and one variable, not a feedback of its own button.
+  *Since then (SW20.11):* the desk sets all of it up. **Settings → Integrations → Playout links** lists every link with its status
+  (Find, Add, Edit, Remove, Trust its certificate…, the buttons and the list's right-click enabled together): Find listens for
+  Patterns desks and PlayMap nodes and adds the one picked with its kind, address, port and node id — one a link already reaches
+  (its node, or its address and port) is that link's, selected and never added beside it; Add and Edit set every field — name,
+  peer, address, port, token (proved, kept encrypted), node, transport, VT, next on end — each refused in words by the rules a
+  settings file keeps, never mended (`PlayoutRules.EditLink`); a renamed link's running-order cues move with it, in every running
+  order of the show (cues that already named the new name go with them, and are said), and a hold its peer's refusal started
+  follows its token to the new name (`PlayoutKeptStore.For`); Remove says how many cues still name it (kept, and skipped with
+  advice). Trust its certificate… offers only the certificate a row showed waiting, bound to it: one that comes to wait after the
+  list was drawn is offered once it is drawn again, and one changed since is drawn again at the press, nothing trusted. The lead
+  of a GO at one instant has its box (100–2000 ms). The 2.17 *Patterns video* box is gone: it was link `patterns`, which the list
+  shows. **Settings → Remote → May drive playout** takes addresses one a line; Save refuses one it can't keep and says which,
+  never widening it. **Settings → Triggers** has a **Secret** column — the kind, a password box checked and protected — and Save
+  offers to move a `?pin=` out of an address only where the rule would then be sent. **Edit running order → Playout** edits up to
+  4 cues an item, each picked from what its peer lists (or typed by id), with standby's words for its kind and together's. The
+  running order's rows show ▶ and how many cues, and right-click *Cue playout now* and *GO playout now* run the planner by hand
+  (the running order left where it is) on the item the row drew, found again at the press by its place and id — refused, nothing
+  sent, when the running order changed under the menu (another made live from the wire, an undo). The VT chip's right-click (and
+  *Last 10 s*'s) has the clip's Play, Pause, Stop, Restart, Last 10 s and Seek to… on the link feeding the VT when the menu opened
+  — the lines a deck sends for that link, Last 10 s's `playout <link> end 10` among them — each greyed with the words its press
+  would be refused in (the plan's own, the licence, the link down) or the peer's WHOAMI (`PlayoutMenus`). Help says it all, a
+  Patterns standby moving the desk's own standby and a PlayMap one showing on air among it; the suite holds the seams
+  (`PlayoutDeskTests`) and UiSmoke has checks for the list, the editor, the rows and the chip. Left: none of it has been walked on
+  Windows — the WPF compiles here, its walk is the maintainer's (`pwsh tools\smoke.ps1`); nothing on the desk forgets a pin yet,
+  nor offers *Link again now* (13.16.6); a trigger target's certificate is trusted from the status line, not from Settings; a cue
+  in a show file not open keeps a renamed link's old name. *Cue playout now* and *GO playout now* are presses of the desk alone:
+  they run no line, so Companion's recorder does not take them, they have no receipt, and no deck, wire, MCP client or copilot can
+  run or propose them — a grammar form for an item's cues (its parser verb, help line, `Copilot.Classify` risk and context row) is
+  a later unit's, named for 2.20's papers (SW20.14). Settings' list is drawn when it opens and after each change made in it: a
+  certificate that comes to wait while it is open is offered on the status line and the node's Show network row, and in the list
+  once it is drawn again.
 - **Find still listens on Patterns' beacon.** Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled:
   the release after that walk row is filled takes it. Find already reads a hello's `ports.wire` (else the top-level `wire` older
   senders give) and hears PlayMap's hello as well as Patterns', so a desk that names its wire only in `ports` is listed; Settings'
-  *Patterns video* box asks Find for Patterns desks only. `NodesDocTests` holds this row here while Find listens on 9700.
+  *Playout links* Find asks for Patterns desks and PlayMap nodes only. `NodesDocTests` holds this row here while Find listens on 9700.
 - **No button gives an install a new id** (the upgrade notes say how by hand). The desk's conflict words tell the operator to.
 - **A conflict reaches the desk, the advice and the AI's facts, not the context or Companion.** By §6, an id two machines say has
   no `peers` row in Stagewatch's context, so other apps reading it and MCP's `get_context` do not list it, and the Companion

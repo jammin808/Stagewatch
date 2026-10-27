@@ -139,7 +139,7 @@ static class NodesDocTests
         Hellos(Check, Section(nodes, DiscoveryHeading));
         Table(Check, Section(nodes, JoiningHeading), Fourteen(Read(master) ?? ""));
         Find(Check, nodes, Read(Path.Combine(docs, "WHATS_NEXT.md")) ?? "",
-            Read(Path.Combine(Path.GetDirectoryName(docs)!, "src", "Timer.App", "SettingsDialog.xaml.cs")));
+            Read(Path.Combine(Path.GetDirectoryName(docs)!, "src", "Timer.App", "SettingsDialog.Playout.cs")));
     }
 
     // ------------------------------------------------------------------ §2's hellos
@@ -277,7 +277,8 @@ static class NodesDocTests
     /// Find listens on <see cref="PlayoutWire.FindPorts"/>, the list it binds. While that list holds Patterns' beacon, the page says so
     /// with the walk it waits for, and WHATS_NEXT names the change that drops it once that walk is filled; once it does not, the page no
     /// longer says Find keeps it. Settings' Find listens for <see cref="PlayoutWire.FindListen"/>, the table's time, and no other, for
-    /// Patterns desks, the kind its box links to (Timer.App is not built beside this suite on every platform, so its source is read).
+    /// Patterns desks and PlayMap nodes, the kinds a playout link reaches (Timer.App is not built beside this suite on every platform, so
+    /// its source is read).
     /// </summary>
     static void Find(Action<bool, string> Check, string nodes, string next, string? dialog)
     {
@@ -289,8 +290,8 @@ static class NodesDocTests
             Check(Flat(next).Contains("Drop UDP 9700 from Find once Patterns' 9928 walk (its OPEN row L47) is filled", StringComparison.Ordinal),
                 "nodes doc: WHATS_NEXT names the change that drops 9700 from Find, and the walk it waits for");
         var calls = Regex.Matches(dialog ?? "", @"DiscoverAsync\(((?:[^()]|\([^()]*\))*)\)").Select(m => m.Groups[1].Value.Trim()).ToList();
-        Check(calls.Count > 0 && calls.All(a => a == "PlayoutWire.FindListen, [PlayoutRules.Patterns]"),
-            "nodes doc: Settings' Find listens for PlayoutWire.FindListen, for Patterns desks (" + string.Join("; ", calls) + ")");
+        Check(calls.Count > 0 && calls.All(a => a == "PlayoutWire.FindListen, [PlayoutRules.Patterns, PlayoutRules.PlayMap]"),
+            "nodes doc: Settings' Find listens for PlayoutWire.FindListen, for Patterns desks and PlayMap nodes (" + string.Join("; ", calls) + ")");
     }
 
     // ------------------------------------------------------------------ helpers

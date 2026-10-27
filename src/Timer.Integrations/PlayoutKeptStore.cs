@@ -84,18 +84,37 @@ public sealed class PlayoutKeptStore
     /// within <see cref="HoldMaxMs"/>; null when it kept nothing. A pin is for its node (13.8, 13.4.1): a link set to another node
     /// since — or, while no node is set, to another address, where another node may answer — starts with none of the old one's pin,
     /// floor or binding; and a link whose own entry has no pin for it (renamed, made again, or moved back) starts from the pin and floor
-    /// another entry keeps for its node — or, while no node is set, for the address it dials — never that entry's hold, which is its
-    /// token's. Its door is <see cref="DoorFor"/>'s.
+    /// another entry keeps for its node — or, while no node is set, for the address it dials. A hold holds the token it was for
+    /// (13.15.3): a link whose own entry holds none starts from a hold another entry keeps for the same token (its tag) at the same
+    /// node or address and that has not ended — so a link renamed in Settings, its token kept, never proves again at once the token
+    /// its peer refused — never one for another token. Its door is <see cref="DoorFor"/>'s.
     /// </summary>
     public PeerKept? For(string name, string tag, long nowWall, string? node = null, string? address = null)
     {
         lock (_gate)
         {
             var (kept, _) = Resolve(name, node, address);
-            if (kept is null) return null;
-            if (!_links.TryGetValue(name, out var e) || e.Tag != tag) return kept with { HeldUntilWall = null, HeldRefusal = null };
+            var own = _links.TryGetValue(name, out var e) && e.Tag == tag && e.Kept.HeldUntilWall is not null ? e.Kept : null;
+            var hold = own ?? HeldElsewhere(name, tag, nowWall, node, address);
+            if (kept is null && hold is null) return null;
+            kept = (kept ?? new PeerKept(null, null, null, null)) with { HeldUntilWall = hold?.HeldUntilWall, HeldRefusal = hold?.HeldRefusal };
             return kept is { HeldUntilWall: { } until } && until > nowWall + HoldMaxMs ? kept with { HeldUntilWall = nowWall + HoldMaxMs } : kept;
         }
+    }
+
+    /// <summary>
+    /// The newest hold another entry than <paramref name="name"/>'s keeps for the token tagged <paramref name="tag"/> that has not ended
+    /// at <paramref name="nowWall"/>, at the node the link is set to (its pin's node, else its binding) or at the address it dials; null
+    /// for none (under the lock).
+    /// </summary>
+    private PeerKept? HeldElsewhere(string name, string tag, long nowWall, string? node, string? address)
+    {
+        var meant = node is { Length: > 0 } n ? n : null;
+        var where = address is { Length: > 0 } a ? a : null;
+        return _links.Where(kv => kv.Key != name && kv.Value.Tag == tag && kv.Value.Kept.HeldUntilWall is { } until && until > nowWall
+                                  && ((where is not null && kv.Value.Address == where)
+                                      || (meant is not null && (kv.Value.Kept.Pin?.NodeId ?? kv.Value.Kept.NodeId) == meant)))
+            .Select(kv => kv.Value).MaxBy(x => x.At)?.Kept;
     }
 
     /// <summary>
@@ -109,7 +128,8 @@ public sealed class PlayoutKeptStore
 
     /// <summary>
     /// What a link's entry gives it (under the lock): its own pin when it is still for the node and address the link is set to, else
-    /// the newest other entry's for them; with the door kept beside that pin. A hold and a binding are only ever its own entry's.
+    /// the newest other entry's for them; with the door kept beside that pin. A binding is only ever its own entry's; a hold is
+    /// <see cref="For"/>'s to give.
     /// </summary>
     private (PeerKept? Kept, int Door) Resolve(string name, string? node, string? address)
     {

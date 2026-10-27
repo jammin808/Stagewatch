@@ -138,6 +138,87 @@ public sealed partial class MainViewModel
         ReceiptPeer(step);
     }
 
+    // ------------------------------------------------------------------ the desk's menus and editors
+
+    /// <summary>
+    /// The VT chip's right-click (owner thread): the link feeding the VT countdown, its peer, and its transport entries, each greyed with
+    /// why — the plan its press would run, the licence, the link down, or the peer's own WHOAMI (<see cref="PlayoutMenus.Vt"/>) — and
+    /// Last 10 s greyed too while its button is hidden (no clip that counts down). Null while vMix feeds the VT, or nothing does.
+    /// </summary>
+    public (string Link, string Peer, IReadOnlyList<PlayoutOffer> Offers)? VtOffers()
+    {
+        if (VtLink() is not { } name || _playout[name] is not { } link || PlayoutRules.Find(Settings.Integrations.PlayoutLinks, name) is not { } s) return null;
+        var offers = PlayoutMenus.Vt(s, PlayoutFacts.Of(link), link.Whoami, link.Connected, FeatureGate.AllowsPlayout(_license.Tier), Settings.Integrations.PlayoutLeadMs)
+            .Select(o => o is { Action: "end", Why: null } && !PatternsCanJump ? o with { Why = $"{link.Peer}'s clip on air has no length to count down — Last 10 s needs one" } : o)
+            .ToList();
+        return (name, link.Peer, offers);
+    }
+
+    /// <summary>
+    /// A VT chip entry pressed (owner thread): each runs the line a deck or the wire sends for the link the menu named and greyed
+    /// against, as the operator's (<c>playout &lt;link&gt; pause</c>, Last 10 s <c>playout &lt;link&gt; end 10</c>) — never one worked out
+    /// again at the press, which could reach another link's clip — so the recorder, the receipt and the show log see them as theirs.
+    /// </summary>
+    public void RunVtOffer(string link, string action, string seconds = "")
+    {
+        if (seconds.Any(char.IsWhiteSpace) || seconds.Any(char.IsControl)) Refuse("seek takes one time: 83, 1:23 or 0:01:23 — nothing sent");
+        else RunOperatorLine(PlayoutMenus.Line(link, action, seconds));
+    }
+
+    /// <summary>
+    /// The running-order item a row drew, found at the press in the live running order by its place and its id
+    /// (<see cref="PlayoutMenus.RowItem"/>), or null when the running order changed under the row's menu.
+    /// </summary>
+    private RundownItem? ItemOf(RundownRow row) => PlayoutMenus.RowItem(Settings.Rundown.Items, row.Index - 1, row.ItemId);
+
+    /// <summary>Why a running-order row's "Cue playout now" and "GO playout now" are greyed, or null (<see cref="PlayoutMenus.RowWhy"/>).</summary>
+    public string? PlayoutRowWhy(RundownRow row)
+        => ItemOf(row) is { } item ? PlayoutMenus.RowWhy(item, FeatureGate.AllowsPlayout(_license.Tier)) : PlayoutMenus.ChangedUnder;
+
+    /// <summary>
+    /// "Cue playout now" on a running-order row (owner thread): every cue of the item the row drew stands by now, by the guards a load's
+    /// standby keeps (<see cref="PlayoutDirector.CueNow"/>); each cue that cannot has its row on the status line and in the show log.
+    /// The item is found again at the press by its place and id: one changed under the menu (another running order made live from the
+    /// wire, an undo) is refused with words, and nothing is sent.
+    /// </summary>
+    public void CuePlayoutNow(RundownRow row)
+    {
+        if (ItemOf(row) is not { } item) Refuse(PlayoutMenus.ChangedUnder);
+        else if (PlayoutMenus.RowWhy(item, FeatureGate.AllowsPlayout(_license.Tier)) is { } why) Refuse(why);
+        else Director.CueNow(row.Index - 1, item);
+    }
+
+    /// <summary>
+    /// "GO playout now" on a running-order row (owner thread): the cues of the item the row drew GO as at its start
+    /// (<see cref="PlayoutDirector.GoNow"/>), the running order left where it is; found again at the press as for
+    /// <see cref="CuePlayoutNow"/>, so a GO never lands on another item's cues.
+    /// </summary>
+    public void GoPlayoutNow(RundownRow row)
+    {
+        if (ItemOf(row) is not { } item) Refuse(PlayoutMenus.ChangedUnder);
+        else if (PlayoutMenus.RowWhy(item, FeatureGate.AllowsPlayout(_license.Tier)) is { } why) Refuse(why);
+        else Director.GoNow(row.Index - 1, item);
+    }
+
+    /// <summary>
+    /// The links as the running order's cue editor offers them, in Settings' order (owner thread): each with its kind as heard (else as
+    /// set) and what its peer lists — a peer answering as another kind or node lists nothing (<see cref="PlayoutLink.Index"/>).
+    /// </summary>
+    public IReadOnlyList<PlayoutCueSource> PlayoutCueSources()
+        => Settings.Integrations.PlayoutLinks.Select(s =>
+        {
+            var link = _playout[s.Name];
+            var kind = link?.Kind ?? (s.Kind == PlayoutRules.Auto ? null : s.Kind);
+            return new PlayoutCueSource(s.Name, link?.Peer ?? PlayoutRules.Peer(kind, s.Name), kind, link?.Index, link?.Status ?? PlayoutNotRunning(s) ?? "off");
+        }).ToList();
+
+    /// <summary>A running link's light and status for Settings' list, or null while it does not run.</summary>
+    public (LinkHealth Health, string Status)? PlayoutLinkState(string name) => _playout[name] is { } link ? (link.Health, link.Status) : null;
+
+    /// <summary>The certificate of the running link <paramref name="name"/> that waits for a person, as the desk draws it, or null.</summary>
+    public CertificateWaiting? CertificateWaitingFor(string name)
+        => CertificatesWaiting().FirstOrDefault(w => w.TriggerKey is null && w.Link == name);
+
     /// <summary>
     /// The playout links a peer or an AI may propose lines for, for the context's commands: the ones
     /// running under the licence — moving the clip on air on each, and cueing and starting on one whose kind its STATE said — never one
