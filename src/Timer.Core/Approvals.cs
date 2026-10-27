@@ -97,12 +97,15 @@ public sealed class ProposalDesk
         }
         var said = _nodes.Speak(credential, from.Kind, from.Id, nowUtc);
         if (!said.Ok) return (null, said.Error, true);
+        // Rated before the desk's lock is taken: a rating reads the target's table on the caller's thread, and no approval, rejection
+        // or collect waits on it.
+        var rated = Risk(risk(target, line));
         lock (_lock)
         {
             Expire(nowUtc);
             if (PendingCount() >= MaxOpen) return (null, "too many proposals waiting", false);
             var id = "p" + (++_next).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var p = new SharedProposal(id, from, target, line, Str(root["reason"], MaxReason), Risk(risk(target, line)), toDesk,
+            var p = new SharedProposal(id, from, target, line, Str(root["reason"], MaxReason), rated, toDesk,
                 SharedProposalState.Pending, nowUtc);
             _byId[id] = p;
             Raise(p);
@@ -263,22 +266,10 @@ public sealed class ProposalDesk
     }
 
     /// <summary>
-    /// How risky a line is for a node, from the verbs its context lists ("signal go all" → high). Matches the verb's words
-    /// up to its first placeholder; anything not listed is high.
+    /// How risky a line is for a node, from the verbs its context lists ("signal go all" → high): the most specific whole form
+    /// that takes the line (<see cref="VerbTable.Rate"/>); anything no form takes is high.
     /// </summary>
-    public static string RiskFromCommands(IReadOnlyList<(string Verb, string Risk)> commands, string line)
-    {
-        var words = line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var best = (Len: 0, Risk: "high");
-        foreach (var (verb, risk) in commands)
-        {
-            var fixedWords = verb.Split(' ', StringSplitOptions.RemoveEmptyEntries).TakeWhile(w => !w.StartsWith('<') && !w.Contains('/')).ToArray();
-            if (fixedWords.Length == 0 || fixedWords.Length > words.Length) continue;
-            if (!fixedWords.Select((w, i) => w.Equals(words[i], StringComparison.OrdinalIgnoreCase)).All(x => x)) continue;
-            if (fixedWords.Length > best.Len) best = (fixedWords.Length, risk);
-        }
-        return best.Risk is "low" or "review" or "high" ? best.Risk : "high";
-    }
+    public static string RiskFromCommands(IReadOnlyList<(string Verb, string Risk)> commands, string line) => VerbTable.Compile(commands).Rate(line).Risk;
 }
 
 /// <summary>

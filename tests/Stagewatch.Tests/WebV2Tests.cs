@@ -933,6 +933,8 @@ static class WebV2Tests
             $"oversize: a 70,000-byte context is answered 413 with its size, read by the sender, not a reset ({refused.Code}: {refused.Error})");
         Check(control.Peers.Find("pat1", DateTime.UtcNow) is null && control.Nodes.NodeOf(patKey.Id) is null && control.Credentials.Count == classed,
             "oversize: no route reads it — no context stored, the key bound to nothing, no credential classed");
+        Check(web.TooBigContexts(DateTime.UtcNow) is [{ Address: "127.0.0.1", NodeId: null, Kind: null, Bytes: 70_000 }],
+            "oversize: the context refused is noted for the Show network by its address, its key bound to no node yet");
 
         // Over the cap anywhere but a deferred path: a command, a proposal, MCP. A wrong PIN on one is never read, so never counted.
         var elsewhere = new List<(HttpStatusCode, string?)>();
@@ -951,6 +953,11 @@ static class WebV2Tests
         var pin = await http.GetAsync("/api/context?pin=4321");
         Check(whole == (HttpStatusCode.OK, null) && control.Peers.Find("pat1", DateTime.UtcNow) is { Proof: NodeProof.Key } && pin.StatusCode == HttpStatusCode.OK,
             $"oversize: after the 413s, a 65,536-byte context is taken whole and the PIN opens this machine's address ({whole.Code}, {pin.StatusCode})");
+        var bound = await Post("/api/peers/context", over, patSecret);
+        Check(bound.Code == HttpStatusCode.RequestEntityTooLarge
+              && web.TooBigContexts(DateTime.UtcNow) is [{ NodeId: null, Address: "127.0.0.1" }, { NodeId: "pat1", Kind: "patterns", Address: "127.0.0.1", Bytes: 70_000 }]
+              && web.TooBigContexts(DateTime.UtcNow.Add(PeerContexts.KeepFor).AddSeconds(1)).Count == 0,
+            "oversize: once its key speaks for a node, a context it posts too big is noted by that node, beside the address's own note, each kept as long as a context");
 
         // Drained: declared and not yet sent, the server waits for the body before it answers; sent, the answer follows, then the close.
         const string Head = "POST /api/peers/context HTTP/1.1\r\nHost: stagewatch\r\nContent-Type: application/json\r\nContent-Length: ";

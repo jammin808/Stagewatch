@@ -25,6 +25,14 @@ public sealed record HeldContext(PeerContexts.Entry Entry, NodeProof Proof, bool
 }
 
 /// <summary>
+/// A context posted to /api/peers/context and refused 413 before any of it was read (Show Bus §6: a context is at most
+/// <c>context.bytes</c>): the address it came from, the node the request's node key is bound to (<see cref="Kind"/> and
+/// <see cref="NodeId"/>, null for any other credential or none), the bytes it declared, and when. Nothing of the body is kept, so it
+/// sets no risk: the Show network says so on the sender's row.
+/// </summary>
+public sealed record TooBigContext(string Address, string? Kind, string? NodeId, long Bytes, DateTime AtUtc);
+
+/// <summary>
 /// One show app in the show network: the summary every reader takes (the context's peers row, the AI's facts, the desk's
 /// row), the context its light, headline, items and recent lines come from and what that proves now (null and none when
 /// it has none), the /ws link that proves its id (null when none does), and the links that name its id and prove nothing
@@ -44,6 +52,12 @@ public sealed record NetworkRow(PeerSummary Peer, PeerContexts.Entry? Context, N
     /// headline, items or recent lines reach a reader under the proven id (<see cref="Context"/> is null).
     /// </summary>
     public bool ClaimSetAside { get; init; }
+
+    /// <summary>
+    /// The latest context this app posted that was refused as too big to read, when nothing it posted since was taken: named by the
+    /// node its key is bound to, or by its address alone when exactly one row has that address; null otherwise.
+    /// </summary>
+    public TooBigContext? TooBig { get; init; }
 }
 
 /// <summary>
@@ -61,6 +75,12 @@ public sealed record NetworkView(IReadOnlyList<NetworkRow> Rows, int More, IRead
     /// amber, and a row a context or a proven link gives such an id amber too.
     /// </summary>
     public IReadOnlyList<HeardNode> Conflicts { get; init; } = Array.Empty<HeardNode>();
+
+    /// <summary>
+    /// The contexts refused as too big to read that no row names (<see cref="NetworkRow.TooBig"/>): a key's node that has no row, or an
+    /// address no row or more than one row has. The desk shows each apart (<see cref="ShowNetwork.TooBigRows"/>).
+    /// </summary>
+    public IReadOnlyList<TooBigContext> TooBig { get; init; } = Array.Empty<TooBigContext>();
 }
 
 /// <summary>
@@ -95,14 +115,16 @@ public static class ShowNetwork
 
     /// <summary>
     /// The join, capped at <paramref name="max"/> rows: rows a hello or a context gives are kept first, then rows only a
-    /// proven link gives; <see cref="NetworkView.More"/> counts the rest. <paramref name="contexts"/> are in the caller's
-    /// order of trust (held before pulled): a node's row takes the first that proves something, else the first, and sets
-    /// it aside when it proves nothing while a link proves the id. A row is live while a proven link is open, else by its
-    /// hello or context. Presenter PCs (kind <c>agent</c>) are links, not peers, and nothing under <paramref name="ownId"/>
-    /// is a peer.
+    /// proven link gives; <see cref="NetworkView.More"/> counts the rest. <paramref name="contexts"/> are one per id as
+    /// <see cref="PeerContexts.Speaking"/> chooses them, the context a proposal's risk reads; given more than one for an id, a
+    /// row takes the first that proves something, else the first. A row sets its context aside when it proves nothing while a
+    /// link proves the id. A row is live while a proven link is open, else by its hello or context. Each of
+    /// <paramref name="tooBig"/>, the latest per sender, rides on the row it names (<see cref="NetworkRow.TooBig"/>) while
+    /// nothing posted since was taken, or else apart (<see cref="NetworkView.TooBig"/>). Presenter PCs (kind <c>agent</c>) are
+    /// links, not peers, and nothing under <paramref name="ownId"/> is a peer.
     /// </summary>
     public static NetworkView Summaries(IEnumerable<HeardNode> hellos, IEnumerable<HeldContext> contexts, IReadOnlyList<NodeLinkFact> links,
-        string? ownId, DateTime nowUtc, int max = PeerContexts.MaxPeers)
+        string? ownId, DateTime nowUtc, int max = PeerContexts.MaxPeers, IEnumerable<TooBigContext>? tooBig = null)
     {
         bool Own(string id) => !string.IsNullOrEmpty(ownId) && string.Equals(id, ownId, StringComparison.Ordinal);
 
@@ -166,12 +188,28 @@ public static class ShowNetwork
         var kept = told.Concat(linkOnly).Take(Math.Max(0, max)).ToList();
         var more = told.Count + linkOnly.Count - kept.Count;
 
+        // A context refused as too big rides on the row of the node its key is bound to, else on the one row at its address; a later
+        // post that was taken (a context of the row's own, posted here since) leaves it out. Any other is shown apart.
+        var unnamed = new List<TooBigContext>();
+        foreach (var big in (tooBig ?? []).Where(t => !Own(t.NodeId ?? "")).GroupBy(t => (t.NodeId, t.Address)).Select(g => g.MaxBy(t => t.AtUtc)!).OrderBy(t => t.AtUtc))
+        {
+            var at = big.NodeId is { } id ? kept.FindIndex(r => r.Peer.Id == id) : kept.Count(r => r.Peer.Address == big.Address) == 1 ? kept.FindIndex(r => r.Peer.Address == big.Address) : -1;
+            if (at < 0)
+            {
+                unnamed.Add(big);
+                continue;
+            }
+            if (kept[at].Context is { } since && !kept[at].Pulled && since.AtUtc >= big.AtUtc) continue;
+            kept[at] = kept[at] with { TooBig = big };
+        }
+
         var listed = told.Concat(linkOnly).Select(r => r.Peer.Id).ToHashSet(StringComparer.Ordinal);
         var apart = links.Where(l => l.Verified == NodeProof.None && (l.Id is null || (!Own(l.Id) && !listed.Contains(l.Id))))
             .OrderBy(l => l.Kind, StringComparer.Ordinal).ThenBy(l => l.Id ?? "", StringComparer.Ordinal).ThenBy(l => l.ConnectedUtc).ToList();
         return new NetworkView(kept, more, apart)
         {
             Conflicts = conflicts.Values.OrderBy(c => c.Kind, StringComparer.Ordinal).ThenBy(c => c.Id, StringComparer.Ordinal).ToList(),
+            TooBig = unnamed,
         };
     }
 
@@ -228,9 +266,54 @@ public static class ShowNetwork
             // A link that names its id and proves nothing says so below; "not linked" would contradict it.
             if (row.Unproven.Count == 0) parts.Add("not linked on /ws");
         }
+        if (row.Context is { } kept && NotKept(kept) is { Length: > 0 } left) parts.Add(left);
+        if (row.TooBig is { } big) parts.Add(TooBigWords(big, row.Context is not null));
         foreach (var u in row.Unproven) parts.Add(ApartLine(u));
         return string.Join(" · ", parts);
     }
+
+    /// <summary>
+    /// What of a context this Stagewatch did not keep (Show Bus §6: a verb kept whole or dropped, and counted): its verbs that are
+    /// too long (over <see cref="PeerContexts.MaxVerbChars"/> characters), malformed (empty, holding a control character, or a
+    /// bracket that never closes) or past <see cref="PeerContexts.MaxCommands"/>, and its links whose ends or kind §6 does not allow or
+    /// past <see cref="PeerContexts.MaxLinks"/>; "" when it kept all of them. A line no kept verb takes reads high, whichever verbs
+    /// were dropped.
+    /// </summary>
+    public static string NotKept(PeerContexts.Entry context)
+    {
+        var parts = new List<string>(2);
+        if (context.CommandsDropped > 0)
+            parts.Add($"{Count(context.CommandsDropped, "verb")} not kept (too long, malformed or past {PeerContexts.MaxCommands.ToString(CultureInfo.InvariantCulture)})"
+                      + " — a line no kept verb takes reads high");
+        if (context.LinksDropped > 0) parts.Add($"{Count(context.LinksDropped, "link")} not kept");
+        return parts.Count == 0 ? "" : "of its context, " + string.Join(" and ", parts);
+
+        static string Count(int n, string what) => n.ToString(CultureInfo.InvariantCulture) + " " + what + (n == 1 ? "" : "s");
+    }
+
+    /// <summary>The headline of a row shown apart for a context refused as too big to read, which nothing else names.</summary>
+    public const string TooBigHeadline = "posted a context too big to read — not kept, so its verbs read high";
+
+    /// <summary>
+    /// What a row says of a context it posted that was refused as too big to read (<see cref="NetworkRow.TooBig"/>): its size beside
+    /// the most a context may be, and what sets its risk now — the context the row shows, while one is held, else nothing, so its
+    /// verbs read high.
+    /// </summary>
+    public static string TooBigWords(TooBigContext big, bool held)
+        => $"posted a context too big to read ({Bytes(big.Bytes)} bytes, over {PeerContexts.MaxBytes.ToString(CultureInfo.InvariantCulture)}) — not kept"
+           + (held ? "; the context shown here still sets its risk" : ", so its verbs read high");
+
+    /// <summary>
+    /// The contexts refused as too big that no row names (<see cref="NetworkView.TooBig"/>), each a row of its own apart, keyed
+    /// <c>post:</c> and the node's id or the address (no node id has a ':'): named by the node its key is bound to, or by the address.
+    /// </summary>
+    public static IReadOnlyList<ApartRow> TooBigRows(IReadOnlyList<TooBigContext> tooBig)
+        => tooBig.Select(t => new ApartRow("post:" + (t.NodeId ?? t.Address), t.Kind ?? "", t.NodeId,
+            t.NodeId is { } id ? $"{AppName(t.Kind)} {id}" : $"A show app at {t.Address}", TooBigHeadline,
+            $"{t.Address} · {Bytes(t.Bytes)} bytes, over {PeerContexts.MaxBytes.ToString(CultureInfo.InvariantCulture)}")).ToList();
+
+    /// <summary>A declared length as people read it: one past a long's range is held as its largest, so "at least" is true of both.</summary>
+    private static string Bytes(long bytes) => (bytes == long.MaxValue ? "at least " : "") + bytes.ToString(CultureInfo.InvariantCulture);
 
     private static string ContextWords(NetworkRow row, PeerContexts.Entry c, Func<string, string?> keyName)
     {
@@ -271,7 +354,8 @@ public static class ShowNetwork
 
     /// <summary>
     /// The Show network's headline on the desk: the apps listed, the red ones, the keys refused (<paramref name="refused"/>),
-    /// the rows apart (unverified on /ws), the ids in conflict and how many more than the cap; "" when there is nothing at all.
+    /// the rows apart (unverified on /ws), the ids in conflict, the contexts refused as too big to read (on a row or apart) and how
+    /// many more than the cap; "" when there is nothing at all.
     /// <paramref name="refusalOnly"/> counts the desk's rows for refused apps no longer heard.
     /// </summary>
     public static string NetworkLine(NetworkView view, int refused, int refusalOnly)
@@ -280,12 +364,14 @@ public static class ShowNetwork
         var reds = view.Rows.Count(r => r.Peer.Light == Light.Red);
         var apart = view.Apart.Select(ApartKey).Distinct(StringComparer.Ordinal).Count();
         var conflicts = view.Conflicts.Count;
-        if (apps + apart + refusalOnly + conflicts + view.More == 0) return "";
+        var big = view.TooBig.Count + view.Rows.Count(r => r.TooBig is not null);
+        if (apps + apart + refusalOnly + conflicts + big + view.More == 0) return "";
         return $"Show network: {apps.ToString(CultureInfo.InvariantCulture)} app{(apps == 1 ? "" : "s")}"
                + (reds > 0 ? $" · {reds.ToString(CultureInfo.InvariantCulture)} red" : "")
                + (refused > 0 ? $" · {refused.ToString(CultureInfo.InvariantCulture)} key refused" : "")
                + (apart > 0 ? $" · {apart.ToString(CultureInfo.InvariantCulture)} unverified on /ws" : "")
                + (conflicts > 0 ? $" · {conflicts.ToString(CultureInfo.InvariantCulture)} id{(conflicts == 1 ? "" : "s")} said by two machines" : "")
+               + (big > 0 ? $" · {big.ToString(CultureInfo.InvariantCulture)} context{(big == 1 ? "" : "s")} too big to read" : "")
                + (view.More > 0 ? $" · +{view.More.ToString(CultureInfo.InvariantCulture)} more" : "");
     }
 

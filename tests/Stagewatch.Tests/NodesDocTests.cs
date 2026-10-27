@@ -77,7 +77,9 @@ static class NodesDocTests
         ("signal.kept.ms", () => Ms(new SignalBoard().KeepDoneFor)),
         ("read.context.items", () => Heard(1000, 1)?.Items.Count ?? -1),
         ("read.context.commands", () => Heard(1000, 1)?.Commands.Count ?? -1),
-        ("read.context.verb.chars", () => Heard(1, 1000) is { Commands: [var first, ..] } ? first.Verb.Length : -1),
+        ("read.context.verb.chars", () => Enumerable.Range(1, 1024).LastOrDefault(v => Heard(1, v) is { Commands.Count: 1, CommandsDropped: 0 }, -1)),
+        ("read.context.words.chars", () => Heard(1, 1, 1000) is { Commands: [var said, ..] } ? said.Words.Length : -1),
+        ("read.context.links", () => HeardLinks(1000)?.Links.Count ?? -1),
         ("cert.days", () => (long)CertificateLife.Span.TotalDays),
         ("cert.renew.days", () => CertificateLife.RenewDays),
         // The playout links: how many, and the director's look at a peer's STATE before and after a command.
@@ -120,10 +122,19 @@ static class NodesDocTests
     /// <summary>The most characters such an id may have and pass <paramref name="valid"/>; -1 for none.</summary>
     static long Longest(Func<string?, bool> valid) => Enumerable.Range(1, 256).LastOrDefault(n => valid(new string('a', n)), -1);
 
-    /// <summary>A peer's context as Stagewatch reads one: <paramref name="many"/> items and as many commands, each verb <paramref name="verb"/> characters.</summary>
-    static PeerContexts.Entry? Heard(int many, int verb) => PeerContexts.Parse(
+    /// <summary>
+    /// A peer's context as Stagewatch reads one: <paramref name="many"/> items and as many commands, each verb <paramref name="verb"/>
+    /// characters and its words <paramref name="words"/>.
+    /// </summary>
+    static PeerContexts.Entry? Heard(int many, int verb, int words = 0) => PeerContexts.Parse(
         "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\"},\"items\":[" + string.Join(",", Enumerable.Repeat("{\"id\":\"i\"}", many))
-        + "],\"commands\":[" + string.Join(",", Enumerable.Repeat("{\"verb\":\"" + new string('v', verb) + "\",\"risk\":\"low\"}", many)) + "]}",
+        + "],\"commands\":[" + string.Join(",", Enumerable.Repeat("{\"verb\":\"" + new string('v', verb) + "\",\"risk\":\"low\",\"words\":\"" + new string('w', words) + "\"}", many)) + "]}",
+        "", DateTime.UnixEpoch);
+
+    /// <summary>A peer's context as Stagewatch reads one: <paramref name="many"/> links, each a link §6 allows.</summary>
+    static PeerContexts.Entry? HeardLinks(int many) => PeerContexts.Parse(
+        "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"pat9\"},\"links\":["
+        + string.Join(",", Enumerable.Repeat("{\"from\":\"a\",\"to\":\"b\",\"kind\":\"feeds\",\"light\":\"green\"}", many)) + "]}",
         "", DateTime.UnixEpoch);
 
     public static void Run(Action<bool, string> Check)

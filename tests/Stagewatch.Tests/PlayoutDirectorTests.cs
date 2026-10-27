@@ -30,6 +30,7 @@ static class PlayoutDirectorTests
         await PlayMapLink(Check);
         await KindMismatch(Check);
         await ContextOfAnother(Check);
+        await ContextOfAnotherKind(Check);
         await Tickets(Check);
         await Director(Check);
     }
@@ -415,12 +416,16 @@ static class PlayoutDirectorTests
         Check(link.Value is { Source: "PlayMap", Link: "stage-left", Node: "pm5e6f7a" }, "playout link: the clip feeding the VT names PlayMap, the link and the node");
         var now = DateTime.UtcNow;
         Check(link.WrongKind is null && link.PulledContext == link.Context
-              && PlayoutLinks.Pulled([link], [], _ => NodeProof.Key, now) is [{ Pulled: true, Via: "stage-left", Proof: NodeProof.Key, Entry: { Id: "pm5e6f7a", Address: "127.0.0.1" } }]
-              && PlayoutLinks.PulledFor([link], "pm5e6f7a") == link.Context && PlayoutLinks.PulledFor([link], "9f8e7d6c") is null,
-              "playout link: its context speaks for the id its STATE gives, named by the link it came over");
-        var held = PeerContexts.Parse(PlayMapContext, "10.0.0.9", now)!;
-        Check(PlayoutLinks.Pulled([link], [new HeldContext(held, NodeProof.Operator)], _ => NodeProof.Key, now).Count == 0,
-              "playout link: a context already held for that id is left to it — one per node id");
+              && PlayoutLinks.Pulled([link], _ => NodeProof.Key, now) is [{ Pulled: true, Via: "stage-left", Proof: NodeProof.Key, Entry: { Id: "pm5e6f7a", Address: "127.0.0.1" } }]
+              && PlayoutLinks.PulledFor([link], new NodeRef("playmap", "pm5e6f7a", "")) is { Id: "pm5e6f7a", Kind: "playmap" }
+              && PlayoutLinks.PulledFor([link], new NodeRef("playmap", "9f8e7d6c", "")) is null && PlayoutLinks.PulledFor([link], new NodeRef("patterns", "pm5e6f7a", "")) is null,
+              "playout link: its context speaks for the id its STATE gives and as its kind, named by the link it came over");
+        Check(link.PulledEntry is { } read && ReferenceEquals(read, link.PulledEntry) && ReferenceEquals(read.Verbs, link.PulledEntry!.Verbs),
+              "playout link: one context the peer sent is read once, and its table compiled once, for every reader");
+        var peers = new PeerContexts(new NodeBindings());
+        Check(peers.Accept(PlayMapContext.Replace("Stage left", "Posted", StringComparison.Ordinal), "10.0.0.9", now, "desk01", NodeCredential.Operator).Status == 200
+              && peers.Speaking(PlayoutLinks.Pulled([link], peers.LinkedProof, now), now) is [{ Pulled: true, Via: "stage-left", Entry.Name: "Stage left" }],
+              "playout link: beside the operator's post for that id, the context its own link read speaks — one per node id");
         var sent = link.Playlist("GO", "Main show", "it1", null);
         Check(sent.Ticket is { } ticket && await ticket.First is { Outcome: PeerOutcome.Applied } && await ticket.Final is { Outcome: PeerOutcome.Applied }
               && desk.Heard.Any(l => l.EndsWith(" PLAYLIST GO \"Main show\" it1", StringComparison.Ordinal) && l.StartsWith("@s", StringComparison.Ordinal)),
@@ -443,9 +448,25 @@ static class PlayoutDirectorTests
         using var link = new PlayoutLink(new PlayoutLinkOptions { Host = "127.0.0.1", Port = desk.Port, Token = Token, Inst = "5e6f7a8b", Name = "stage-left", Kind = "playmap" });
         link.Start();
         Check(await PlayoutLinkTests.Until(() => link.Kind == PlayoutRules.PlayMap && link.Context is not null && link.NodeId == "pm5e6f7a", 10_000)
-              && link.PulledContext is null && PlayoutLinks.Pulled([link], [], _ => NodeProof.Key, DateTime.UtcNow).Count == 0
-              && PlayoutLinks.PulledFor([link], "9f8e7d6c") is null && PlayoutLinks.PulledFor([link], "pm5e6f7a") is null,
+              && link.PulledContext is null && PlayoutLinks.Pulled([link], _ => NodeProof.Key, DateTime.UtcNow).Count == 0
+              && PlayoutLinks.PulledFor([link], new NodeRef("playmap", "9f8e7d6c", "")) is null && PlayoutLinks.PulledFor([link], new NodeRef("playmap", "pm5e6f7a", "")) is null,
               $"playout link: a context naming another id than the node's STATE speaks for neither ({link.Status})");
+    }
+
+    /// <summary>
+    /// A PlayMap node whose context names its STATE's id as another kind (a Patterns context): it speaks for no node — a context speaks
+    /// only as the kind its link reads, so a peer at the operator's address never sets the risk of another kind of node.
+    /// </summary>
+    static async Task ContextOfAnotherKind(Action<bool, string> Check)
+    {
+        await using var desk = new PlayoutLinkTests.FakeDesk();
+        Peer(desk, () => PlayMapStateJson, PatternsContext.Replace("9f8e7d6c", "pm5e6f7a", StringComparison.Ordinal), null, _ => null);
+        using var link = new PlayoutLink(new PlayoutLinkOptions { Host = "127.0.0.1", Port = desk.Port, Token = Token, Inst = "5e6f7a8b", Name = "stage-left", Kind = "playmap" });
+        link.Start();
+        Check(await PlayoutLinkTests.Until(() => link.Kind == PlayoutRules.PlayMap && link.Context is not null && link.NodeId == "pm5e6f7a", 10_000)
+              && link.WrongKind is null && link.PulledContext is null && link.PulledEntry is null && PlayoutLinks.Pulled([link], _ => NodeProof.Key, DateTime.UtcNow).Count == 0
+              && PlayoutLinks.PulledFor([link], new NodeRef("patterns", "pm5e6f7a", "")) is null && PlayoutLinks.PulledFor([link], new NodeRef("playmap", "pm5e6f7a", "")) is null,
+              $"playout link: a context of another kind than the node's STATE speaks for no node ({link.Status})");
     }
 
     /// <summary>A link set up as a PlayMap node that meets a Patterns desk: amber with both kinds named, and nothing sent to it.</summary>
@@ -463,7 +484,7 @@ static class PlayoutDirectorTests
         Check(await PlayoutLinkTests.Until(() => link.Context is not null && link.Reading?.State.Video is not null, 10_000)
               && link.WrongKind is { } wrong && wrong.Contains("answers as Patterns", StringComparison.Ordinal)
               && link.Video is null && link.Value is null && link.PulledContext is null
-              && PlayoutLinks.Pulled([link], [], _ => NodeProof.Key, DateTime.UtcNow).Count == 0 && PlayoutLinks.PulledFor([link], "9f8e7d6c") is null,
+              && PlayoutLinks.Pulled([link], _ => NodeProof.Key, DateTime.UtcNow).Count == 0 && PlayoutLinks.PulledFor([link], new NodeRef("patterns", "9f8e7d6c", "")) is null,
               "playout link: nor feeds any reader — no clip for the VT, the frame or a clip's end, and no context for the network or a risk");
     }
 

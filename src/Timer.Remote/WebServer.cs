@@ -437,7 +437,9 @@ public sealed class WebServer : IAsyncDisposable
 
             // A request whose body this server will not read is answered first, whatever its path or credential: a Content-Length it
             // cannot read 400, a body over the cap 413. No route, credential check, lockout count, Require HTTPS redirect or /ws upgrade
-            // sees either, so anything that must see every request's credential (13.6.9's mark) stands above these two answers.
+            // sees either, so anything that must see every request's credential (13.6.9's mark) stands above these two answers. A
+            // context posted too big is noted for the Show network first, by the node its key is bound to or else its address: a
+            // reading of the credential that decides nothing and counts nothing.
             if (req.LengthUnreadable)
             {
                 await WriteJsonError(stream, 400, HttpRequest.UnreadableLength, ct);
@@ -445,6 +447,7 @@ public sealed class WebServer : IAsyncDisposable
             }
             if (req.Oversize > 0)
             {
+                if (req.Method == "POST" && req.Path == "/api/peers/context") NoteTooBig(req, remote);
                 await RefuseOversizeAsync(stream, req, ct);
                 return;
             }
@@ -846,6 +849,34 @@ public sealed class WebServer : IAsyncDisposable
     /// to see that a peer's honest dialling locked nothing out.
     /// </summary>
     public IReadOnlyList<AuthFailureCount> AuthFailures() => FailuresIn(_pinGuesses);
+
+    /// <summary>
+    /// The contexts posted to /api/peers/context and refused 413 within <see cref="PeerContexts.KeepFor"/> of
+    /// <paramref name="nowUtc"/>, the newest per sender (the node its key is bound to, else its address), at most
+    /// <see cref="PeerContexts.MaxPeers"/> senders, the oldest first. Read-only, any thread; nothing of a body is kept, and no
+    /// credential either.
+    /// </summary>
+    public IReadOnlyList<TooBigContext> TooBigContexts(DateTime nowUtc)
+    {
+        lock (_tooBigLock) return _tooBig.Where(t => nowUtc - t.AtUtc <= PeerContexts.KeepFor).ToList();
+    }
+
+    /// <summary>Notes a context refused as too big: by the node a node key in force is bound to, else by its address alone.</summary>
+    private void NoteTooBig(HttpRequest req, IPAddress remote)
+    {
+        var credential = CredentialOf(req);
+        var node = credential is { Proof: NodeProof.Key, KeyId: { } keyId } ? _control.Nodes.NodeOf(keyId) : null;
+        var note = new TooBigContext(Screens.AddressOf(remote), node?.Kind, node?.Id, req.Oversize, DateTime.UtcNow);
+        lock (_tooBigLock)
+        {
+            _tooBig.RemoveAll(t => t.NodeId == note.NodeId && (note.NodeId is not null || t.Address == note.Address));
+            _tooBig.Add(note);
+            if (_tooBig.Count > PeerContexts.MaxPeers) _tooBig.RemoveAt(0);
+        }
+    }
+
+    private readonly List<TooBigContext> _tooBig = [];
+    private readonly Lock _tooBigLock = new();
 
     /// <summary>
     /// The view passes' table the same way (Show Bus 12.2): wrong window addresses, viewing codes and crew links per device in

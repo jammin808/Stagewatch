@@ -147,9 +147,10 @@ public sealed partial class MainViewModel
     private NetworkView Network(DateTime now)
     {
         var hellos = NetworkPeers().Select(p => new HeardNode(p.Hello.Kind, p.Hello.Id, p.Hello.Name, p.Address, p.AgeSeconds) { Conflict = p.Conflict?.Words ?? "" });
-        var contexts = _peerContexts.Held(now).ToList();
-        contexts.AddRange(PlayoutLinks.Pulled(OrderedLinks(), contexts, _peerContexts.LinkedProof, now));
-        return ShowNetwork.Summaries(hellos, contexts, _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
+        // One context per id, chosen as a proposal's risk chooses it: the link-read one while it proves something.
+        var contexts = _peerContexts.Speaking(PlayoutLinks.Pulled(OrderedLinks(), _peerContexts.LinkedProof, now), now);
+        return ShowNetwork.Summaries(hellos, contexts, _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now,
+            tooBig: _web?.TooBigContexts(now) ?? Array.Empty<TooBigContext>());
     }
 
     /// <summary>The app a Show Bus kind names, for people.</summary>
@@ -165,7 +166,8 @@ public sealed partial class MainViewModel
         var refused = _nodes.RefusedSince(since, _nodeId).ToDictionary(r => r.Id, StringComparer.Ordinal);
         var heard = view.Rows.Select(r => r.Peer.Id).ToHashSet(StringComparer.Ordinal);
         // Links on /ws that prove no id get rows of their own: a conflict under the id it named, a key that names none under the key.
-        var apart = ShowNetwork.ApartRows(view.Apart).ToDictionary(a => a.Key, StringComparer.Ordinal);
+        // So do contexts refused as too big that no row names, keyed "post:" so they never meet a node id or a key's row.
+        var apart = ShowNetwork.ApartRows(view.Apart).Concat(ShowNetwork.TooBigRows(view.TooBig)).ToDictionary(a => a.Key, StringComparer.Ordinal);
         // An id two running nodes say (§2): amber, naming both, never merged; a row of its own unless a context or a proven link gives one.
         var conflicts = view.Conflicts.ToDictionary(c => c.Id, StringComparer.Ordinal);
         for (var i = PeerRows.Count - 1; i >= 0; i--)

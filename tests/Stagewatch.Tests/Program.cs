@@ -2106,6 +2106,7 @@ SupervisorTests.Holding(Check);
 await IntegrationTests.Run(Check);
 await WebV2Tests.Run(Check);
 NodeTests.Run(Check);
+VerbTableTests.Run(Check);
 await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);
 await BusCarrierProbeTests.Run(Check);

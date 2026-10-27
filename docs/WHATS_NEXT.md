@@ -446,6 +446,35 @@ running app on a network: two copies of one install for the conflict, an old cer
   both these answers and the Require HTTPS redirect, which all return before any credential is read. The 413's words are
   ASCII, so the Slides agent's status, which matches the raw answer, shows them as sent; it still shows other words' em dash
   as its JSON escape, a fix of its own.
+  *Since then (SW21.1):* PeerContexts keeps §14's numbers as a reader, and is the one home of them in code: a context's first
+  200 items, its first 256 commands, each verb whole up to 512 characters (a longer or malformed one — empty, holding a
+  control character, or opening a bracket it never closes — dropped and counted, never cut) with its words up to 512, and its
+  first 400 links whose ends and kind §6 allows (an end `@<id>/<item>` with a §2 id of 6 to 40, at most 120 characters), the
+  rest counted. A proposal's risk for another app is the most specific whole form of that app's verified table of its own kind
+  (§6's notation, `Timer.Core/VerbSyntax.cs`): a line no form takes is high, an exact tie rates higher, a carried line raises
+  the risk, four deep. A carried line no form takes is high, as on its own: PlayMap reads `VT`, `CLIP` and `TC` as `VIDEO` and
+  `TIMECODE`, and names a verb by its first words alone, rules no table states, so `BIND ADD note 60 TO VT STOP` is high here
+  as there; more than 256 carried lines at every depth together is high, as PlayMap counts them. A form is matched as a flat
+  run of steps, each against each word once, and a rating past 200,000 steps is high (about 20 ms on the cloud bench; the
+  review's row of 22 optional values, which took 11 s and over a gibibyte, now takes 995 steps, and one of 85, all a verb
+  holds, 12,213); a proposal is rated before the approval desk's lock is taken. One selector, `PeerContexts.Chosen`, gives the
+  Show network's row and a proposal's risk the same context: the one this desk's own playout link pulled while it proves
+  something — while no key speaks for that id — else the one posted with proof; a pulled context speaks only as the kind its
+  link reads, so a peer at the operator's address never rates another kind of node. A context posted too big to read is named
+  on the Show network: on the row of the node its key is bound to, or the one row at its address, else a row of its own apart,
+  and the headline counts it. On PlayMap's busy golden context (`tests/Stagewatch.Tests/fixtures/`), with each line value
+  filled by a listed low line 502 of its 504 form examples rate as their row and 2 higher (JSON in a row that carries lines);
+  with x1 in every value 496 and 8 higher (a binding's carried x1 names no form); none lower either way, where 2.20's matcher
+  rated 114 of its 144 low and review rows wrong. Against PlayMap's own `RiskOf` (its Core built at 6d781bc, in a scratch
+  harness outside the tree), 1,314,587 lines made from the golden's forms, PlayMap's aliases among their words, rated none
+  lower. Left: until PlayMap's context lists its word-dependent risks as rows of their own (its integration pass's PM-0),
+  `ASSISTANT SET enabled|provider …`, `DECODE POLICY … FORCE` and `MACHINE SET GPU-PRIORITY REALTIME` rate review here where
+  PlayMap's own `RiskOf` says high (PlayMap's policy still holds them to the Approved role while armed); a binding whose
+  carried words name no verb, such as `BIND FORGET note 60`, is high here where PlayMap says review, the price of failing
+  closed; the verdict says when a line fills a secret placeholder, but the desk refuses such a line only with SW21.2's line
+  fence; a context posted too big reaches the desk's Show network and the rig's view, not the context's peers rows or the AI's
+  facts; the window placements that read the kept links are SW22.2's; and the desk's rows are compiled here, never seen: a
+  walk-through of the Show network row is the maintainer's PC work, not run.
 - **A non-English show fills its context sooner.** The context is written with the default JSON encoder, which writes each
   character outside ASCII as a six-byte escape, so such a show reaches 64 KiB with about a third of an English show's text. A
   relaxed encoder waits for every reader's parser to be measured with it.

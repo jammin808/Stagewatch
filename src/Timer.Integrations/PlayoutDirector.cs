@@ -29,33 +29,29 @@ public sealed class PlayoutLinks
     }
 
     /// <summary>
-    /// The contexts <paramref name="links"/> pulled, as the show network takes them beside <paramref name="held"/> (Show Bus §6): each
-    /// link's <see cref="PlayoutLink.PulledContext"/> — from a peer of the kind its settings name, for the id its STATE gives — at the
-    /// link's address, proved as <paramref name="proof"/> says for its id (<see cref="PeerContexts.LinkedProof"/>: while no key speaks
-    /// for that id, this Stagewatch's own link to the address the operator set proves it), and named by the link it came over. One per
-    /// node id: an id <paramref name="held"/> or an earlier link in <paramref name="links"/>' order gives is left to that one.
+    /// The contexts <paramref name="links"/> pulled (Show Bus §6): each link's <see cref="PlayoutLink.PulledEntry"/> — from a peer of the
+    /// kind its settings name, as the kind and for the id its STATE gives — at the link's address and read now, proved as
+    /// <paramref name="proof"/> says for its id (<see cref="PeerContexts.LinkedProof"/>: while no key speaks for that id, this
+    /// Stagewatch's own link to the address the operator set proves it), and named by the link it came over. One per node id, the first
+    /// in <paramref name="links"/>' order; which of it and a context posted for the same id speaks is <see cref="PeerContexts.Chosen"/>'s.
     /// </summary>
-    public static IReadOnlyList<HeldContext> Pulled(IEnumerable<PlayoutLink> links, IEnumerable<HeldContext> held, Func<string, NodeProof> proof, DateTime nowUtc)
+    public static IReadOnlyList<HeldContext> Pulled(IEnumerable<PlayoutLink> links, Func<string, NodeProof> proof, DateTime nowUtc)
     {
-        var ids = held.Select(c => c.Entry.Id).ToHashSet(StringComparer.Ordinal);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
         var pulled = new List<HeldContext>();
         foreach (var link in links)
-            if (link.PulledContext is { } pc && PeerContexts.Parse(pc, link.Host, nowUtc) is { } pe && ids.Add(pe.Id))
-                pulled.Add(new HeldContext(pe, proof(pe.Id), Pulled: true) { Via = link.LinkName });
+            if (link.PulledEntry is { } pe && ids.Add(pe.Id))
+                pulled.Add(new HeldContext(pe with { AtUtc = nowUtc }, proof(pe.Id), Pulled: true) { Via = link.LinkName });
         return pulled;
     }
 
     /// <summary>
-    /// The context a link pulled for <paramref name="nodeId"/> (<see cref="PlayoutLink.PulledContext"/>), as a proposal's risk may take
-    /// it (Show Bus §11: a context read over the desk's own link), from the first link in <paramref name="links"/>' order whose context
-    /// names that id; null when none does.
+    /// The context a link pulled for the node <paramref name="target"/> names (<see cref="PlayoutLink.PulledEntry"/>), as a proposal's
+    /// risk may take it (Show Bus §11: a context read over the desk's own link): from the first link in <paramref name="links"/>' order
+    /// whose context names that id as that kind; null when none does.
     /// </summary>
-    public static string? PulledFor(IEnumerable<PlayoutLink> links, string nodeId)
-    {
-        foreach (var link in links)
-            if (link.PulledContext is { } pc && PeerContexts.Parse(pc, link.Host, DateTime.UtcNow) is { } pe && pe.Id == nodeId) return pc;
-        return null;
-    }
+    public static PeerContexts.Entry? PulledFor(IEnumerable<PlayoutLink> links, NodeRef target)
+        => links.Select(l => l.PulledEntry).FirstOrDefault(pe => pe is not null && pe.Id == target.Id && pe.Kind == target.Kind);
 
     /// <summary>
     /// The link a playout link's settings start, made and started: its token proved (never sent in clear off this PC), its request ids

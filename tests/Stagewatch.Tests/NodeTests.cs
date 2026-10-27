@@ -284,20 +284,22 @@ static class NodeTests
         Check(gone.Rows is [{ Peer.Liveness: "live", Peer.Link: "ws" }] && stale.Rows.All(r => r.Peer.Liveness == "stale" && r.Peer.Link == ""),
               "network: an open proven link is heard now; without one, a context ages as it always has");
 
-        // Trust order: a pulled context counts for its own id while no key speaks for it; the first that proves something wins.
+        // Trust order: a pulled context counts for its own id while no key speaks for it, and comes first while it does (one selector).
         var linkedJson = Context("patterns", "pat9", "Linked");
         var pulled = PeerContexts.Parse(linkedJson, "10.0.0.30", now)!;
         Check(peers.LinkedProof("pat9") == NodeProof.Key && peers.LinkedProof("pat1") == NodeProof.None,
               "network: a context pulled over this Stagewatch's own link proves its id only while no key speaks for that id");
         peers.Accept(Context("patterns", "pat9", "Open post"), "10.0.0.31", now, "desk01", NodeCredential.None);
-        var trust = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Held(now).Append(new HeldContext(pulled, peers.LinkedProof("pat9"))), Array.Empty<NodeLinkFact>(), "desk01", now);
+        var trust = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Speaking([new HeldContext(pulled, peers.LinkedProof("pat9"), Pulled: true)], now), Array.Empty<NodeLinkFact>(), "desk01", now);
         Check(trust.Rows.Single(r => r.Peer.Id == "pat9") is { Peer: { Name: "Linked", Verified: "key" }, ContextProof: NodeProof.Key },
               "network: an open post never outranks the pulled context that proves the id");
         peers.Accept(Context("patterns", "pat8", "Desk post"), "10.0.0.32", now, "desk01", NodeCredential.Operator);
         var pulled8 = PeerContexts.Parse(Context("patterns", "pat8", "Pulled"), "10.0.0.30", now)!;
-        var first = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Held(now).Append(new HeldContext(pulled8, peers.LinkedProof("pat8"))), Array.Empty<NodeLinkFact>(), "desk01", now);
-        Check(first.Rows.Single(r => r.Peer.Id == "pat8") is { Peer: { Name: "Desk post", Verified: "operator" }, ContextProof: NodeProof.Operator },
-              "network: a held context that proves something comes first, as the risk reads it");
+        var first = ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Speaking([new HeldContext(pulled8, peers.LinkedProof("pat8"), Pulled: true)], now), Array.Empty<NodeLinkFact>(), "desk01", now);
+        Check(first.Rows.Single(r => r.Peer.Id == "pat8") is { Peer: { Name: "Pulled", Verified: "key" }, ContextProof: NodeProof.Key, Pulled: true }
+              && ShowNetwork.Summaries(Array.Empty<HeardNode>(), peers.Speaking([], now), Array.Empty<NodeLinkFact>(), "desk01", now).Rows.Single(r => r.Peer.Id == "pat8")
+                  is { Peer: { Name: "Desk post", Verified: "operator" }, Pulled: false },
+              "network: the context this Stagewatch's own link pulled comes before the operator's post, as the risk reads it; without it, the post");
 
         // The cap: told rows first, then link-only rows; the rest are counted, never listed.
         var many = Enumerable.Range(1, 3).Select(i => new HeardNode("patterns", "p" + i, "P" + i, "10.0.1." + i, 1));
@@ -335,7 +337,7 @@ static class NodeTests
               && pm7.Context is null && pm7.ContextProof == NodeProof.None && pm7.ClaimSetAside && !pm7.Named && !pm7.Pulled,
               $"proof: under an id the operator's link proves, an open post sets nothing: grey, the link's headline, verified operator ({pm7.Peer.Light}, {pm7.Peer.Headline}, {pm7.Peer.Verified})");
         Check(ShowNetwork.LinkLine(pm7, Names) == "follows over /ws · the PIN (the operator's, not a key of its own) · 10.0.0.9 · " + ShowNetwork.SetAside
-              && ShowNetwork.MarkTip(pm7) == ShowNetwork.MarkWords("operator") && ShowNetwork.PeerAdvice(pin).Count == 0 && peers.RiskFor("pm7", "go", now) == "high",
+              && ShowNetwork.MarkTip(pm7) == ShowNetwork.MarkWords("operator") && ShowNetwork.PeerAdvice(pin).Count == 0 && peers.RiskFor(new NodeRef("playmap", "pm7", ""), "go", now) == "high",
               $"proof: the link line says the claim was set aside; no advice and no risk come from it ({ShowNetwork.LinkLine(pm7, Names)})");
 
         // A key's link and an open post stored before the key bound: the same, verified key.
@@ -667,33 +669,33 @@ static class NodeTests
         var keys = new[] { NodeKey("kK", null, null), NodeKey("kL", null, null), NodeKey("kM", null, null), NodeKey("kN", null, null) };
         nodes.Keep(keys);
         Check(peers.Accept(Context("patterns", "pat1", "FOH", low), "10.0.0.5", T0, "desk01", NodeCredential.Key("kK")) is (200, null, NodeProof.Key)
-              && peers.Find("pat1", T0) is { KeyId: "kK" } && peers.RiskFor("pat1", line, T0) == "low",
+              && peers.Find("pat1", T0) is { KeyId: "kK" } && peers.RiskFor(new NodeRef("patterns", "pat1", ""), line, T0) == "low",
               "proofs: a node key's context keeps the key it came with and sets the risk");
         nodes.Keep(keys.Where(k => k.Id != "kK"));
         var held = peers.Find("pat1", T0.AddSeconds(5));
-        Check(held is { Proof: NodeProof.Key, KeyId: "kK" } && peers.ProofOf(held) == NodeProof.None && peers.RiskFor("pat1", line, T0.AddSeconds(5)) == "high",
+        Check(held is { Proof: NodeProof.Key, KeyId: "kK" } && peers.ProofOf(held) == NodeProof.None && peers.RiskFor(new NodeRef("patterns", "pat1", ""), line, T0.AddSeconds(5)) == "high",
               "proofs: once its key is revoked its context proves nothing at once, and the risk is high");
         Check(peers.Accept(Context("patterns", "pat1", "Operator's", low), "10.0.0.2", T0.AddSeconds(5), "desk01", NodeCredential.Operator) is (200, null, NodeProof.Operator)
-              && peers.Find("pat1", T0.AddSeconds(5)) is { Name: "Operator's", Proof: NodeProof.Operator, KeyId: null } && peers.RiskFor("pat1", line, T0.AddSeconds(5)) == "low",
+              && peers.Find("pat1", T0.AddSeconds(5)) is { Name: "Operator's", Proof: NodeProof.Operator, KeyId: null } && peers.RiskFor(new NodeRef("patterns", "pat1", ""), line, T0.AddSeconds(5)) == "low",
               "proofs: an operator post then replaces it (a revoked key's proof is no longer the stronger)");
 
         Check(peers.Accept(Context("messenger", "ag1", "AGM", "{\"verb\":\"note <text>\",\"risk\":\"low\"}"), "10.0.0.7", T0, "desk01", NodeCredential.Key("kL")).Status == 200
-              && peers.RiskFor("ag1", "note hi", T0) == "low", "proofs: another node's key posts its own");
+              && peers.RiskFor(new NodeRef("messenger", "ag1", ""), "note hi", T0) == "low", "proofs: another node's key posts its own");
         nodes.Rebind("kM", "messenger", "ag1");
-        Check(peers.ProofOf(peers.Find("ag1", T0)!) == NodeProof.None && peers.RiskFor("ag1", "note hi", T0) == "high",
+        Check(peers.ProofOf(peers.Find("ag1", T0)!) == NodeProof.None && peers.RiskFor(new NodeRef("messenger", "ag1", ""), "note hi", T0) == "high",
               "proofs: when the operator moves the id to another key, the old key's context proves nothing");
         Check(nodes.Speak(NodeCredential.Key("kL"), "patterns", "pat1", T0.AddSeconds(6)).Ok
-              && peers.ProofOf(peers.Find("pat1", T0.AddSeconds(6))!) == NodeProof.None && peers.RiskFor("pat1", line, T0.AddSeconds(6)) == "high",
+              && peers.ProofOf(peers.Find("pat1", T0.AddSeconds(6))!) == NodeProof.None && peers.RiskFor(new NodeRef("patterns", "pat1", ""), line, T0.AddSeconds(6)) == "high",
               "proofs: the operator's context proves nothing once a key speaks for that node (it speaks with its key alone)");
 
         // A context pulled over this desk's own link: it counts for its own id while no key speaks for that id.
         var linked = Context("patterns", "pat9", "Linked", low);
-        Check(peers.RiskFor("pat9", line, T0, linked) == "low" && peers.RiskFor("pat8", line, T0, linked) == "high",
+        Check(peers.RiskFor(new NodeRef("patterns", "pat9", ""), line, T0, PeerContexts.Parse(linked, "10.0.0.30", T0)) == "low" && peers.RiskFor(new NodeRef("patterns", "pat8", ""), line, T0, PeerContexts.Parse(linked, "10.0.0.30", T0)) == "high",
               "proofs: the linked context sets the risk for its own id only");
         nodes.Speak(NodeCredential.Key("kN"), "patterns", "pat9", T0);
-        Check(peers.RiskFor("pat9", line, T0, linked) == "high", "proofs: the linked context counts for nothing once a key speaks for that id");
+        Check(peers.RiskFor(new NodeRef("patterns", "pat9", ""), line, T0, PeerContexts.Parse(linked, "10.0.0.30", T0)) == "high", "proofs: the linked context counts for nothing once a key speaks for that id");
         peers.Accept(Context("patterns", "pat9", "Own", "{\"verb\":\"EYE FOCUS <thing>\",\"risk\":\"review\"}"), "10.0.0.9", T0, "desk01", NodeCredential.Key("kN"));
-        Check(peers.RiskFor("pat9", line, T0, linked) == "review", "proofs: the node's own key's context is what sets the risk");
+        Check(peers.RiskFor(new NodeRef("patterns", "pat9", ""), line, T0, PeerContexts.Parse(linked, "10.0.0.30", T0)) == "review", "proofs: the node's own key's context is what sets the risk");
     }
 
     /// <summary>A request refused for want of room binds no key.</summary>
@@ -842,7 +844,7 @@ static class NodeTests
         var forged = peers.Accept(Context("patterns", "pat1", "Patterns FOH", "{\"verb\":\"VIDEO END <n>\",\"risk\":\"low\"}"), "10.0.0.7", T0.AddSeconds(1), "own1", keyA);
         Check(forged is (403, "this key speaks for messenger ag1 — make a key for patterns pat1", NodeProof.None)
               && peers.Find("pat1", T0.AddSeconds(1)) is { Address: "10.0.0.5", AtUtc: var at } && at == T0
-              && peers.RiskFor("pat1", "VIDEO END 10", T0.AddSeconds(1)) == "high",
+              && peers.RiskFor(new NodeRef("patterns", "pat1", ""), "VIDEO END 10", T0.AddSeconds(1)) == "high",
               "contexts: key A posting for Patterns is refused (403) and Patterns' entry is unchanged");
         Check(peers.Accept(pat, "10.0.0.9", T0, "own1", NodeCredential.None).Status == 403 && peers.Accept(pat, "10.0.0.9", T0, "own1", NodeCredential.Operator).Status == 403,
               "contexts: an open post or the PIN for a key-bound id is refused");
@@ -858,9 +860,9 @@ static class NodeTests
         var line = "EYE FOCUS screen 2";
         var open = Context("patterns", "pat7", "Open Patterns", "{\"verb\":\"EYE FOCUS <thing>\",\"risk\":\"low\"}");
         Check(peers.Accept(open, "10.0.0.8", T0, "own1", NodeCredential.None) is (200, null, NodeProof.None)
-              && peers.Find("pat7", T0) is { Proof: NodeProof.None } e7 && peers.ProofOf(e7) == NodeProof.None && peers.RiskFor("pat7", line, T0) == "high",
+              && peers.Find("pat7", T0) is { Proof: NodeProof.None } e7 && peers.ProofOf(e7) == NodeProof.None && peers.RiskFor(new NodeRef("patterns", "pat7", ""), line, T0) == "high",
               "contexts: an open post for a free id is held unverified, and its 'low' never lowers a risk");
-        Check(peers.RiskFor("pat1", line, T0) == "low" && peers.RiskFor("nobody1", line, T0) == "high",
+        Check(peers.RiskFor(new NodeRef("patterns", "pat1", ""), line, T0) == "low" && peers.RiskFor(new NodeRef("patterns", "nobody1", ""), line, T0) == "high",
               "contexts: the node's own context sets the risk; no context is high");
 
         // A weaker proof never replaces a stronger one within the time a context is kept.

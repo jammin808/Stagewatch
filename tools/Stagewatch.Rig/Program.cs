@@ -1129,10 +1129,12 @@ sealed class Rig : ICompanionBridge, IDisposable
         }
         var heard = (_beacon?.Peers() ?? Array.Empty<SlidesBeacon.Peer>())
             .Select(p => new HeardNode(p.Hello.Kind, p.Hello.Id, p.Hello.Name, p.Address, p.AgeSeconds) { Conflict = p.Conflict?.Words ?? "" });
-        // The contexts its playout links pulled join the network as the app's do, one per node id, in the links' order.
-        var contexts = _peerContexts.Held(now).ToList();
-        contexts.AddRange(PlayoutLinks.Pulled(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>(), contexts, _peerContexts.LinkedProof, now));
-        var view = ShowNetwork.Summaries(heard, contexts, _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now);
+        // The contexts its playout links pulled join the network as the app's do, one per node id, in the links' order, chosen beside
+        // the ones posted here as a proposal's risk chooses (the link-read one while it proves something); a context refused as too big
+        // rides on its sender's row.
+        var pulled = PlayoutLinks.Pulled(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>(), _peerContexts.LinkedProof, now);
+        var view = ShowNetwork.Summaries(heard, _peerContexts.Speaking(pulled, now), _web?.ListNodes() ?? Array.Empty<NodeLinkFact>(), _nodeId, now,
+            tooBig: _web?.TooBigContexts(now) ?? Array.Empty<TooBigContext>());
         foreach (var c in view.Conflicts.Where(c => !_conflictsLogged.Contains(c.Id))) Log($"hello: {c.Conflict} — its hello adds no peers row while the mark stands");
         _conflictsLogged = view.Conflicts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         _network = view;

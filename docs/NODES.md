@@ -181,9 +181,15 @@ Rules (game netcode, on purpose):
   `context:trimmed` item. MCP's `get_context` is the same JSON. Another app posts its own to `POST /api/peers/context` (its node
   key, or a control key or the PIN while no key speaks for its id), at most `context.bytes` as sent, counted in UTF-8 bytes (a
   longer one is answered `413` with the size it declared, and stored nowhere, as any body over `http.body.bytes` is); one is kept
-  `context.kept.ms` (30 s). As a reader of those, Stagewatch does not keep §14's numbers yet (it keeps a context's first
-  `read.context.items` (64) items and `read.context.commands` (64) commands, cuts a verb at `read.context.verb.chars` (80)
-  characters and reads no links: Show Bus §8.1).
+  `context.kept.ms` (30 s). As a reader of those, Stagewatch keeps §14's numbers (2.21): a context's first
+  `read.context.items` (200) items, its first `read.context.commands` (256) commands, each verb whole up to
+  `read.context.verb.chars` (512) characters (a longer one is dropped and counted, never cut) and its words up to
+  `read.context.words.chars` (512), and its first `read.context.links` (400) links whose ends and kind §6 allows; a malformed
+  verb is dropped and counted too. A line proposed for that app rates by the most specific whole form of its table, of its own
+  kind, and only while the table is verified: pulled over Stagewatch's own playout link while no key speaks for that id, which
+  comes first, as on its Show network row, else posted with the app's own node key (or the operator's credential while no key
+  speaks for its id); any other line, a carried line no form takes, or any line for an unverified table, is high (REMOTE.md,
+  "How the desk rates another app's line"). A context posted too big to read is named on the Show network.
 - **Proposals.** Stagewatch keeps the show's approval queue (cap `approvals`, Show Bus §11): `POST /api/proposals`; another app
   collects what was approved for it with `GET /api/proposals?target=<its id>&state=approved` and its node key, and reports
   `POST /api/proposals/<id>/result`. REMOTE.md's 2.16 section has the shapes.
@@ -555,9 +561,11 @@ and `hello.failed.beats`, are Stagewatch's own.
 | `context.kept.ms` | 30000 | how long a context posted here is kept |
 | `ack.by.chars` | 40 | the most characters of who answered a cue: a name, or a name and the device's address |
 | `signal.kept.ms` | 30000 | an answered or cancelled cue stays on the board, and in the frame, this long |
-| `read.context.items` | 64 | the items Stagewatch keeps of a context posted to it |
-| `read.context.commands` | 64 | the commands it keeps of one |
-| `read.context.verb.chars` | 80 | a kept command's verb is cut to this |
+| `read.context.items` | 200 | the items Stagewatch keeps of a context posted to it, its first |
+| `read.context.commands` | 256 | the commands it keeps of one, its first; the rest are counted |
+| `read.context.verb.chars` | 512 | the longest verb it keeps, whole; a longer or malformed one is dropped and counted |
+| `read.context.words.chars` | 512 | a kept command's words are kept to this |
+| `read.context.links` | 400 | the links it keeps of one, its first whose ends and kind §6 allows; the rest are counted |
 | `cert.days` | 825 | its certificate's whole span, NotBefore to NotAfter |
 | `cert.renew.days` | 30 | fewer days than this left, and a new certificate is made |
 | `playout.links` | 8 | the most playout links Stagewatch keeps |

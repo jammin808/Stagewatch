@@ -69,9 +69,10 @@ public sealed partial class MainViewModel
         => _peerContexts.Accept(json, address, DateTime.UtcNow, _store.Snapshot.NodeId, credential);
 
     /// <summary>
-    /// How risky a line is for its target: the desk's own rules for itself, the target's listed verbs otherwise. Unknown is
-    /// high, and so is a target whose context proves nothing now. A playout link's peer's context, pulled over this desk's own link to
-    /// the address the operator set, counts while no key speaks for that id (<see cref="PeerContexts.RiskFor"/>).
+    /// How risky a line is for its target: the desk's own rules for itself, the most specific whole form of the target's verified table
+    /// otherwise, of the target's kind. Unknown is high, and so is a target whose context proves nothing now. A playout link's peer's
+    /// context, pulled over this desk's own link to the address the operator set, comes first while it proves something — while no key
+    /// speaks for that id — as on the Show network's row (<see cref="PeerContexts.Chosen"/>).
     /// </summary>
     private string RiskFor(NodeRef target, string line)
     {
@@ -81,7 +82,7 @@ public sealed partial class MainViewModel
             if (tokens.Count == 0 || !ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out _)) return "high";
             return Copilot.Classify(cmd) switch { CopilotRisk.Low => "low", CopilotRisk.Review => "review", _ => "high" };
         }
-        return _peerContexts.RiskFor(target.Id, line, DateTime.UtcNow, LinkedContext(target.Id));
+        return _peerContexts.RiskFor(target, line, DateTime.UtcNow, LinkedContext(target));
     }
 
     private static List<string> McpTokens(string line) => Stagewatch.Remote.McpEndpoint.Tokenize(line);

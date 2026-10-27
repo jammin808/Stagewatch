@@ -297,12 +297,13 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>
-    /// The context a playout link pulled for the node with this id, as a proposal's risk may take it (<see cref="PlayoutLink.PulledContext"/>:
-    /// read over this Stagewatch's own link to the address the operator set, from a peer of the kind its settings name, for the id its
-    /// STATE gives), or null. <see cref="PeerContexts.RiskFor"/> counts it only while no key speaks for that id.
+    /// The context a playout link pulled for the node a proposal targets, as its risk may take it (<see cref="PlayoutLink.PulledEntry"/>:
+    /// read over this Stagewatch's own link to the address the operator set, from a peer of the kind its settings name, as the kind and
+    /// for the id its STATE gives, and naming the target's kind and id), or null. <see cref="PeerContexts.Chosen"/> takes it first while
+    /// it proves something, as the Show network's row does.
     /// </summary>
-    private string? LinkedContext(string nodeId)
-        => PlayoutLinks.PulledFor(OrderedLinks(), nodeId);
+    private PeerContexts.Entry? LinkedContext(NodeRef target)
+        => PlayoutLinks.PulledFor(OrderedLinks(), target);
 
     /// <summary>The playout links running now, in Settings' order: the first that gives a node id speaks for it.</summary>
     private IEnumerable<PlayoutLink> OrderedLinks()

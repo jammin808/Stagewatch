@@ -358,6 +358,7 @@ public sealed class PlayoutLink : IPlayoutSource
     private long _readings;
     private string? _context;
     private string? _contextNode;
+    private string? _contextKind;
     // The kind the peer's STATE says (13.4: its t, Patterns' none) once one was read, kept across a redial to the same address: a
     // peer's kind is what it said last, never guessed from the port. And PlayMap's WHOAMI answer, on the connection up now.
     private string? _kindSeen;
@@ -418,7 +419,7 @@ public sealed class PlayoutLink : IPlayoutSource
     /// </summary>
     private sealed record Published(LinkHealth Health, string Status, PeerLinkState State, PlayoutPairing Pairing, bool Connected,
         PeerLinkRecord Record, PeerClock.Belief? Clock, bool ClockApart, StateRead? Reading, string? Context, string? Kind, string? NodeId,
-        PlayoutWhoami? Whoami, string? ContextNode, PlayoutTrustWait? TrustWait, bool Tls, PlayoutIndex? Index, int Connection);
+        PlayoutWhoami? Whoami, string? ContextNode, PlayoutTrustWait? TrustWait, bool Tls, PlayoutIndex? Index, int Connection, string? ContextKind);
 
     /// <summary>
     /// A line for a connection's lane: its text, the request id of the command it is, or a ping whose t1 the lane stamps as it writes it.
@@ -580,8 +581,9 @@ public sealed class PlayoutLink : IPlayoutSource
     /// <summary>
     /// The peer's context as the show network and a proposal's risk may take it for the node it names (Show Bus §6, §11: a context read
     /// over this Stagewatch's own link to the address the operator set): <see cref="Context"/>, but null while the peer answers as
-    /// another kind than its settings name, and null when its STATE names its node (PlayMap's <c>id</c>) and its context names another
-    /// — a context speaks only for the id the same link reads from its STATE.
+    /// another kind than its settings name; null until its STATE has said its kind, and when the context's <c>node.t</c> names another
+    /// kind than that; and null when its STATE names its node (PlayMap's <c>id</c>) and its context names another — a context speaks only
+    /// as the kind and for the id the same link reads from its STATE.
     /// </summary>
     public string? PulledContext
     {
@@ -589,9 +591,31 @@ public sealed class PlayoutLink : IPlayoutSource
         {
             var pub = _pub;
             if (pub.Pairing == PlayoutPairing.None || pub.Context is null || Problem(pub.Reading?.State) is not null) return null;
+            if (pub.Kind is null || pub.ContextKind != pub.Kind) return null;
             return pub.Reading?.State.Id is { Length: > 0 } stateId && pub.ContextNode != stateId ? null : pub.Context;
         }
     }
+
+    /// <summary>
+    /// <see cref="PulledContext"/> read as a §6 context at the peer's host (<see cref="PeerContexts.Parse"/>), once for each context the
+    /// peer sends, so every reader of one context shares one entry and the table compiled from its commands; null while there is none.
+    /// </summary>
+    public PeerContexts.Entry? PulledEntry
+    {
+        get
+        {
+            if (PulledContext is not { } json) return null;
+            var read = _pulledRead;
+            if (read is null || !ReferenceEquals(read.Json, json))
+                _pulledRead = read = new PulledRead(json, PeerContexts.Parse(json, _host, _time.GetUtcNow().UtcDateTime));
+            return read.Entry;
+        }
+    }
+
+    /// <summary>A context the peer sent and what it reads as: replaced whole when another comes, read by any thread.</summary>
+    private sealed record PulledRead(string Json, PeerContexts.Entry? Entry);
+
+    private volatile PulledRead? _pulledRead;
 
     /// <summary>The link's name as Settings keeps it ("patterns", "stage-left"): its context ids and the wire's verbs name it.</summary>
     public string LinkName => _name;
@@ -1294,6 +1318,7 @@ public sealed class PlayoutLink : IPlayoutSource
                 _reading = null;
                 _context = null;
                 _contextNode = null;
+                _contextKind = null;
                 _whoami = null;
                 _outbound.Clear();
                 TrackAnswers(now);
@@ -1517,7 +1542,7 @@ public sealed class PlayoutLink : IPlayoutSource
                 if (ok && words.StartsWith('{') && words.Length < PlayoutWire.LineBytes)
                 {
                     _context = words;
-                    _contextNode = ContextNode(words);
+                    (_contextKind, _contextNode) = ContextNode(words);
                 }
                 return;
             }
@@ -1582,18 +1607,23 @@ public sealed class PlayoutLink : IPlayoutSource
         return needed && conn.ListAskedFor != revision ? (line, revision) : null;
     }
 
-    /// <summary>A context's <c>node.id</c> when it is a Show Bus id, else null: never an exception, whatever the peer sent.</summary>
-    private static string? ContextNode(string json)
+    /// <summary>
+    /// A context's <c>node.t</c> as sent (a string, else null) and its <c>node.id</c> when it is a Show Bus id (else null): never an
+    /// exception, whatever the peer sent.
+    /// </summary>
+    private static (string? Kind, string? Id) ContextNode(string json)
     {
         try
         {
             using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("node", out var node)
-                   && node.ValueKind == JsonValueKind.Object && node.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
-                   && id.GetString() is { } said && ShowBusHello.ValidId(said) ? said : null;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("node", out var node) || node.ValueKind != JsonValueKind.Object)
+                return (null, null);
+            var kind = node.TryGetProperty("t", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null;
+            var id = node.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.String && i.GetString() is { } said && ShowBusHello.ValidId(said) ? said : null;
+            return (kind, id);
         }
-        catch (JsonException) { return null; }
-        catch (InvalidOperationException) { return null; }
+        catch (JsonException) { return (null, null); }
+        catch (InvalidOperationException) { return (null, null); }
     }
 
     /// <summary>
@@ -2253,7 +2283,7 @@ public sealed class PlayoutLink : IPlayoutSource
         var node = _reading?.State.Id is { Length: > 0 } stateId ? stateId : _contextNode;
         return new Published(conflict ? LinkHealth.Starting : HealthOf(state, readOnly ? LinkHealth.Starting : _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None,
             _conn is not null, record, _m.Clock.Believed, _m.Clock.Apart, _reading, _context, _kindSeen, node, _whoami, _contextNode, waiting,
-            _conn is { Tls: true }, _index, _conn is { } up ? up.Serial : 0);
+            _conn is { Tls: true }, _index, _conn is { } up ? up.Serial : 0, _contextKind);
     }
 
     /// <summary>

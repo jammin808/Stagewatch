@@ -355,11 +355,15 @@ static class PlayoutCueTests
             playmap.Say("STATE " + pmState);
             await PlayoutLinkTests.Until(() => links["stage-left"]?.Reading?.State.Playlists is [{ State: "playing" }]);
             var cuesBefore = Commands(playmap).Count(c => c.StartsWith("PLAYLIST CUE", StringComparison.Ordinal));
+            var standbys = Commands(patterns).Count(c => c == "CUE STANDBY c1");
             director.ItemLoaded(3, both);
             director.EndOfTurn();
             Check(await PlayoutLinkTests.Until(() => rows.Any(r => r.Mark == 3 && r.Row == "playout cue Intro on Stage left: not stood by — not cued — Main show is playing on PlayMap Stage left; GO will play it"))
                   && Commands(playmap).Count(c => c.StartsWith("PLAYLIST CUE", StringComparison.Ordinal)) == cuesBefore,
                   "playout cues: a playlist playing is never cued — a CUE would put its item's first frame on air — and the row says so");
+            // What this turn did send has landed before anything below counts what is sent: Patterns' cue still stands by.
+            Check(await PlayoutLinkTests.Until(() => Commands(patterns).Count(c => c == "CUE STANDBY c1") == standbys + 1),
+                  "playout cues: beside it, Patterns' cue stands by — only the playing playlist's CUE is held back");
 
             // What a link cannot take is advice before the item and a row at its start, never a command.
             var odd = Item("c", Cue("nope", "pl1", "it1"), Cue("stage-left", "pl1", "it9"), Cue("patterns", "", "c2"), Cue("off", "pl1", "it1"));

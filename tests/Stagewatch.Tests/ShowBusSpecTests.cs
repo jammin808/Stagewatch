@@ -210,16 +210,6 @@ static class ShowBusSpecTests
     static readonly (string Row, string Unit, string Today, Func<Numbers, bool> Differs)[] NotKeptYet =
     [
         ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
-        ("context.items", "SW21.1", "PeerContexts keeps a context's first 64 items",
-            n => Peer(Many("items", "{\"id\":\"a\",\"kind\":\"b\",\"label\":\"c\",\"light\":\"green\",\"state\":\"d\"}", n.Of("context.items")))?.Items.Count < n.Of("context.items")),
-        ("context.commands", "SW21.1", "PeerContexts keeps a context's first 64 commands",
-            n => Peer(Many("commands", "{\"verb\":\"go\",\"risk\":\"low\"}", n.Of("context.commands")))?.Commands.Count < n.Of("context.commands")),
-        ("context.verb.chars", "SW21.1", "PeerContexts cuts a verb at 80 characters, where a reader keeps a verb whole or drops it",
-            n => Peer(Many("commands", "{\"verb\":\"" + new string('v', (int)n.Of("context.verb.chars")) + "\",\"risk\":\"low\"}", 1)) is { } c
-                 && c.Commands.Count == 1 && c.Commands[0].Verb.Length < n.Of("context.verb.chars")),
-        ("context.links", "SW21.1", "PeerContexts reads no links", _ => typeof(PeerContexts.Entry).GetProperty("Links") is null),
-        ("context.link.end.chars", "SW21.1", "PeerContexts reads no links", _ => typeof(PeerContexts.Entry).GetProperty("Links") is null),
-        ("context.words.read.chars", "SW21.1", "PeerContexts reads no command words", _ => CommandWordsAsToday()),
         ("proposal.line.chars", "SW21.2", $"ProposalDesk takes a line of {ProposalDesk.MaxLine} characters and cuts a longer one, which can run another command",
             n => ProposalDesk.MaxLine < n.Of("proposal.line.chars")),
         ("proposal.collect.ms", "SW21.2", "the desk sends and approves for a target whatever its last collect",
@@ -247,8 +237,6 @@ static class ShowBusSpecTests
                   && Source("src/Timer.Remote/WebServer.cs") is { } server && !server.Contains("snonce", StringComparison.Ordinal)),
         ("13.6.9's mark on a key seen in clear", "SW22.1b", "it takes a key sent in clear from another machine as it takes any other, and marks nothing",
             SeenInClearAsToday),
-        ("its risk by whole forms", "SW21.1", "it rates a line by the longest run of a listed verb's leading words",
-            () => ProposalDesk.RiskFromCommands([("pause", "low")], "pause every screen for good") == "low"),
         ("its proposal ids", "SW21.2", "they restart with each desk run, `p<n>`, so a target pairs an id with `created`", ProposalIdsAsToday),
         ("a `from` of kind `main` or `mcp`", "SW21.2", "the desk takes one from the network unless it names the desk's own id",
             () => Proposed("{\"from\":{\"t\":\"main\",\"id\":\"b2c3d4e5f6a7\",\"name\":\"Hall B\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", "low") is not null),
@@ -1669,6 +1657,7 @@ static class ShowBusSpecTests
                   && cs.All(x => x.Verb.Length <= n.Of("context.verb.chars") && x.Words.Length <= n.Of("context.words.chars"))),
             "its own context lists no more commands, with no longer verbs or words", "context.commands", "context.verb.chars", "context.words.chars");
         OwnContextSizes(Keeps, n);
+        ReaderSizes(Keeps, n);
 
         // §10: CertificateLife holds the certificate's numbers; NodeCertificate (Timer.App, not built beside this suite on every
         // platform) is held to making and keeping one only through it, from its source.
@@ -1703,6 +1692,48 @@ static class ShowBusSpecTests
         Check(loose.Count == 0,
             "showbus spec: every row of §2, §6, §10, §11 and §12, and of §3–§5's 1.2 words, is one Stagewatch's code keeps (held here), does not keep yet (NotKeptYet), "
             + "is not reached here yet (Unreached) or does not bind (NotStagewatchs) (" + string.Join(", ", loose) + ")");
+    }
+
+    /// <summary>
+    /// §6 as a reader, against PeerContexts, the one home of the numbers Stagewatch reads another app's context by: it keeps a context's
+    /// first <c>context.items</c> items, <c>context.commands</c> commands and <c>context.links</c> links, counting the commands and links
+    /// past them; a verb <c>context.verb.chars</c> long whole, a longer one dropped and counted, never cut; a command's words whole at
+    /// <c>context.words.chars</c>, past the <c>context.words.read.chars</c> a reader must keep; and a link end within
+    /// <c>context.link.end.chars</c> whose node id is a §2 id, <c>hello.id.min</c> to <c>hello.id.max</c> long.
+    /// </summary>
+    static void ReaderSizes(KeepsRows Keeps, Numbers n)
+    {
+        Keeps(PeerContexts.MaxBytes == n.Of("context.bytes") && PeerContexts.HeadlineChars == n.Of("context.headline.chars")
+              && PeerContexts.ItemIdChars == n.Of("context.item.id.chars") && PeerContexts.ItemKindChars == n.Of("context.item.kind.chars")
+              && PeerContexts.ItemLabelChars == n.Of("context.item.label.chars") && PeerContexts.ItemStateChars == n.Of("context.item.state.chars")
+              && PeerContexts.MaxRecent == n.Of("context.recent") && PeerContexts.RecentChars == n.Of("context.recent.chars"),
+            "PeerContexts reads by §14's sizes, each named once in its code", "context.bytes", "context.headline.chars", "context.item.id.chars",
+            "context.item.kind.chars", "context.item.label.chars", "context.item.state.chars", "context.recent", "context.recent.chars");
+        const string Item = "{\"id\":\"a\",\"kind\":\"b\",\"label\":\"c\",\"light\":\"green\",\"state\":\"d\"}";
+        const string Command = "{\"verb\":\"go\",\"risk\":\"low\"}";
+        const string Link = "{\"from\":\"a\",\"to\":\"@9f8e7d6c/b\",\"kind\":\"feeds\",\"light\":\"green\"}";
+        var full = Peer(Many("items", Item, n.Of("context.items") + 1) + Many("commands", Command, n.Of("context.commands") + 1) + Many("links", Link, n.Of("context.links") + 1));
+        Keeps(PeerContexts.MaxItems == n.Of("context.items") && PeerContexts.MaxCommands == n.Of("context.commands") && PeerContexts.MaxLinks == n.Of("context.links")
+              && full is { } f && f.Items.Count == n.Of("context.items") && f.Commands.Count == n.Of("context.commands") && f.CommandsDropped == 1
+              && f.Links.Count == n.Of("context.links") && f.LinksDropped == 1,
+            "PeerContexts keeps a context's first that many items, commands and links, and counts the commands and links past them",
+            "context.items", "context.commands", "context.links");
+        var verb = new string('v', (int)n.Of("context.verb.chars"));
+        var verbs = Peer(Many("commands", "{\"verb\":\"" + verb + "v\",\"risk\":\"low\"}", 1)[..^1] + ",{\"verb\":\"" + verb + "\",\"risk\":\"low\"}]");
+        Keeps(PeerContexts.MaxVerbChars == n.Of("context.verb.chars") && verbs is { Commands: [var whole], CommandsDropped: 1 } && whole.Verb == verb,
+            "PeerContexts keeps a verb that long whole, and drops a longer one and counts it, never cutting it", "context.verb.chars");
+        var said = new string('w', (int)n.Of("context.words.chars"));
+        Keeps(PeerContexts.MaxWordsChars == n.Of("context.words.chars") && n.Of("context.words.chars") >= n.Of("context.words.read.chars")
+              && Peer(Many("commands", "{\"verb\":\"go\",\"risk\":\"low\",\"words\":\"" + said + "\"}", 1)) is { Commands: [{ Words: var w }] } && w == said,
+            "PeerContexts keeps a command's words whole at the most a sender may send, more than the least a reader keeps",
+            "context.words.chars", "context.words.read.chars");
+        var end = "@" + new string('n', (int)n.Of("hello.id.max")) + "/" + new string('i', (int)n.Of("context.item.id.chars"));
+        Keeps(PeerContexts.LinkEndChars == n.Of("context.link.end.chars") && PeerContexts.EndIdMin == n.Of("hello.id.min") && end.Length <= n.Of("context.link.end.chars")
+              && PeerContexts.ValidEnd(end) && PeerContexts.ValidEnd("@" + new string('n', (int)n.Of("hello.id.min")))
+              && !PeerContexts.ValidEnd("@" + new string('n', (int)n.Of("hello.id.min") - 1)) && !PeerContexts.ValidEnd("@" + new string('n', (int)n.Of("hello.id.max") + 1))
+              && !PeerContexts.ValidEnd("@abcdef/" + new string('i', (int)n.Of("context.link.end.chars"))),
+            "PeerContexts reads a link end within that many characters, its node id a §2 id of hello.id.min to hello.id.max, and refuses any other",
+            "context.link.end.chars");
     }
 
     /// <summary>
@@ -2764,6 +2795,16 @@ static class ShowBusSpecTests
               && OnTheCore() && typeof(PlayoutLink).GetMethod(nameof(PlayoutLink.Playlist)) is not null,
             "showbus spec: Stagewatch keeps what §8's row names as no playout link to PlayMap: the desk runs every playout link Settings has, a PlayMap "
             + "node's among them, on the PeerLink core, and a link heard to be PlayMap carries PLAYLIST GO and CUE");
+        // Kept since SW21.1, its words in the frozen row still standing: as a reader of contexts PeerContexts keeps §14's numbers
+        // (ReaderSizes holds them), and the desk rates a line by the whole forms of the target's table (VerbTableTests holds the rules).
+        Check(notKept.Contains("as a reader of contexts: `context.items` (today PeerContexts keeps a context's first 64 items)", StringComparison.Ordinal)
+              && notKept.Contains("its risk by whole forms (today it rates a line by the longest run of a listed verb's leading words) — ends with one owner for "
+                  + "every reader's numbers, its verb table", StringComparison.Ordinal)
+              && ProposalDesk.RiskFromCommands([("pause", "low")], "pause every screen for good") == "high"
+              && ProposalDesk.RiskFromCommands([("pause [<screens words>]", "low")], "pause every screen for good") == "low"
+              && Peer(Many("commands", "{\"verb\":\"go\",\"risk\":\"low\"}", 65))?.Commands.Count == 65 && typeof(PeerContexts.Entry).GetProperty("Links") is not null,
+            "showbus spec: Stagewatch keeps what §8's row names it a reader of contexts without: §14's numbers, read whole, and its risk by whole forms, "
+            + "so a line no whole form takes is high");
         foreach (var (what, unit, today, differs) in WordsNotKeptYet)
         {
             Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),
@@ -2850,15 +2891,6 @@ static class ShowBusSpecTests
         using var doc = JsonDocument.Parse(new CommandReceipt("a1", true, "applied", "", null).ToJson());
         return ReceiptTail.All(f => !doc.RootElement.TryGetProperty(f, out _));
     }
-
-    /// <summary>
-    /// Whether PeerContexts still reads a command as its verb and its risk alone, keeping none of its <c>words</c>: the reader's
-    /// row <c>context.words.read.chars</c> is asserted against it, and leaves <see cref="NotKeptYet"/> once the reader keeps words.
-    /// </summary>
-    static bool CommandWordsAsToday()
-        => typeof(PeerContexts.Entry).GetProperty("Commands")?.PropertyType is { IsGenericType: true } list
-           && list.GetGenericArguments() is [var command] && command == typeof((string, string))
-           && typeof(PeerContexts.Entry).GetProperties().All(p => !p.Name.Contains("Words", StringComparison.Ordinal));
 
     /// <summary>
     /// Whether Stagewatch's playout link runs on the PeerLink core: it holds one <see cref="PeerLinkConnector"/>, whose 13.16.1 states,

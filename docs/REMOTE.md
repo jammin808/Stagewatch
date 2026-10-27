@@ -486,6 +486,27 @@ The contract between Stagewatch, Patterns, AGMessage and the micro-apps is `docs
 | **Pinning** | Apps connecting to each other trust a certificate by its fingerprint, pinned on the first authenticated success; a different one later is refused ("CERTIFICATE CHANGED") until the operator accepts it. Stagewatch Slides on presenter PCs does this (pins in `%APPDATA%\Stagewatch\slides-pins.json`; "Trust new certificate" after a reinstall). |
 | **Approval queue** | Stagewatch is the show's approval desk (hello cap `approvals`). `POST /api/proposals` (node, MCP or control key, or the PIN) `{"from":{t,id,name},"target":{t,id},"line","reason"}` → `{"id":"p1","state":"pending"}`. The proposal appears in Copilot beside Stagewatch's own, with the target's own risk for that verb (unknown = high). Approve or discard once. Aimed at Stagewatch, it runs here with a receipt; aimed at another app, that app collects it — `GET /api/proposals?target=<its id>&state=approved` with its node key — runs it through its own checks and reports `POST /api/proposals/<id>/result {"ok","words"}`. `GET /api/proposals/<id>` (read) → state (`pending`, `approved`, `rejected`, `done`, `failed`, `undelivered` after 60 s uncollected), `ok`, `words`, who decided. A node key is bound to the node it first spoke for; one app's key can't collect another's. Everything is in the show log. |
 
+### How the desk rates another app's line (2.21)
+
+A proposal aimed at another app takes that app's risk from its table, read by Show Bus §6's notation (`A|B` one word of
+either, `[…]` optional, a bare `…` any further words, a `<…>` value one word but for the form's last and a `words`, `text` or
+`line` value), and only from a verified table of the target's own kind: the context Stagewatch's own playout link pulled from
+that app, while no key speaks for its id, and else the context the app posted with its own node key (or the PIN while no key
+speaks for its id). The Show network's row shows that same context, so what the row says of a table is what rates its lines; a
+context that proves nothing never stands in front of one that proves something, and one that names another kind of node than
+the proposal's target never rates it. The most specific whole form decides — most literal words, then most single literals, an
+exact tie the higher risk — and a line no form takes, a line of more than 64 words, or any line for an app whose table is
+unverified is `high`. A form's value named `line` (PlayMap's `BIND ADD … TO <target line>`) raises the risk to the carried
+line's, four lines deep; a carried line no form of the table takes is `high`, as it would be on its own, because the app may
+run it by a rule its table does not state (PlayMap reads `VT STOP` as `VIDEO STOP`, and `PANIC NOW` as `PANIC`); more than 256
+carried lines, at every depth together, is `high`, as PlayMap counts them; and JSON in such a row is `high`. Every rating is
+bounded: a form is matched one place at a time against each word, and a rating past 200,000 steps (about 20 ms) is `high`. A
+proposal is rated before the approval desk's lock is taken. So a line that only starts like a listed verb is `high` now, where
+2.20 rated it by the verb's leading words (`pause every screen for good` against a row `pause`). As a reader of another app's
+context Stagewatch keeps §14's numbers: 200 items, 256 commands (each verb whole up to 512 characters, a longer or malformed
+one dropped and counted), words up to 512 and 400 links; the Show network row says what it did not keep, and names a context
+posted too big to read (refused `413` before it is read) on the row of the node its key is bound to, or by its address.
+
 ## 2.17: windows — addresses Stagewatch controls
 
 A **window** is a browser Stagewatch drives through an address of its own: `http://<pc>:9924/w/<token>`. Open it on a
