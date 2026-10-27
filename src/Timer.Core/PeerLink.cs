@@ -797,6 +797,19 @@ public sealed record PeerLinkSettings
     /// <summary>The request id's prefix and this process's hello inst (13.12.1).</summary>
     public string IdPrefix { get; init; } = "s";
     public string Inst { get; init; } = "00000000";
+    /// <summary>
+    /// Whether this connector offers LINK (13.6.4). One that does not yet is a level-0 connector on <c>line</c> (13.6.8): it greets
+    /// with HELLO alone, is <c>legacy</c> from its first line, and proves only a 32-hex NONCE with the legacy proof — it keeps every
+    /// unilateral rule of §13 and verifies nothing, so for it 13.15.2's stable link counts from its pairing settling
+    /// (<see cref="PeerLinkConnector.LineAnswer"/>'s <c>OK paired</c>, or <see cref="PeerLinkConnector.AsksNoProof"/> of a link that
+    /// holds no key), the nearest a level-0 link comes to verified.
+    /// </summary>
+    public bool OffersLink { get; init; } = true;
+    /// <summary>
+    /// Whether a <c>line</c> dial tries TLS first and goes on plain only when none is on offer (13.3.3). A carrier that has no TLS
+    /// dials plain, unless a pin, a floor or a hello's <c>tls</c> asks for TLS: a node pinned is never dialled plain.
+    /// </summary>
+    public bool TriesTls { get; init; } = true;
 }
 
 /// <summary>A connector's carrier (13.1): a line wire, or a node link on Stagewatch's <c>/ws</c>.</summary>
@@ -961,6 +974,8 @@ public sealed class PeerLinkConnector
     HashSet<string> _can;
     long _verifiedAt, _lastHeard, _recoveredAt, _closedAt;
     bool _stableDone = true, _wentDown;
+    /// <summary>A level-0-only connector's pairing settled on this connection: its stable window counts from then (<see cref="PeerLinkSettings.OffersLink"/>).</summary>
+    bool _settled0;
 
     int _failed;
     long _waitMs;
@@ -1125,6 +1140,7 @@ public sealed class PeerLinkConnector
             {
                 // Level 0: 1.1's pairing. Nothing proves the acceptor (13.6.8), and the link says so: legacy, amber.
                 Linked(now);
+                if (!_s.OffersLink) Settle0(now);
                 return;
             }
             TakeVerdict(now, rest.IndexOf('{') is var brace and >= 0 ? Parse(rest[brace..]) : null, acceptorProofVerifies);
@@ -1194,6 +1210,23 @@ public sealed class PeerLinkConnector
         if (_refused is not null) return;
         if (_offer is null && !_proofWritten) LevelZero(now);
         if (_refused is null) Frame(now);
+    }
+
+    /// <summary>
+    /// 13.6.8, on <c>line</c>: a level-0 acceptor asks this connection for no proof — it sent no NONCE and took the connection as it
+    /// is, or answered a proof that it asks for none. The link is up unverified, <c>legacy</c> and <c>open</c>, and its facts are
+    /// followed as in 1.2; the words say anything at its address could answer. A floored id was refused when the link went to level 0.
+    /// For a level-0-only connector its pairing settles here only when it holds no key: one that holds a key has not seen the
+    /// acceptor ask for it, so nothing shows this is the node the key is for.
+    /// </summary>
+    public void AsksNoProof(PeerNow now)
+    {
+        Advance(now);
+        if (_refused is not null || _phase != Phase.Handshake || !_legacy || _s.Carrier != PeerCarrier.Line) return;
+        Linked(now);
+        _open = true;
+        _proof = "open";
+        if (!_s.OffersLink && _s.Key is null) Settle0(now);
     }
 
     /// <summary>
@@ -1716,11 +1749,14 @@ public sealed class PeerLinkConnector
         _ => 0,
     };
 
-    /// <summary>A dial's scheme: TLS on <c>ws</c>, and on <c>line</c> unless the acceptor offered none and nothing asks for it.</summary>
+    /// <summary>
+    /// A dial's scheme: TLS on <c>ws</c>, and on <c>line</c> unless the acceptor offered none, or the carrier has none
+    /// (<see cref="PeerLinkSettings.TriesTls"/>), and nothing — a pin, a floor, a hello's <c>tls</c> — asks for it.
+    /// </summary>
     string Scheme()
     {
         if (_s.Carrier == PeerCarrier.Ws) return "tls";
-        if (_pin is not null || _floor is { Tls: true } || _tlsHint || !_noTls) return "tls";
+        if (_pin is not null || _floor is { Tls: true } || _tlsHint || (!_noTls && _s.TriesTls)) return "tls";
         return "plain";
     }
 
@@ -1761,7 +1797,7 @@ public sealed class PeerLinkConnector
             _why = "no link in " + (PeerLink.HandshakeMs / 1000).ToString(Inv) + " s";
             Close(At(_phaseAt + PeerLink.HandshakeMs + 1), failed: true);
         }
-        if (_phase == Phase.Up && _verified && !_stableDone && now.Mono >= _verifiedAt + PeerLink.StableMs)
+        if (_phase == Phase.Up && (_verified || _settled0) && !_stableDone && now.Mono >= _verifiedAt + PeerLink.StableMs)
         {
             if (!_wentDown && _verifiedAt + PeerLink.StableMs - _lastHeard <= PeerLink.DropMs) _failed = 0;
             _stableDone = true;
@@ -1792,7 +1828,7 @@ public sealed class PeerLinkConnector
         _cert = null;
         _offer = null;
         _greeted = _proofWritten = _nonceProvable = _authProofWritten = false;
-        _verified = _keyless = _legacy = _open = _codePlain = false;
+        _verified = _keyless = _legacy = _open = _codePlain = _settled0 = false;
         _level = -1;
         _proof = "none";
         _show = PeerShow.Unknown;
@@ -1801,14 +1837,27 @@ public sealed class PeerLinkConnector
         return true;
     }
 
-    /// <summary>On <c>line</c>, once per connection: HELLO, then LINK (13.6.4).</summary>
+    /// <summary>
+    /// On <c>line</c>, once per connection: HELLO, then LINK (13.6.4) — or, for a connector that offers no LINK yet, HELLO alone and
+    /// level 0 from the first line (13.6.8).
+    /// </summary>
     void Greet(PeerNow now)
     {
         if (_greeted) return;
         _greeted = true;
         _greetAt = now.Mono;
         Write(now, "HELLO", null);
-        Write(now, "LINK", null);
+        if (_s.OffersLink) Write(now, "LINK", null);
+        else LevelZero(now);
+    }
+
+    /// <summary>A level-0-only connector's pairing settled: 13.15.2's stable window counts from now, as a verified link's does.</summary>
+    void Settle0(PeerNow now)
+    {
+        _settled0 = true;
+        _verifiedAt = now.Mono;
+        _stableDone = false;
+        _wentDown = false;
     }
 
     /// <summary>
@@ -2033,7 +2082,7 @@ public sealed class PeerLinkConnector
         _phaseAt = now.Mono;
         _everClosed = true;
         _closedAt = now.Mono;
-        _verified = _keyless = _legacy = _open = _plain = _codePlain = false;
+        _verified = _keyless = _legacy = _open = _plain = _codePlain = _settled0 = false;
         _offer = null;
         _greeted = _proofWritten = _nonceProvable = _authProofWritten = false;
         _reproveAt = long.MinValue;

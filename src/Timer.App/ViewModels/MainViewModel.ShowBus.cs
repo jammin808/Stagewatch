@@ -120,9 +120,10 @@ public sealed partial class MainViewModel
         }
         list.AddRange(WindowItems());
         if (ShowBusHello.Item(OwnHello, OwnTwin) is { } hello) list.Add(hello);   // its own health: other apps can't find it, or can't tell it from a copy
-        if (_patterns?.ClockOffset is { } off && off.Duration() > ClockOffsetEstimator.ApartAfter)
+        // 13.11.5: apart when the offset less its error is past clock.apart.ms, from the link's matched pongs alone (13.10.2).
+        if (_patterns is { ClockApart: true, Clock: { } clock })
             list.Add(new ContextItem("clock:patterns", "health", "Clock vs Patterns", Light.Amber,
-                $"CLOCKS APART: Patterns' clock is {Math.Abs(off.TotalSeconds):0.0} s {(off > TimeSpan.Zero ? "ahead" : "behind")}"));
+                FormattableString.Invariant($"CLOCKS APART: Patterns' clock is {Math.Abs(clock.OffsetMs) / 1000:0.0} s {(clock.OffsetMs > 0 ? "ahead" : "behind")} (± {clock.ErrMs} ms)")));
         return list;
     }
 

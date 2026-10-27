@@ -80,16 +80,19 @@ static class NodesDocTests
         ("read.context.verb.chars", () => Heard(1, 1000) is { Commands: [var first, ..] } ? first.Verb.Length : -1),
         ("cert.days", () => (long)CertificateLife.Span.TotalDays),
         ("cert.renew.days", () => CertificateLife.RenewDays),
-        ("patterns.wire.port", () => PatternsLink.DefaultPort),
-        ("patterns.ping.ms", () => Ms(PatternsLink.PingEvery)),
-        ("patterns.drop.ms", () => Ms(PatternsLink.DeadAfter)),
-        ("patterns.redial.first.ms", () => PatternsLink.RedialFirstMs),
-        ("patterns.redial.max.ms", () => PatternsLink.RedialMaxMs),
-        ("patterns.nonce.wait.ms", () => Ms(Private<TimeSpan>(typeof(PatternsLink), "NonceWait"))),
-        ("patterns.clip.stale.ms", () => Ms(PatternsLink.StaleAfter)),
+        // The Patterns link is a PlayoutLink on the PeerLink core: its liveness and redial are the core's (Show Bus 13.10.3, 13.15.1).
+        ("patterns.wire.port", () => PlayoutLink.DefaultPort),
+        ("patterns.ping.ms", () => Ms(PlayoutLink.PingEvery)),
+        ("link.stale.ms", () => PeerLink.StaleMs),
+        ("patterns.drop.ms", () => PeerLink.DropMs),
+        ("link.selfgap.ms", () => PeerLink.SelfGapMs),
+        ("patterns.redial.first.ms", () => PeerLink.RedialFirstMs),
+        ("patterns.redial.max.ms", () => PeerLink.RedialMaxMs),
+        ("patterns.nonce.wait.ms", () => Ms(PlayoutLink.NonceWait)),
+        ("patterns.clip.stale.ms", () => Ms(PlayoutLink.StaleAfter)),
         ("patterns.line.bytes", () => PlayoutWire.LineBytes),
-        ("patterns.context.every.ms", () => Ms(Private<TimeSpan>(typeof(PatternsLink), "ContextEvery"))),
-        ("clock.apart.ms", () => Ms(ClockOffsetEstimator.ApartAfter)),
+        ("patterns.context.every.ms", () => Ms(PlayoutLink.ContextEvery)),
+        ("clock.apart.ms", () => PeerLink.ClockApartMs),
     ];
 
     /// <summary>A row per port Find listens on, named by what it hears there: the hello, Patterns' beacon, or any other port by its number.</summary>

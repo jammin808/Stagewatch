@@ -2194,6 +2194,7 @@ WindowTests.Run(Check);
 await WindowTests.RunWeb(Check);
 PlayoutTests.Run(Check);
 await PlayoutTests.Link(Check);
+await PlayoutLinkTests.Run(Check);
 SupervisorTests.Run(Check);
 SupervisorTests.Holding(Check);
 await IntegrationTests.Run(Check);

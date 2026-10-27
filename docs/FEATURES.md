@@ -150,7 +150,8 @@ The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
   the exact message it sent. Patterns' answers show on the status line ("Patterns did it").
 - **Patterns clip end.** When the clip on air ends, the show log notes it, a **Clip ends** trigger fires, and (Settings
   → Integrations → Patterns) a video item can move on to the next by itself.
-- **Clocks.** Stagewatch measures the clock difference with Patterns and warns "CLOCKS APART" over 2 s.
+- **Clocks.** Stagewatch measures the clock difference with Patterns from the pongs that answer its own pings, and warns
+  "CLOCKS APART" when it is over 2 s beyond the measurement's error.
 - **AI sees the whole room.** The copilot, the cloud assistant and AI agents (MCP `get_context`) now read every app's
   context. Everything except the AI's own reasoning works with no internet.
 - **Safer keys.** A new **node** key scope (read + stage messages + its context) for apps like AGMessage; keys work

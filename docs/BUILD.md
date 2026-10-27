@@ -309,7 +309,7 @@ not run". `docs/WHATS_NEXT.md` has the job's details and the maintainer's action
   WebView2 (the design's S5.1w, Patterns showing a granted page: a Windows job or the walk), DPAPI (the rig's certificate
   password is unsealed off Windows) and PlayMap's Direct3D 12 never run on the lane.
 - **The desk itself.** The rig is Stagewatch's servers around a simulated show, not the WPF app, so the app's own link to
-  Patterns (`PatternsLink`) is held by the suite against a scripted desk, not by the lane.
+  Patterns (`PlayoutLink`) is held by the suite against scripted desks and the scripted peer, not by the lane.
 - **Pictures, media and timing.** Patterns' clips are synthetic and PlayMap draws nothing: no decoder, renderer or output
   runs, and the deadlines are the contract's bounds with slack, not a show machine's latency.
 - **Browsers and AI.** No browser runs on the lane yet (windows, pages and grants come with the rows that need one, and

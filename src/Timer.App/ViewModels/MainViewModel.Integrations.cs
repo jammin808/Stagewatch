@@ -13,7 +13,7 @@ public sealed partial class MainViewModel
 {
     private PowerPointSensor? _ppt;
     private VmixSource? _vmix;
-    private PatternsLink? _patterns;
+    private PlayoutLink? _patterns;
     private SpeechPacer? _speech;
     private TimeSync? _ntp;
     private LtcOutput? _ltc;
@@ -43,7 +43,15 @@ public sealed partial class MainViewModel
         var (patternsHost, patternsPort) = (pl?.Host ?? "", pl?.Port ?? 0);
         var patternsToken = patternsOn ? ProtectedKey.Unprotect(pl!.TokenProtected) : "";
         _supervisor.Reconcile("patterns", $"{patternsOn}|{patternsHost}|{patternsPort}|{patternsToken.GetHashCode()}", v => _patterns = v,
-            () => { var s = new PatternsLink(patternsHost, patternsPort, patternsToken); s.Receipt += OnPatternsReceipt; s.Start(); return s; });
+            () =>
+            {
+                // Its request ids end with this process's hello inst (Show Bus 13.12.1), so a link made again never repeats one.
+                var s = new PlayoutLink(new PlayoutLinkOptions { Host = patternsHost, Port = patternsPort, Token = patternsToken, Inst = _inst });
+                s.Answered += OnPatternsAnswer;
+                s.Logged += OnPatternsLogged;
+                s.Start();
+                return s;
+            });
         _supervisor.Reconcile("ntp", $"{i.Ntp && FeatureGate.AllowsTimecode(t)}|{i.NtpServer}", v => _ntp = v,
             () => { var s = new TimeSync(i.NtpServer); s.Start(); return s; });
         _supervisor.Reconcile("ltc", $"{i.Ltc && FeatureGate.AllowsTimecode(t)}|{i.LtcDevice}|{i.LtcFps}|{i.LtcSource}", v => _ltc = v,

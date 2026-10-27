@@ -247,19 +247,29 @@ section has every message and refusal.
 
 ## 5. The Patterns link (Stagewatch as a Patterns client)
 
-Stagewatch reads the clip on air in Patterns over Patterns' own wire, as a playout source beside vMix. This section is the link as
-2.19 builds it; it is rewritten when Stagewatch's playout links run on the PeerLink core, in a later release.
+Stagewatch reads the clip on air in Patterns over Patterns' own wire, as a playout source beside vMix. The link runs on
+Stagewatch's PeerLink core (Show Bus §13) at level 0: it keeps §13's rules a connector keeps on its own, and offers no LINK yet. This
+section is rewritten with the rest of Stagewatch's playout links in the release that brings them.
 
 - **Connect:** TCP `patterns.wire.port` (9697) at the address in Settings → Integrations → *Patterns video* (Find, §2, fills it).
-  Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe (`@hi PING`), and a `PING` every `patterns.ping.ms` (2 s). A link
-  silent for `patterns.drop.ms` (12 s) is dropped and redialled, `patterns.redial.first.ms` (250 ms) at first, doubling to
-  `patterns.redial.max.ms` (5 s). It marks no link stale before it drops, and it never jitters its redial: Show Bus 1.3's
-  `link.stale.ms` and `link.redial.first.ms` are not kept yet (§8.1).
+  Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe (`@hi PING`); once paired, a `PING` every `patterns.ping.ms` (2 s),
+  and only a pong that answers one of its last pings is a clock sample. A link heard within `link.stale.ms` (6 s) is live; silent
+  past it, it is stale — amber, and no countdown — and silent past `patterns.drop.ms` (12 s) it is dropped and redialled. A redial
+  waits `patterns.redial.first.ms` (500 ms) at first, doubling to `patterns.redial.max.ms` (5 s), each wait × (0.8 + 0.4 j), j
+  from a generator seeded once from the system's random generator; the count starts over only once a link that paired has stayed up
+  10 s, so a desk that answers and closes is backed off. A desk at its connection ceiling (`ERR busy …`) is shown in its own words
+  and backed off the same way; nothing is sent to it. The link's checks run every 250 ms on a timer of their own; a pause of this
+  PC longer than `link.selfgap.ms` (2 s) calls the link down for none of it, and puts one line in the show log (at most one a
+  minute, naming the pauses it folds in). Those checks, like a command, still wait behind a write the socket holds up (at most 10 s,
+  after which the connection ends) until writes move to a lane of their own.
 - **Pairing: the token never crosses the network.** The pairing token is stored DPAPI-protected. A desk's `NONCE` is answered with
   `AUTH-PROOF` (HMAC-SHA256(token, nonce + "Stagewatch")) only when it is exactly 32 lowercase hex, once per connection — the token
   as Show Bus 13.6.8 keys it: dashes, spaces, tabs, CRs and LFs removed, the rest upper case. A token that still holds a character
   1.1 desks read apart (another kind of space, a line or paragraph separator, a byte order mark) is never proved: the link stays
-  amber and says 13.6.8's words, "this token holds an invisible character — retype it". A desk that
+  amber and says 13.6.8's words, "this token holds an invisible character — retype it". A refused proof (or token) is red, and the
+  token is held for a minute (Show Bus 13.15.3): the connection ends and no proof goes again until the hold ends or the token
+  changes, so a wrong token never walks the desk's lockout. The hold is kept in memory only, so far: restarting Stagewatch, or
+  turning the link off and on or changing its address, forgets it. A desk that
   sends no NONCE within `patterns.nonce.wait.ms` (1.5 s) asks this connection for none: plain `AUTH <token>` then goes only to a
   Patterns on this PC (a loopback socket), never on a connection that heard a NONCE. Nothing the desk sends (STATE, receipts, clock
   samples, context) is taken before the link pairs (`OK paired`) or is open (a desk that asks for no proof: a Show Bus 1.1 desk, or
@@ -274,9 +284,20 @@ Stagewatch reads the clip on air in Patterns over Patterns' own wire, as a playo
   ("STATE 293 KB — over this link's 256 KB"), until a whole STATE comes. Any other line that long is counted and not read. A STATE
   that is not JSON, or whose names or strings are not whole UTF-8 text, is counted and not read, the link, its light and its last
   clip as they were; one whose `video` is of another shape (not an object or null) is amber with no countdown.
-- **Show Bus 1.1 desks** get request ids (so a command's answer is a receipt), timed pings (the clock offset, CLOCKS APART past
-  `clock.apart.ms`, 2 s) and `CONTEXT` every `patterns.context.every.ms` (5 s), shown on the Show network; older desks get the
-  plain lines they know.
+- **Show Bus 1.1 desks** get request ids `s<n>-<inst>` (unique for the process, the hello's `inst` at the end, so a command's
+  answer is matched to it), timed pings (the clock offset, CLOCKS APART once the offset less its error is past `clock.apart.ms`,
+  2 s) and `CONTEXT` every `patterns.context.every.ms` (5 s), shown on the Show network; older desks get the plain lines they know.
+  The clock starts with no sample on each new connection (the link never learns the desk's `inst`, so it may be another desk, or
+  the same one restarted), and a step of this PC's own wall clock empties it (Show Bus 13.11.7).
+- **Its light** in Settings, on the Show network and in the context's `link:patterns` item is the link's own: green once paired and
+  live, amber while stale or pairing or when the desk is told what to fix, red when refused or held, and never green while the link
+  is down or dialling. The PeerLink core's record of the link (Show Bus 13.16.3) is amber at this level — `legacy`: the desk cannot
+  prove itself yet, so anything at its address could answer — and `plain` off this PC; those readers do not show that record's light
+  yet.
+- **Outcomes** (Show Bus 13.12.3): an answer is applied, accepted (taken, not run yet) or refused with the desk's words. At most 32
+  commands wait for answers and the next is not sent, nothing evicted; nothing is queued while the link is not up. A command
+  written before the link dropped, or with no answer in 30 s, is unconfirmed — it may have run: look at the desk — never failed. A
+  desk older than Show Bus 1.1 echoes no id, so its command is unconfirmed at once.
 - **Commands:** a fixed set, nothing else:
   - `VIDEO END <n>` — Stagewatch `patterns end [seconds]` (default 10) and the *Last 10 s* button.
   - `VIDEO RESTART` — `patterns restart`.
@@ -387,12 +408,14 @@ Each number the page names, as Stagewatch's code has it. A name that is a §14 r
 | `cert.days` | 825 | its certificate's whole span, NotBefore to NotAfter |
 | `cert.renew.days` | 30 | fewer days than this left, and a new certificate is made |
 | `patterns.wire.port` | 9697 | the Patterns link's port unless another is set |
-| `patterns.ping.ms` | 2000 | how often the Patterns link pings |
+| `patterns.ping.ms` | 2000 | how often the Patterns link pings, once paired |
+| `link.stale.ms` | 6000 | a Patterns link silent longer than this is stale: amber, and no countdown |
 | `patterns.drop.ms` | 12000 | a Patterns link silent this long is dropped and redialled |
-| `patterns.redial.first.ms` | 250 | its first wait before a redial |
-| `patterns.redial.max.ms` | 5000 | its longest wait before a redial |
+| `link.selfgap.ms` | 2000 | a pause of this PC longer than this calls the Patterns link down for none of it, and is logged |
+| `patterns.redial.first.ms` | 500 | its first wait before a redial, before its jitter (× 0.8–1.2) |
+| `patterns.redial.max.ms` | 5000 | its longest wait before a redial, before its jitter |
 | `patterns.nonce.wait.ms` | 1500 | how long it waits for a NONCE before judging the desk asks for none |
 | `patterns.clip.stale.ms` | 3000 | a playing clip with no frame this long shows no countdown |
 | `patterns.line.bytes` | 262144 | the most of one line from the desk kept: a longer STATE is read in part, any other longer line counted and not read |
 | `patterns.context.every.ms` | 5000 | how often it asks a Show Bus 1.1 desk for its `CONTEXT` |
-| `clock.apart.ms` | 2000 | a Patterns desk's clock further off than this shows CLOCKS APART |
+| `clock.apart.ms` | 2000 | a Patterns desk's clock further off than this, less the sample's error, shows CLOCKS APART |

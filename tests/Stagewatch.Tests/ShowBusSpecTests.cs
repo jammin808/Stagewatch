@@ -209,10 +209,6 @@ static class ShowBusSpecTests
     /// </summary>
     static readonly (string Row, string Unit, string Today, Func<Numbers, bool> Differs)[] NotKeptYet =
     [
-        ("link.stale.ms", "SW20.4a", "PatternsLink marks no link stale: a clip shows no time 3 s after its last frame, and the link drops after 12 s",
-            LinkStaleAsToday),
-        ("link.redial.first.ms", "SW20.4a", $"PatternsLink waits {PatternsLink.RedialFirstMs} ms before its first redial, and never jitters",
-            n => PatternsLink.RedialFirstMs != n.Of("link.redial.first.ms")),
         ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
         ("context.items", "SW21.1", "PeerContexts keeps a context's first 64 items",
             n => Peer(Many("items", "{\"id\":\"a\",\"kind\":\"b\",\"label\":\"c\",\"light\":\"green\",\"state\":\"d\"}", n.Of("context.items")))?.Items.Count < n.Of("context.items")),
@@ -243,14 +239,12 @@ static class ShowBusSpecTests
     /// </summary>
     static readonly (string What, string Unit, string Today, Func<bool> Differs)[] WordsNotKeptYet =
     [
-        ("13.11's clock quality", "SW20.4a", "CLOCKS APART reads the offset alone, with no error, freshness or fitness",
-            () => typeof(ClockOffsetEstimator).GetMembers().All(m => !Regex.IsMatch(m.Name, "Err|Fresh|Fit"))),
         ("its Patterns link proves at level 0 only", "SW23.1", "it answers NONCE with AUTH-PROOF and runs no LINK",
-            () => Source("src/Timer.Integrations/PatternsLink.cs") is { } link && link.Contains("\"AUTH-PROOF \"", StringComparison.Ordinal)
-                  && !Regex.IsMatch(link, @"""(?:@l\d+ )?LINK ")),
-        ("no playout link to PlayMap", "SW20.4a", "its Patterns link is its only line connector",
-            () => typeof(PatternsLink).Assembly.GetTypes().Where(t => t.Name.EndsWith("Link", StringComparison.Ordinal)).Select(t => t.Name)
-                  .SequenceEqual(["PatternsLink"])),
+            () => Source("src/Timer.Integrations/PlayoutLink.cs") is { } link && link.Contains("\"@pa AUTH-PROOF \"", StringComparison.Ordinal)
+                  && link.Contains("OffersLink = false", StringComparison.Ordinal) && !Regex.IsMatch(link, @"""(?:@l\d+ )?LINK ")),
+        ("no playout link to PlayMap", "SW20.5", "its Patterns link is its only line connector",
+            () => Source("src/Timer.App/ViewModels/MainViewModel.Integrations.cs") is { } desk && Regex.Matches(desk, @"new PlayoutLink\(").Count == 1
+                  && desk.Contains("PlayoutRules.PatternsLink(i)", StringComparison.Ordinal)),
         ("its `/ws` speaks no LINK", "SW22.1a", "a node link proves a bearer key or the operator's credential, §7.1",
             () => Source("src/Timer.Core/NodeLinks.cs") is { } links && !links.Contains("snonce", StringComparison.Ordinal)
                   && Source("src/Timer.Remote/WebServer.cs") is { } server && !server.Contains("snonce", StringComparison.Ordinal)),
@@ -1603,29 +1597,47 @@ static class ShowBusSpecTests
         Keeps((long)SlidesBeacon.ForgetAfter.TotalMilliseconds == n.Of("peer.forget.ms"), "its hello reader forgets a peer unheard that long", "peer.forget.ms");
         HelloCode(Check, Keeps, n);
 
-        // §3–§5: request ids and receipts, /ws's beat and messages, the Patterns link's pings, drop and redial, the clock.
+        // §3–§5: request ids and receipts, /ws's beat and messages, the playout link's pings, liveness and redial, the clock.
         var rid = (int)n.Of("request.id.chars");
         Keeps(CommandReceipt.CleanId(new string('a', rid)) is not null && CommandReceipt.CleanId(new string('a', rid + 1)) is null,
             "it takes a request id that long and no longer", "request.id.chars");
         Keeps((long)WebServer.ReceiptWait.TotalMilliseconds == n.Of("receipt.deadline.ms"), "a receipt says accepted when the command is not applied within it", "receipt.deadline.ms");
         Keeps((long)WebServer.HeartbeatEvery.TotalMilliseconds == n.Of("link.beat.ms"), "/ws sends a frame or a beat at least that often", "link.beat.ms");
         Keeps(WebServer.MaxWsMessageBytes == n.Of("link.ws.in.bytes"), "/ws takes a message that long", "link.ws.in.bytes");
-        var ping = (long)PatternsLink.PingEvery.TotalMilliseconds;
-        Keeps(ping >= n.Of("ping.min.ms") && ping <= n.Of("ping.max.ms"), "PatternsLink pings within that span", "ping.min.ms", "ping.max.ms");
-        Keeps((long)PatternsLink.DeadAfter.TotalMilliseconds == n.Of("link.drop.ms"), "PatternsLink drops a link silent past it", "link.drop.ms");
-        Keeps(PatternsLink.RedialMaxMs == n.Of("link.redial.max.ms"), "PatternsLink waits no longer before a redial", "link.redial.max.ms");
+        var ping = (long)PlayoutLink.PingEvery.TotalMilliseconds;
+        Keeps(ping >= n.Of("ping.min.ms") && ping <= n.Of("ping.max.ms"), "its playout link pings within that span once it is paired", "ping.min.ms", "ping.max.ms");
+        Keeps(OnTheCore() && PeerLink.StaleMs == n.Of("link.stale.ms") && PeerLink.DropMs == n.Of("link.drop.ms")
+              && PeerLink.Liveness(n.Of("link.stale.ms")) == PeerLinkState.Live && PeerLink.Liveness(n.Of("link.stale.ms") + 1) == PeerLinkState.Stale
+              && PeerLink.Liveness(n.Of("link.drop.ms")) == PeerLinkState.Stale && PeerLink.Liveness(n.Of("link.drop.ms") + 1) == PeerLinkState.Down,
+            "its playout link runs on the PeerLink core, which marks it stale past the first and down past the second, and then closes and redials it (13.10.3)",
+            "link.stale.ms", "link.drop.ms");
+        var first = n.Of("link.redial.first.ms");
+        var most = n.Of("link.redial.max.ms");
+        Keeps(OnTheCore() && PeerLink.RedialFirstMs == first && PeerLink.RedialMaxMs == most
+              && PeerLink.RedialWait(0, 0) == (long)Math.Round(first * 0.8) && PeerLink.RedialWait(0, 0.5) == first
+              && PeerLink.RedialWait(1, 0.5) == 2 * first && Enumerable.Range(0, 40).All(i => PeerLink.RedialWait(i, 0.999) <= Math.Round(most * 1.2)),
+            "its playout link's redial is the core's 13.15.1: the first wait round that ×(0.8 + 0.4 j), doubling to the second, never past it with its jitter",
+            "link.redial.first.ms", "link.redial.max.ms");
+        Keeps(PlayoutLink.CheckEvery.TotalMilliseconds <= n.Of("link.check.max.ms") && PlayoutLink.WriteDeadline.TotalMilliseconds <= n.Of("link.write.deadline.max.ms"),
+            "its playout link runs the core's evaluator at least that often, on a timer of its own, and gives one write no longer than that "
+            + "— the evaluator still waits behind a write the socket holds up, within that deadline, until SW20.4b's writer lane",
+            "link.check.max.ms", "link.write.deadline.max.ms");
         Keeps(PlayoutWire.LineBytes == n.Of("link.read.min.bytes") && ReadsWhole(n.Of("link.read.min.bytes")),
             "its playout links read a line that long whole, and a longer one as oversize, in part", "link.read.min.bytes");
         Keeps(PlayoutWire.CommandBytes == n.Of("link.command.bytes") && BuildsWithin(n.Of("link.command.bytes")),
             "its playout links build no command line longer, in UTF-8 bytes without its LF, and never one cut short", "link.command.bytes");
-        Keeps(ClockOffsetEstimator.Window == n.Of("clock.window") && (long)ClockOffsetEstimator.ApartAfter.TotalMilliseconds == n.Of("clock.apart.ms"),
-            "its clock keeps that many samples and is apart past that offset", "clock.window", "clock.apart.ms");
+        // The playout link's clock is the core's (13.11): its matched pongs are the samples, and CLOCKS APART reads the offset less
+        // its error, so a sample of that rtt and an offset that far apart is not apart until its error is spent.
+        var window = new PeerClock();
+        for (var i = 0; i < n.Of("clock.window") + 3; i++) window.Add(1000 + i, 1000 + i, 1000 + i, 1010 + i);
+        var apart = n.Of("clock.apart.ms");
+        Keeps(OnTheCore() && typeof(PlayoutLink).GetProperty("Clock")?.PropertyType == typeof(PeerClock.Belief?) && PeerLink.ClockWindow == n.Of("clock.window")
+              && window.Samples == n.Of("clock.window") && PeerLink.ClockApartMs == apart
+              && !PeerClock.IsApart(apart + PeerClock.ErrMs(10), PeerClock.ErrMs(10)) && PeerClock.IsApart(apart + PeerClock.ErrMs(10) + 1, PeerClock.ErrMs(10)),
+            "its playout link's clock keeps that many samples, and is apart past that offset once its error is taken off", "clock.window", "clock.apart.ms");
         var rttMax = n.Of("clock.rtt.max.ms");
-        var within = new ClockOffsetEstimator();
-        within.Add(1000, 1000, 1000, 1000 + rttMax);
-        var beyond = new ClockOffsetEstimator();
-        beyond.Add(1000, 1000, 1000, 1000 + rttMax + 1);
-        Keeps(within.Offset is not null && beyond.Offset is null, "its clock takes a sample of that rtt and refuses one past it", "clock.rtt.max.ms");
+        Keeps(PeerLink.ClockRttMaxMs == rttMax && PeerClock.Admits(1000, 1000, 1000, 1000 + rttMax) && !PeerClock.Admits(1000, 1000, 1000, 1000 + rttMax + 1),
+            "its playout link's clock takes a sample of that rtt and refuses one past it", "clock.rtt.max.ms");
 
         // §6: a peer's context as PeerContexts reads it, and Stagewatch's own.
         Keeps((long)PeerContexts.KeepFor.TotalMilliseconds == n.Of("context.kept.ms") && PeerContexts.MaxBytes == n.Of("context.bytes")
@@ -2836,17 +2848,14 @@ static class ShowBusSpecTests
            && typeof(PeerContexts.Entry).GetProperties().All(p => !p.Name.Contains("Words", StringComparison.Ordinal));
 
     /// <summary>
-    /// Whether Stagewatch's Patterns link still marks no link stale: PatternsLink's one member named for staleness is
-    /// <see cref="PatternsLink.StaleAfter"/>, a playing clip's frame age, which is not <c>link.stale.ms</c>, and no type of the
-    /// assembly its links live in holds a <see cref="PeerLinkConnector"/>, whose 13.16.1 states mark a link stale past that row.
+    /// Whether Stagewatch's playout link runs on the PeerLink core: it holds one <see cref="PeerLinkConnector"/>, whose 13.16.1 states,
+    /// 13.15.1 redial and 13.12.3 outcomes are the link's, and it offers no LINK yet (a level-0 connector, 13.6.8).
     /// </summary>
-    static bool LinkStaleAsToday(Numbers n)
+    static bool OnTheCore()
     {
-        const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-        static bool Holds(Type t) => t == typeof(PeerLinkConnector) || (t.IsArray && Holds(t.GetElementType()!)) || (t.IsGenericType && t.GetGenericArguments().Any(Holds));
-        var stale = typeof(PatternsLink).GetMembers(All).Select(m => m.Name).Where(x => x.Contains("Stale", StringComparison.Ordinal)).Distinct().ToList();
-        return stale.SequenceEqual(["StaleAfter"]) && (long)PatternsLink.StaleAfter.TotalMilliseconds != n.Of("link.stale.ms")
-               && !typeof(PatternsLink).Assembly.GetTypes().Any(t => t.GetFields(All).Any(f => Holds(f.FieldType)));
+        const BindingFlags Fields = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        return typeof(PlayoutLink).GetFields(Fields).Count(f => f.FieldType == typeof(PeerLinkConnector)) == 1
+               && Source("src/Timer.Integrations/PlayoutLink.cs") is { } link && link.Contains("OffersLink = false", StringComparison.Ordinal);
     }
 
     /// <summary>

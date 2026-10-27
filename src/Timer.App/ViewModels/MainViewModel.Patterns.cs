@@ -65,9 +65,16 @@ public sealed partial class MainViewModel
         else StatusLine = $"VT {v.Title} ended";
     }
 
-    /// <summary>A command Patterns answered (link thread): say what it actually did.</summary>
-    private void OnPatternsReceipt(string line, bool ok, string words)
-        => _ui.BeginInvoke(() => StatusLine = ok ? $"Patterns did it: {line}" + (words.Length > 0 ? $" ({words})" : "") : $"Patterns refused {line}: {words}");
+    /// <summary>
+    /// A command's outcome as the link read it (link thread; Show Bus 13.12.3): say what Patterns actually did — applied, taken and
+    /// not run yet, refused with its words, or unconfirmed (it may have run: look at its state), never a "done" it did not say.
+    /// </summary>
+    private void OnPatternsAnswer(PlayoutAnswer a)
+        => _ui.BeginInvoke(() => StatusLine = a.StatusLine(PlayoutRules.Label(PlayoutRules.PatternsName)));
+
+    /// <summary>A line the link gives the show's log (link thread; Show Bus 13.10.4: its evaluator's own pause), journalled on the owner thread.</summary>
+    private void OnPatternsLogged(string line)
+        => _ui.BeginInvoke(() => _journal.Add(DateTime.UtcNow, JournalKind.Playout, -1, line));
 
     /// <summary>end n / restart / play / pause / stop / seek n on the clip Patterns has on air. Owner thread.</summary>
     private void PatternsVideoCommand(string what, int n)
@@ -77,19 +84,20 @@ public sealed partial class MainViewModel
             Refuse("Patterns isn't set up — Settings → Integrations → Patterns");
             return;
         }
-        var (error, done) = what switch
+        // What was asked, never that it was done: Patterns' own answer comes back on the status line (OnPatternsAnswer).
+        var (error, asked) = what switch
         {
-            "restart" => (link.Restart(), "clip restarted"),
-            "play" => (link.Play(), "clip playing"),
-            "pause" => (link.Pause(), "clip paused"),
-            "stop" => (link.StopClip(), "clip stopped at the top"),
-            "seek" => (link.Seek(n), $"clip moved to {TimerTick.FormatSeconds(n)}"),
-            _ => (link.EndIn(n), $"clip jumped to its last {n} s"),
+            "restart" => (link.Restart(), "restart the clip"),
+            "play" => (link.Play(), "play the clip"),
+            "pause" => (link.Pause(), "pause the clip"),
+            "stop" => (link.StopClip(), "stop the clip at the top"),
+            "seek" => (link.Seek(n), $"move the clip to {TimerTick.FormatSeconds(n)}"),
+            _ => (link.EndIn(n), $"jump the clip to its last {n} s"),
         };
         if (error is not null) { Refuse("Patterns: " + error); return; }
-        StatusLine = "Patterns: " + done + " (sent — waiting for Patterns)";
+        StatusLine = "Patterns: sent — " + asked + " (waiting for its answer)";
         ReceiptHandedOn();   // Patterns confirms (or refuses) it itself
-        if (error is null) _journal.Add(DateTime.UtcNow, JournalKind.Playout, _show.RundownActive ? _show.CurrentItem : -1, "Patterns " + done);
+        _journal.Add(DateTime.UtcNow, JournalKind.Playout, _show.RundownActive ? _show.CurrentItem : -1, "Patterns: sent — " + asked);
     }
 
     /// <summary>
