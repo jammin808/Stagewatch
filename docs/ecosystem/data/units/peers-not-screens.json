@@ -1,0 +1,664 @@
+{
+ "area": "peers-not-screens",
+ "revised": {
+  "area": "peers-not-screens",
+  "summary": "The operator gets a Screens list and screen commands that never reach a show app by accident. Today 'screen identify all' can flash PlayMap's outputs, and 'screen disconnect all' drops every peer's link. After this change:\n- A show app that proves itself is listed under Producer \u2192 Show network, not Screens. It proves itself with a node key, or with the operator's own control key or PIN.\n- Each Show network row has a link line and a shape mark (\u2713 node key, \u25b3 operator credential, \u25cb unverified). Its right-click menu offers Copy node id, Let a key speak for this node, and Revoke its key.\n- An app that only claims to be a show app stays in Screens, flagged 'claims to be patterns 9f8e\u2026 (unproven)'. 'all' never reaches it, but the operator can still target it by its id, so a stray client can always be dropped.\n- A screen command that names a proven app is refused with the reason. A peer can never use its own name to shadow a browser's name.\n- PlayMap turns an 'identify' from any Stagewatch into a journal row, never OUTPUT IDENTIFY ALL. This ships first and needs nothing else.\n\nKeys get stronger, without anyone losing the timer:\n- One node key speaks for exactly one node id, and an id with a key is spoken for only with that key. This holds on every route that writes for a node: the context, proposals, collect and result.\n- The check runs before anything is stored. A forged context can no longer relabel the risk on another app's proposals, and an open (unverified) context never lowers a risk.\n- A key shared between two installs keeps both of them following the countdown. Only the second install's context and approvals are refused, with words that name both ids.\n- The binding is saved with the key. The operator moves it explicitly ('Let it speak for\u2026', with buttons and a right-click menu in step), so there is no first-come race.\n- Revoking a key, or changing the PIN, now reaches open sockets at once: a key-authenticated socket falls back to the public frame, and a PIN-authenticated control page loses control. The only close is the one the viewing code already does.\n- Unknown or revoked keys stop counting toward the 5-a-minute address lockout. A 160-bit key cannot be guessed. Today, a peer holding a revoked key locks its whole machine out of the PIN through its ordinary polling.\n\nEach app gets its own identity on /ws: ?node=<its Show Bus id>&t=<kind>, plus cid=<id> so an older Stagewatch also lists the installs apart. A node link hears Stagewatch's verdict before any frame. Each app records a refusal before doing anything else and holds its keyed calls for 60 s:\n- Patterns shows the refusal on the Eye, the Nodes page, the context and the assistant (all through ShowApps), in STATE bus.stagewatch.key, and in the Companion variable stagewatch_key. It also says when its id cannot be kept.\n- AGMessage says 'connected' and confirms its TLS pin only on the verdict or an authenticated 2xx. Participants see only the coarse status; admins see the words.\n- PlayMap's 'paired' becomes honest (Paired or NotNeeded). Preflight shows a refused key as its own state, not 'not heard'.\n\nThe screen verb's rules move out of the WPF view model, so the suite, the rig and the desk run one code path. The full design is at /home/user/Stagewatch/docs/ecosystem/peers-not-screens.md; \u00a79 answers each review item.",
+  "decisions": [
+   {
+    "decision": "A node link names itself on /ws with ?node=<Show Bus id>&t=<hello kind>. The credential goes in Authorization: Bearer. Peers also send cid=<id>&page=/<app>, which a new Stagewatch ignores when node is present.",
+    "why": "The hello id is the identity on every other Show Bus surface (Stagewatch/docs/SHOWBUS.md:39,194). It is per install and not a secret (\u00a71 rule 5). cid=<id> means an older Stagewatch also lists each install under its own id, so G32 is fixed even there. The fixed cids today are Patterns StagewatchLinkService.cs:276 and AGMessage nodes.js:317. AGMessage's id is 8 hex (server.js:82).",
+    "alternatives": "- The id as cid only: keeps the apps in Screens.\n- A first hello message: races the first frame."
+   },
+   {
+    "decision": "Which sockets are nodes:\n- A socket with a valid node-scope key is a node link, with or without node=.\n- A node= link with the operator's credential (a control key or the PIN) is a node link too.\n- A node= with no credential, a read or MCP key, or a refused key is a claim. A claim stays in Screens, flagged, is skipped by 'all' and by no target, and is reachable by its own screen id or by an operator-given name.",
+    "why": "Anything on the LAN can put node= in a URL (review item 3). Disconnect is 'for a stray tablet' (WebServer.cs:100-103), so the operator must keep a handle on unproven sockets. Keeping claims out of 'all' still closes G06 for keyless PlayMaps. The node scope exists only for show apps (ApiKeys.cs:16-20).",
+    "alternatives": "- Claims included in 'all': G06's harm returns for keyless peers.\n- Claims taken out of Screens: no handle on a stray client."
+   },
+   {
+    "decision": "One node, one key on every route that writes for a node (NodeBindings.Speak in Core):\n- A node key speaks only for its bound id. It binds on its first proven use (a node link, a context, a proposal's from, or a collect).\n- A key-bound id is refused to the PIN, a control key or an open request.\n- The check runs before anything is stored, queued or claimed.\n- A context of weaker proof never replaces a stronger one for the same id within KeepFor.",
+    "why": "G15 worked because the check came after the store and its false was ignored (MainViewModel.Desk.cs:64-70; ShowBus.cs:58-70), and because non-node credentials were never checked (Approvals.cs:92,137,149-154). A control key passes the Node gate (ApiKeys.cs:76-77).",
+    "alternatives": "- G15's minimal fix (refuse only node keys): leaves forgery with the PIN, a control key or an open request.\n- Tie an id to an address: DHCP and two-NIC laptops move, and no cause has been measured."
+   },
+   {
+    "decision": "On /ws a binding conflict never stops the frames. The node link is listed verified:'none', with words such as 'this key speaks for patterns 9f8e7d6c'. Only the node routes answer 403. A legacy keyed socket (no node=) is listed under its key ('names no node id'), never under the binding's id.",
+    "why": "The shared-key case (review item 2): a Patterns twin, or two AGMessages given one key, must keep the countdown, which is their core function. The binding governs contexts and approvals, not reading. Today /ws ignores the binding (WebServer.cs:1141-1219).",
+    "alternatives": "Refuse and close: the second holder loses the timer over a rule about approvals."
+   },
+   {
+    "decision": "Unknown or revoked keys never count toward the address lockout. Wrong PINs, wrong viewing codes and wrong window addresses still do.",
+    "why": "A key is 160 bits (ApiKeys.cs:50-55) and cannot be guessed, so counting it protects nothing. It does let a peer with a revoked key lock its whole machine out of the PIN. Today the peers' polling already does this: Patterns posts every 5 s and polls the queue every 2 s (StagewatchLinkService.cs:347-353), PlayMap does the same (StagewatchLink.cs:469-472), and AGMessage pushes every \u22645 s (server.js:1114-1125). A redial loop would do it faster. Removing the cost beats governing it.",
+    "alternatives": "Keep counting and rely on each peer honouring 'retry': fails for every peer already deployed, because all three reset their backoff on an upgrade (nodes.js:322-324; StagewatchLinkService.cs:182-186; StagewatchLink.cs:236-250)."
+   },
+   {
+    "decision": "No new close for a key reason; only the viewing code still closes. A socket whose key is refused at admission, or revoked later, hears one {type:'auth',ok:false,error,retry:60} and stays open as a public viewer. With a viewing code set, that same single message carries view:true and the socket closes, as today.",
+    "why": "Old peers turn any close into a 0.5 s loop (review item 1). The precedent: a control socket with a wrong PIN already hears ok:false and stays open as a viewer (WebServer.cs:1163-1164,1191,1213-1219). Pages ignore an auth message without view (common.js:106,109).",
+    "alternatives": "A 401 or 403 at upgrade with Retry-After. Correcting the first version: it IS readable, through .NET 7+ CollectHttpResponseDetails and ws 'unexpected-response'. But it would stop the timer for a key problem on an open Stagewatch, and without the lockout change it is not lockout-safe either, because old peers' backoff still reaches 5 s."
+   },
+   {
+    "decision": "The verdict is in-band and first, on node links only: {type:'auth',ok:true,scope,node:{t,id,verified},words?} or the refusal line. It is sent again on revoke, rebind or a PIN change (latest wins). Legacy sockets with an accepted key hear nothing new. Malformed node requests get an HTTP 400 before the upgrade: key in the URL, Window scheme, win, role=control, bad id or kind, own id.",
+    "why": "Attempts are not facts: the peer learns at the socket what Stagewatch made of its claim. spec-1-3's leases (\u00a712.4) and windows-for-peers' grants need a 'key-verified node link'. Third-party clients still see a frame first (ShowBusTests.cs:210-220). Each verdict is also reachable over HTTP through the context POST's verified field, so peers fall back to HTTP against an older Stagewatch.",
+    "alternatives": "- No in-band verdict, HTTP only: sibling designs lose their key-verified link fact.\n- A verdict on every socket: breaks clients that read the first frame."
+   },
+   {
+    "decision": "CredentialsChanged() re-checks open sockets whenever keys or the PIN change (it is called from RefreshScreenCopies):\n- A key gone: the socket downgrades to the public frame, and a node link becomes a claim.\n- A PIN changed: a PIN-admitted control socket loses control and hears 'the PIN changed'.\n- A rebind: verified is recomputed.\nNothing ever closes on a NodeOf mismatch.",
+    "why": "Revoking only rewrote the list (MainViewModel.Screens.cs:84-91), while ReadKey and CanControl were fixed at admission (WebServer.cs:1191,1417,1425). 'Revoking works at once' (SettingsDialog.xaml:304) was untrue for live sockets. RefreshScreenCopies runs on every key change and after Settings closes (MainViewModel.cs:919-922). Review item 6: a legacy socket that binds its own key by its own context POST must stay open.",
+    "alternatives": "Re-check credentials on every frame: costs on the send loop, with no gain."
+   },
+   {
+    "decision": "The binding is persisted on the key (ApiKey.node, nodeKind). The operator rebinds explicitly: 'Let this key speak for <node>\u2026' in Settings (a button plus right-click, in step) and on the Show network row's right-click. The dialog offers the id that key was just refused for.",
+    "why": "The in-memory binding reopens a race at every restart (Approvals.cs:50,63-74), and a reinstalled peer has a new id. Writing an explicit pair has no race. 'Release, then first come' lost to the old holder's fast redial (review item 5).",
+    "alternatives": "Release with retry 1: a race that the intended new holder loses."
+   },
+   {
+    "decision": "An unverified context (Proof None) is kept and labelled, and its commands never set a proposal's risk (unknown = high). Patterns' context, pulled over Stagewatch's own proof-paired link, counts as Key.",
+    "why": "This closes the LAN-forgery half of G15 without breaking an open show's Show network. RiskFor reads the entry today (MainViewModel.Desk.cs:73-84).",
+    "alternatives": "Refuse every unauthenticated context: breaks open shows for no gain over gating the risk."
+   },
+   {
+    "decision": "The screen verb's rules move to Timer.Remote/ScreenDirector.cs, with a fixed matching order:\n1. 'all' or empty: browsers only, never control pages or claims.\n2. A screen id (claims included).\n3. An operator-given screen name.\n4. Only then, a proven node's id or a key-verified node's name: refused 'is a show app'.\n5. Otherwise, nothing matches.\nNo node-disconnect verb is added.",
+    "why": "Screens.Match falls back to names (Screens.cs:61-68), and a peer chooses its own name (review item 12). The suite cannot load Timer.App (Stagewatch.Tests.csproj:16-25), and the rig refuses screen (Rig Program.cs:182-201). Revoking the key is the real wall.",
+    "alternatives": "Refuse by any node name: a peer named 'Lobby TV' could block the operator's TV."
+   },
+   {
+    "decision": "Peers record a refusal in a field before any I/O and honour it on every exit path. On a 401 or ok:false, keyed calls (and a closed link's redial) wait 'retry' seconds (60, or Retry-After for a 429). A 403 binding refusal holds nothing. A new key typed into the peer restarts its link, so no 'dial again now' control is needed.",
+    "why": "PlayMap's hold came only from a normal return, and the CloseOutputAsync race threw it away (StagewatchLink.cs:243-250,362-365). Patterns has the same shape (StagewatchLinkService.cs:182-200). A 403 does not count toward the lockout and is answered within 5 s once the operator rebinds.",
+    "alternatives": "A hold only from Take's return value: lost to the close race."
+   },
+   {
+    "decision": "PlayMap:\n- identify is always a journal row.\n- paired = Pairing is Paired or NotNeeded.\n- A refused key is STATE links.stagewatch.state 'refused', with its own preflight arm (no fix line, because the fix is on Stagewatch).\n- ContextBuilder.cs and Seams.cs, both spine files, are not edited.",
+    "why": "OUTPUT IDENTIFY ALL 5 ran through a Remote session (NetworkHost.cs:776-784). Counting only Paired would turn keyless links amber, whereas the Patterns link counts NotNeeded (PatternsLink.cs:142). Preflight's red 'not heard' with LINK STAGEWATCH is the wrong remedy (PreflightBreadth.cs:117-129). The context item already reads state and detail (ContextBuilder.cs:96-100).",
+    "alternatives": "- Flash the name on the timer surface: it may be on air.\n- paired = Paired only: a regression."
+   },
+   {
+    "decision": "The bindings fail closed by default. IShowAccess.Nodes => NodeBindings.For(this), a per-implementer ConditionalWeakTable instance that enforces first-bind-wins. The checks visible in a request (context node.id, proposal from.id, collect target) run in WebServer before the implementation is called; result is checked in ProposalDesk.",
+    "why": "A null default would run the node routes unchecked (review item 15). Six fakes implement IShowControl through defaults (ShowState.cs:497-507).",
+    "alternatives": "A required member: forces six fakes to change for no extra safety."
+   },
+   {
+    "decision": "The rig makes its own keys (--node-keys N, through ApiKeys.Create). It saves their hashes and bindings in its --state file and reports the secrets made in that run in its ready line, as it already reports the PIN. No Core API builds a key from a chosen secret.",
+    "why": "ApiKeys.Create is the only maker (ApiKeys.cs:48-65), and the rig already prints its PIN (Rig Program.cs:12,132-137).",
+    "alternatives": "ApiKeys.FromSecret: a shipping API that bypasses 'random secret, shown once'."
+   }
+  ],
+  "wire": "STAGEWATCH (Show Bus 1.3 words for \u00a76 peers fields, \u00a77 one node one key, \u00a77.1 node links and \u00a711 bound ids, carried by spec-1-3's single master edit)\n\n1) WebSocket node link\nGET /ws?node=<id>&t=<kind>[&detail=1][&cid=<id>&page=/<app>]\nAuthorization: Bearer <node key | control key | PIN>, or no header (a claim)\n- id = [A-Za-z0-9_-]{1,40}; kind = [a-z0-9_-]{1,16}.\n- With node, cid and page are ignored.\n\nRefused before the upgrade: HTTP 400 {\"ok\":false,\"error\":\u2026}, never counted toward the lockout.\n- node with win, or Authorization: Window \u2026 \u2192 \"a window's link is not a node link\"\n- node with ?pin= \u2192 \"a node link carries its key in the Authorization header, never in the URL\"\n- node with role=control \u2192 \"a node link reads; it does not control\"\n- a bad id \u2192 \"a node id is 1-40 letters, digits, - or _\"\n- a bad or missing t \u2192 \"a node link names its kind (t=patterns, playmap, messenger\u2026)\"\n- this Stagewatch's own id \u2192 \"that's this Stagewatch\"\n\nAdmission order:\n1. The credential (Authorize or CheckPin as today; an unknown key is no longer counted).\n2. The viewing code (one message).\n3. The class:\n   - node key K bound to this id, or unbound and the id free (binds now) \u2192 node, verified key\n   - K bound elsewhere, or the id bound to another key \u2192 node, verified none + words (frames continue)\n   - control key or PIN, id not key-bound \u2192 node, verified operator\n   - control key or PIN, id key-bound \u2192 node, verified none + words\n   - read or MCP key, or none \u2192 claim (in Screens, flagged, never in 'all')\n   - refused key \u2192 claim + the ok:false line\n\nFirst message on a node link, before any frame:\n- {\"type\":\"auth\",\"ok\":true,\"scope\":\"node|control|read|mcp|pin|none\",\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"verified\":\"key|operator|none\"}}\n- \"words\" is appended only when verified is none. It is one of:\n  - \"no key \u2014 the id is only claimed\"\n  - \"a read key reads; only a node key speaks for a node\"\n  - \"this key speaks for <kind> <id> \u2014 the Stagewatch operator can let it speak for this one\"\n  - \"<kind> <id> speaks with its own key\"\n- A refused key: {\"type\":\"auth\",\"ok\":false,\"error\":\"unknown or revoked API key\"|\"too many wrong PINs \u2014 wait a minute\"|\"wrong PIN\"|\"rate limit: too many requests with this key\",\"retry\":60|Retry-After}\n  - The socket stays open with the public frame.\n  - With a viewing code set, the same single message carries \"view\":true and the socket closes, as today.\n\nLegacy sockets (no node=):\n- Admission is unchanged.\n- A refused key (header or ?pin=swk_) on a non-control socket hears the one ok:false line and stays open.\n- An accepted key hears nothing new.\n- A valid node-scope key makes the socket a node link listed by its key, with no id asserted.\n- Control sockets keep their existing auth messages.\n\nWhile linked (latest wins):\n- Key revoked \u2192 {\"type\":\"auth\",\"ok\":false,\"error\":\"this key was revoked\",\"retry\":60}, then the public frame (a close only under a viewing code). This applies to node links and legacy keyed sockets alike.\n- Key rebound \u2192 a fresh ok:true verdict.\n- PIN changed \u2192 a PIN-admitted control socket hears {\"type\":\"auth\",\"ok\":false,\"error\":\"the PIN changed \u2014 enter the new one\"} and stays a viewer.\n- A node link never receives redirect, identify, reload or disconnect. A claim receives them only when targeted explicitly.\n\n2) HTTP: one node, one key\nCredential per request (CredentialOf):\n- node key \u2192 Key(keyId)\n- control key, or the PIN when one is set and given \u2192 Operator\n- anything else \u2192 None\n\nRoutes:\n- POST /api/peers/context (body node.id), POST /api/proposals (from.id; was 400, now 403), GET /api/proposals?target=<id>&state=approved\n  - Checked in WebServer before the implementation.\n  - 403 {\"ok\":false,\"error\":\"this key speaks for <kind> <id>\"}\n  - 403 {\"ok\":false,\"error\":\"<kind> <id> speaks with its own key\"}\n  - contexts only: 403 {\"ok\":false,\"error\":\"<kind> <id> spoke with a stronger proof 12 s ago\"}\n- POST /api/proposals/<id>/result \u2192 409 as today, with the same words (checked in ProposalDesk).\n- A context is accepted with 200 {\"ok\":true,\"verified\":\"key|operator|none\"} (field appended).\n- Binding refusals never count toward the lockout.\n- An unknown or revoked key still gets 401, and is no longer counted.\n- A Proof-None context is kept, labelled unverified, and never sets a proposal's risk.\n\n3) Context \u00a76 peers rows\n{\"t\",\"id\",\"name\",\"light\",\"headline\",\"heard\",\"link\":\"ws\"|\"\",\"verified\":\"key\"|\"operator\"|\"none\"|\"\"}\n- The last two fields are appended.\n- link is \"ws\" only for a proven node link (verified key or operator).\n- A link-only row is listed only for a proven id. Claims, conflicts and legacy keyed sockets never add a row.\n- Rows are capped at 32 (PeerContexts.MaxPeers). MCP get_context returns the same.\n\n4) Screens\n- GET /api/screens rows gain \"claim\":\"patterns 9f8e7d6c\"|\"\" at the end.\n- screen identify|reload|disconnect|go|save|name match in this order: 'all' or empty (browsers only, no claims); a screen id; an operator-given name; then a proven node's id or a key-verified node's name, refused.\n- Refusal: \"Screens: 9f8e7d6c is a show app (Patterns FOH), not a screen \u2014 screen commands reach browsers only (Producer \u2192 Show network)\". It appears in the HTTP, WS, OSC, Companion TCP and MCP receipts.\n\n5) Settings JSON\nremote.apiKeys[] gains \"node\":\"<id>\" and \"nodeKind\":\"<t>\", appended, kept only on node-scope keys with a valid id and kind.\n\n6) No new verb, no new hello cap, no new frame field.\n\nPATTERNS\n- Dials ws(s)://<sw>/ws?node=<ShowBusId>&t=patterns&cid=<ShowBusId>&page=/patterns with Authorization: Bearer.\n- STATE bus.stagewatch gains \"key\" last (after \"stuck\" if that round lands first): \"key|operator|none|refused|\"\"\"\n  - from the verdict, else from the context POST's verified, else \"refused\" on a 401;\n  - \"\" means Stagewatch said neither.\n- Companion variable stagewatch_key.\n\nAGMESSAGE\n- Dials /ws?node=<nodeId>&t=messenger&cid=<nodeId>&page=%2Fagmessage with Authorization: Bearer.\n- With a key, 'connecting' until auth ok:true with a scope other than none, or an authenticated GET /api/context 2xx (judged by status). The TLS pin is confirmed only then.\n- With no key, the first state frame (unchanged).\n- A refusal gives the sticky status 'key refused' and holds keyed calls for 'retry' s.\n- socket.io:\n  - the shared 'stage' event carries status from a closed set (connected, connecting, reconnecting, stale, key refused, certificate refused, off);\n  - a new admin-only 'stageLink' {status, words, until} carries the refusal's words.\n\nPLAYMAP\n- Dials /ws?node=<NodeId>&t=playmap&cid=<cid>&page=/playmap&detail=1 with Authorization: Bearer.\n- STATE links.stagewatch:\n  - paired = Pairing is Paired or NotNeeded;\n  - state \"refused\" when the key is refused and the link is not live (a new value);\n  - detail \"key refused \u2014 <Stagewatch's words>\".\n- An identify from any Stagewatch gives a journal row, never OUTPUT IDENTIFY ALL.",
+  "changes": [
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/NodeBindings.cs (new)",
+    "change": "Adds NodeProof {None, Operator, Key}, record struct NodeCredential(KeyId, Proof) and record struct NodeVerdict(Ok, Proof, Error).\n\nNodeBindings holds key \u2194 (kind, id) under a lock, seeded from ApiKey.Node/NodeKind. It raises Bound(keyId, kind, id, previousId?) outside the lock.\n\nMethods:\n- Speak(cred, kind, id): binds on first proven use, refuses both ways, and refuses non-key credentials for a key-bound id.\n- Rebind(keyId, kind, id): the operator's choice; moves the id off any other key.\n- LastRefused(keyId), NodeOf, KeyOf, Keep(liveKeyIds), ValidId, ValidKind.\n- static For(owner): a ConditionalWeakTable instance, the fail-closed default."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/NodeLinks.cs (new)",
+    "change": "Adds the records WsCredential, WsAdmission (class: screen, claim or node; verified; words; the 400 error; the first message's bytes) and NodeLinkFact(Kind, Id, Verified, KeyId, KeyName, Address, ConnectedUtc, Links, Words).\n\nTwo pure functions:\n- NodeLinks.Admit(query, authScheme, cred, viewNeeded, ownId, bindings): the whole \u00a72.1 matrix, including the pre-upgrade 400s.\n- NodeLinks.Recheck(socketState, keys, bindings, pinHash): the new state and the message to send when a credential changes. It never closes except under a viewing code."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/Approvals.cs",
+    "change": "- ProposalDesk(Func<string> deskId, NodeBindings bindings).\n- _keyNode and BindKey are removed (:50,63-74).\n- Submit, Collect and Result take a NodeCredential and call bindings.Speak first.\n- A refused Submit carries Forbidden (403)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowBus.cs",
+    "change": "- PeerContexts(NodeBindings).\n- Accept(json, address, now, ownId, NodeCredential) returns (Status, Error, Proof). The order is parse, Speak, the stronger-proof rule, then store (:58-70).\n- Entry.Proof is new.\n- New PeerContexts.RiskFor(entry, line): high when there is no entry or Proof is None.\n- PeerSummary gains Link and Verified (appended).\n- New pure ShowNetwork.Summaries(hellos, contexts, nodeLinks, ownId, now, max 32): the join now inline in MainViewModel.ShowBus.cs:72-89. Link-only rows are added only for proven ids."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ApiKeys.cs",
+    "change": "- ApiKey.Node and ApiKey.NodeKind, appended to the JSON.\n- Sanitise keeps them only on node-scope keys with a valid id and kind (:96-100).\n- No new maker: Create stays the only one (:48-65)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowState.cs",
+    "change": "- IShowAccess.Nodes => NodeBindings.For(this).\n- IShowContext.AcceptPeerContext(json, address, NodeCredential) returns (int, string?, string verified) and replaces both overloads (:575-578).\n- New IShowContext.PeerName(id).\n- IShowApprovals' SubmitProposal, CollectApproved and ProposalResult take a NodeCredential (:587-591)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/WebServer.cs",
+    "change": "- Authorize no longer counts an unknown key (:1079-1082). The lockout check before it stays.\n- /ws (:1141-1219) runs through NodeLinks.Admit. 400s are written before the 101 head; the verdict or refusal line goes before the loops.\n- WsClient gains Node, Kind, Verified, KeyId, Claim and PinHash (a hash of the admitting PIN, never the PIN). ReadKey, CanControl and ScreenId become volatile and settable (:1417,1425,1431).\n- A node's ScreenId is 'node:<id>' or 'key:<keyId>'. A claim's is 'claim-<12 hex>'.\n- ListScreens (:77-87) excludes nodes and carries Claim. New ListNodes().\n- Push, Disconnect and Identify skip nodes (:89-145).\n- New CredentialsChanged() applies Recheck and sends through Task.Run. It never waits.\n- CredentialOf(req) replaces NodeKeyId (:570-571). The Speak checks run in /api/peers/context (:452-461) and HandleProposalsAsync (:578-618): 403 with words, and 200 {ok,verified}."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/Screens.cs",
+    "change": "- ScreenInfo gains Claim (appended).\n- Match skips claims for 'all' and an empty target (:61-65)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/ScreenDirector.cs (new)",
+    "change": "Run(ScreenArgs, WebServer?, nodes, nodeName, rename, savePreset, resolvePreset) returns (Ok, Words). It holds the rules moved from MainViewModel.Screens.cs:104-147, with the fixed order: 'all' or empty; screen id; operator-given name; then the node refusal (by id or a key-verified name only)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/ShowContext.cs, src/Timer.Show/AiContext.cs",
+    "change": "- The peers rows (:138) gain link and verified, appended.\n- PeerFact (:11) gains Link and Verified.\n- ScreenFact gains Claim."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Desk.cs",
+    "change": "- Desk and _peerContexts are built on _nodes.\n- AcceptPeerContext(cred) goes through PeerContexts.Accept. A refusal is journalled once per (key, claimed id) per session, with the key's name and both ids, never a secret.\n- RiskFor (:73-84) uses PeerContexts.RiskFor; the pulled Patterns context counts as Key.\n- Submit, collect and result return 403 or 409 with words (:29-60)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.ShowBus.cs",
+    "change": "- _nodes is seeded from Settings.Remote.ApiKeys.\n- Bound is posted to the show thread, which persists Node/NodeKind and journals the change: first use, or the operator's choice naming the previous id.\n- PeerSummaries (:72-89) becomes ShowNetwork.Summaries plus _web.ListNodes().\n- PeerRow gains LinkLine, Mark (\u2713 key, \u25b3 operator, \u25cb unverified) and KeyId. Key-grouped facts get their own rows.\n- PeerFacts gains link and verified. New PeerName."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Screens.cs",
+    "change": "- ApplyScreenCommand calls ScreenDirector.Run.\n- RefreshScreenCopies (:16-26) copies Node/NodeKind, calls _nodes.Keep, and calls _web?.CredentialsChanged(). It runs after every key change and after Settings closes.\n- New RebindApiKey(keyId, kind, id), which journals the change.\n- New NodeLinkCount and ClaimCount."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Diagnostics.cs, src/Timer.App/ScreensWindow.xaml(.cs)",
+    "change": "- The web line (:70) counts browsers, window links, show app links and unproven claims separately.\n- The Screens subtitle (:66-68) adds '\u00b7 N show apps follow this Stagewatch too (Producer \u2192 Show network); screen commands never reach them'.\n- A claim's row is flagged 'claims to be Patterns 9f8e7d6c \u2014 unproven; never in all'."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/MainWindow.xaml (+ .xaml.cs), src/Timer.App/SettingsDialog.xaml (+ .xaml.cs), src/Timer.App/Help/HelpContent.cs",
+    "change": "- Each Show network row (:694) shows its LinkLine and shape mark.\n- The row's right-click menu offers Copy node id, Let a key speak for this node\u2026, and Revoke its key\u2026 (confirmed).\n- The Settings key rows (:297-304) say 'speaks for <kind> <id>', 'no node yet', or 'refused for \u2026 N s ago'.\n- New button 'Let it speak for\u2026', and a list right-click menu that repeats Revoke and 'Let it speak for\u2026', in step with the buttons.\n- KeyHooks gains Rebind (SettingsDialog.xaml.cs:54; MainWindow.xaml.cs:567).\n- The show-network tip (HelpContent.cs:828) names the link line, the marks and the rebind."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "companion-module/src/actions.ts, companion-module/src/presets.ts",
+    "change": "The screen actions' labels and descriptions (actions.ts:376-394,758-768; presets.ts:486-490) say 'empty = all browser screens; show apps and unproven claims are never included'."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/Stagewatch.Rig/Program.cs",
+    "change": "- New --node-keys N: makes N keys with ApiKeys.Create on a first start, keeps their hashes, ids and bindings in the --state file, and reports the secrets made in this run in the ready line (beside pin, :132-137).\n- Adds Nodes, PeerContexts and AcceptPeerContext(cred).\n- The screen command goes through ScreenDirector (:182-201).\n- Context() peers come from ShowNetwork.Summaries plus ListNodes (:249-254).\n- New PeerName."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tests/Stagewatch.Tests/NodeTests.cs (new), Program.cs, ShowBusTests.cs, WebV2Tests.cs; tests/Stagewatch.UiSmoke/Program.cs; tests/e2e/nodes.e2e.cjs (new), rig.cjs, package.json",
+    "change": "- New pure tests and real-WebServer tests (see tests), including the old-peer lockout test and the shared-key test.\n- The BusControl fake (ShowBusTests.cs:20-51) moves to the credential overloads.\n- DeskRules (:292-317) moves to NodeCredential.\n- Approvals (:377-410) gains a 403 case where it was 400.\n- UiSmoke moves to the new signatures (:157,309-319) and gets desk checks.\n- e2e: a nodeKeys option in rig.cjs, and ws as a devDependency at an exact version."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "docs/REMOTE.md, docs/NODES.md, docs/COMPANION.md, docs/FEATURES.md, docs/WHATS_NEXT.md",
+    "change": "- REMOTE: Screens covers browsers and claims; the 2.10 keys line (:214) says unknown keys are not counted and that revoking reaches open sockets; a new release section, 'Show apps on /ws'.\n- NODES: the /ws line for each app.\n- COMPANION: the screen actions.\n- FEATURES: Show network.\n- WHATS_NEXT: what the round did not do, including a viewing code changed while screens are open.\n- The SHOWBUS \u00a76/\u00a77/\u00a77.1/\u00a711 words are handed to spec-1-3's master edit."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/StagewatchLinkService.cs, src/Patterns.Core/Services/StagewatchFollow.cs, src/Patterns.Core/Services/ShowBusNetwork.cs (N.1)",
+    "change": "- A refusal (a 401, or auth ok:false) is recorded in _keyHeldUntil before any further I/O. Keyed calls skip while it holds (:347-353), and the redial on every exit path waits for it (:197-200).\n- The length comes from a pure StagewatchFrame.Hold(status, retryAfter).\n- The 403 bodies' error is shown verbatim (:405-409,431-433).\n- A refused collect is said in the approval words, with _approvalsLive = false (:456).\n- ShowBusIdentity.LoadOrCreate (:191-228) returns whether the id was kept, and the Nodes page's identity line says when it was not."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/StagewatchFollow.cs, src/Patterns.App/Services/StagewatchLinkService.cs, src/Patterns.App/Services/AppServices.cs, src/Patterns.App/Services/CommandRouter.cs (N.2)",
+    "change": "- StagewatchFrame.SocketQuery(selfId) returns '/ws?node=<id>&t=patterns&cid=<id>&page=/patterns', or today's query for an invalid id.\n- StagewatchFrame.Auth(json) parses the verdict.\n- :276 dials SocketQuery.\n- ReceiveAsync (:523-538) gains case 'auth': it sets KeyVerdict and the hold, and pins on ok (scope other than none, TLS on).\n- The context POST's verified also sets KeyVerdict.\n- AppServices.ShowApps (:908-918) shows the key's words on the linked Stagewatch card, as the certificate refusal does. That reaches the Eye (EyeService.cs:598), the Nodes page, the context peers (:930) and the assistant facts (:1810).\n- CommandRouter.ShowBusRow (:765-777) gains stagewatch.key, last."
+   },
+   {
+    "repo": "Patterns",
+    "file": "integrations/companion-module-patterns/src/state.js, src/variables.js, test/",
+    "change": "- stagewatch_key is added (state.js:313-316, variables.js:212-215): 'The key Stagewatch accepted for this desk's link \u2014 key, operator, none, refused or empty'.\n- The fixture and module.test.mjs assert it."
+   },
+   {
+    "repo": "Patterns",
+    "file": "tests/Patterns.Core.Tests/ShowBusTests.cs, tests/Patterns.App.Tests/ShowBus12AppTests.cs",
+    "change": "- Core: SocketQuery, Auth and Hold.\n- App: the asked URL; the verdict reaching STATE key, the pin and the ShowApps card words; the hold proven by counting keyed requests; 403 words verbatim; a refused collect."
+   },
+   {
+    "repo": "Patterns",
+    "file": "docs/PLAN.md (next free \u00a7), docs/REVIEW.md, CHANGELOG.md, README.md, docs/REMOTE.md, docs/COMPANION.md, docs/SHOWBUS.md, docs/OPEN.md, docs/QUALIFICATION.md",
+    "change": "The round's papers:\n- PLAN, including 'no field files this round' (docs/field holds only README.md) and what the round did not do;\n- REVIEW with 'Walk: unwalked';\n- the CHANGELOG entry (evidence class: a handed-in critique, the cross-repo gap analysis);\n- README: the Nodes page words;\n- REMOTE: the link URL and bus.stagewatch.key;\n- COMPANION: the variable;\n- SHOWBUS: copied after spec-1-3's 1.3 cut;\n- OPEN: L50 and L56 noted;\n- a new QUALIFICATION section (\u00a726 is round 87's, \u00a727 round 88's) with a row for a key refused, then rebound, on a real Stagewatch."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/lib/nodes.js (AG-1, AG-2)",
+    "change": "AG-1:\n- onopen (:322-324) stays 'connecting' when a key is set, and calls fetchContext.\n- fetchContext (:383-393): a 200 with the key counts by status: _confirmPin and 'connected'. A 401 or 403 records refused={error,until} from the body and Retry-After.\n- A state frame sets 'connected' only without a key.\n- auth ok:false records the refusal.\n- _retry (:341-348) never overwrites a refusal and waits until it expires.\n- _watch (:350-359) asks fetchContext every 5 s while 'connecting'.\n- pushContext, approvedFor and reportResult (:401-408,446-462) keep the body's error and skip while held.\n\nAG-2:\n- StagewatchLink({\u2026, nodeId}).\n- _dial (:317) uses '/ws?node=<id>&t=messenger&cid=<id>&page=%2Fagmessage'.\n- auth ok:true with a scope other than none confirms the pin and sets 'connected'."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/server.js",
+    "change": "- The shared 'stage' event (:996,1086) carries status from a closed set.\n- A new admin-only 'stageLink' {status, words, until} goes to isAdmin sockets, as 'nodes' does (:1005-1007).\n- nodeId: settings.nodeId is passed to the StagewatchLink (:995-1001)."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/test/units.test.js, resilience.test.js, tls.test.js, server.test.js",
+    "change": "- units.test.js:107-131 changes: 'connected' comes after the authenticated 2xx (by status), and the URL has node=.\n- New tests: a sticky 401 refusal, never overwritten, with no keyed request in the next 1.5 s; pinning only on a verdict or an authenticated 2xx; participants get no refusal words."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "docs/NODES.md, docs/SHOWBUS.md, CHANGELOG.md",
+    "change": "- NODES: the link line (node=, the verdict, the hold).\n- SHOWBUS: copied after spec-1-3's 1.3 cut.\n- CHANGELOG 0.4.1."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Net/Links/StagewatchScreenCommands.cs (new), src/PlayMap.Engine/Host/NetworkHost.cs (PM-1)",
+    "change": "- A pure plan: identify gives a journal row; redirect, reload and disconnect keep today's words and hold.\n- OnScreenCommand (:776-799) uses it. Run(\"OUTPUT IDENTIFY ALL 5\") is removed."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Net/Links/StagewatchLink.cs (PM-2)",
+    "change": "- :283-284 dials 'node=<SelfId>&t=playmap&cid=<cid>&page=/playmap&detail=1' when SelfId is a Show Bus id.\n- New public Pairing (PairState, WireClient.cs:57-68) and _refusedUntilNs, both set before any I/O:\n  - in Take (:372-434): ok key or operator \u2192 Paired; ok none with a key \u2192 Refused plus words; no key \u2192 NotNeeded; ok:false \u2192 Refused plus a hold;\n  - in PostContextAsync (:497-520): 2xx \u2192 Paired; 401/403 \u2192 Refused with the body's error;\n  - in ApprovalsAsync (:528-531): a refused collect gives words.\n- RunAsync (:227-254) waits max(hold, refusedRemaining, Redial) on every exit path, covering the CloseOutputAsync race (:362-365)."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Engine/Host/NetworkHost.cs, src/PlayMap.Engine/Show/PreflightBreadth.cs (PM-2)",
+    "change": "- Stagewatch() (:309-316): paired = Pairing is Paired or NotNeeded; state 'refused' when Refused and not live; detail 'key refused \u2014 <words>'.\n- PreflightBreadth.Row (:117-129) gains a 'refused' arm: red, with Stagewatch's words and no fix line.\n- ContextBuilder.cs (spine) and Seams.cs' LinkView (spine) are not edited; the context item already shows state and detail (:96-100)."
+   },
+   {
+    "repo": "Mapper",
+    "file": "tests/PlayMap.Net.Tests/StagewatchLinkTests.cs, tests/PlayMap.Engine.Tests (preflight)",
+    "change": "- The asked line (:162) gains node, t and cid.\n- New tests: the verdict gives Pairing; keyless gives NotNeeded; ok:false gives Refused with one connection, even with an immediate abort; a keyed 2xx gives Paired; 403 words.\n- The screen-command plan; the preflight 'refused' row."
+   },
+   {
+    "repo": "Mapper",
+    "file": "docs/SHOWBUS-NODE.md, docs/WIRE.md, docs/round2/CARRYOVER.md",
+    "change": "- SHOWBUS-NODE.md:37 becomes 'a node on Stagewatch's Show network, never a screen; the key's verdict read'.\n- WIRE: 'refused' is added to links.stagewatch.state.\n- CARRYOVER: a fix-batch entry.\n- Fixtures unaffected (tests/fixtures/state/main.json:171-173 is {\"state\":\"off\"})."
+   }
+  ],
+  "tests": [
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/NodeTests.cs \u2014 NodeBindings (pure, unit lane)",
+    "proves": "- First bind.\n- The same key for another id is refused, and so is another key for a bound id.\n- The PIN, a control key and None are refused for a key-bound id and allowed for a free one.\n- Rebind moves an id and names the old key.\n- LastRefused, Keep and Bound (raised once).\n- The pairs survive a new instance (a restart).\n- For(owner) is per owner and enforces first-bind-wins (fail closed)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/NodeTests.cs \u2014 NodeLinks.Admit and Recheck",
+    "proves": "Every \u00a72.1 row, with its exact first message or 400 body:\n- A shared key K bound to pat1 at node=pat2 is a node, verified none, with words, no close.\n- A legacy keyed socket with a node key is a node by key with no id.\n- A keyless node= is a claim.\n- Window scheme, ?pin=, own id and role=control each give a 400.\n- A refused key under a viewing code gives one message with view:true, then close.\n\nRecheck:\n- A revoked key downgrades the socket (a close only under a viewing code).\n- A rebind sends a fresh ok:true.\n- A PIN change drops CanControl.\n- A legacy socket whose key gets bound by its own context POST: no message, no change."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/NodeTests.cs \u2014 ScreenDirector",
+    "proves": "- 'all' skips nodes and claims; a claim's id reaches it.\n- A node's id, or a key-verified node's name, is refused with 'is a show app'.\n- A browser named 'Lobby TV' is still reached when a node's hello is named 'Lobby TV'.\n- A node named 'all' changes nothing.\n- name and save follow the same order."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/NodeTests.cs \u2014 G15",
+    "proves": "- Key A, bound to ag1, posting {node: patterns pat1} gets 403, and Patterns' entry is unchanged.\n- An open post for a bound id gets 403.\n- An open post for a free id is stored with Proof None. RiskFor gives high for a verb listed low, and low with the key.\n- An open post cannot replace an operator-proof entry within 30 s.\n- Proposals' from, collect and result with a control key for a bound id are refused."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/ShowBusTests.cs and WebV2Tests.cs (real WebServer)",
+    "proves": "- The old-peer lockout test: a client with no node=, an unknown header key, a reconnect every 0.5 s for 6 s and context posts every 0.5 s. Afterwards, from the same address, the PIN still opens /api/state?detail=1 and a control socket.\n- The shared-key test: one key at pat1 and pat2 gives two rows, one verified none, and both keep receiving frames.\n- Beside a browser and a claim, Identify and Disconnect on 'all' reach the browser only; Identify(['node:ag1']) returns 0.\n- pat1 and pat2 with two keys make two rows (G32).\n- A revoked key plus CredentialsChanged: the sockets hear 'this key was revoked' and keep the public frame; under a viewing code they close.\n- A PIN change refuses the control socket's next command.\n- peers/context returns 403 with words for another id, and 200 {ok,verified:'key'} for its own.\n- ShowBusTests.cs:210-220 still passes unchanged: an accepted legacy key hears a frame first.\n- Approvals: 403 where it was 400."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/e2e/nodes.e2e.cjs on tools/Stagewatch.Rig --node-keys 2 (e2e lane, Playwright + ws)",
+    "proves": "- A /viewer page plus a node peer: the peer hears auth ok, verified key.\n- 'screen identify all' flashes the page only; 'screen disconnect all' turns the page off while the peer keeps beating.\n- 'screen identify pat00001' gets an ok:false receipt naming a show app.\n- /api/screens has no pat00001; /api/context peers has it with link ws and verified key.\n- The same key at pat00002: verified none, frames continue; its context gets 403, while pat00001's gets 200.\n- A keyless node=pat00003 is listed as a claim, is not reached by 'all', and is reached by its id.\n- An unknown key gets ok:false with retry 60 and stays open. After ten such dials, the control page still accepts the PIN.\n- After a rig restart on the same state file, key 1 still speaks for pat00001."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.UiSmoke/Program.cs (Windows job; named through Bench.OnWindows elsewhere)",
+    "proves": "- The new signatures at :157 and :309-319.\n- The Show network link line and mark.\n- The Screens subtitle and a flagged claim row.\n- The key row says 'speaks for'.\n- 'Let it speak for\u2026' rebinds and journals.\n- The right-click entries match the buttons."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.Core.Tests/ShowBusTests.cs",
+    "proves": "- SocketQuery builds node, t and cid, and falls back to legacy for an invalid id.\n- Auth parses ok, scope, verified, words, error, retry and view, and rejects non-auth messages.\n- Hold gives 60 for a 401 and Retry-After for a 429."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.App.Tests/ShowBus12AppTests.cs (headless)",
+    "proves": "- The scripted Stagewatch sees node=, t= and cid=.\n- auth ok gives STATE bus.stagewatch.key 'key' and the pin.\n- auth ok:false gives 'refused', the ShowApps card words (the Eye, the context and the assistant read them), and exactly one keyed HTTP request in the next 6 s (counted, not clocked).\n- A 403 'this key speaks for patterns 1a2b3c4d' reaches the approval words verbatim.\n- A 403 on collect sets approvals not live, with words."
+   },
+   {
+    "repo": "Patterns",
+    "where": "integrations/companion-module-patterns/test/module.test.mjs",
+    "proves": "The stagewatch_key variable reads bus.stagewatch.key from the STATE fixture."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/units.test.js (changed :107-131), app/test/resilience.test.js",
+    "proves": "- The URL has node= and t=, and no key.\n- The status is 'connecting' when the first frame arrives, and 'connected' after the fake's /api/context 200, judged by status.\n- A 401 gives a sticky 'key refused', never overwritten by 'reconnecting', with no keyed request in the next 1.5 s.\n- auth ok:false behaves the same."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/tls.test.js, app/test/server.test.js",
+    "proves": "- Over wss, a state frame before a verdict does not pin; auth ok pins; an authenticated /api/context 200 from a fake with no verdict pins.\n- A participant socket's 'stage' event carries status 'key refused' with no words; an admin socket gets 'stageLink' with them."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Net.Tests/StagewatchLinkTests.cs, tests/PlayMap.Engine.Tests (preflight, screen-command plan)",
+    "proves": "- The asked line is 'ws /ws?node=a1b2c3d4&t=playmap&cid=a1b2c3d4&page=/playmap&detail=1 auth=Bearer \u2026'.\n- Verdict ok key gives Paired. A keyless link gives NotNeeded and paired true.\n- ok:false gives Refused with exactly one connection in 3 s, even when the fake aborts right after the verdict.\n- A keyed 2xx gives Paired against a fake with no verdict. A 403 body's words reach Words.\n- identify maps to a journal row with no line to run.\n- Preflight shows a 'refused' row with no fix line."
+   }
+  ],
+  "units": [
+   {
+    "repo": "Stagewatch",
+    "title": "SW-1 Core: NodeBindings (fail-closed default), PeerContexts and ProposalDesk on it, proof-gated risk, the stronger-proof rule, ApiKey.node/nodeKind",
+    "gaps": [
+     "G15"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-2 Remote+App: CredentialOf on every node route with the checks in WebServer and 403 words; unknown keys no longer counted toward the lockout; IShowContext/IShowApprovals signatures, fakes and UiSmoke signatures",
+    "gaps": [
+     "G15"
+    ],
+    "dependsOn": [
+     "SW-1 Core: NodeBindings (fail-closed default), PeerContexts and ProposalDesk on it, proof-gated risk, the stronger-proof rule, ApiKey.node/nodeKind"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-1 Engine (round-2 fix batch): Stagewatch's identify is a journal row, never OUTPUT IDENTIFY ALL",
+    "gaps": [
+     "G06"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-1 The Stagewatch link: connected and the TLS pin only on an authenticated 2xx (by status) or a verdict; sticky refusal with a key hold; 403 words; refusal words to admins only",
+    "gaps": [
+     "G43"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-1 Round N.1: the Stagewatch link records a refusal before I/O and holds keyed calls; 403 words shown; refused collect said; an unwritable show network id said",
+    "gaps": [
+     "G43"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-3 Remote: node links on /ws (admission matrix, claims, verdict, refused-key line, CredentialsChanged for keys and the PIN), Screens/ListNodes/Push filters, ScreenDirector with the fixed matching order",
+    "gaps": [
+     "G06",
+     "G32",
+     "G43"
+    ],
+    "dependsOn": [
+     "SW-1 Core: NodeBindings (fail-closed default), PeerContexts and ProposalDesk on it, proof-gated risk, the stronger-proof rule, ApiKey.node/nodeKind",
+     "SW-2 Remote+App: CredentialOf on every node route with the checks in WebServer and 403 words; unknown keys no longer counted toward the lockout; IShowContext/IShowApprovals signatures, fakes and UiSmoke signatures"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-4 App+Show: Show network link line, mark and right-click; Screens subtitle and claim rows; diagnostics; context peers link/verified; AI facts",
+    "gaps": [
+     "G06"
+    ],
+    "dependsOn": [
+     "SW-3 Remote: node links on /ws (admission matrix, claims, verdict, refused-key line, CredentialsChanged for keys and the PIN), Screens/ListNodes/Push filters, ScreenDirector with the fixed matching order"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-5 App: persisted key bindings and 'Let it speak for\u2026' (Settings buttons and right-click in step, Show network right-click), journal rows",
+    "gaps": [
+     "G15"
+    ],
+    "dependsOn": [
+     "SW-4 App+Show: Show network link line, mark and right-click; Screens subtitle and claim rows; diagnostics; context peers link/verified; AI facts"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-6 Rig and browser workflows: --node-keys, screen commands, peer contexts and context peers in the rig; nodes.e2e.cjs",
+    "gaps": [
+     "G06",
+     "G15",
+     "G43"
+    ],
+    "dependsOn": [
+     "SW-3 Remote: node links on /ws (admission matrix, claims, verdict, refused-key line, CredentialsChanged for keys and the PIN), Screens/ListNodes/Push filters, ScreenDirector with the fixed matching order"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-7 Companion screen-action labels and papers (REMOTE, NODES, COMPANION, FEATURES, WHATS_NEXT); SHOWBUS \u00a76/\u00a77/\u00a77.1/\u00a711 words handed to spec-1-3's master edit",
+    "gaps": [],
+    "dependsOn": [
+     "SW-5 App: persisted key bindings and 'Let it speak for\u2026' (Settings buttons and right-click in step, Show network right-click), journal rows",
+     "SW-6 Rig and browser workflows: --node-keys, screen commands, peer contexts and context peers in the rig; nodes.e2e.cjs"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-2 Net/Engine (round-2 fix batch): PlayMap dials as a node, Pairing from the verdict or HTTP, paired = Paired or NotNeeded, a 'refused' state and preflight arm, holds recorded before I/O, 403 words, refused collect",
+    "gaps": [
+     "G06",
+     "G43"
+    ],
+    "dependsOn": [
+     "SW-3 Remote: node links on /ws (admission matrix, claims, verdict, refused-key line, CredentialsChanged for keys and the PIN), Screens/ListNodes/Push filters, ScreenDirector with the fixed matching order",
+     "PM-1 Engine (round-2 fix batch): Stagewatch's identify is a journal row, never OUTPUT IDENTIFY ALL"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-2 Round N.2: the link dials as a node (/ws?node=<id>&t=patterns&cid=<id>), reads the verdict, STATE bus.stagewatch.key, the cards' words for the Eye, Nodes, context and assistant, the module's stagewatch_key",
+    "gaps": [
+     "G32",
+     "G43"
+    ],
+    "dependsOn": [
+     "SW-3 Remote: node links on /ws (admission matrix, claims, verdict, refused-key line, CredentialsChanged for keys and the PIN), Screens/ListNodes/Push filters, ScreenDirector with the fixed matching order",
+     "PT-1 Round N.1: the Stagewatch link records a refusal before I/O and holds keyed calls; 403 words shown; refused collect said; an unwritable show network id said"
+    ]
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-2 The Stagewatch link dials as a node (/ws?node=<id>&t=messenger&cid=<id>) and reads the verdict",
+    "gaps": [
+     "G32"
+    ],
+    "dependsOn": [
+     "SW-3 Remote: node links on /ws (admission matrix, claims, verdict, refused-key line, CredentialsChanged for keys and the PIN), Screens/ListNodes/Push filters, ScreenDirector with the fixed matching order",
+     "AG-1 The Stagewatch link: connected and the TLS pin only on an authenticated 2xx (by status) or a verdict; sticky refusal with a key hold; 403 words; refusal words to admins only"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-3 Papers: SHOWBUS-NODE \u00a72 row, WIRE links.stagewatch.state 'refused', CARRYOVER fix-batch entry",
+    "gaps": [],
+    "dependsOn": [
+     "PM-2 Net/Engine (round-2 fix batch): PlayMap dials as a node, Pairing from the verdict or HTTP, paired = Paired or NotNeeded, a 'refused' state and preflight arm, holds recorded before I/O, 403 words, refused collect",
+     "spec-1-3: the Show Bus 1.3 cut (the master text final)"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-3 Round N papers: PLAN (no field files; what the round did not do), REVIEW (Walk: unwalked), CHANGELOG, README, REMOTE, COMPANION, SHOWBUS copy of 1.3, OPEN, a new QUALIFICATION section",
+    "gaps": [],
+    "dependsOn": [
+     "PT-2 Round N.2: the link dials as a node (/ws?node=<id>&t=patterns&cid=<id>), reads the verdict, STATE bus.stagewatch.key, the cards' words for the Eye, Nodes, context and assistant, the module's stagewatch_key",
+     "spec-1-3: the Show Bus 1.3 cut (the master text final)"
+    ]
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-3 Papers: NODES.md link line, SHOWBUS copy of 1.3, CHANGELOG 0.4.1",
+    "gaps": [],
+    "dependsOn": [
+     "AG-2 The Stagewatch link dials as a node (/ws?node=<id>&t=messenger&cid=<id>) and reads the verdict",
+     "spec-1-3: the Show Bus 1.3 cut (the master text final)"
+    ]
+   }
+  ],
+  "gapsClosed": [
+   "G06 \u2014 Proven node links leave Screens, 'all' and the push paths, and unproven claims leave 'all'. A screen command naming a proven node is refused, with a fixed matching order that a peer-chosen name cannot shadow. Nodes are listed under Show network with a link line, a mark and a right-click menu. PlayMap's identify is a journal row against any Stagewatch (PM-1 needs nothing else).",
+   "G15 \u2014 One node, one key on every node route (context, proposals' from, collect, result), checked before storing. Non-node credentials are refused for a bound id. A weaker proof never replaces a stronger context, and unverified contexts never set risk. The binding is persisted and moved only by an explicit rebind. The defaults fail closed.",
+   "G32 \u2014 Each peer dials with its per-install Show Bus id: node= for a new Stagewatch, plus cid=<id> so an older Stagewatch also lists the installs apart. Node links are grouped by id, so two Patterns desks or two AGMessages are two rows, even when they share a key.",
+   "G43 \u2014 A refused key is told on every socket that sent one, without a new close. Node links hear the verdict first. AGMessage says 'connected' and confirms its pin only on the verdict or an authenticated 2xx (by status), keeps the refusal sticky and held, and shows the words to admins only. Patterns and PlayMap read the same verdict, and fall back to HTTP against an older Stagewatch."
+  ],
+  "gapsLeft": [
+   {
+    "id": "G15 (remainder)",
+    "why": "A Stagewatch with no PIN still accepts a context for a free id from anyone on the LAN. It is labelled unverified, never sets risk, and never replaces an operator-proof context. Tying an id to an address was rejected: DHCP and two-NIC laptops move addresses, and no cause has been measured."
+   },
+   {
+    "id": "G11",
+    "why": "node= with win, or with Authorization: Window, is refused here (a 400 before the upgrade). How a node joins as a window is spec-1-3's \u00a712.6 and windows-for-peers' design."
+   },
+   {
+    "id": "G31",
+    "why": "PlayMap's links.stagewatch.paired becomes honest here (Paired or NotNeeded, Refused shown). TLS for typed addresses, the desk probe and naming a 403 as 'requires wss' stay with G31's owner."
+   },
+   {
+    "id": "G41",
+    "why": "Only NODES.md's /ws line for each app is rewritten here. Its other stale lines belong to the spec-drift area."
+   },
+   {
+    "id": "G44",
+    "why": "The rig e2e drives scripted ws peers, not the real Patterns, PlayMap or AGMessage. A cross-repo job is G44's (the ecosystem-lane design)."
+   },
+   {
+    "id": "viewing code on open screens (not a listed gap)",
+    "why": "A viewing code set or changed while public screens are open still leaves them viewing until they reconnect. That is the viewing code's own 'works at once' question, outside this area, and it is noted in WHATS_NEXT."
+   }
+  ],
+  "risks": [
+   "A shared key loses its approvals, never its timer. An operator who pasted one node key into several installs sees the second install's context and proposals refused (403 'this key speaks for patterns 9f8e7d6c'), where today its context is stored. Mitigations: the words, a journal row naming the key and both ids, a release note ('one node key per install') and 'Let it speak for\u2026'.",
+   "Persisted bindings: a peer reinstalled with a new id is refused on the node routes until the operator rebinds its key. Mitigation: the rebind dialog offers the id that key was just refused for, and the journal row names both ids.",
+   "The lockout rule changes: unknown or revoked keys no longer count. A 160-bit key cannot be guessed, and wrong PINs, viewing codes and window addresses still count. REMOTE.md:214 is corrected in the same unit. A valid key from an address locked by wrong PINs is still refused, as today.",
+   "Claims stay in Screens: a keyless or read-key peer that says node= is listed, flagged and kept out of 'all', but an operator can still target it by its id. That is a choice the row's words explain.",
+   "Operators lose the familiar '/patterns', '/agmessage' and '/playmap' rows in Screens. The Screens subtitle names the linked show apps and points to Show network.",
+   "Interface churn: IShowContext and IShowApprovals change, which touches six fakes, the rig and UiSmoke. It lands in one unit (SW-2), so the tree never builds half-migrated.",
+   "CredentialsChanged runs on the show thread over the ConcurrentDictionary of sockets. It only sets volatile flags and sends through Task.Run, like Push, and never waits.",
+   "Mixed versions: an older Stagewatch sends no verdict, so the new peers rely on HTTP (authenticated 2xx, keyed POST, 401 holds). An older peer against the new Stagewatch gets no new close and no lockout from its revoked key. Its first message is still a frame unless its key is refused, in which case it hears one ok:false line that old AGMessage overwrites on the next frame (no worse than today).",
+   "Sibling coupling: spec-1-3 owns the master text and carries these words. windows-for-peers and spec-1-3's leases use 'a key-verified node link' (verified:'key' here). patterns-playmap-side numbers the Patterns rounds and puts 'stuck' before 'key' in bus.stagewatch. playout-links and spec-drift edit other hunks of MainViewModel.ShowBus.cs.",
+   "Mapper ownership: StagewatchLink.cs, NetworkHost.cs, PreflightBreadth.cs and WireClient.cs have no round-3 owner. Round 3's \u00a74 says a folder with no owner is not edited in that wave (Mapper/docs/round3/PLAN.md:2121-2125). The units ride round 2's fix-batch precedent (CARRYOVER.md:186,251,284). If the owner reads \u00a74 as a block, they wait for the integration pass. ContextBuilder.cs and Seams.cs (spine) are not touched.",
+   "A Patterns desk whose id folder is not writable gets a fresh id every run, so its key's binding refuses it after a restart. The Nodes page says so, and the fix is the folder's."
+  ],
+  "processNotes": "STAGEWATCH (Stagewatch/CLAUDE.md)\n- One dotnet build at a time. The guard rails are build failures: no Thread.Sleep or TickCount in src/ (Environment.TickCount64 as today), and culture-invariant formatting.\n- No frame field changes. New JSON fields go at the end of their objects:\n  - peers rows: link, verified;\n  - /api/screens: claim;\n  - the context 200: verified;\n  - settings apiKeys: node, nodeKind;\n  - node links' auth message: node, words.\n- No new ShowCommandKind, parser verb, help line or Copilot.Classify row.\n- Every chain is followed:\n  - Core: NodeBindings, NodeLinks, PeerContexts, ProposalDesk, ApiKeys.\n  - Show: context peers, AI facts.\n  - Desk: the Screens subtitle and claim rows; Show network rows with a right-click menu; Settings key rows with buttons and right-click in step; diagnostics.\n  - Wire: /ws, the HTTP routes, and receipts on HTTP/WS/OSC/Companion/MCP through ScreenDirector.\n  - Pages: unchanged. common.js ignores an auth message without view, and the control pages re-ask on ok:false.\n  - The Companion module's labels; context and copilot risk; the papers.\n- No key, PIN or window address in any journal row or frame: key names and node ids only. PIN-admitted sockets keep only a hash.\n- The rig's ready line reports its own test keys, as it already reports its PIN.\n- Lanes: tools/test.sh build, unit, module, holo and e2e green on Linux.\n- The WPF pieces need the maintainer's Windows PC for the walk-through and UiSmoke; name that work as such. Windows-only checks go through Bench.OnWindows and are never counted as passed elsewhere.\n- The SHOWBUS words are handed to spec-1-3's single master edit, not written here.\n\nPATTERNS (Patterns/CLAUDE.md)\n- The round number is the maintainer's: patterns-playmap-side places this as Round 90, after its Round 89. N.1 and N.2 are its units.\n- The round opens by reading the newest docs/field/round-NN. There is none (docs/field holds only README.md), so PLAN says 'no field files this round'. It then reads docs/OPEN.md: L50 and L56 stay open, with the node link noted.\n- The PLAN section (the next free \u00a7, 107 or later) names the requester and the evidence class: a handed-in critique, the cross-repo gap analysis. It also says what the round did not do:\n  - no desk control was added, because a new key restarts the link and a binding conflict clears within 5 s of the rebind;\n  - the Eye, Nodes page, context and assistant are reached through ShowApps.\n- One commit per unit ('Round N.1: \u2026', 'Round N.2: \u2026') with the maintainer's authorship. Each is validated by dotnet build plus the Core and App suites and the module's npm test before its commit.\n- The papers commit:\n  - REVIEW with 'Walk: unwalked';\n  - CHANGELOG '## Round N \u2014 date \u2014 words', fenced by ChangelogTests;\n  - README (the Nodes page words);\n  - docs/REMOTE.md (the link URL and bus.stagewatch.key, last in its row, because STATE is matched by substring);\n  - docs/COMPANION.md (stagewatch_key);\n  - docs/SHOWBUS.md, copied word for word after spec-1-3's 1.3 cut;\n  - OPEN rows;\n  - a new QUALIFICATION section (\u00a726 is round 87's and \u00a727 round 88's; the next free number) with a row for a key refused, then rebound, on a real Stagewatch;\n  - the tag table row for the round before.\n- The closing sentence: the round has no verb an output can show. Its fact is a log line ('Stagewatch link: refused by Hall A \u2014 this key speaks for patterns 1a2b3c4d'), read beside the Nodes page and STATE's key; the papers say so.\n- All seven suites plus the module green before the push. The analyzers apply to tests.\n\nMAPPER (Mapper/CLAUDE.md, round 3 ownership)\n- StagewatchLink.cs, NetworkHost.cs, PreflightBreadth.cs and WireClient.cs are round 2's files, with no round-3 package owner.\n- The change lands as a round-2 fix batch (as CARRYOVER.md:186,251,284 record them). Commits are named by area ('Engine: \u2026', 'Net: \u2026', 'Papers: \u2026') and recorded in docs/round2/CARRYOVER.md.\n- It touches no package's files, no spine file (ContextBuilder.cs, Seams.cs and Core/Wire are untouched; PairState is reused) and no catalogue row.\n- If the owner reads \u00a74's 'nothing in that wave edits it' as a block, the units wait for the integration pass or go to the owner as a call.\n- Tests: dotnet test tests/PlayMap.Net.Tests and tests/PlayMap.Engine.Tests with the analyzers on. No fixture moves (main.json's links.stagewatch is {\"state\":\"off\"}).\n- Docs: docs/SHOWBUS-NODE.md:37 and docs/WIRE.md.\n- No model or tool identifiers in anything pushed.\n\nAGMESSAGE (no agent brief)\n- npm test in app/ (node --test on units, resilience, tls and server).\n- CHANGELOG.md entry 0.4.1; docs/NODES.md; docs/SHOWBUS.md copied after spec-1-3's 1.3 cut.\n- The source guard test (no key in a URL) keeps passing: node= and cid= carry the node id, never the key."
+ },
+ "critique": {
+  "verdict": "needs-changes",
+  "issues": [
+   {
+    "severity": "high",
+    "issue": "Rollout hazard: Stagewatch ships first (every peer unit depends on SW-3), but the peers already deployed redial fast. The design now closes sockets that carry a refused header key and sockets whose key is revoked, including legacy sockets with no node=. Old peers reset their backoff whenever the upgrade succeeds: AGMessage sets delay=500 in onopen, and Patterns and PlayMap set attempt=0 when the connection returns normally. So upgrade, verdict, close and redial repeat about every 0.5 s. Each dial with an unknown or revoked key counts toward the 5-a-minute lockout, so within seconds the peer's whole address is locked out: its browsers, control pages and PIN use on that machine. The design's 'degrade safely' section covers only new peers against an old Stagewatch. Its risk note ('all three peers implement the 60 s hold') is false for every deployed peer.",
+    "evidence": "AGMessage/app/lib/nodes.js:322-324 (onopen: delay=500), :333 (onclose -> _retry); Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:183-186,200 (attempt=0 after a normal return); Mapper/src/PlayMap.Net/Links/StagewatchLink.cs:229-251 (attempt=0, Jitter.Shared.Redial(0)); Stagewatch/src/Timer.Remote/WebServer.cs:1077-1082 (unknown key counted), :1154-1163 (every header key goes through Authorize); today a refused key with no viewing code stays open with the public frame (:1164,1213-1219), so one failure per connection",
+    "fix": "Close on refusal or revocation only on sockets that opted into node links (node= present), since those peers honour retry. Legacy sockets get the verdict message and keep today's public-frame behaviour. Alternatively, land the peer units first (they degrade safely) and gate the close behind node=. Add a suite or e2e test: a legacy-style client (no node=, revoked key, 0.5 s redial) must not lock its address out within 60 s."
+   },
+   {
+    "severity": "high",
+    "issue": "A binding conflict now cuts the timer. Operators commonly paste one node key into several installs: Patterns desk plus twin or standby, two AGMessages, or one 'show apps' key in all three peers. Today every holder follows the frames, and only the approval queue is first-come. Under the design, an upgraded second holder (node=Y with a key bound to X) is refused and closed, and loses the countdown, the app's core function, over a rule that governs contexts and approvals. Legacy holders (no node=) are admitted as node X because the id comes from the key's binding. So AGMessage and PlayMap sharing Patterns' key would all be listed, and grouped in ListNodes, as Patterns' node: a misidentification on the Show network and in the context peers.",
+    "evidence": "Design 2.1 refusal 'this key speaks for another node' then close 1008, and decision 2 (node key without node= is a node with the key's bound id); today BindKey is consulted only by proposals, collect and result (Stagewatch/src/Timer.Core/Approvals.cs:92,137,154), and /ws ignores it (WebServer.cs:1154-1219); REMOTE.md 2.15 says only 'a node key is bound to the node it first spoke for; one app's key can't collect another's'",
+    "fix": "On /ws, answer a binding conflict with ok:true, verified:'none' and the conflict words (frames continue, no node privileges). Refuse only the node routes (context, proposals, collect, result) with 403. For legacy keyed sockets, do not assert the binding's id as their identity: list them as 'key <name>, id unproven'. Add the shared-key case to the risks and the release notes, with a journal row naming the key and both ids."
+   },
+   {
+    "severity": "medium",
+    "issue": "An unproven node= claim escapes the operator's Screens. Any page or script on the LAN can open /ws?node=x&t=y (no header is needed; browsers can set query strings). The socket then leaves Screens, is skipped by Push, Disconnect and Identify, and no node disconnect verb exists. 'Revoke its key' does not apply because there is no key. Today 'screen disconnect' can drop any such stray client.",
+    "evidence": "Design decision 7 and 4 ('screen \u2026 all never includes a node'; ListScreens filters Node is null; 'No node disconnect verb is added'); WebServer.cs:89-131 (Disconnect is today's tool for a stray tablet, per its doc comment)",
+    "fix": "Make only key-verified node links (a node key bound to that id) nodes. A node= claim without a node key stays a screen, flagged 'claims to be patterns 9f8e\u2026', and keeps disconnect. Alternatively, add a one-off 'Drop this link' action on unverified Show network rows."
+   },
+   {
+    "severity": "medium",
+    "issue": "Node rows are unbounded and open to poisoning. 'A node with an open link but no hello is listed' in Show network and in the context's peers. On an open Stagewatch, one client can open hundreds of keyless node links with random ids. That grows the \u00a76 peers array, which AGMessage's AI, Patterns' Eye and MCP get_context read, and the desk rows, without bound. This violates Stagewatch's 'bounded everything' doctrine, and PeerContexts itself caps at 32.",
+    "evidence": "Design 2.3 ('A node with an open link but no hello is listed'); Stagewatch/src/Timer.Core/ShowBus.cs:43 (MaxPeers = 32); Stagewatch/CLAUDE.md standing brief ('bounded everything')",
+    "fix": "Cap ListNodes and the context peers rows, and leave unverified link-only nodes out of the context entirely. Show them only on the desk, collapsed, as 'N unproven links'."
+   },
+   {
+    "severity": "medium",
+    "issue": "Release reopens a first-come race that the intended new holder always loses. Release drops the old holder's sockets with retry 1 (and old peers redial in about 0.5 s anyway), while the reinstalled peer that was refused sits in its 60 s hold. The old holder rebinds first. The design also contradicts itself: peers hold max(60, retry), so 'retry 1 \u2014 dial again' becomes 60 s for every patched peer.",
+    "evidence": "Design 2.1 ('the operator let this key speak for another node \u2014 dial again', retry 1) vs decision 'Peers redial no sooner than max(60, retry)'; AGMessage nodes.js:322-324 and Patterns StagewatchLinkService.cs:183-186 (legacy fast redial)",
+    "fix": "Make release an explicit rebind: from the Show network row or the key row, 'Let this key speak for <chosen node>', which writes the new pair at once. Define the peer hold as max(60, retry), except for an explicit 'released' code, or drop the retry-1 path."
+   },
+   {
+    "severity": "medium",
+    "issue": "KeysChanged would drop live links spuriously. A legacy node-key socket is admitted with no id ('none yet'). Its own first context POST then binds the key. Bound is persisted, the key list changes, RefreshScreenCopies calls KeysChanged, and the socket's recorded node (null) no longer equals NodeOf(key). The design gives no comparison rule, so the obvious one drops the link with the false words 'the operator let this key speak for another node'.",
+    "evidence": "Design SW-3/SW-4: 'RefreshScreenCopies copies Node and calls _web?.KeysChanged() when the key list changed'; 'KeysChanged() drops sockets whose key is gone or whose binding was released'",
+    "fix": "Drop on release only through an explicit release generation or event that names the key, never on a NodeOf mismatch. A socket with a null node whose key becomes bound adopts the id. Add a test: a legacy keyed socket stays open across its own first bind."
+   },
+   {
+    "severity": "medium",
+    "issue": "Existing tests break and are not listed. ShowBusTests' WS test opens /ws with a read key in the header and asserts that the first message contains \"seq\"; under the design the first message is the auth verdict. AGMessage's units test expects status 'connected' on the first frame from a fake whose /api/context returns {\"ok\":true} (not a context, so fetchContext returns null), so status would stay 'connecting'. The DeskRules and Approvals tests rely on Submit's 400 and on BindKey semantics, which the design removes or changes.",
+    "evidence": "Stagewatch/tests/Stagewatch.Tests/ShowBusTests.cs:210-220; AGMessage/app/test/units.test.js:107-131 and app/lib/nodes.js:383-393 (fetchContext requires v===1 && node); Stagewatch/tests/Stagewatch.Tests/ShowBusTests.cs:292-317,377-410; tests/Stagewatch.UiSmoke/Program.cs:309-319",
+    "fix": "List these as changed tests, with their new assertions on fields: auth first, then a frame with seq. AGMessage counts an authenticated 2xx by status, not by context shape, or the fake serves a real context. Stagewatch 403 vs 400."
+   },
+   {
+    "severity": "medium",
+    "issue": "PlayMap's honest 'paired' introduces a regression and leaves a chain unfollowed. 'paired = Pairing == Paired' makes keyless links (scope none, NotNeeded) and links to an older Stagewatch with no key (Unknown) report paired:false. Preflight then turns such a link amber, 'heard but not paired', where today it is green. PlayMap's own Patterns link counts NotNeeded as paired. PlayMap's context item for the Stagewatch link never reads pairing or refusal. After a refusal and close, preflight says red 'is not heard (down)' with the fix 'LINK STAGEWATCH host', which is the wrong remedy for a refused key.",
+    "evidence": "Mapper/src/PlayMap.Net/Links/PatternsLink.cs:142 (Paired = Paired or NotNeeded); Mapper/src/PlayMap.Engine/Show/PreflightBreadth.cs:123-127; Mapper/src/PlayMap.Engine/ContextBuilder.cs:96-100; Mapper/src/PlayMap.Engine/Host/NetworkHost.cs:309-316",
+    "fix": "Set paired = Pairing is Paired or NotNeeded. Carry Refused into LinkView, so that preflight says 'key refused \u2014 make or release a node key on Stagewatch' and the context item turns amber or red with those words. Name PreflightBreadth.cs and ContextBuilder.cs in the Mapper unit and check their round-3 ownership."
+   },
+   {
+    "severity": "medium",
+    "issue": "The peers' existing 403 words become false. Patterns maps any 403 on its context POST to 'the Stagewatch key may read but not post \u2014 make a node key' and any 403 on proposals to 'may not send proposals \u2014 a node key is needed'. PlayMap maps 401/403 to 'make a node key'. Both peers ignore a refused collect silently. With the design's new 403 'this key speaks for another node (<id>)' or 'node <id> speaks with its own key', every peer tells the operator the wrong remedy, and approved proposals quietly become 'undelivered'.",
+    "evidence": "Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:405-409,431-433,454-456; Mapper/src/PlayMap.Net/Links/StagewatchLink.cs:510-513,528-531",
+    "fix": "In PT-1 and PM-1, read the error field of the 403 body and show it. Surface a refused collect in the link's words or STATE, and in Patterns' approval words."
+   },
+   {
+    "severity": "medium",
+    "issue": "The refusal hold can be lost to the close race. Stagewatch sends the verdict and then CloseOutputAsync, and disposes the stream. In PlayMap, Take returns the hold and ReceiveAsync then calls ws.CloseOutputAsync. If the peer has already torn the connection down, that call throws. RunAsync's catch then sets attempt++ with hold=Zero and redials on Jitter.Shared.Redial, a fast-redial path even for a patched peer. Patterns' RunAsync has the same shape.",
+    "evidence": "Mapper/src/PlayMap.Net/Links/StagewatchLink.cs:229-251 (hold only from a normal return), :361-366 (CloseOutputAsync after Take); Stagewatch/src/Timer.Remote/WebServer.cs:1182-1189 (send, CloseOutputAsync, return)",
+    "fix": "Record the refusal (Pairing=Refused, refusedUntil) in a field inside Take, before any I/O, and have RunAsync honour that field on every exit path. Test it with a FakeStagewatch that closes immediately after the verdict."
+   },
+   {
+    "severity": "medium",
+    "issue": "The Patterns test 'no redial before 60 s on the injected show clock' cannot be written as claimed. ShowClock is a static Stopwatch, not an injectable clock, and the redial waits on Task.Delay in real time.",
+    "evidence": "Patterns/src/Patterns.Core/Services/ShowClock.cs:12-23; Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:200,204-208",
+    "fix": "Add a delay seam to StagewatchLinkService (a Func<TimeSpan,CancellationToken,Task> or a TimeProvider) and assert the requested hold. Alternatively, assert 'exactly one dial within N s' as the AGMessage and PlayMap tests do."
+   },
+   {
+    "severity": "medium",
+    "issue": "A peer-chosen name can shadow screen targets. The design refuses a screen command whose target is a node's id or name. A node's name comes from its own hello or context, so the peer controls it. A peer named 'Lobby TV', or 'all', could make the operator's 'screen identify Lobby TV' or 'screen identify all' refused, depending on the order of the checks. Screens.Match falls back to a name match.",
+    "evidence": "Stagewatch/src/Timer.Remote/Screens.cs:61-68; design 2.4 ('A node's id or name as the target is refused')",
+    "fix": "Specify the order: 'all' or empty, then browser id, then browser name. Refuse as a show app only when no browser matches, and only by node id, or by a name from a key-verified node."
+   },
+   {
+    "severity": "low",
+    "issue": "The design rejects 'refuse the upgrade with a 401' on a wrong claim. Since .NET 7, ClientWebSocketOptions.CollectHttpResponseDetails exposes HttpStatusCode and HttpResponseHeaders (Retry-After) on a failed ConnectAsync, and Node's ws raises 'unexpected-response'. A failed upgrade also makes legacy clients back off (onopen never fires; attempt++), where an upgrade followed by a close resets their backoff.",
+    "evidence": "Design decision 1 and 5 alternatives ('a .NET ClientWebSocket gets only an exception string'); AGMessage/app/lib/nodes.js:322-324,333; Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:183-200",
+    "fix": "Re-weigh the alternatives: a 401 or 403 with Retry-After at upgrade for legacy keyed sockets is safer than upgrade then close. Keep the in-band verdict for node= links if words are wanted."
+   },
+   {
+    "severity": "low",
+    "issue": "ApiKeys.FromSecret adds a shipping Core API that builds a key from a caller-chosen secret. That bypasses the 'random secret, shown once' invariant only so that the rig and the e2e tests can know a secret.",
+    "evidence": "Stagewatch/src/Timer.Core/ApiKeys.cs:48-65 (Create is the only maker); Stagewatch/tools/Stagewatch.Rig/Program.cs:11 (the rig already prints its PIN in the ready line)",
+    "fix": "Have the rig make keys with ApiKeys.Create (for example --node-keys N) and report the secrets in its ready JSON, as it does the PIN. No Core change."
+   },
+   {
+    "severity": "low",
+    "issue": "IShowAccess.Nodes defaults to null ('node keys are then verified none'). An implementer that does not supply it runs the HTTP node routes with no binding check at all, which fails open against Stagewatch's 'fail closed' doctrine.",
+    "evidence": "Stagewatch/src/Timer.Core/ShowState.cs:497-507 (IShowAccess defaults); design SW-1/SW-2",
+    "fix": "Make the bindings a required member, or default to an empty NodeBindings that still enforces the rule (first bind wins). Do not skip checks when it is null."
+   },
+   {
+    "severity": "low",
+    "issue": "Several admission details are left unspecified: a node link carrying its key as ?pin=swk_ in the URL, which Show Bus \u00a71 rule 5 forbids; a keyless node link when a viewing code is set (two auth messages?); node=<this Stagewatch's own id>; whether a binding refusal counts toward the lockout (it must not, since Authorize already clears the record for a valid key); and the Bound(keyId,nodeId) event, which has no kind while its journal row names one.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:1150-1165 (?pin= accepted on /ws), :1164 (CheckView), :1084 (valid key clears failures); Stagewatch/src/Timer.Core/ShowBus.cs:62 (own id refused for contexts)",
+    "fix": "State each case in the Admit matrix: refuse a key in the URL on node links; apply the viewing code before the node verdict, with one message; refuse the own id; binding refusals never count; Bound carries the kind."
+   },
+   {
+    "severity": "low",
+    "issue": "Patterns process: QUALIFICATION \u00a726 is round 87's matrix, with fixed columns; round 88 opened \u00a727. Round 89's walk row belongs in a new \u00a728 (or \u00a727, which already covers node keys). The round-opening step 'read the newest docs/field/round-NN' finds no folder, since only README.md exists, and the PLAN must say so. The 'Every reader' doctrine also covers the Eye's Stagewatch card, the assistant's facts and the Nodes page right-click (for example 'dial again now' after the operator fixes the key during the 60 s hold). These are not reached, and the papers must name them.",
+    "evidence": "Patterns/docs/QUALIFICATION.md:638,660; Patterns/docs/field/ (README.md only); Patterns/CLAUDE.md 'Every reader' and 'How a round opens' 1",
+    "fix": "Add QUALIFICATION \u00a728 (round 89). In PLAN \u00a7107, write 'no field files this round'. Either reach the Eye, the assistant facts and a right-click 'dial again now', or list them in 'what the round did not do'."
+   },
+   {
+    "severity": "low",
+    "issue": "Over-building against the gaps' value. G06 is high, but G15 is medium and G32 and G43 are low. G43's own fix is AGMessage-only (an authenticated 2xx, which fetchContext already makes). The design adds a new in-band verdict protocol, retry semantics, persisted bindings, a release UI, a ScreenDirector extraction, rig options and changes in three peers: 12 units across 4 repos. That breadth is what creates the rollout hazard above.",
+    "evidence": "gaps.json G43 fix ('AGMessage: confirm the pin only after an authenticated 2xx'); design units table",
+    "fix": "Phase it. Phase 1: node= identity, the Screens filter, Speak before store, unverified contexts never set risk, PlayMap identify journal-only, AGMessage pin on an authenticated 2xx. Phase 2: the verdict message, persisted binding and release, once the peers honouring retry are deployed."
+   },
+   {
+    "severity": "low",
+    "issue": "The SHOWBUS 1.3 copies are taken 'word for word' in Patterns (PT-2) and AGMessage (AG-2) after SW-6 only. The sibling spec-1-3 and playout-links designs still edit other sections of the same 1.3, so the copies freeze a partial 1.3.",
+    "evidence": "design PT-2/AG-2 dependsOn; scratchpad design/spec-1-3.md:15-16 (section ownership split across designs)",
+    "fix": "Cut 1.3 once, after every 1.3 section has landed, and make the peers' copy units depend on that cut."
+   },
+   {
+    "severity": "low",
+    "issue": "AGMessage's 'stage' emit goes to every socket.io client, participants included. Adding the key verdict (scope, verified, refusal words naming node ids) widens what participants receive.",
+    "evidence": "AGMessage/app/server.js:996 (io.emit('stage', \u2026))",
+    "fix": "Send the verdict fields only to admin sockets (s.data.isAdmin), as the 'nodes' emit already does at server.js:1005-1007."
+   }
+  ],
+  "missing": [
+   "A test of an old peer against the new Stagewatch: a client with no node=, a revoked or unknown header key and a 0.5 s redial must not lock its address out (the most important missing test).",
+   "A test of a shared node key: two installs with one key must both keep following the frames, while only the bound one may post a context or collect.",
+   "Changes to existing tests: ShowBusTests.cs:210-220 (first message), AGMessage units.test.js:107-131, the DeskRules and Approvals 400-to-403 cases, UiSmoke 309-319.",
+   "Peer chains for the new 403 words: Patterns PostOwnContextAsync and proposals, PlayMap PostContextAsync, and the silent collect refusals in both.",
+   "PlayMap: PreflightBreadth and ContextBuilder for the Stagewatch link (paired counts NotNeeded; a refused key shown as refused, not 'not heard'), the PlayMap desk's Network > Links words, and a round-3 ownership check of those files.",
+   "AGMessage admin page: show the sticky 'key refused' line and offer a 'dial again now' once the operator fixes the key (today a 60 s hold with no override).",
+   "Patterns: the Eye's Stagewatch card, the assistant's facts, and a Nodes page right-click (dial again now) for the key verdict, or a line in the papers saying they were not reached.",
+   "A rule that a context with weaker proof never replaces one with stronger proof for the same unbound id within KeepFor (for example, an open post overwriting a PlayMap that posts with a control key).",
+   "The PIN changing while control sockets are open: like revocation, the 'works at once' promise does not hold for live PIN-authenticated sockets.",
+   "Patterns' ShowBusIdentity falls back to a fresh id per run when patterns.node-id cannot be written (ShowBusNetwork.cs:186-189). With persisted bindings, that desk is refused after every restart. The design should say so, and Patterns should surface the unwritable id.",
+   "Coordination with the spec-1-3 design's 'Authorization: Window <token>': the node link's header parsing must not read a Window scheme as a key or PIN.",
+   "The order of the screen verb's matching: 'all', then browser id, then browser name, before any node refusal; and no node refusal by a peer-chosen name alone."
+  ]
+ }
+}

@@ -1,0 +1,716 @@
+{
+ "area": "windows-for-peers",
+ "revised": {
+  "area": "windows-for-peers",
+  "summary": "I checked all 21 critique issues against the code. All 21 hold; issue 6 (the twin) is taken in part and issue 13 (the grouped commands) is fixed through cross-app-proposals' verb notation. The revised design is folded in; full text: /home/user/Stagewatch/docs/ecosystem/windows-for-peers.md. Its \u00a79 answers each issue.\n\n**For the operator.** On Stagewatch they grant a window to a show app: Screens \u2192 Windows \u2192 right-click \u2192 Grant to \u25b8 Patterns FOH, or `window grant lobby <app id>` on any transport. Nobody copies an address. The app receives the window only on its own key-verified node link.\n\n**For Patterns** (it has a browser):\n- It opens the page over pinned TLS, or over loopback when Stagewatch is on the same machine. It now dials 127.0.0.1 itself when the hello comes from this machine.\n- The window appears as a Library tile, a screen tile's right-click entry, a Run strip chip, in the module, and as `SCREEN 2 WINDOW lobby`.\n- That live verb works only once the page is ready. Before that it is refused and points to `SCREEN 2 PVW WINDOW lobby` then `SCREEN 2 TAKE`, so the air never goes black or white while a browser starts.\n- Nothing on air ever shows words or white. A held page is drawn only while the window shell (read through an injected observer) says it has its assignment and is not gone. Every other case draws black. There is no about:blank.\n- Grants survive link loss and restarts (persisted in the local `Control` section, never twinned).\n- The standby twin needs its own grant. A twin word tells the main which windows the standby holds, and the Super Check names any on-air window it lacks.\n\n**For PlayMap** (no browser):\n- It draws a granted window itself as a new source kind, `window:<id>`, and reports what it drew. It never holds a token.\n- The source fails closed: an unknown or withdrawn window draws black, never the followed timer. A restart draws the window's loss state before the link is back.\n- Draw grants use node-link-only messages. Its old screen `identify` can no longer fire `OUTPUT IDENTIFY ALL`.\n- Its plain timer finally draws everything Stagewatch sends. The flash follows leader time, and query flags it does not draw are reported as an error.\n- `MEDIA IMPORT` of a page, a private address or an https stream is refused with the reason.\n\n**Secrets stay held.**\n- Patterns' mount key is `stagewatch://<sw>/<window id>` or `kept://host:port/<id>`. A raw window address that reaches the model from anywhere publishes as `unkept://host:port` and is inert.\n- Only Stagewatch window addresses are held automatically; other private-looking addresses only when the operator ticks Keep.\n- Kept passes are the show's secrets, on Patterns' existing `Secrets` list, so the bundle masks them and the twin handles them under `SendSecrets`.\n- The approved-line log is scrubbed. A fence test covers every exit door, including `InputLabels` and the twin's wire.\n\n**Every reader sees the same chain.** Stagewatch's context, `/api/windows`, the operator frame's `windows` block, the Companion feedbacks, the copilot's facts and Patterns' Eye all read \"lobby \u2192 /clock \u2192 granted to Patterns FOH \u2192 Patterns FOH says: Screen 2\". Placements are accepted only from key-verified holders of the grant, and are worded as the app's claim.\n\n**Stagewatch's own rules get tighter:**\n- Every grant-address link ends black on withdraw, delete and revoke.\n- A node key may ask a grant only for itself; the desk shows the proposed line, not the peer's reason.\n- A key that once crossed the LAN unencrypted while TLS was offered never receives a page address.\n- `WindowStatus()` keeps its one-row-per-window shape. A bounded `ViewerStatus()` sits beside it.\n- The context commands use cross-app-proposals' \u00a76 verb notation, so the desk can still rate them.\n\n**Process changes:**\n- Tombstones for dead addresses are dropped: the lockout burst was never measured. An e2e step guards the case instead.\n- A maintainer decision gate (D0) on the Show Bus \u00a71 rule 5 wording and Stagewatch's CLAUDE.md doctrine line comes before any grant path is sent.\n\n**Spec:** Show Bus 1.3 gains \u00a712 Windows, the caps `windows`, `pages` and `window-draw`, and the `@<node>/<item>` link end.",
+  "decisions": [
+   {
+    "decision": "D0: a maintainer decision gate before SW-W3. Show Bus \u00a71 rule 5 names exactly two carriers of a pass-address: a browser's address bar, and one key-verified node link (TLS or local) to the grant's node. Stagewatch CLAUDE.md's doctrine line is the maintainer's to change.",
+    "why": "Today the spec says secrets ride in no URL, and Stagewatch/CLAUDE.md:38-39 says window addresses ride in no frame. The wire must not do what the spec and doctrine forbid. No agent unit edits CLAUDE.md.",
+    "alternatives": "'Offer' the amendment after landing (the original design). That ships a contradiction."
+   },
+   {
+    "decision": "D1/D2: `window grant <window> <app>` (high risk), delivered only on the app's key-verified node link. A page grant has its own /w/<token>; a draw grant has none; at most 4 per window. revoke rotates the main and every page-grant token. Every window link whose grant token stops resolving (withdraw, delete or revoke) hears {type:window,revoked:true,black:true}.",
+    "why": "Withdrawing one app stops only its address, and Stagewatch observes which viewer is the app's. Today SendLoop sends the plain WindowGone on any token miss (WebServer.cs:1248-1253,1285), so a revoke would put the 'address replaced' notice on Patterns' air.",
+    "alternatives": "Hand out the main token: withdrawing it kills every TV, and the app's viewer can't be told apart. Black only on withdraw: revoke leaks the notice."
+   },
+   {
+    "decision": "D3: two ways to hold a window. how:page (Patterns, ability `pages`) and how:draw (PlayMap, ability `window-draw`). `how` is chosen at grant time from the link's can= or the hello caps; delivery always checks the current key-verified link's can=. Otherwise the grant row says `cannot` with the reason.",
+    "why": "PlayMap has no browser. Hello caps are unauthenticated UDP, so they may pick `how` but never authorise delivery.",
+    "alternatives": "G11's Authorization: Window header. It puts a pass in PlayMap's store and needs a second socket."
+   },
+   {
+    "decision": "D4: a page path travels only over TLS or a local link. Local means loopback or one of this machine's own interface addresses. Patterns and PlayMap dial 127.0.0.1 when the hello is this machine's. A node key seen on a plain non-local link while TLS was offered is marked clearSeen and never gets a path until it is replaced.",
+    "why": "Both peers dial the hello's address (StagewatchLinkService.cs:238, StagewatchLink.cs:63-75), and the hello goes to broadcast and loopback, so 'plain loopback' rarely happened. A key sniffed in clear could otherwise be replayed over TLS to fetch the pass.",
+    "alternatives": "Refuse every plain node key when TLS is offered. That is peers-not-screens' call, and it would cut AGMessage's plain link for a need only grants have."
+   },
+   {
+    "decision": "D5: Patterns' mount key is a held address (stagewatch://<sw>/<wid> or kept://host:port/<id>). The fence sits in Core at InputKeys.Web and MediaLocator: any raw Stagewatch window URL publishes as unkept://host:port with the token stripped. That form never resolves (it draws black) and a Super Check row names it. There is no show-load migration.",
+    "why": "G09 leaks through the key itself (STATE, Eye, context, residency, InputLabels, Library, logs). Fixing the key fixes every reader, and the key fence makes a raw address from any source inert. Patterns' brief says no legacy is considered.",
+    "alternatives": "Redact each reader (at least nine; the next would leak). Migrate at load (scope creep with no measured cause; dropped per review)."
+   },
+   {
+    "decision": "D6: kept passes are the show's secrets, as WebConfig.Passes[{Id,Label,Secret}]. Secrets.Names masks `Secret` in the bundle. The twin carries them under SendSecrets (CarriesSecrets gains Web) and the standby keeps its own (OwnSecrets/KeepSecrets). Only Stagewatch window paths are held automatically; other addresses only when the operator ticks 'Keep as the show's secret'.",
+    "why": "Secrets is 'the one list every exit door reads' (Secrets.cs:8-28). It covers the twin promise that the show's credentials travel. The narrower auto-rule answers the scope critique.",
+    "alternatives": "A parallel per-machine webpasses.json: never twinned, so a takeover goes black, and a second store the exits don't read."
+   },
+   {
+    "decision": "D7: grants outlive the link. Patterns persists each delivered grant in Control.Stagewatch.Grants ({Sw,Window,Name,How,Base,Secret}; local section, masked). PlayMap persists HeldWindows (no secret) in NodeSettings. Only a received grants list that omits a window removes it. rev is per link.",
+    "why": "Clearing on disconnect would blank granted windows on every Stagewatch restart or link blip. Persisting lets a restart resolve at once, and the shell's own onLoss rule covers an outage.",
+    "alternatives": "Hold grants in memory only: black after every restart until TLS, auth and grants complete."
+   },
+   {
+    "decision": "D8: no about:blank. For a held Stagewatch page, Patterns injects a document-created observer that posts SWShell.state() to the host. The source is Withheld (drawn black) unless navigation succeeded, rev>0 and link\u2260gone. Every held branch draws black: no page, a DrawInput failure (no PlaceholderCard) and a layer's status words.",
+    "why": "WebView2 has no DefaultBackgroundColor set, so about:blank captures white. MediaAndParticlePatterns.cs:152-155 and LayerRenderer.cs:143-155 put words on air. SWShell.state() and the data-* attributes exist since 2.17, so this works without a Stagewatch change.",
+    "alternatives": "A black data: page (still races the old frames). Polling ExecuteScriptAsync (slower; the notice could be captured between polls)."
+   },
+   {
+    "decision": "D9: SCREEN n WINDOW is live only when the page is ready (mounted, not Withheld, loading empty, link ok). Otherwise it is refused, with nothing changed, and steered to SCREEN n PVW WINDOW then SCREEN n TAKE. SCREEN n TAKE of a staged held page that isn't ready is refused too.",
+    "why": "One air: a live verb never blanks a screen, and AirState never disagrees with the glass. SCREEN n TAKE already exists (ControlProtocol.cs:477-478).",
+    "alternatives": "Keep the previous picture until ready. AirState would then say the window while the glass shows the old picture."
+   },
+   {
+    "decision": "D10: placement is the app's claim, posted as a \u00a76 link end `@<node>/<item>`. Stagewatch takes it only from a key-verified context whose node holds a grant of that window with an open or shown viewer, and words it 'Patterns FOH says: Screen 2'.",
+    "why": "PeerContexts.Accept stores any valid context (ShowBus.cs:57-69), so otherwise any node could make Stagewatch claim where a window is shown.",
+    "alternatives": "A private 'placed' message: no Eye or AI would read it. Trusting every context: forgeable."
+   },
+   {
+    "decision": "D11: G23. timer -feeds-> window only while the window shows a page; no link for health items. 13 command rows in cross-app-proposals' \u00a76 notation (A|B words, ' | ' forms, [\u2026], \u2026), rated by its VerbSyntax; SW-W1 depends on that unit. Patterns' brief cap goes 12\u219232.",
+    "why": "Today's RiskFromCommands (Approvals.cs:225-237) can't match grouped rows ('show|cue' \u2260 'show'). cross-app-proposals already defines and builds the notation. Patterns has no matcher of its own.",
+    "alternatives": "One plain template per row (the fallback if VerbSyntax slips): about 30 rows, all needing the raised cap."
+   },
+   {
+    "decision": "D12: placement on Patterns is Patterns' act (SCREEN n WINDOW, PVW WINDOW, NODES ASK WINDOW). Proposal fence: in ProposalDesk.Submit, a node-key proposal whose line is `window grant \u2026` must name its own from.id, or it gets 'a show app may ask a window only for itself'. The desk shows the line, never the peer's reason, as the headline for window grants.",
+    "why": "Submit binds only from.id (Approvals.cs:92), and the desk's headline is the peer's reason (MainViewModel.Desk.cs:99). A node could otherwise ask a grant for another node behind a misleading reason.",
+    "alternatives": "Trust the reason text."
+   },
+   {
+    "decision": "D13: draw grants ride node-link-only types (window-assign, window-end, window-identify; window-shown back). window reload is refused for a window only apps draw. peers-not-screens \u00a72.1 gains 'the only window messages a node link hears are \u00a712's, for its own grants'.",
+    "why": "PlayMap turns a link `identify` into OUTPUT IDENTIFY ALL 5 (NetworkHost.cs:782-783). ReloadWindows reaches only sockets, so a reload receipt would claim work that never happened.",
+    "alternatives": "Reuse window/identify types: either destructive on air or silently dropped."
+   },
+   {
+    "decision": "D14: PlayMap's window source is a new SourceKind.Window (`window:<id>`, a Spine: commit). It always yields a frame: black if unknown or ended, the onLoss state while the link is down. It never falls back to the followed timer. The flash phase is a function of leader time; both pictures are pre-drawn. Unhonoured query flags are reported in error.",
+    "why": "timer:<id> ignores its id (EngineSources.cs:178-179), and a null lease keeps the last picture (SourceResolver.cs:417-432), so a fallback fails open to a live countdown. Mapper's doctrine: content = f(leader time).",
+    "alternatives": "A window-shaped id inside timer: (ambiguous, still the Timer kind's fallback). Black via a null lease (keeps the stale picture)."
+   },
+   {
+    "decision": "D15: no tombstones. The papers say 'no measurement this round', and e2e step 6 (revoke, reload, then a real window from the same address) guards the lockout.",
+    "why": "A dead token draws one WindowGone and the shell stops (WebServer.cs:1179-1189, window.js:250), and Patterns never reloads (WebFrameSource.cs:272). There is no measured cause, and both CLAUDE.md files require one before a governor lands.",
+    "alternatives": "Land tombstones anyway: a governor without a measured cause."
+   },
+   {
+    "decision": "D16: the twin. A grant belongs to a node, and a standby is a node with its own id (ServiceKernel.cs:181). Grant paths never ride the plain-TCP twin link (OPEN L36). A twin word WINDOWS (standby \u2192 main, ids only) feeds a Super Check row naming on-air windows the standby lacks. Kept passes travel as show credentials (D6). DRILL scenario 23.",
+    "why": "Carrying grant paths would send a pass across the LAN in clear, which D4 forbids. Telling the operator before the show is fail-safe.",
+    "alternatives": "Carry the main's grant paths on the twin (the critique's fix): a readable pass on plain TCP."
+   },
+   {
+    "decision": "D17: WindowStatus() keeps one row per window (plus an appended Drawn). A new ViewerStatus() gives one row per (window, via), bounded at (MaxGrants+1)\u00d7Max = 320 and evicted per key, never cleared whole.",
+    "why": "Several readers key by window id: ToDictionary at WebServer.cs:680, FirstOrDefault at ScreenWindows.cs:330, the Screens subtitle and the tests' .Single. A whole clear at 4\u00d7Max (:1392) would flicker lights.",
+    "alternatives": "Change WindowStatus to per-via rows: /api/windows throws on a window's second viewer."
+   },
+   {
+    "decision": "D18: G46 left: a window shows only its own Stagewatch's pages.",
+    "why": "No peer serves a frameable page, and a cross-origin page breaks the window's CSP, its window.SW check and pinning.",
+    "alternatives": "A Stagewatch page drawing peers' contexts (in WHATS_NEXT; no measured ask)."
+   }
+  ],
+  "wire": "STAGEWATCH \u2014 one grammar on HTTP /api/window/\u2026, WS {cmd:\"window\",args}, OSC /stagewatch/window, Companion WINDOW \u2026, MCP run_command and the copilot.\n\n**Commands** (both high risk in Copilot.Classify)\n- `window grant <window> <app>`\n  - One window, never `all`.\n  - app is a Show Bus id `[A-Za-z0-9_-]{1,40}`, or a quoted name when it is unique.\n- `window withdraw <window|all> [<app>]`\n  - The window, or `all`, must be named. A bare `window withdraw` is refused: \"window withdraw takes a window (or all)\".\n\n**Receipt**\n```\n{\"type\":\"receipt\",\"id\":\"a1\",\"ok\":true,\"stage\":\"applied\",\"effect\":\"lobby granted to Patterns FOH (9f8e7d6c) as a page \u2014 it takes the address when it links with its node key\",\"refs\":{\"window\":\"wk3m9x2\",\"node\":\"9f8e7d6c\"}}\n```\nWhen `how` came from hello caps, the effect adds \"(it says it shows pages; checked when it links)\".\n\n**Refusals** (ok:false, nothing changed)\n- `No show app called \"x\" on the show network (heard: \u2026)`\n- `\"FOH\" names 2 show apps \u2014 use its id (\u2026)`\n- `<app> can't show a window: it offers neither pages nor window-draw`\n- `lobby is already granted to <app>`\n- `lobby is granted to 4 show apps already \u2014 withdraw one first`\n- `Grant one window at a time`\n- `lobby isn't granted to anyone`\n- For reload: `lobby is drawn by <app>, which has no page to reload \u2014 window show lobby <page> sends it again`\n\n**Settings** (`remote.windows[]`, appended)\n```\n\"grants\":[{\"node\",\"t\",\"name\",\"how\":\"page\"|\"draw\",\"token\":\"<26>\"|\"\",\"made\":\"<ISO>\"}]\n```\n- At most 4 per window.\n- A draw grant's token is \"\".\n- `remote.apiKeys[]` gains `\"clearSeen\":\"<ISO>\"|\"\"`, appended.\n\n**Node link** (peers-not-screens: `/ws?node=<id>&t=<kind>`, `Authorization: Bearer <node key>`)\n- Adds `&can=pages,window-draw`: at most 4 words of `[a-z-]{1,16}`; unknown words are ignored.\n\nStagewatch \u2192 app. Sent only on links with verified:\"key\" bound to the grant's node, after `auth` and before any frame, then whole on every byte change:\n```\n{\"type\":\"grants\",\"from\":\"<sw id>\",\"rev\":<int>,\"link\":\"tls\"|\"local\"|\"plain\",\"grants\":[{\"window\":\"wk3m9x2\",\"name\":\"lobby\",\"how\":\"page\"|\"draw\",\"path\":\"/w/<26>\"|\"\",\"cannot\":\"<words>\"|\"\"}]}\n```\n- `path` is non-empty only when all of these hold:\n  - how=page;\n  - this link's can has `pages`;\n  - link is tls or local (loopback, or one of Stagewatch's own interface addresses);\n  - the key is not clearSeen.\n- `cannot` is one of:\n  - `this link is not encrypted \u2014 link over wss://`\n  - `this node's key crossed the network unencrypted \u2014 the Stagewatch operator makes it a new key`\n  - `this link doesn't offer pages`\n  - `this link doesn't offer window-draw`\n- `rev` is per process. The receiver takes the first grants on each new link whatever its rev, and later ones only when higher.\n\nDraw grants only, when can has window-draw:\n```\n{\"type\":\"window-assign\",\"window\",\"name\",\"content\",\"hold\",\"holdText\",\"holdImage\",\"onLoss\",\"fadeMs\",\"rev\"}\n{\"type\":\"window-end\",\"window\",\"why\":\"withdrawn\"|\"deleted\"}\n{\"type\":\"window-identify\",\"window\",\"name\"}\n```\n\nApp \u2192 Stagewatch:\n```\n{\"type\":\"grants-seen\",\"rev\":<int>,\"cannot\":\"\"|\"<\u2264200 chars>\"}\n{\"type\":\"window-shown\",\"window\",\"rev\",\"content\",\"hold\",\"ms\",\"error\"}\n```\n`window-shown` is accepted only for a draw grant of that window held by this link's node. Otherwise:\n```\n{\"type\":\"error\",\"error\":\"only a show app a window is granted to draw may say what it draws\"}\n```\nA node link never hears window, identify, reload, redirect or disconnect (an amendment to peers-not-screens \u00a72.1).\n\n**Window link on a grant address**\n- `/ws?win=<grant token>&detail=1`, unchanged.\n- When a grant token stops resolving (withdraw, delete or revoke), it hears `{\"type\":\"window\",\"revoked\":true,\"black\":true}`. The shell draws plain black (no #gone text), sets `data-link=\"gone\"` and stops.\n- The main address keeps today's message.\n\n**GET /api/windows** (read), per window, appended:\n```\n\"drawn\":<int>,\"grants\":[{\"node\",\"t\",\"name\",\"how\",\"linked\",\"link\",\"delivered\",\"open\",\"state\",\"words\"}]\n```\n- `state` is one of `waiting`, `plain`, `key-in-clear`, `cannot`, `sent`, `held`, `open`, `shown` or `stale`.\n- A grant path is never listed, for any credential.\n- connected, shown, inStep and device are unchanged; they come from the aggregate row.\n\n**Context \u00a76**\n- Window items' words add grants and claims (\"Patterns FOH says: Screen 2 \u2014 LED wall\"). The light is the worst over opened viewers.\n- Links: `{\"from\":\"timer\",\"to\":\"window:<name>\",\"kind\":\"feeds\"}` only while it shows a page; none for health items.\n- Commands: 13 rows in the \u00a76 notation (cross-app-proposals' VerbSyntax):\n  1. `note <text>` \u2014 low\n  2. `message <text> [warning]` \u2014 review\n  3. `signal standby <dept> <cue>` \u2014 review\n  4. `signal go <dept> <cue> | signal go all` \u2014 high\n  5. `nudge|trim|delay \u2026` \u2014 review\n  6. `next | start | pause` \u2014 high\n  7. `blackout` \u2014 high\n  8. `window show|cue <window> <page or setup or holding or black>` \u2014 high\n  9. `window hold|release <window or all>` \u2014 high\n  10. `window grant <window> <app> | window withdraw <window or all> [<app>]` \u2014 high\n  11. `window identify|reload|revoke|delete <window>` \u2014 high\n  12. `window new|rename|loss|fade <window> \u2026` \u2014 low\n  13. `patterns end|restart|play|pause|stop|seek \u2026` \u2014 high\n- Peer contexts: `links` are read (\u2264400, ends \u2264120); the items cap is 200.\n\n**Detail frame** (operator only), last block after rooms:\n```\n\"windows\":[{\"name\",\"light\",\"inStep\",\"hold\",\"showing\",\"granted\",\"on\"}]\n```\n- Never a token.\n- The public frames carry none.\n\n**Proposals** (ProposalDesk.Submit): with a node key, a line `window grant <w> <app>` must have app == from.id. Otherwise `a show app may ask a window only for itself`.\n\n**Hello caps**\n- Stagewatch: `windows`.\n- Patterns: `pages`.\n- PlayMap: `window-draw`.\n\n**SHOWBUS 1.3**\n- \u00a71 rule 5: the exemption names two carriers: the browser's address bar, and one key-verified node link (TLS or local) to the grant's node.\n- \u00a72: the caps.\n- \u00a76: link end `@<node id>/<item id>`, one hop. Another node's item as `from` is that node's claim.\n- \u00a712 Windows: grants and these messages, the per-link rev, the path rule, the black end, held forms, placement claims, and \"a host reads SWShell.state()/data-* and draws black, never words, until it can\".\n\nPATTERNS \u2014 TCP 9697 / HTTP /api/cmd, paired as today.\n\n**Verbs**\n- `SCREEN <n> WINDOW <window>` \u2014 live, own picture, only when ready:\n  ```\n  OK \"Stagewatch lobby on Screen 2 alone \u2014 every other screen stays.\"\n  ```\n- `SCREEN <n> PVW WINDOW <window>` and `PVW WINDOW <window>` \u2014 staged; they open the page.\n- `NODES ASK WINDOW <window>`:\n  ```\n  OK \"asked Stagewatch Hall A for window lobby (pending there)\"\n  ```\n\n**Refusals**\n- `No Stagewatch window 'x' is granted to this desk (granted: \u2026) \u2014 ask for it: NODES ASK WINDOW x`\n- `Screen 2 already shows Stagewatch lobby`\n- `Stagewatch lobby isn't open here yet \u2014 SCREEN 2 PVW WINDOW lobby opens it on the preview, then SCREEN 2 TAKE`\n- For SCREEN n TAKE: `Stagewatch lobby is still opening on Screen 2's PVW \u2014 take it when the tile says ready`\n- `Stagewatch Hall A granted lobby, but over this link it sends no address: <cannot>`\n- `Web pages need Windows with the WebView2 runtime`\n\n**ASK body** (POST /api/proposals, node key):\n```\n{\"from\":{\"t\":\"patterns\",\"id\",\"name\"},\"target\":{\"t\":\"main\",\"id\":\"<sw id>\"},\"line\":\"window grant <window> <self id>\",\"reason\":\"\u2026\",\"risk\":\"high\"}\n```\n\n**STATE**\n- `web.url` = `stagewatch://<sw>/<wid>` | `kept://host:port/<id>` | `unkept://host:port`. Never a private URL.\n- `web.page` = `\"Stagewatch lobby\"`.\n- The residency key is the held key.\n- `bus.stagewatch` gains, last:\n  ```\n  \"windows\":[{\"id\",\"name\",\"address\",\"state\":\"held|opening|ready|shown|black|cannot\",\"screens\":[\"2\"],\"words\"}]\n  ```\n\n**Context**\n- Link:\n  ```\n  {\"from\":\"@<sw id>/window:lobby\",\"to\":\"source:web:stagewatch://<sw>/<wid>\",\"kind\":\"feeds\"}\n  ```\n- Commands: `SCREEN <n> WINDOW <window>` (high), `SCREEN <n> PVW WINDOW <window>` (review), `NODES ASK WINDOW <window>` (low).\n\n**Module**\n- Action `screen_window`.\n- A stage-then-take preset.\n- Variable `stagewatch_windows`.\n\n**Twin word** `WINDOWS` (standby \u2192 main): `{\"held\":[\"wk3m9x2\"]}`. Ids only.\n\n**Show model**\n- `WebConfig.Passes[{Id,Label,Secret}]` (\u226464).\n- `StagewatchLinkConfig.Grants[{Sw,Window,Name,How,Base,Secret}]` (\u226464, local Control section).\n- Both are masked by `Secrets`. Passes travel on the twin under SendSecrets.\n\nPLAYMAP (after round 3)\n\n**Source**\n- `window:<window id>` (new `SourceKind.Window`, spine).\n- OUTPUT SOURCE and SURFACE SOURCE take it; there is no new verb.\n- `timer:stagewatch` is unchanged.\n\n**STATE `links.stagewatch.windows`** (new block, with fixture and card):\n```\n[{\"id\",\"name\",\"sw\",\"content\",\"rev\",\"shownRev\",\"drawing\":\"timer|clock|holding|black|loss\",\"on\":[\"out1\"],\"error\",\"link\":\"up|down\"}]\n```\n\n**STATE `links.stagewatch.timer`** gains, at the end: next, urgency, flash, flashTimer, blackout, holding, holdingName, holdingFill, watermark, timeOfDay, show{}.\n\n**MEDIA IMPORT refusals** (no item added; a private address is never echoed)\n- A page or embed: `ERR pages and embeds need a browser source, which PlayMap has not built (ROADMAP L10) \u2014 send it as NDI from a browser, or have Stagewatch grant a window to this node`\n- A window address: `ERR that is a Stagewatch window's private address \u2014 PlayMap draws Stagewatch windows when one is granted to this node (Stagewatch: window grant <window> <this node id>)`\n- An https .m3u8 or .mpd: `ERR this node's FFmpeg is not known to open https streams \u2014 use rtsp://, srt:// or NDI`\n\n**Context**: `@<sw id>/window:<name> -feeds-> <the output or surface drawing it>`.\n\nAGMESSAGE: the SHOWBUS.md copy goes to 1.3. No code.",
+  "changes": [
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ScreenWindows.cs",
+    "change": "Model:\n- WindowGrant {Node,Kind,Name,How,Token,MadeUtc}; ScreenWindow.Grants (\u22644, deep-cloned).\n- ShowApp(Kind,Id,Name,Can,Verified) record.\n- WindowContext gains FindApp and NowUtc (appended).\n\nLookup:\n- Find(windows, token) \u2192 (window, Via), constant-time over main and page-grant tokens.\n- ByToken is kept.\n\nApply:\n- grant: token for page grants only.\n- withdraw.\n- revoke rotates the main and page-grant tokens.\n- delete drops the grants.\n\nObserved rows:\n- WindowObserved gains Via and Drawn (appended).\n- New ViewerObserved.\n- ContextItems(windows, observed, viewers=null, placements=null): unchanged without viewers; worst-over-viewers with them."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowBus.cs",
+    "change": "PeerContexts.Entry.Links parsed (\u2264400, ends \u2264120); items cap 64\u2192200. New pure WindowPlacements.From(entries, ownId, holders): follows `@<own>/window:<name>` links up to two feeds/shows hops to screen, output, surface or display items, \u22648 per window. It keeps only key-verified entries whose node holds an open or shown grant."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowState.cs",
+    "change": "The window parser:\n- grant needs a window and an app; never all.\n- withdraw needs a window or `all`; the bare form is refused, so the :940 default to all no longer applies to it.\n\nAlso the help line (:673-676), the error words (:933-935) and IShowScreens.FindApp."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/Approvals.cs",
+    "change": "The Submit fence: with a node key, a `window grant <w> <app>` line must have app == from.id. Otherwise: 'a show app may ask a window only for itself'."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/SnapshotJson.cs (+ ShowSnapshot, WindowView)",
+    "change": "ShowSnapshot.Windows (EquatableArray<WindowView(Name,Light,InStep,Hold,Showing,Granted,On)>). Written after rooms, in the operator detail frame only."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/ShowContext.cs (+ FrameBuilder), src/Timer.Show/AiContext.cs",
+    "change": "ContextInput gains Windows and Health (appended).\n\nBuild:\n- timer -feeds-> window only while it shows a page.\n- No link for health items.\n- 13 command rows in the \u00a76 notation.\n\nFrameBuilder copies ambient.Windows.\n\nAiContext:\n- PeerFact gains Can (after cross-app-proposals' Id).\n- The copilot facts gain windows [{name,showing,light,granted,on}]."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/Copilot.cs",
+    "change": "Line 228 lists grant and withdraw explicitly as High."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/WindowDirector.cs",
+    "change": "- Run(args, setupPath, images, findApp = null).\n- Identify is reachable when Connected+Drawn > 0.\n- Reload is reachable only by Connected; refused with the draw words when only apps draw the window."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/WebServer.cs",
+    "change": "Window links:\n- HandleWebSocketAsync uses Find and sets WsClient.WindowVia.\n- In SendLoop, a token miss on a grant via sends WindowGoneBlack (revoke included).\n\nTrust:\n- IsLocal(remote): loopback or own interface addresses, cached and refreshed on change.\n- clearSeen is set on a node key arriving plain and non-local while TLS is offered.\n\nNode links:\n- can= is parsed.\n- SendLoop sends grants and the window-assign, window-end and window-identify messages when their bytes change.\n- ReceiveLoop handles grants-seen and window-shown.\n\nStatus:\n- WindowStatus() keeps its shape, plus Drawn.\n- New ViewerStatus() over _viewerSeen, bounded at 320 and evicted per key in PushWindows.\n- GrantStatus.\n\nAlso: IdentifyWindows reaches draw links. HandleWindowListAsync keeps ToDictionary over the aggregate and adds drawn and the grants rows, with no path."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/wwwroot/window.js",
+    "change": "revoked(black): on {revoked:true,black:true} it draws plain black with no #gone, sets data-link=gone and stops (lines 250, 268-278)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.{Windows,ShowBus,Desk,Systems,Slides}.cs",
+    "change": "- FindApp joins node links, contexts and hellos.\n- Journal rows for granted / took its address / withdrawn, never an address.\n- ContextItems gets ViewerStatus and the claims.\n- LinkItems returns links only; windows and health go apart.\n- Placements come with holders.\n- Desk.cs:99: a window grant's headline is the line.\n- Windows = WindowViews() beside Rooms.\n- The hello cap `windows`."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ScreensWindow.xaml(.cs), MainWindow.xaml, Help/HelpContent.cs",
+    "change": "- A Granted-to column with shapes beside colours.\n- Grant to \u25b8 / Withdraw \u25b8 right-click, in step with a Grant\u2026 button.\n- The Show network row's Grant a window \u25b8.\n- A help tip.\n\nWPF on the maintainer's PC."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "companion-module/src/{actions,state,feedbacks,variables,presets}.ts, test/module.test.mjs",
+    "change": "- window_grant action (WINDOW GRANT|WITHDRAW).\n- The windows block is parsed.\n- Feedbacks window_state and window_holding.\n- Variables windows_open and windows_attention.\n- Presets."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/Stagewatch.Rig/Program.cs, tests/e2e/package.json, tests/e2e/grants.e2e.cjs",
+    "change": "Rig:\n- FindApp from node links and contexts; WindowCommand passes it.\n- Frame() sets Windows.\n- Context() passes windows, health, viewers and placements.\n- --state keeps grants; the rig never prints a token.\n\ne2e:\n- tests/e2e/package.json gains devDependency ws 8.18.0.\n- New grants.e2e.cjs."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "docs/SHOWBUS.md, docs/REMOTE.md, docs/COMPANION.md, docs/FEATURES.md, docs/NODES.md, docs/WHATS_NEXT.md",
+    "change": "- SHOWBUS 1.3: \u00a71.5's two carriers, \u00a72 caps, \u00a76 @ link ends and claims, \u00a712 Windows.\n- REMOTE 2.18: the grammar, the node-link messages, /api/windows grants, the black end including revoke, D0's answer, and 'no measurement this round' for tombstones.\n- COMPANION; FEATURES and NODES.\n- WHATS_NEXT: G46 and an HTTP grants read."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/WindowAddresses.cs (new); src/Patterns.Core/Media/InputKeys.cs; src/Patterns.Core/Services/MediaLocator.cs",
+    "change": "WindowAddresses (pure):\n- held forms, IsStagewatchWindowUrl, KeptId, PublicForm, Unkept, Scrub (logs);\n- WindowCertificate.Decide;\n- ShellState (a record struct) with Ready and Withheld.\n\nInputKeys.Web and MediaLocator publish a raw window URL as unkept://host:port (the key fence; no migration)."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Model/ShowState.cs, src/Patterns.Core/Services/Twin.cs, src/Patterns.Core/Services/SuperCheck.cs",
+    "change": "ShowState:\n- WebConfig.Passes[{Id,Label,Secret}] (\u226464).\n- StagewatchLinkConfig.Grants[{Sw,Window,Name,How,Base,Secret}] (\u226464, local section).\n\nTwin:\n- CarriesSecrets includes Web.\n- OwnSecrets/KeepSecrets keep a standby's passes.\n- TwinWord.Windows.\n\nSuperCheck rows:\n- a raw window address in the show;\n- an on-air granted window the standby lacks."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/{WebAddress,StagewatchFollow,ControlProtocol,ShowBusNodes,ShowContext,Eye,ShowBus}.cs",
+    "change": "- ShortName for held addresses.\n- StagewatchFrame.Grants and GrantsSeen; the brief's Take(12)\u2192Take(32) plus a granted-windows line.\n- Parser: SCREEN n WINDOW, the staged WINDOW word and NODES ASK WINDOW (new ShowActionKinds).\n- DeskProposals.Ask targets main.\n- FromEye keeps @<app>/<item> edges; three context commands.\n- The Eye forces held window items past the 12-item cap and draws the app item \u2192 source edge.\n- The `pages` cap."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Rendering/Media/VideoService.cs, Patterns/MediaAndParticlePatterns.cs, LayerRenderer.cs",
+    "change": "- IWebSource gains a default member: bool Withheld => false.\n- A held web address draws black when the page is null, Withheld or DrawInput fails (never PlaceholderCard, :139-156).\n- A held layer draws black with no status words (:143-155)."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/WebPasses.cs (new), WebFrameSource.cs, WebEngine.cs",
+    "change": "WebPasses:\n- An immutable book (Interlocked) over link grants + persisted grants + Web.Passes.\n- Resolve; SetGrants (persists; only a received list removes); Secure(typed, keep); Label; Changed.\n\nWebFrameSource:\n- Resolves held addresses; an unresolved one is never navigated (no about:blank) and is Withheld.\n- A document-created observer posts SWShell.state(); WebMessageReceived is accepted only from the resolved origin.\n- CurrentUrl returns the held address; logs name it only.\n- ServerCertificateErrorDetected applies the pin decision.\n\nWebEngine:\n- A Resolve seam; re-navigates on Changed."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/StagewatchLinkService.cs, TwinService.Standby.cs, TwinService.Main.cs",
+    "change": "StagewatchLinkService:\n- can=pages.\n- Dials 127.0.0.1 for a same-machine hello.\n- grants handled per-link rev \u2192 SetGrants \u2192 grants-seen.\n- The approved-line log (:497) goes through Scrub.\n- Ask(window).\n\nTwin: the standby sends WINDOWS; the main keeps it for the Super Check."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/{WebActions,LibraryItems,ShowActions.Content,CommandRouter,DeskMenuFacts,AppServices}.cs, ViewModels/{MediaPage,CueEditor,RunViewModel}.cs, Nodes section",
+    "change": "Entry points:\n- WEB OPEN and typed addresses pass through Secure.\n- Media page: a Keep as the show's secret check.\n\nLibrary: Stagewatch window tiles; a held address's title is its label.\n\nActions:\n- ScreenWindow (ready only, Visibility and Effect).\n- ScreenStageWindow.\n- ScreenTake's not-ready check.\n- NodesAskWindow.\n\nReaders:\n- Run strip chip.\n- STATE: web.url held, residency key held, bus.stagewatch.windows last.\n- Menus: the tile's Stagewatch window \u25b8; the Eye's Ask / Show on \u25b8.\n- The Nodes page lists grants and cannot.\n- The context facts."
+   },
+   {
+    "repo": "Patterns",
+    "file": "integrations/companion-module-patterns/{src/actions.js,src/variables.js,src/state.js,lines.txt}",
+    "change": "- screen_window action and a stage-then-take preset.\n- The stagewatch_windows variable.\n- lines.txt gains SCREEN 2 WINDOW lobby, SCREEN 2 PVW WINDOW lobby and NODES ASK WINDOW lobby."
+   },
+   {
+    "repo": "Patterns",
+    "file": "docs/PLAN.md, docs/REVIEW.md, CHANGELOG.md, README.md, docs/REMOTE.md, docs/COMPANION.md, docs/SHOWBUS.md, docs/OPEN.md, docs/DRILL.md, docs/QUALIFICATION.md, .github/scripts/tag-rounds.sh",
+    "change": "Round papers.\n- OPEN: L40 amended; L36/L10/L26 cited; a new row for the unpaired STATE greeting.\n- DRILL: scenario 23 (a takeover with a granted window and a kept pass on air).\n- QUALIFICATION: a \u00a722 walk row (https window, pin, the observer under CSP, revoke/withdraw/restart black) and \u00a727.\n- The tag row."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Core/Model/Content.cs, src/PlayMap.Core/Wire/VerbCatalog.cs, src/PlayMap.Engine/StateWriter.cs, src/PlayMap.Engine/ContextBuilder.cs (Spine: commits)",
+    "change": "Spine commits (\u00a75.7, on the package branch, reviewed with it):\n- SourceKind.Window, appended.\n- OUTPUT/SURFACE SOURCE words name window:<id>.\n- links.stagewatch.windows.\n- The @<sw>/window:<name> context link."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Core/Media/PrivateAddress.cs (new), src/PlayMap.Core/Bus/ShowBus.cs, src/PlayMap.Core/Bus/NodeSettings.Windows.cs (new)",
+    "change": "- The window-path rule.\n- PlayMapCaps gains window-draw.\n- NodeSettings.HeldWindows (\u226416, no secret)."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Net/Links/StagewatchTimer.cs, StagewatchLink.cs",
+    "change": "StagewatchTimer:\n- HoldingFill, FlashTimer and TimeOfDay.\n- StagewatchGrant and StagewatchWindow parse.\n\nStagewatchLink:\n- can=window-draw.\n- FromPeer dials 127.0.0.1 for a same-machine hello.\n- Take handles grants (draw only, path never stored, per-link rev), window-assign, window-end and window-identify, then sends grants-seen.\n- ReportShown goes on a bounded latest-wins outbox.\n- HoldingImageAsync (\u22648 MB, \u22648 cached)."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Engine/Host/NetworkHost.cs, Rendering/TimerView.cs, Rendering/NativeWindows.cs (new), Rendering/EngineSources.cs, EngineCore.Transport.cs",
+    "change": "NetworkHost:\n- The timer JSON gains the G12 fields; StagewatchWindowsJson.\n- The redirect words are retired.\n- window-identify overlays the name inside the window's own picture (no OUTPUT IDENTIFY).\n- HeldWindows are persisted.\n\nTimerView:\n- Draws the watermark always, blackout, holding, urgency, next and show{}.\n- The flash phase comes from leaderNs; pictures are pre-drawn.\n\nNativeWindows: Acquire always returns a frame (black if unknown or ended, the loss state while down); Classify reports unhonoured flags.\n\nEngineSources: case SourceKind.Window.\n\nTransport: Window joins the duration-less kinds."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Engine/EngineCore.Content.cs, Host/MediaBackend.cs",
+    "change": "MEDIA IMPORT refuses pages, embeds, private addresses and https streams with the reason, never echoing an address. Readiness, LIST and FETCH are honest for existing Web and Embed items."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.App/State/StateSnapshot.cs, ViewModels/MapInspectors.cs, src/PlayMap.Assistant/StateExplainer.cs",
+    "change": "- The new timer fields and the windows block are read.\n- A Stagewatch window source kind and menu.\n- The output and surface right-click menus in step."
+   },
+   {
+    "repo": "Mapper",
+    "file": "tests/fixtures/state/*, <pkg>.cards.json, docs/SHOWBUS-NODE.md, docs/WIRE.md, docs/ROADMAP.md, docs/round2/CARRYOVER.md",
+    "change": "- Fixtures regenerated with PLAYMAP_WRITE_FIXTURES=1, plus a card descriptor.\n- SHOWBUS-NODE \u00a72/\u00a73/\u00a75.\n- WIRE import words.\n- ROADMAP: L10, and an FFmpeg TLS probe as next.\n- A CARRYOVER entry."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "docs/SHOWBUS.md, CHANGELOG.md",
+    "change": "The Show Bus 1.3 copy (\u00a71.5 two carriers, \u00a72, \u00a76 @ ends, \u00a712) and a changelog line. No code."
+   }
+  ],
+  "tests": [
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/WindowTests.cs + ShowBusTests.cs (pure)",
+    "proves": "Grammar:\n- `grant` and `withdraw all` parse.\n- `grant all`, a missing app and a bare `withdraw` are refused with words.\n\nGrant:\n- pages\u2192page with a token; window-draw\u2192draw with none; neither is refused.\n- Unknown, ambiguous, duplicate and fifth grants are refused, leaving the list by reference.\n\nRevoke and load:\n- revoke rotates the main and page-grant tokens; delete drops the grants.\n- Malformed grants are dropped at load.\n\nContextItems:\n- Unchanged without viewers.\n- Worst-over-viewers with them: a never-opened grant is grey; a TV plus a stale grant is amber.\n- Claim words.\n\nRules:\n- The proposal fence: a node key may not ask for another node; the PIN may.\n- Copilot gives grant and withdraw High.\n- G23: one feeds link for a page; none for held, black or health items.\n- The 13 rows rate through VerbTable (grant high, rename low, pause high, nudge review).\n\nPeer contexts: PeerContexts keeps 400 links and 200 items. WindowPlacements ignores unverified contexts, non-holders and holders with no open viewer, and caps at 8."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/WindowTests.RunWeb (real WebServer, ClientWebSocket)",
+    "proves": "Delivery:\n- A key-verified link with can=pages over loopback gets grants with the path before any frame.\n- Without pages: path \"\" and cannot.\n- Plain non-local (hook): link plain, no path.\n- A key once seen plain while TLS was offered: key-in-clear, even over TLS.\n- Control-key claims and other nodes' keys get nothing.\n\nStatus:\n- WindowStatus stays one row per window with two viewers; /api/windows answers 200.\n- ViewerStatus has a row per via.\n- 400 grant churns keep _viewerSeen \u2264320 with no grey flicker.\n\nNo path anywhere: no grant token in /api/windows, /api/context or any frame for the PIN, control or read credentials.\n\nDraw:\n- The draw link gets window-assign and never identify or reload.\n- window-shown sets its viewer; a page grant's is refused.\n- Identify reaches it as window-identify.\n- Reload with only a draw app is refused.\n\nWithdraw and revoke:\n- The grant link hears revoked+black on withdraw AND revoke.\n- The main address keeps today's message.\n\nFrames: the operator frame has windows; the public frame has none."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/e2e/grants.e2e.cjs (rig --node-keys 2, Playwright + ws 8.18.0)",
+    "proves": "Page grant:\n- Granted, acknowledged; the page shows /viewer; the grant is shown and green.\n\nPlacement:\n- The holder's @-links give 'Patterns FOH says: Screen 2 \u2014 LED wall' in the context and frame.\n- A non-holder's identical link changes nothing.\n\nDraw grant:\n- The draw peer gets window-assign, no path; shown, then stale after window show.\n\nRevoke:\n- Black with no #gone text; the peer gets its new path.\n- A reload of the old path, then a real window from the same address loads (the lockout guard, no tombstones).\n\nWithdraw: black, no lockout.\n\nFence: stdout, frames, context and /api/windows never contain a grant token."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.UiSmoke (Bench.OnWindows); companion-module/test/module.test.mjs",
+    "proves": "UiSmoke:\n- The Granted-to column, Grant \u25b8 / Withdraw \u25b8 and the button; the Show network row's Grant a window \u25b8.\n- Runs on Windows only; named elsewhere.\n\nModule:\n- window_grant lines.\n- Feedbacks and variables follow the detail frame's windows block."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.Core.Tests (WindowAddressesTests, ShowBus12Tests, EyeTests, SecretsTests, TwinTests, parser)",
+    "proves": "Addresses:\n- Classification, KeptId, ShortName and Scrub.\n- InputKeys.Web and MediaLocator publish a raw window URL as unkept://.\n- ShellState readiness truth table.\n\nGrants and certificates:\n- Grants validation (bad path, 65th grant, wrong from).\n- The WindowCertificate truth table.\n\nSecrets and the twin:\n- Secrets.Redact masks Passes and Grants secrets.\n- Twin.WireJson(sendSecrets:false) blanks passes; KeepSecrets keeps the standby's own; Control never travels.\n\nEye and parser:\n- A forced Eye window item; FromEye writes @a1b2c3d4/window:lobby.\n- The three verbs parse; a bare SCREEN 2 WINDOW is Unknown."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.App.Tests (ShowBus12AppTests scripted Stagewatch, WebAppTests, LibraryWebTests, TwinAppTests)",
+    "proves": "Grants:\n- grants-seen echoes the rev; a second link's rev 1 is taken.\n- A dropped link keeps the grant; only a list without the window removes it.\n- A restart resolves from Control.Stagewatch.Grants.\n\nReadiness:\n- With the shell at rev 0, SCREEN 2 WINDOW lobby is refused with the PVW words and nothing changed.\n- PVW stages it; when ready, SCREEN 2 TAKE is Done with Visibility and Effect.\n- STATE web.url is held, screens==[\"2\"], and the Run strip chip says shown.\n\nWithdraw: Withheld, black pixels and one journal row.\n\nTwin:\n- A standby lacking the grant sends WINDOWS [] and the main's Super Check names lobby.\n- After takeover, its own grant resolves; without one, black with words.\n\nASK: NODES ASK WINDOW posts the \u00a72.10 body and follows its state."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.App.Tests/PrivateAddressFenceTests.cs (new fence)",
+    "proves": "Setup: a granted window on air, a kept pass on a layer, and an approved WEB OPEN http://10.0.0.5:9924/w/<token> line run.\n\nThe token is in none of:\n- STATE, CONTEXT or EYE;\n- the journal or the log;\n- a built support bundle;\n- the module's recorded lines;\n- InputLabels after labelling that input;\n- the twin wire with SendSecrets off.\n\nThe settings file holds it only under Secret.\n\nA raw window URL written into a loaded show draws black, publishes unkept:// and lights the Super Check row."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.Rendering.Tests; integrations/companion-module-patterns npm test",
+    "proves": "Rendering: a held address with no page, Withheld, a failed DrawInput and a held layer are all-black, with no text pixels.\n\nModule: lines.txt has the three lines; stagewatch_windows is filled from a STATE fixture."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Net.Tests/StagewatchLinkTests.cs (FakeStagewatch)",
+    "proves": "- grants (draw), window-assign, window-end and window-identify are raised and acknowledged with grants-seen.\n- A page grant's path is ignored and never stored.\n- can=window-draw is on the line.\n- One window-shown per rev.\n- A same-machine hello dials 127.0.0.1."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Engine.Tests/Rendering (TimerView, NativeWindowsTests, EngineSourcesTests)",
+    "proves": "Timer:\n- The G12 fields come at the end of the JSON (fixture regenerated).\n- The watermark shows in blackout, unknown and every mode.\n- The flash phase is a function of leaderNs alone: two engines at the same leader time agree.\n\nWindow sources:\n- An unknown window:<id> is black, never the timer.\n- A restart with HeldWindows draws the loss state before the link is up.\n- window-end gives black.\n- Classify reports tz and mirror as an error.\n- Acquire never returns null for Window.\n\nIdentify: window-identify overlays only outputs drawing that window and runs no OUTPUT IDENTIFY."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Engine.Tests/Content (media import)",
+    "proves": "- A /w/<token> import fails, adds no item, and holds no token in the reply or journal.\n- A page gives the L10 words.\n- An https .m3u8 gives the FFmpeg words and no item.\n- An existing Web item's LIST is ready:false."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test (npm test, node 22)",
+    "proves": "The unchanged suite stays green; the unit is the spec copy only."
+   }
+  ],
+  "units": [
+   {
+    "repo": "Stagewatch",
+    "title": "SW-W1 Context: windows feed only while showing a page, health unlinked, 13 rows in \u00a76 notation, peer links parsed (\u2264400; items \u2264200), WindowPlacements with the holder and verified rule, hello cap `windows`, AiContext windows facts + PeerFact.Can",
+    "gaps": [
+     "G23",
+     "G24",
+     "G22"
+    ],
+    "dependsOn": [
+     "cross-app-proposals unit 1 (VerbSyntax)",
+     "peers-not-screens SW-1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-W2 Grants in Core: model, ShowApp, parser (explicit all), Apply, revoke/delete, Find+Via, settings sanitising, copilot rows, help, FindApp seam, WindowDirector.Run(findApp), the proposal fence",
+    "gaps": [
+     "G10"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-W3 WebServer: grant tokens and Via, the black end on every grant-token miss, IsLocal, clearSeen, can=, grants and window-* messages, grants-seen, ViewerStatus (bounded per key) beside WindowStatus+Drawn, identify/reload rules, /api/windows grants, window.js black end",
+    "gaps": [
+     "G10",
+     "G11"
+    ],
+    "dependsOn": [
+     "SW-W2",
+     "peers-not-screens SW-1",
+     "peers-not-screens SW-3",
+     "D0 maintainer decision"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-W4 Lights and words: ContextItems with viewers and claims, detail-frame windows block, view model FindApp, journal rows, desk headline, Screens column and menus, Show network menu (WPF on the PC)",
+    "gaps": [
+     "G22",
+     "G24"
+    ],
+    "dependsOn": [
+     "SW-W1",
+     "SW-W3"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-W5 Rig (FindApp, Frame().Windows, placements, --state) + ws devDependency + tests/e2e/grants.e2e.cjs",
+    "gaps": [
+     "G10",
+     "G11",
+     "G24"
+    ],
+    "dependsOn": [
+     "SW-W4",
+     "peers-not-screens SW-5"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-W6 Companion module: window_grant action, window_state and window_holding feedbacks, variables, presets",
+    "gaps": [
+     "G22"
+    ],
+    "dependsOn": [
+     "SW-W4"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-W7 Papers: SHOWBUS 1.3 (\u00a71.5 two carriers, \u00a72 caps, \u00a76 @ ends, \u00a712), REMOTE 2.18 with D0's answer, COMPANION, FEATURES, NODES, WHATS_NEXT",
+    "gaps": [
+     "G22"
+    ],
+    "dependsOn": [
+     "SW-W1",
+     "SW-W2",
+     "SW-W3",
+     "SW-W4",
+     "SW-W5",
+     "SW-W6"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-W1 (Round 89.2\u201389.3) Held addresses: WindowAddresses, the InputKeys/MediaLocator fence, Web.Passes on Secrets and the twin, Secure at every entry, the resolver, CurrentUrl and scrubbed logs, Withheld/black in every branch, the shell observer, public web.url, the raw-address Super Check row, PrivateAddressFenceTests",
+    "gaps": [
+     "G09"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-W2 (Round 92.2) Grants from the link: can=pages, the pages cap, loopback dial, per-link rev, persisted grants, the certificate decision, Library tiles, SCREEN n WINDOW (ready only) / PVW WINDOW / TAKE check, STATE bus.stagewatch.windows, the Run strip chip, menus, Nodes page, Companion module",
+    "gaps": [
+     "G10"
+    ],
+    "dependsOn": [
+     "PT-W1",
+     "SW-W3",
+     "peers-not-screens PT-1"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-W3 (Round 92.3) The Eye chain, FromEye @ links, the brief cap 12\u219232, NODES ASK WINDOW",
+    "gaps": [
+     "G24",
+     "G23"
+    ],
+    "dependsOn": [
+     "PT-W2",
+     "SW-W1"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-W4 (Round 92.4) The twin: WINDOWS word, the standby Super Check row, DRILL scenario 23",
+    "gaps": [
+     "G10"
+    ],
+    "dependsOn": [
+     "PT-W2"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-W5 (Round 92 papers) PLAN, REVIEW, CHANGELOG, README, REMOTE, COMPANION, SHOWBUS copy 1.3, OPEN, DRILL, QUALIFICATION \u00a722/\u00a727, the tag row",
+    "gaps": [],
+    "dependsOn": [
+     "PT-W1",
+     "PT-W2",
+     "PT-W3",
+     "PT-W4",
+     "SW-W7"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-W1 MEDIA IMPORT refuses pages, embeds, private addresses and https streams with the reason; honest readiness, LIST and FETCH",
+    "gaps": [
+     "G47"
+    ],
+    "dependsOn": [
+     "round 3 integration pass (EngineCore.Content owned by desk-map/canvas)"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-W2 Timer source draws what Stagewatch sends: G12 fields, watermark always, blackout, holding with fetch, flash from leader time, urgency, next, show{}; desk and assistant readers; fixtures; redirect words retired",
+    "gaps": [
+     "G12"
+    ],
+    "dependsOn": [
+     "round 3 integration pass",
+     "peers-not-screens PM-1"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-W3 Native windows: Spine commits (SourceKind.Window, catalogue words, StateWriter, ContextBuilder), window-draw and can=, the link messages, loopback dial, NativeWindows (fail-closed, loss state, persisted HeldWindows, flag honesty), the window-identify overlay, the STATE block and cards, the @ context link, desk menus",
+    "gaps": [
+     "G11"
+    ],
+    "dependsOn": [
+     "PM-W2",
+     "SW-W3"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-W4 Papers: SHOWBUS-NODE \u00a72/\u00a73/\u00a75, WIRE, ROADMAP (L10, FFmpeg TLS probe), CARRYOVER, module fixtures",
+    "gaps": [],
+    "dependsOn": [
+     "PM-W1",
+     "PM-W2",
+     "PM-W3",
+     "SW-W7"
+    ]
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-W1 Show Bus 1.3 copy (\u00a71.5, \u00a72, \u00a76, \u00a712) and a CHANGELOG line",
+    "gaps": [
+     "G22"
+    ],
+    "dependsOn": [
+     "SW-W7"
+    ]
+   }
+  ],
+  "gapsClosed": [
+   "G09: Patterns' mount key is held, so no published artefact carries a pass.\n- A raw window address from any source publishes as unkept:// and is inert.\n- Kept passes live on Secrets.\n- A fence test covers STATE, CONTEXT, Eye, journal, log, bundle, module lines, InputLabels, approved lines and the twin wire.",
+   "G10: a window is granted to a named app's key-verified node link.\n- The page opens over pinned TLS or a local link, never to a key seen in clear.\n- It is placed ready-gated (no blank air) by SCREEN n WINDOW, PVW + TAKE, the Library, menus, the Run strip and the module.\n- Grants survive link loss and restarts; the twin is told what it lacks.\n- Stagewatch observes held, open and shown per grant.",
+   "G11: PlayMap holds a window natively (how:draw), with no token, through node-link-only messages.\n- window:<id> fails closed: black when unknown or withdrawn, the loss state when the link is down.\n- Stagewatch's Windows tab, /api/windows, the light, hold all and identify govern it; reload is honestly refused.",
+   "G12: every dropped frame field is carried and drawn by the timer source.\n- The watermark is always shown.\n- Holding images are fetched.\n- The flash runs at Stagewatch's rates from leader time.\n- Redirect words are retired; the view choice is a window grant.",
+   "G22: Show Bus 1.3 gains \u00a712 Windows, \u00a71.5's two named carriers, \u00a72 caps (windows, pages, window-draw) and \u00a76 @ link ends with claims, in the master and its copies. Also the hello caps, the detail frame's windows block and Companion window feedbacks.",
+   "G23: windows get timer-feeds-window only while they show a page; health items get no link. The commands are grouped in the \u00a76 notation (machine-readable through VerbSyntax), with grant and withdraw inside the first 12. Patterns' brief cap is 32.",
+   "G24: Patterns' Eye draws Stagewatch window \u2192 source \u2192 screen. Patterns posts @<sw>/window:<name> links, and Stagewatch names each window's placements as the app's claim, only from key-verified grant holders.",
+   "G47: MEDIA IMPORT of a page, embed, private address or https stream is refused with the reason. No private address is kept or echoed, and readiness, LIST and FETCH stop calling Web items ready."
+  ],
+  "gapsLeft": [
+   {
+    "id": "G46",
+    "why": "A Stagewatch window shows only its own Stagewatch's pages.\n- No peer serves a frameable page.\n- A cross-origin page would break the window's CSP, its window.SW check and pinning.\n\nA Stagewatch page drawing peers' contexts is noted in WHATS_NEXT, with no measured ask."
+   },
+   {
+    "id": "G09 (remainder)",
+    "why": "Patterns still greets unpaired wire peers with STATE (PLAN \u00a7103.7, REMOTE.md:39-41). Nothing secret rides it after PT-W1, but Show Bus \u00a71 rule 4 says show data travels only on authenticated links. That is the maintainer's decision, recorded as a new OPEN row."
+   },
+   {
+    "id": "G47 (https streams)",
+    "why": "Filing https HLS/DASH as Stream needs a probe that this node's LGPL FFmpeg build has a TLS protocol; nothing in the docs or code shows it. Until then they are refused with the reason, and a ROADMAP note covers the probe."
+   },
+   {
+    "id": "L10 (PlayMap web pages)",
+    "why": "PlayMap has no browser. Native drawing covers /viewer (for=speaker), /clock and /studio (h, date, timer), /holding, holding and black. Other pages and flags report an error to Stagewatch (amber), which is honest."
+   },
+   {
+    "id": "L36/L40 (Patterns secrets at rest and on the twin)",
+    "why": "Kept passes and persisted grants sit in plain JSON like a box's password (L40). Kept passes ride the plain-TCP twin link under SendSecrets (L36). The fixes (DPAPI, a sealed twin link) belong to those rows. Grant paths are deliberately kept off the twin."
+   },
+   {
+    "id": "standby grant convenience",
+    "why": "A twin pair needs two grants, one per node. The Super Check names the missing one; a 'grant to the pair' action is not built."
+   }
+  ],
+  "risks": [
+   "Maintainer gate D0: SW-W3 and everything after it wait for the maintainer's answer on the \u00a71 rule 5 wording and Stagewatch's CLAUDE.md doctrine line. SW-W1, SW-W2 and PT-W1 do not wait.",
+   "Dependencies: peers-not-screens' key-verified node links (SW-1, SW-3, PT-1, PM-1), and cross-app-proposals' VerbSyntax before SW-W1's grouped rows. If VerbSyntax slips, SW-W1 lands one plain template per row and relies on Patterns' raised cap.",
+   "WebView2 is unproven off a real machine. Three things must hold:\n- the certificate exception covers the window's wss socket;\n- the document-created observer runs under the window's CSP;\n- WebMessageReceived reaches the host.\n\nCI can't construct WebView2 (OPEN L26), so these are \u00a722 walk rows, unwalked until filled. A same-machine show avoids TLS.",
+   "Against a 2.17 Stagewatch, a revoked kept window may show its notice for a frame or two before the host message turns the source black. Grant addresses on 2.18 end in black at the shell.",
+   "Patterns' 4-page cap: a window uses one of the 4 browsers. On the field machine the screencast is refused (L10), so windows run on the 20 fps screenshot poll, which is enough for clocks.",
+   "clearSeen may surprise an operator: a peer that once dialled plain while TLS was offered gets no path until its key is replaced. The grant row says so, with the fix.",
+   "Frame churn: a windows block publishes a frame on window events, as rooms do. It is bounded by swaps and connects.",
+   "Behaviour change: a window's light becomes the worst over its viewers, so a TV and an app on different revs read amber. This is intended and documented in REMOTE.",
+   "Merge conflicts: ShowContext.cs, AiContext.cs, Approvals.cs, MainViewModel.ShowBus.cs, WebServer.HandleWebSocketAsync and SHOWBUS.md are shared with playout-links, peers-not-screens and cross-app-proposals. They land in merge order, and SHOWBUS 1.3 has one owner.",
+   "Mapper round 3: the PM units wait for the integration pass, or go as fix branches with the owner's leave. Core/Model, VerbCatalog, StateWriter and ContextBuilder change only through Spine: commits.",
+   "Native drawing is a subset: a PlayMap granted a /layout window, or one with unhonoured flags, stays amber with an error. The Grant \u25b8 menu says what window-draw apps draw.",
+   "WPF parts (the Screens column and menus, the Show network menu, UiSmoke) are built and walked on the maintainer's PC; a cloud session names them and leaves them."
+  ],
+  "processNotes": "STAGEWATCH (CLAUDE.md)\n- **Grammar and risk.** No new ShowCommandKind: grant and withdraw extend Window. They still need parser words, a help line, an explicit Copilot.Classify row (High) and ShowContext.Commands rows in the \u00a76 notation.\n- **Appended fields.** New JSON and record fields go at the end of their objects: frame windows block, /api/windows drawn and grants, WindowObserved Via and Drawn, ContextInput, PeerFact.Can, ApiKey clearSeen.\n- **One writer.** The show thread stays the only writer (WindowDirector.Run). Sends go on the pool.\n- **No secrets anywhere.** No address, grant path or key appears in a log, journal row or frame, and the rig prints none.\n- **Tests and lanes.** Tests assert fields and published state, on injected clocks. Lanes via tools/test.sh: build, unit, module, e2e (grants.e2e.cjs, ws 8.18.0); holo is untouched.\n- **Windows-only checks** go through Bench.OnWindows. One dotnet build at a time.\n- **D0.** The doctrine line in Stagewatch/CLAUDE.md:38-39 and the \u00a71 rule 5 wording are the maintainer's to decide and write. No unit edits CLAUDE.md. SW-W3 waits for the answer, recorded in REMOTE 2.18 and WHATS_NEXT.\n- **No tombstones.** The papers say 'no measurement this round', and e2e step 6 guards the lockout case.\n\nPATTERNS (CLAUDE.md round process)\n- **Round numbers.** Rounds follow patterns-playmap-side's reconciliation table: PT-W1 \u2192 Round 89.2\u201389.3; PT-W2 to PT-W5 \u2192 Round 92. The maintainer's numbering wins.\n- **Opening a round.**\n  - Read the newest docs/field/round-NN. Only the README exists, so PLAN says 'no field files this round'.\n  - Read docs/OPEN.md: amend L40, cite L36, L10 and L26, and add a row for the unpaired STATE greeting.\n  - Name the requester and evidence class: the maintainer's ask, plus a handed-in critique (the cross-repo gap analysis).\n- **Commits.** One commit per unit, 'Round NN.k: \u2026', with the maintainer's authorship. Each is validated by dotnet build Patterns.sln (the analyzers are fences) and the suites it touches. All seven suites plus the module's npm test pass before push.\n- **The wire.**\n  - STATE fields go last in their rows (bus.stagewatch.windows).\n  - Loopback wire tests set ControlService.TrustLoopback=false and restore it in finally.\n  - Bare TAKE and CUT stay off the wire: SCREEN n WINDOW and SCREEN n TAKE are per-screen verbs.\n- **Doctrine.**\n  - Done carries Visibility and Effect.\n  - A not-ready take is refused with the reason, and nothing changes.\n  - One air: the live verb never blanks a screen.\n  - Every reader in one round: desk, Run strip, menus, STATE, Eye, wire reply, module, assistant brief and twin.\n- **Papers.**\n  - PLAN and REVIEW, with 'Walk: unwalked' because WebView2 and TLS are a platform path asking for a \u00a722 walk row.\n  - CHANGELOG, README, REMOTE, COMPANION and the SHOWBUS copy.\n  - OPEN, DRILL scenario 23, QUALIFICATION \u00a722/\u00a727 and the tag row.\n- **Closing sentence.** SCREEN n WINDOW is a verb an output can show, so the round closes with its journal row read beside the output.\n- **Hygiene.** No model or tool identifiers in anything pushed.\n\nMAPPER / PLAYMAP (CLAUDE.md, docs/round3/PLAN.md)\n- **When the units land.** Round 3 ownership forbids edits to unowned folders during its waves (PLAN.md:2121-2125), and EngineCore.Content.cs belongs to desk-map, then canvas. So the PM units are a post-integration-pass package (wp4-showbus-windows proposed), or fix branches with the owner's leave.\n- **Spine changes** go as 'Spine:' commits on the package branch, reviewed with it (\u00a75.7): Core/Model/Content.cs (SourceKind.Window), VerbCatalog outside blocks, StateWriter and ContextBuilder.\n- **The new STATE block** links.stagewatch.windows needs its fixture written by a test and a card descriptor (PLAYMAP_WRITE_FIXTURES=1).\n- **Desk doors in step.** The source menu and right-click (MenuCoverageTests, DeskVerbRuleTests). Lights carry shapes (StatusRuleTests).\n- **Content is a pure function of show time.** The flash comes from leader time. Nothing is allocated or waited on in the render path: pictures are pre-drawn, and Acquire only picks and marks. I/O runs on the link's beat task.\n- **Analyzers apply to tests.** No new native library.\n\nAGMESSAGE\n- No agent brief. The unit is the docs/SHOWBUS.md copy (header kept) plus a CHANGELOG line. npm test on node 22 stays green, and no code changes.\n\nCROSS-AREA\n- SHOWBUS 1.3 is one papers unit with one owner. It is shared with peers-not-screens (\u00a76 peers, \u00a77.1, and the \u00a72.1 amendment for node-link window messages), cross-app-proposals (\u00a76 notation and caps, \u00a711; its VerbSyntax precedes SW-W1) and playout-links/spec-drift (\u00a72, \u00a73, \u00a78). Each area writes its own sections, and they land in merge order."
+ },
+ "critique": {
+  "verdict": "needs-changes",
+  "issues": [
+   {
+    "severity": "high",
+    "issue": "After a withdraw, a held page that can no longer be resolved goes WHITE on air, not black. The design sends the WebView2 to about:blank and makes the pattern draw black only when `page is null`. Patterns never sets DefaultBackgroundColor, so about:blank captures as a white frame, and the mounted source still delivers it. The second PlaceholderCard, used when DrawInput fails, still puts `page.StatusText` words on the output. Both break the design's own decision 7.",
+    "evidence": "Patterns/src/Patterns.Rendering/Patterns/MediaAndParticlePatterns.cs:139-155 (black only for page==null; second card at DrawInput failure); grep of Patterns/src finds no DefaultBackgroundColor; WebFrameSource.cs:1389-1404 (NavigateCore); design \u00a73 WebFrameSource 'navigates to about:blank'",
+    "fix": "Do not navigate to about:blank. Mark the source unresolved so the pattern draws black, or navigate to a black data: page with DefaultBackgroundColor set to black. Make every held-page failure branch, the DrawInput one included, draw black with no words. Add a Rendering test that the unresolved and the withdrawn cases are both all black."
+   },
+   {
+    "severity": "high",
+    "issue": "PlayMap's `timer:<id>` fails open. Any id that is not a granted window, or not granted yet, falls back to the followed live timer. So after a PlayMap restart before the grants arrive, after a withdraw, or with the grant list not yet delivered, an output meant to show holding or black shows a live countdown. This is the 'stale or wrong clock in front of the room' the design forbids (decision 7).",
+    "evidence": "design \u00a72.11 ('timer:stagewatch (and any id that is not a granted window) is the followed timer'); Mapper/src/PlayMap.Engine/Rendering/EngineSources.cs:178-179 (one _timer, id ignored)",
+    "fix": "Use a distinct source kind or prefix (`window:<id>`), or treat any id shaped like a window id (w + 6 of the window alphabet) as a window. When the window is unknown or withdrawn, draw black or its onLoss state and never the followed timer. Test the restart-before-grants and withdraw cases."
+   },
+   {
+    "severity": "high",
+    "issue": "The draw-grant messages `identify` (and `reload` by extension) collide with existing semantics. peers-not-screens \u00a72.1 says a node link never receives identify, reload or disconnect. Today PlayMap turns a link `identify` into `OUTPUT IDENTIFY ALL 5` on every output, on-air ones included, and after PM-1 into a journal row only, so a window identify would be either destructive or silently dropped. `window reload` on a draw-only window would be counted reachable through WindowStatus, but ReloadWindows pushes only to window sockets, so the receipt claims 'Reloading lobby' while nothing happens.",
+    "evidence": "peers-not-screens.md:181; Mapper/src/PlayMap.Net/Links/StagewatchLink.cs:395-407 (identify \u2192 ScreenCommand); Mapper/src/PlayMap.Engine/Host/NetworkHost.cs:782-783 (OUTPUT IDENTIFY ALL 5); Stagewatch/src/Timer.Remote/WindowDirector.cs:51-55; WebServer.cs:172-186",
+    "fix": "Use node-link-only types (`window-identify`, carrying the window id) that no screen handler reads. Refuse `window reload` for draw grants with the reason (or define a re-draw). Amend peers-not-screens \u00a72.1 to name these as the only window messages a node link hears."
+   },
+   {
+    "severity": "high",
+    "issue": "Revoking a granted window puts Stagewatch's 'address replaced' notice on Patterns' air. The design sends revoked+black only when a grant ends (withdraw or delete). On `revoke`, every grant token rotates, so SendLoop's ByToken check fails and the link gets the plain WindowGone, which shows the notice. The old grant tokens are not tombstoned either, so a reload of the shell or its inner fetches counts toward the lockout.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:1248-1253,1285 (WindowGone on any token miss); wwwroot/window.js:250,268-278 (revoked shows #gone); design \u00a72.4 ('When the grant ends (withdraw or delete)'), decision 2 (revoke rotates grant tokens)",
+    "fix": "Any link whose Via is a grant gets {revoked:true,black:true} whenever its token stops resolving, revoke included. Tombstone rotated grant tokens like withdrawn ones. Say in REMOTE that on revoke the Patterns screen shows black, then the new shell's holding page, for about a second."
+   },
+   {
+    "severity": "high",
+    "issue": "Changing WindowStatus() to one row per (window, via) breaks the readers that exist today. HandleWindowListAsync builds `ToDictionary(o => o.WindowId)`, which throws on the first window with two viewers, so /api/windows fails. The Screens subtitle counts viewers as 'open windows', and the row shows an arbitrary via's device. `_windowSeen` is cleared whole when it passes 4\u00d7Max = 256 entries; with up to 5 vias \u00d7 64 windows that clear keeps firing, so every light flickers back to grey.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:680 (ToDictionary), :1392 (clear at 4*Max); src/Timer.App/ScreensWindow.xaml.cs:101-116; src/Timer.Core/ScreenWindows.cs:330 (FirstOrDefault by WindowId); tests/Stagewatch.Tests/WindowTests.cs:260-267 (.Single by WindowId)",
+    "fix": "Keep WindowStatus() as one row per window (the aggregate) and add a separate ViewerStatus() per (window, via). Size the bound to (MaxGrants+1)\u00d7Max and evict per key instead of clearing. List every caller in SW-W3."
+   },
+   {
+    "severity": "medium",
+    "issue": "The Patterns twin/takeover chain is missing. Kept passes are 'never twinned' and grants are per node id and held in memory, so on TAKE OVER the standby holds `stagewatch://` and `kept://` keys it cannot resolve, and every granted or pasted window goes black on air. This contradicts the twin promise ('puts what the main had on air back on') and its rule that the show's credentials travel by default. The design also builds a parallel secret store instead of using `Secrets`, 'the one list every exit door reads'.",
+    "evidence": "Patterns/README.md:362-368,400-403; Patterns/src/Patterns.Core/Services/Twin.cs:364-383 (WireJson sendSecrets); Patterns/src/Patterns.Core/Services/Secrets.cs:17-28; design \u00a76 Left ('standby twin \u2026 proposed, not designed')",
+    "fix": "Carry the kept passes, and the main's currently delivered grant paths, on the authenticated twin link as show credentials (honouring sendSecrets). Register them in Secrets.Names/Placed so Redact and Blank cover them at every exit. Add the takeover case to PrivateAddressFenceTests and a DRILL/QUALIFICATION row."
+   },
+   {
+    "severity": "medium",
+    "issue": "What happens to grants on link loss or restart is unspecified. Grants live in memory from the link. If Patterns clears them when the link drops, every Stagewatch restart or link blip blanks the granted windows on air, though the window shell would itself have shown its holding page. After a Patterns watchdog restart, the recovery record puts the held page back, but it stays black until TLS dial, auth and grants complete, and indefinitely if Stagewatch is down. PlayMap has the same gap before its first grants.",
+    "evidence": "design \u00a73 StagewatchLinkService (SetGrants from `grants` only); decision 7 (unresolved = black); Stagewatch/src/Timer.Remote/wwwroot/window.js:8-10,173 (shell's own link-loss holding page)",
+    "fix": "Grants survive link loss: only a received list without the window removes it. Persist the last delivered grant (window id \u2192 path, per Stagewatch id) in the per-machine kept store, so a restart resolves at once and the shell's own onLoss behaviour covers a Stagewatch outage. Test both."
+   },
+   {
+    "severity": "medium",
+    "issue": "`SCREEN n WINDOW` is a live take onto the air. Under decision 7 the screen draws black until the WebView2 has started and the shell has drawn, which can take seconds when a new browser of the 4 is spun up. A live verb that blanks a screen goes against 'every selection change is instant' and the air/preview doctrine.",
+    "evidence": "design \u00a72.10 (live: air and edit), decision 7; Patterns/src/Patterns.App/Services/ShowActions.Content.cs:168-188 (SCREEN n PATTERN precedent, no media mount); Patterns/src/Patterns.App/Services/WebEngine.cs:24 (4 pages)",
+    "fix": "Keep the screen's previous picture until the held page has delivered its first frame, which the window shell signals by leaving its holding page. Otherwise, refuse the live verb while the page is not mounted, with the reason, and steer to `SCREEN n PVW WINDOW` (pre-roll) plus a take. Visibility and Effect should report 'loading' rather than Done."
+   },
+   {
+    "severity": "medium",
+    "issue": "Placement claims are taken as observed facts from any peer. WindowPlacements.From reads `@<sw>/window:<name>` links from every posted context, including unverified ones (peers-not-screens decision 8) and nodes that hold no grant of that window. Any node can make Stagewatch's context, frame and Companion feedback say 'lobby on X: Screen 2'.",
+    "evidence": "design \u00a73 ShowBus.cs WindowPlacements.From(entries, ownId); Stagewatch/src/Timer.Core/ShowBus.cs:56-69 (Accept stores any valid context); peers-not-screens.md decision 8",
+    "fix": "Accept a placement only from a key-verified context whose node holds a grant of that window and has an open or shown viewer for it. Word placements as the app's claim ('Patterns FOH says: Screen 2'). Test that a non-holder's link is ignored."
+   },
+   {
+    "severity": "medium",
+    "issue": "With `NODES ASK WINDOW`, a peer can ask on behalf of another node. Submit binds only `from.id` to the key. The line `window grant <window> <app>` is peer-authored, and Stagewatch's approval list shows the peer's `reason` as the request headline. A node can therefore post `window grant lobby <other id>` with the reason 'Patterns FOH asks to show window lobby'.",
+    "evidence": "Stagewatch/src/Timer.Core/Approvals.cs:91 (BindKey(from.Id) only); Stagewatch/src/Timer.App/ViewModels/MainViewModel.Desk.cs:99 (Request = p.Reason); design \u00a72.10 ASK body",
+    "fix": "At Submit (or RiskFor), refuse a proposal from a node key whose line is `window grant` naming an app other than from.id, with words. Show the line, not the reason, as the headline for window grants. Add a ShowBusTests case."
+   },
+   {
+    "severity": "medium",
+    "issue": "The spec and the doctrine contradict the wire. The new \u00a71 rule 5 exemption says a window address 'may be a browser's address' only, yet the `grants` message carries the path on a node link. Stagewatch CLAUDE.md says window addresses ride in no frame, and the design only 'offers' the amendment to the maintainer, while SW-W3 depends on it.",
+    "evidence": "design \u00a72.9 (rule 5 wording), processNotes ('offered to the maintainer, not part of these units'); Stagewatch/CLAUDE.md:38-39",
+    "fix": "Word the exemption to name the second carrier explicitly: one key-verified node link, TLS or loopback, to the grant's node only. Make the doctrine line a maintainer decision gate before SW-W3, recorded in REMOTE and WHATS_NEXT, not an afterthought."
+   },
+   {
+    "severity": "medium",
+    "issue": "The TLS-or-loopback gate does not match how the peers dial. Patterns auto-dials the address the hello came from (`peer.Address`), and Stagewatch's hello goes to both broadcast and loopback, so on one laptop the address is often the LAN IP. 'One laptop over plain loopback' then rarely happens, and the path takes the unproven WebView2 certificate route. The gate also ignores a node key that has already crossed a plain link: a sniffer can replay it over TLS and receive the path.",
+    "evidence": "Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:238 (dials peer.Address); Stagewatch/docs/SHOWBUS.md:27-28 (hello to broadcast and loopback); Stagewatch/src/Timer.Remote/WebServer.cs:325 (IsLoopback on the remote address)",
+    "fix": "Have Patterns and PlayMap dial 127.0.0.1 when the hello's host is this machine. Have Stagewatch treat its own interface addresses as local. Alternatively refuse node keys on plain non-loopback links when TLS is offered, so a key never crosses in the clear."
+   },
+   {
+    "severity": "medium",
+    "issue": "The 13 grouped command rows ('window show|cue <window> \u2026', 'next | start | pause', 'nudge|trim|delay \u2026') are no longer verb templates. ProposalDesk.RiskFromCommands matches fixed words up to the first placeholder, and \u00a711 says the desk takes risk from the target's listed verbs. 'next | start | pause' needs 5 words to match, and 'show|cue' never equals 'show'. The rows stop being machine-readable risk entries for any reader.",
+    "evidence": "Stagewatch/src/Timer.Core/Approvals.cs:224-236 (RiskFromCommands); Stagewatch/docs/SHOWBUS.md:197-198 (\u00a711 risk from commands); design \u00a72.6",
+    "fix": "Keep one matchable template per row, and raise Patterns' brief cap instead. Or define an alternation syntax in \u00a76 and teach RiskFromCommands (and Patterns' matcher) to expand it, with tests."
+   },
+   {
+    "severity": "medium",
+    "issue": "The kept-pass rule is scope creep with real regressions. Any URL carrying a query word such as key, token or apikey is moved into a machine-local file and migrated at show load. Third-party pages (signage, dashboards, sheets) then go black on any other machine and on the twin. G09 concerns /w/ window paths, and Patterns' brief says no legacy is considered, which argues against migrating old shows.",
+    "evidence": "design decision 6; gaps.json G09 (fix scoped to /w/ paths); Patterns/CLAUDE.md standing brief ('No legacy or previous version is considered')",
+    "fix": "Hold only Stagewatch window paths automatically. Offer 'keep this address on this machine' for other private-looking URLs as an operator choice. Drop the show-load migration, or justify it by measurement."
+   },
+   {
+    "severity": "low",
+    "issue": "The tombstones are presented as having a 'measured cause', but nothing was measured. After `revoked()` the shell stops, and Patterns has no automatic reload, so the burst of 404s is hypothetical. Both CLAUDE.md files say no governor lands without a measured cause. A successful key request from the same IP also already clears the failure count.",
+    "evidence": "Stagewatch/src/Timer.Remote/wwwroot/window.js:268-278 (stops); Patterns/src/Patterns.App/Services/WebFrameSource.cs:272 (ProcessFailed only sets words; no auto-reload); Stagewatch/src/Timer.Remote/WebServer.cs:1083 (TryRemove on key success)",
+    "fix": "First reproduce the lockout without tombstones in the rig e2e, for example on revoke with a reload, and land tombstones only if it occurs. Otherwise write 'no measurement this round' and drop them."
+   },
+   {
+    "severity": "low",
+    "issue": "Mapper process: StateWriter.cs and ContextBuilder.cs are spine files, 'changed only through the spine amendment lane, \u00a75.7'. The design calls these edits 'a hunk in the package'.",
+    "evidence": "Mapper/docs/round3/PLAN.md:307-312, 2346-2352",
+    "fix": "Name them as 'Spine:' commits on the package branch per \u00a75.7, reviewed with the package."
+   },
+   {
+    "severity": "low",
+    "issue": "Several evidence claims are wrong or loose. (a) The Library title keeps all 26 token characters, not 25: the tail is 'w/'+26 = 28 characters, and truncation happens only above 28. (b) 'items \u2264 200, the contract's own figure': SHOWBUS.md sets no item cap; 200 is Patterns' ShowContext.MaxItems. (c) NodeRef already exists in Approvals.cs as the proposal from/target record, so 'ShowBus.cs: NodeRef(Kind,Id,Name,Can)' either duplicates the type or changes the proposals' shape. (d) The version-skew note says an older Patterns reads 'sent', but an older Patterns sends no can= and no `pages` cap, so the grant is refused.",
+    "evidence": "Patterns/src/Patterns.App/Services/LibraryItems.cs:219; Patterns/src/Patterns.Core/Services/ShowContext.cs:68; Stagewatch/docs/SHOWBUS.md (no cap); Stagewatch/src/Timer.Core/Approvals.cs:8",
+    "fix": "Correct the evidence. Use a new record (for example ShowApp(Kind, Id, Name, Can)) for FindNode results. Restate the skew case."
+   },
+   {
+    "severity": "low",
+    "issue": "Missed leak paths for the fence test. StagewatchLinkService logs approved lines raw, so an approved `WEB OPEN http://\u2026/w/<token> ON \u2026` reaches the log. InputLabels and other maps keyed by the mount key hold the old URL key in the show.",
+    "evidence": "Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:497; Patterns/src/Patterns.Core/Model/ShowState*.cs InputLabels (keyed by input key, e.g. ShowState.cs:2937,2993)",
+    "fix": "Secure the approved-line path before logging it, or log it through Secure. Migrate key-keyed maps. Add an approved-line case and an InputLabels case to PrivateAddressFenceTests."
+   },
+   {
+    "severity": "low",
+    "issue": "`how` is fixed at grant time, possibly from hello caps (unauthenticated UDP), and the path is then sent on every later link whatever that link's `can=` offers now.",
+    "evidence": "design decision 3 ('else from hello caps'), \u00a72.3",
+    "fix": "Fill `path` only when the current key-verified link's can= includes `pages`. Otherwise send cannot/'' and say why."
+   },
+   {
+    "severity": "low",
+    "issue": "The PlayMap native subset reports `shown` with content it did not honour, such as `/clock?h=12` or `/viewer?\u2026` flags, which turns the window green. The flash phase is specified on an injected local clock, though Mapper's doctrine is frame = f(leader time).",
+    "evidence": "design \u00a73 NativeWindows.Classify; Mapper/CLAUDE.md doctrine ('Content is a pure function of show time')",
+    "fix": "Report `error` (amber) for query flags that are not honoured. Derive the flash phase from leader time at vblank."
+   },
+   {
+    "severity": "low",
+    "issue": "Untested or missing pieces. (a) 'https .m3u8 \u2192 Stream' assumes PlayMap's LGPL FFmpeg build has a TLS protocol, with no evidence, which could recreate G47's 'ready but unplayable'. (b) tests/e2e has only playwright, so a header-capable WebSocket client (ws) is an unlisted devDependency. (c) The rig must fill the snapshot's ambient windows for e2e step 4, which is not in the rig changes. (d) A bare `window withdraw` parses as 'all' and drops every grant. (e) The grants `rev` restarts at 1 with the process, so receivers must reset it per connection.",
+    "evidence": "Mapper/src/PlayMap.Engine/EngineCore.Content.cs:389-396; Stagewatch/tests/e2e/package.json; tools/Stagewatch.Rig/Program.cs:242-301; Stagewatch/src/Timer.Core/ShowState.cs:940",
+    "fix": "Probe FFmpeg protocols before filing https as Stream, or keep readiness honest. Name the ws devDependency. Add rig ambient windows. Require an explicit `all` for withdraw. Specify the rev reset per link on both receivers."
+   }
+  ],
+  "missing": [
+   "Twin/standby chain on Patterns: TAKE OVER with a granted or kept window on air (carry the passes and grant paths on the twin link, a DRILL scenario, the Super Check row)",
+   "Grant lifetime across link loss and restarts on Patterns and PlayMap (persist the last delivered grant; never clear on disconnect)",
+   "Revoke on a granted window: black end for grant vias, tombstoning rotated grant tokens, the on-air sequence documented",
+   "Reload and identify for draw grants as node-link-only message types, reconciled with peers-not-screens \u00a72.1 and its PlayMap decision 11",
+   "Trust rule for placements: only grant-holding, key-verified nodes, worded as a claim",
+   "A proposal fence: a node may ask a window grant only for itself",
+   "A maintainer decision gate for the Stagewatch CLAUDE.md doctrine line and the \u00a71 rule 5 wording before SW-W3",
+   "Rendering of an unresolved or withdrawn held page: no about:blank white, no PlaceholderCard words in any branch",
+   "A keep-previous-picture or pre-roll rule for the live `SCREEN n WINDOW` while the page mounts",
+   "Stagewatch copilot facts: AiContext's PeerFact has no node id or abilities, so the copilot cannot propose a correct `window grant`",
+   "Patterns 'every reader': the Run strip is not named among the readers",
+   "A rig change: the snapshot ambient `Windows` that the e2e's frame assertion needs",
+   "Integration with Patterns' existing `Secrets` list instead of a parallel WebPassBook-only path, so every exit door redacts the new fields",
+   "Same-machine dialling: prefer 127.0.0.1 when the hello's host is this machine, so the loopback case actually happens"
+  ]
+ }
+}

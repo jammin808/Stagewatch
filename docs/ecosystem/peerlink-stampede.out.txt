@@ -1,0 +1,40 @@
+-- reset at t=0, acceptor back after 6000 ms, 16 links
+   pm20 (today: x[0.8,1.2])                 peak/250ms median    5 p95   7 of 16; all back within median  2391 ms p95  2703 ms
+   half (x[0.5,1.0])                        peak/250ms median    4 p95   5 of 16; all back within median  4359 ms p95  4823 ms
+   full (x[0,1.0])                          peak/250ms median    4 p95   5 of 16; all back within median  3986 ms p95  4733 ms
+   none (Stagewatch today: 250 doubling)    peak/250ms median   16 p95  16 of 16; all back within median  1750 ms p95  1750 ms
+-- reset at t=0, acceptor back after 6000 ms, 32 links
+   pm20 (today: x[0.8,1.2])                 peak/250ms median    9 p95  12 of 32; all back within median  2504 ms p95  2756 ms
+   half (x[0.5,1.0])                        peak/250ms median    6 p95   8 of 32; all back within median  4534 ms p95  4869 ms
+   full (x[0,1.0])                          peak/250ms median    6 p95   8 of 32; all back within median  4282 ms p95  4824 ms
+   none (Stagewatch today: 250 doubling)    peak/250ms median   32 p95  32 of 32; all back within median  1750 ms p95  1750 ms
+-- reset at t=0, acceptor back after 20000 ms, 16 links
+   pm20 (today: x[0.8,1.2])                 peak/250ms median    4 p95   5 of 16; all back within median  4518 ms p95  5496 ms
+   half (x[0.5,1.0])                        peak/250ms median    4 p95   5 of 16; all back within median  4067 ms p95  4739 ms
+   full (x[0,1.0])                          peak/250ms median    4 p95   5 of 16; all back within median  3990 ms p95  4703 ms
+   none (Stagewatch today: 250 doubling)    peak/250ms median   16 p95  16 of 16; all back within median  2750 ms p95  2750 ms
+-- reset at t=0, acceptor back after 20000 ms, 32 links
+   pm20 (today: x[0.8,1.2])                 peak/250ms median    6 p95   8 of 32; all back within median  4835 ms p95  5633 ms
+   half (x[0.5,1.0])                        peak/250ms median    6 p95   8 of 32; all back within median  4336 ms p95  4824 ms
+   full (x[0,1.0])                          peak/250ms median    6 p95   8 of 32; all back within median  4283 ms p95  4789 ms
+   none (Stagewatch today: 250 doubling)    peak/250ms median   32 p95  32 of 32; all back within median  2750 ms p95  2750 ms
+-- silence: detect in U(10000,12000), acceptor back after 6000 ms, 16 links
+   pm20 (today: x[0.8,1.2])                 peak/250ms median    4 p95   6 of 16; all back within median  3057 ms p95  5559 ms
+   half (x[0.5,1.0])                        peak/250ms median    4 p95   5 of 16; all back within median  4292 ms p95  4796 ms
+   full (x[0,1.0])                          peak/250ms median    4 p95   5 of 16; all back within median  4033 ms p95  4740 ms
+   none (Stagewatch today: 250 doubling)    peak/250ms median    5 p95   7 of 16; all back within median  2665 ms p95  2743 ms
+-- silence: detect in U(10000,12000), acceptor back after 6000 ms, 32 links
+   pm20 (today: x[0.8,1.2])                 peak/250ms median    7 p95  10 of 32; all back within median  4069 ms p95  5722 ms
+   half (x[0.5,1.0])                        peak/250ms median    6 p95   8 of 32; all back within median  4487 ms p95  4858 ms
+   full (x[0,1.0])                          peak/250ms median    6 p95   8 of 32; all back within median  4283 ms p95  4811 ms
+   none (Stagewatch today: 250 doubling)    peak/250ms median    8 p95  11 of 32; all back within median  2706 ms p95  2746 ms
+-- silence: detect in U(10000,12000), acceptor back after 20000 ms, 16 links
+   pm20 (today: x[0.8,1.2])                 peak/250ms median    3 p95   5 of 16; all back within median  4698 ms p95  5606 ms
+   half (x[0.5,1.0])                        peak/250ms median    4 p95   5 of 16; all back within median  4098 ms p95  4753 ms
+   full (x[0,1.0])                          peak/250ms median    4 p95   5 of 16; all back within median  3936 ms p95  4719 ms
+   none (Stagewatch today: 250 doubling)    peak/250ms median    5 p95   7 of 16; all back within median  3665 ms p95  3743 ms
+-- silence: detect in U(10000,12000), acceptor back after 20000 ms, 32 links
+   pm20 (today: x[0.8,1.2])                 peak/250ms median    6 p95   8 of 32; all back within median  5023 ms p95  5726 ms
+   half (x[0.5,1.0])                        peak/250ms median    6 p95   8 of 32; all back within median  4365 ms p95  4818 ms
+   full (x[0,1.0])                          peak/250ms median    6 p95   8 of 32; all back within median  4257 ms p95  4801 ms
+   none (Stagewatch today: 250 doubling)    peak/250ms median    8 p95  11 of 32; all back within median  3706 ms p95  3746 ms

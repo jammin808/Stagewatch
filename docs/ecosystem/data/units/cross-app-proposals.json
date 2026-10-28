@@ -1,0 +1,668 @@
+{
+ "area": "cross-app-proposals",
+ "revised": {
+  "area": "cross-app-proposals",
+  "summary": "Revised after review. All 21 critique items were checked against the code. 19 are accepted. Items 7 and 16 are accepted in part, and the rejected part of each is given with its reason in the design's \"Review answered\" table. Full design: /home/user/Stagewatch/docs/ecosystem/cross-app-proposals.md. Matcher prototype: <scratch>/proto/verbsyntax2.py.\n\n**What the show caller gains.** One place, Stagewatch's shared approval queue, to send lines to every app and to decide what any AI proposes for them.\n- **Release A**\n  - The operator right-clicks an app in the Show network and sends it a line that app lists, for example \"notice Q&A in 2 minutes\" to AGMessage or \"PLAYLIST CUE show #3\" to PlayMap.\n  - The same send is the `peer <app> <line>` verb on HTTP (GET with one encoded segment, or a POST JSON body) and WebSocket, and in a Command trigger.\n  - The dialog shows the line's risk as it is typed. Every send reports back: sent, then collected, then done or refused. Never just \"sent\".\n  - Pending AI proposals can be approved or rejected from the producer page or the wire with `desk approve|reject <id>`. `next` approves only a non-high item; a high one needs its id and the word `high`.\n- **Release B** adds the Stream Deck (Companion), OSC, Stagewatch's copilot planning steps for other apps, and MCP agents proposing to apps. A person always decides.\n\n**What is now safe that was not:**\n- A line is never cut and never corrupted. It travels as exactly one argument; quotes, JSON and '/' survive.\n- Only a line the target lists is sent, so the PIN is not a relay onto Patterns' admin verbs.\n- No key, window address, control character or filled secret placeholder rides any line. PlayMap's `<token>` and `<key>` are refused; the `\u2039secret\u203a` marker is allowed.\n- With no PIN set, `peer` and `desk` work only from this PC or a listed address. This is the sender gate shared with playout-links.\n- Proposal ids are unique across Stagewatch restarts (`p17-k3m9`), so no target silently skips a reused id.\n- Only verified contexts set risk (after peers-not-screens' G15 fix).\n- An unticked step is never approved. A target that has not asked for lines in 15 s is not sent to or approved for.\n- Targets see a role word (\"operator\", \"deck\"\u2026), not addresses or key names.\n\n**Risk read correctly.** Whole-form matching of each app's listed verbs:\n- a value is one word, except a form's last element or a `words`/`line` value;\n- carried lines raise the risk;\n- PlayMap's RiskWhen and HighFor become rows of their own.\n\nMeasured with prototype 2 on PlayMap's 504 examples: 0 rated lower than their row, against 114 of 144 wrong today. A Mapper fixture generated from PlayMap's `RiskOf` fences \"never lower than the target\".\n\n**Each app**\n- **Patterns** lists APPLY and 15 more verbs (Round 90.3), so its assistant's proposals read \"review\". It refuses an APPLY that it did not propose itself.\n- **AGMessage**'s stage line is fixed by the agmessage area (AG-1). This area tests that it parses.\n- **PlayMap**:\n  - At the round-3 integration pass it publishes its word-dependent risks and which words are secret.\n  - Later, once the owner answers decision 7, its assistant can use the desk.\n  - Reason corrected: the sink must collect because the engine refuses a shown copy, not because a redacted line would run.",
+  "decisions": [
+   {
+    "decision": "D1 Rate a line by whole forms of the target's verified table. Pure VerbSyntax/VerbTable in Timer.Core. Literals are case-blind; A|B is one word; [\u2026] is optional and nests; a bare \u2026 is any words. ' | ' separates forms, and a form not starting with the verb's first word carries the first form's leading literals but the last. Words are read as WireGrammar reads them: a quoted phrase with \\\" escapes is one word, and a word opening with { or [ runs to the line's end. A <\u2026> value is exactly ONE word, except the form's last element or a value named words, text, line, '\u2026 words' or '\u2026 line'. Specificity: most literal words, then most single-literal words; an exact tie gives the higher risk; no match or more than 64 words is high. A value named line or '\u2026 line' carries a line of the same node: the risk is at least that line's when it names a listed form; words naming no verb add nothing; depth \u2264 4. A JSON value in a row that carries lines is high.",
+    "why": "Prototype 2 on Mapper/tests/PlayMap.Engine.Tests/Fleet/Golden/context-busy.json: of 504 form examples, 502 are rated as their row, 2 higher (BIND ADD <json>) and 0 lower. All 35 probe lines hold, including adversarial ones: SCREEN 2 TAKE PVW LOOK x is high; BIND ADD note 60 TO BLACKOUT ON is high, as PlayMap's carried-line rule says (VerbCatalog.cs:826-834, 850-853). Today's prefix matcher (Approvals.cs:225-237, ShowBus.cs:101-102) rates 114 of 144 low/review rows high. The carry rule reproduces PlayMap's VerbSyntax.Alternatives re-prefix (VerbSyntax.cs:21-62).",
+    "alternatives": "G02's prefix patch (still ~21 forms wrong). Any value taking any number of words (the first draft): SCREEN 2 TAKE PVW LOOK x would read as the review form. Rejected part of review item 7: a last value absorbing trailing words (MOVE it1 3 BLACKOUT ON \u2192 low) is not a mis-rating. Every target names the verb by its leading words, and PlayMap's own RiskOf rates it as MOVE (VerbCatalog.cs:808-813)."
+   },
+   {
+    "decision": "D2 Caps stated and counted. At most 256 commands. A verb over 512 characters is dropped, not cut, and counted; 200 characters of words are kept. A context is at most 64 KiB as sent, counted in UTF-8 bytes. A larger one gets 413 with its size, and the Show network row says so, named by the key's bound node or else by the address. The compiled table is cached per verb list.",
+    "why": "A cut verb is a different syntax. Accept counts UTF-16 (ShowBus.cs:60) while the route counts bytes (WebServer.cs:457). Today nobody is told when a context is refused. Measured: PlayMap's busy context is 38,142 bytes compact, about 47.5 KB at 256 rows.",
+    "alternatives": "Rejected part of review item 16: the reader cannot trim rows, because it never reads a body past MaxBody (WebServer.cs:1523,1613), which protects the server. Trimming is the sender's duty under spec-1-3's \u00a76 sizes."
+   },
+   {
+    "decision": "D3 A row whose risk depends on a word lists that form again, with the word written in and its own risk (the \u00a76 rule). PlayMap emits one such row per RiskWhen and HighFor in CommandsFromCatalog (PM-0, the integration pass's file). Mapper generates tests/fixtures/bus/risk-examples.json from RiskOf, and Stagewatch's replay asserts that no PlayMap line is rated lower than PlayMap rates it.",
+    "why": "PlayMap's RiskOf raises and lowers by argument (VerbCatalog.cs:47-48,284,350,353,371,390,398,541), but the context emits only v.Risk (Bus/ShowContext.cs:95). Today ASSISTANT SET enabled|provider, DECODE POLICY \u2026 FORCE and MACHINE SET GPU-PRIORITY REALTIME rate review on the desk and high on PlayMap. No new notation is needed, and ties already go higher.",
+    "alternatives": "Inline per-word notation (every reader must learn it); a 'when' field mirroring RiskWhen (needs the verb name and word indexes); waiting for an owner rewrite of VerbCatalog (it is round 3's spine)."
+   },
+   {
+    "decision": "D4 No secret rides in any line on the desk. Refused at every door (POST /api/proposals, peer, copilot, MCP): a line that fills a secret placeholder with anything but \u2039secret\u203a. A placeholder is secret when its whole name is token, key, password, passcode or secret (not pin, which is PlayMap's calibration pin), or when the row's optional \"secret\": n field marks it (PlayMap's SecretFrom, emitted in PM-0). Also refused anywhere in a line: swk_/agn_ words, a current window token or /w/ followed by a 26-character token, and any control character. A proposer that keeps the secret itself sends \u2039secret\u203a and runs its own record. Peer lines never go to Companion's recorder.",
+    "why": "PlayMap lists LINK PATTERNS \u2026 [<token>] and LINK STAGEWATCH \u2026 [<key>] at review (VerbCatalog.cs:249-250; golden rows 72-73). Proposals are readable with a read key (WebServer.cs:604-605,616-617) and ride the frame, MCP and the journal. RunOperatorLine sends RECORD lines to every Companion client (MainViewModel.cs:694-698; CompanionServer.cs:118-122).",
+    "alternatives": "Fence only swk_/agn_ (the first draft); fence the 4-digit PIN (false hits on numbers)."
+   },
+   {
+    "decision": "D5 Proposal ids are unique across desk runs: p<n>-<run>. <run> is 4 base-32 characters drawn once per desk start with RandomNumberGenerator. p<n> resolves within the current run. An old run's id gets 404 'this desk restarted since'. Receipts carry refs.sharedProposal as a string, in a new RefIds beside the long Refs.",
+    "why": "_next is in memory (Approvals.cs:52,101), and all three targets remember ids across desk restarts and skip a reused one silently: PlayMap StagewatchLink.cs:103,538-541; Patterns StagewatchLinkService.cs:460; AGMessage server.js:1098-1100. CommandReceipt.Refs is long-only (ShowState.cs:1201). MCP's integer ids are local copilot ids (McpEndpoint.cs:153).",
+    "alternatives": "A persisted counter (another writer); a time-seeded counter (clock jumps)."
+   },
+   {
+    "decision": "D6 Only verified tables count. They alone set risk, allow a peer send, give quick verbs and reach the model. Verified means posted under a key bound to that id (peers-not-screens NodeBindings, decision 3) or read by Stagewatch's own authenticated link; Patterns' link-read context wins over a posted one. An unverified context rates everything high and never reaches the model. Peers' words reach the model only inside other_apps, which the prompt names as that app's data.",
+    "why": "G15: MainViewModel.Desk.cs:65-70 ignores a failed bind, and :81-82 lets a posted context beat the Patterns link's. A forged table would set pre-ticks, copilot steps, born-approved sends and the prompt.",
+    "alternatives": "Leave G15 as a risk (the first draft)."
+   },
+   {
+    "decision": "D7 A target may raise the risk of its own proposal, never lower it. When from.id == target.id under a verified binding, the stored risk is max(table, stated).",
+    "why": "The table stays the auditable rule, and a self-proposer that knows better can only make its own item safer.",
+    "alternatives": "Self-proposers set their own risk (could lower it)."
+   },
+   {
+    "decision": "D8 Refused, never cut. A line is at most 2048 characters; the copilot's 400-character cut becomes a refusal. POST refuses from.t main or mcp, and from.id equal to the desk's id. A peer or desk line aimed at the desk is refused.",
+    "why": "Approvals.cs:42,88 and Copilot.cs:189 cut silently. Ref (Approvals.cs:204-211) accepts any kind, so a peer could pose as the desk's operator or as the MCP agent, and bind its key to the desk's id.",
+    "alternatives": "Raise the cap and keep cutting."
+   },
+   {
+    "decision": "D9 The desk observes collection. It records each target's last collect. Stagewatch's own sends, and approvals of pending items, are refused for a target silent for 15 s, with words. The window greys Approve with the reason, and the item stays pending. Proposal JSON shows collected. The rig has options for the window and the fakes' poll.",
+    "why": "Targets poll every 2\u20133 s. A line nobody collects goes undelivered after 60 s (Approvals.cs:44), after the operator believed it sent. Observed state over sent state.",
+    "alternatives": "Send or approve anyway and let it go undelivered."
+   },
+   {
+    "decision": "D10 One pure DeskService (Timer.Show), mirrored by MainViewModel.Desk.cs and hosted by the rig. CommandRisk.Of(ShowCommand) \u2192 LineRisk lives in Core (a new enum), and Copilot.Classify maps it. RunWithReceipt saves and restores the outer notes and _executingRemote, and Decide returns the inner outcome.",
+    "why": "The rules are tested headless. CopilotRisk lives in Integrations (Copilot.cs:11-20), so Core cannot return it. Nested RunWithReceipt (MainViewModel.Desk.cs:157 inside Receipts.cs:29-38) wipes the outer receipt's refs and errors.",
+    "alternatives": "Keep the logic in the view model (no rig e2e)."
+   },
+   {
+    "decision": "D11 `peer <app> <line>`: a person sends one listed line to another app, born approved.\n- Exactly one token follows <app>; more are refused.\n- HTTP: a GET form with one URL-encoded segment, and POST /api/peer with {app, line}.\n- WS takes args of 2.\n- The line must match a listed form of a verified table, hold no secret, be at most 2048 characters and contain no control characters.\n- <app> is an id, a unique name, or playmap / patterns / agmessage|messenger when exactly one live app of that kind is heard. stagewatch and main are not app words.\n- decidedBy is a role word (operator, operator (copilot), wire, deck, trigger); the key name and address go only to the desk's journal.\n- Who may send is decided by playout-links' sender gate (PlayoutGate, Remote.PlayoutFrom), extended to Peer and Desk.\n  - HTTP and WS: a PIN that is set and given, or a control key.\n  - With no PIN: this PC or a listed address only.\n  - OSC and Companion (release B): this PC or a listed address.\n  - Never a node, read or MCP key, and never as a proposal.\n  - Triggers may send (origin: this PC).\n- The receipt waits within 3 s through playout-links' ReceiptNotes.Peer, and WS and Companion get its final follow-up.",
+    "why": "CheckPin passes an empty PIN (WebServer.cs:870), and WS role=control then controls (:1149,1191). Every tokenizer drops quotes (McpEndpoint.cs:173-185, CloudAdvisor.cs:163-179); HTTP splits on '/' before unescaping (:792); Companion turns \\n into a newline (CompanionProtocol.cs:73). Patterns runs approved lines as a wire client (AppServices.cs:682-686), with RESTART <passcode> and UPDATE APPLY on its wire (Patterns docs/REMOTE.md:87-88). AGMessage shows decidedBy to every meeting (server.js:1073). No Stagewatch collects as a target (WebServer.cs:575,600). Fail closed: an unknown word is refused.",
+    "alternatives": "Unlisted lines rated high (the first draft: a relay onto every admin verb); a pending item for the operator's own line (ceremony); only the loopback bind as the Companion/OSC gate (shuts out a Companion PC)."
+   },
+   {
+    "decision": "D12 `desk approve <id> [high]`, `desk approve next`, `desk reject <id>|next [<why\u2026>]`. next approves only a non-high oldest item; a high item needs its id and the word high. Refused for a silent target (D9). The same sender gate as peer. Refused from MCP, triggers, the advisor, copilot steps and proposals. The deck approves the id it shows (desk_next_id); a high item takes a second press, which sends HIGH.",
+    "why": "Triggers run lines with no transport gate (Triggers.cs:56,81; MainViewModel.Integrations.cs:59), which would let automation approve AI proposals unseen. A blind next could approve a high item.",
+    "alternatives": "next for everything; a rig-only stdin approve."
+   },
+   {
+    "decision": "D13 Approving a shared proposal honours the tick: an unticked step is not approved.",
+    "why": "ApproveProposal sends any shared item to ApproveShared (MainViewModel.Copilot.cs:165, Desk.cs:135-159), although a high step is never pre-ticked (Copilot.cs:25).",
+    "alternatives": "None; it is a defect."
+   },
+   {
+    "decision": "D14 (release B) The copilot plans for other apps.\n- A step gains a target.\n- other_apps gives id, collects, verified and verb_heads (2,840 bytes for PlayMap).\n- Full verbs come only when the request names the app, or the plan asks need_verbs (at most one second pass, \u226432 KB per app and \u226464 KB in total, with more_verbs counted).\n- A step is kept only when it is listed and secret-free; it is rated by the table; over 2048 characters is refused.\n- Run ticked steps runs in order through a pure PlanRunner. An app step waits up to 10 s for its result; a refusal or no result stops the run. Each run of Stagewatch steps is its own undo batch.\n- Dropped words are per app.\n- ShowCommandParser.Help, which the AIs read, leaves peer and desk out; PersonHelp lists them.",
+    "why": "Measured cost: 32,843 bytes of PlayMap commands on every request versus 2,840 bytes of heads. Today Help goes into the prompt and MCP's tool text (Copilot.cs:74; McpEndpoint.cs:87,139). Order across apps must hold: attempts are not facts.",
+    "alternatives": "Every app's full table on every request (the first draft); app steps sent asynchronously after Stagewatch's."
+   },
+   {
+    "decision": "D15 (release B) MCP: run_command.target always makes a pending shared proposal from {t:mcp}, even with direct agents. get_proposal takes string ids. get_context.peer returns verified contexts only. peer and desk lines are isError.",
+    "why": "Another app's approval is not Stagewatch's to waive.",
+    "alternatives": "Honour AgentsNeedApproval for app targets."
+   },
+   {
+    "decision": "D16 The desk's door (WPF, the maintainer's PC). The Show network row's right-click and its '\u2026' button offer the same items: Send a line\u2026, up to 6 quick verbs, Its verbs\u2026, Copy headline. The dialog calls DeskService.Send with the raw string and shows the form, risk, words and collect state. Items are greyed with reasons (not collecting, unverified).",
+    "why": "G14 and G20; desk buttons and right-click stay in step; the raw string avoids Q()'s quote rewrite (MainViewModel.cs:119) and the recorder.",
+    "alternatives": "A messenger-only 'Send notice'."
+   },
+   {
+    "decision": "D17 Every reader. The operator frame gets desk{pending, next, apps}. /api/config and Companion CONFIG get peers. Companion gets an ACCESS line per connection (release B). The producer page gets a desk panel: approve and reject by id, with a high item confirmed. The context's peers[] rows get collects. The AI facts and the papers follow.",
+    "why": "The operator frame would carry desk with no page to act on it (producer.js reads the operator frame). The module must know whether its port may drive other apps.",
+    "alternatives": "WPF-only approval."
+   },
+   {
+    "decision": "D18 Two releases, each complete in its papers. A: D1\u2013D13, D16, and D17 without ACCESS. B: Companion and OSC doors with the module, D14 and D15.",
+    "why": "Review item 17: ship the fences and the approve-by-id flow on HTTP/WS first. The papers name what B adds and why it waits (the brief's 'say which reader it did not reach').",
+    "alternatives": "One release of 13 units across 4 repos."
+   },
+   {
+    "decision": "D19 PlayMap.\n- PM-0, in the integration pass: derived risk rows, the secret field and risk-examples.json in Core/Bus/ShowContext.cs (\u00a75.6 item 7).\n- PM-1, after W4, the integration pass and the owner's decision 7: NetworkHost publishes the desk; the sink collects (CollectApproved=true) and the link's pull pauses.\n  - The reason, corrected: with the link collecting, PlayMap's own secret-bearing proposals would be refused as shown copies (EngineCore.cs:330).\n  - Orphaned forwarded proposals fail with words after a switch-off or restart.\n  - STATE assistant.desk gets one ran counter with its collector.\n  - ASSISTANT SET desk auto|off comes with the NetworkDrawer toggle and right-click (DeskVerbRuleTests), and Companion verbs.json is regenerated.",
+    "why": "Review item 9; Mapper docs/round3/PLAN.md:2135 (ShowContext.cs is the integration pass's), :2185 (EngineCore.Assistant.cs is workflows' in W4). Neither counter reaches STATE today (StagewatchLink.cs:144; StagewatchProposalSink.cs:85).",
+    "alternatives": "CollectApproved=false as CARRYOVER.md:99 says (own secret proposals refused)."
+   },
+   {
+    "decision": "D20 Patterns Round 90.3 (the numbering patterns-playmap-side gives).\n- Append 16 rows: APPLY review, worded 'only this desk's own'; WEB KEY <key name>, so it is not read as a secret; WEB CLICK listed; WEB OPEN and WEB TYPE not listed.\n- StagewatchLinkService runs APPLY only when p.FromId == SelfId and Approvals.ByDesk(p.Id) is the record whose local id the line names.",
+    "why": "LocalId ignores from (ShowBusNodes.cs:233-240), and RunAsync applies whoever proposed (StagewatchLinkService.cs:482-495), so a rejected proposal could come back pre-ticked from another node. WEB OPEN can carry a window's pass (G09/G10), and WEB TYPE text can be a password.",
+    "alternatives": "Rate APPLY high unless from.id == target.id on the desk (Patterns' own fence is the authority)."
+   },
+   {
+    "decision": "D21 AGMessage: no unit here. agmessage AG-1 (0.5.0) owns `message \"<text>\" <urgency> off ack` via proposeStageLine (design/agmessage.md:120-121). SW-2's test proves the line parses and the old one fails. Role-word decidedBy reaches its meetings with no AGMessage change.",
+    "why": "One owner per AGMessage change; G05 closes with AG-1 plus SW-2.",
+    "alternatives": "A separate 0.4.1 (the first draft)."
+   }
+  ],
+  "wire": "STAGEWATCH GRAMMAR\nNew kinds ShowCommandKind.Peer and .Desk, appended after the last kind (playout-links' Playout if it lands first).\n  peer <app> <line>\n  desk approve <id> [high] | desk approve next\n  desk reject <id>|next [<why\u2026>]\n<line> is exactly one token. <app> is one of:\n- a node id;\n- a unique name (case-blind);\n- playmap, patterns or agmessage|messenger, when exactly one live app of that kind is heard.\n\nTransports (A = release A, B = release B):\n- HTTP (A):\n  - GET|POST /api/peer/<app>/<one URL-encoded line>; more segments \u2192 400.\n  - POST /api/peer with Content-Type application/json, body {\"app\":\"pm-a1b2\",\"line\":\"SET out1 name \\\"Left wall\\\"\"} (\u226416 KB).\n  - /api/desk/approve/p17, /api/desk/approve/p18-k3m9/high, /api/desk/reject/next/<why>.\n- WS (A): {\"cmd\":\"peer\",\"args\":[\"pm-a1b2\",\"PLAYLIST CUE \\\"Main show\\\" #3\"],\"id\":\"a1\"}. A message is at most 4096 bytes; longer lines go by HTTP POST.\n- Companion TCP (B): @c1 PEER \"PlayMap Hall\" \"SET out1 name \\\"Left wall\\\"\", @c2 DESK APPROVE p18-k3m9 HIGH, @c3 DESK REJECT NEXT \"not now\".\n- OSC (B): /stagewatch/peer ,ss pm-a1b2 \"\u2026\"; /stagewatch/desk/approve ,s p17.\n- Command trigger (A): peer only, origin this PC. A line with inner quotes is refused, never altered.\n- MCP: run_command with a peer or desk line \u2192 isError.\n\nAUTH (playout-links' sender gate, PlayoutGate + Remote.PlayoutFrom, extended to Peer and Desk; labelled \"May drive other show apps from\"):\n- HTTP and WS: a PIN that is set and given, or a control key. With no PIN set: only from loopback or a listed address; otherwise 403 {\"ok\":false,\"error\":\"peer and desk act on other apps with a person's authority \u2014 set a PIN, use a control key, or add this address under Remote \u2192 May drive other apps\"}.\n- OSC and Companion: loopback or a listed address.\n- Node, read and MCP keys: 403.\n- desk is refused from triggers, the advisor, copilot steps, MCP and proposals: \"a person approves \u2014 not a trigger, the copilot or an agent\".\n\nREFUSALS (receipt error and status line)\n- parse: \"peer takes an app and one line \u2014 quote the line as one argument\"\n- parse: \"desk takes approve or reject\"\n- parse: \"desk approve takes a proposal id (p17) or next\"\n- \"no app called 'pm' on the show network \u2014 heard: \u2026\"\n- \"two apps answer 'playmap' \u2014 name one: \u2026\"\n- \"PlayMap Hall does not list 'OUTPUTS OFF' \u2014 see its verbs\"\n- \"PlayMap Hall's verbs are not verified (posted without its key) \u2014 Stagewatch sends only lines it can read\"\n- \"PlayMap Hall has not asked this desk for approved lines in 40 s \u2014 it would not collect this\"\n- \"a secret rides in no line \u2014 type it on PlayMap Hall itself\"\n- \"a key rides in no line\"\n- \"a window's address rides in no line\"\n- \"a line is at most 2048 characters\"\n- \"a line holds no control characters\"\n- \"p18 is high \u2014 approve it by its id: desk approve p18-k3m9 high\"\n\nRisk: CommandRisk.Of (Core, LineRisk) rates both kinds High. Neither is in ShowContext.Commands, nor in ShowCommandParser.Help (AI-facing). PersonHelp lists them.\n\nRECEIPTS (Show Bus \u00a73, X-Request-Id)\n200 {\"type\":\"receipt\",\"id\":\"a1\",\"ok\":true,\"stage\":\"applied\",\"effect\":\"PlayMap Hall ran PLAYLIST CUE show #3: cued Intro (p17)\",\"error\":null,\"refs\":{\"sharedProposal\":\"p17-k3m9\"}}\n200 {\u2026\"stage\":\"accepted\",\"effect\":\"sent to PlayMap Hall as p17 \u2014 it collects every 2 s and reports back\",\u2026,\"refs\":{\"sharedProposal\":\"p17-k3m9\"}}\n409 {\u2026\"ok\":false,\"error\":\"PlayMap Hall refused PLAYLIST CUE show #9: Show has no item #9 (p17)\",\"refs\":{\"sharedProposal\":\"p17-k3m9\"}}\n- refs merges the existing long refs with the new string RefIds (CommandReceipt gains RefIds, appended).\n- An accepted receipt is followed on WS and Companion by playout-links' \"final\":true receipt. That is \u00a73 text carried by spec-1-3; this area adds none.\n\nSHARED QUEUE (Show Bus \u00a711)\n- Ids are p<n>-<run>, e.g. p17-k3m9. p<n> resolves within the current run. GET /api/proposals/<another run's id> \u2192 404 {\"ok\":false,\"error\":\"no such proposal \u2014 this desk restarted since (run k3m9)\"}.\n- POST /api/proposals: the body and auth are unchanged. 400 with words for:\n  - a line over 2048 characters (never cut);\n  - a control character;\n  - a swk_/agn_ word, a window token or /w/ followed by a 26-character token;\n  - a filled secret placeholder (anything but \u2039secret\u203a);\n  - from.t main or mcp, or from.id equal to the desk's id;\n  - a peer or desk line aimed at the desk.\n- The reply appends fields: {\"ok\":true,\"id\":\"p17-k3m9\",\"state\":\"pending\",\"risk\":\"review\",\"form\":\"UNDO\",\"formWords\":\"Undoes the last edit\"}.\n- Proposal JSON appends \"collected\" (unix ms|null) and \"form\", before agmessage's \"delivery\".\n- GET ?target=<id>&state=approved also records that id's last collect.\n- Risk: the most specific full form of a verified table (literals, then single literals); an exact tie goes higher; carried lines raise it; no match is high. A bound self-proposal gets max(table, stated).\n- Born-approved lines are from {\"t\":\"main\",\"id\":<desk id>,\"name\":<room>}, with state \"approved\" and decidedBy one of \"operator\", \"operator (copilot)\", \"wire\", \"deck\", \"trigger\". The key name and address go only to the desk's journal.\n- MCP proposals for an app are from {\"t\":\"mcp\",\"id\":\"mcp\",\"name\":\"AI agent (MCP)\"} and are always pending.\n\n\u00a76 NOTATION (words for spec-1-3 S1, 1.3; copies byte-identical under the body hash)\n- Literals are case-blind; A|B is one word.\n- <\u2026> is one word; a form's last element, or a value named words, text, line, '\u2026 words' or '\u2026 line', takes one or more.\n- [\u2026] is optional; a bare \u2026 is any words; ' | ' separates forms, which carry the leading literals.\n- A quoted phrase is one word; a word opening with { or [ runs to the line's end.\n- A word-dependent risk is a row of its own.\n- A placeholder named token, key, password, passcode or secret holds a secret, and so do the words from n on when a row has the optional field \"secret\": n (appended to the row).\n- At most 256 commands; a verb \u2264512 is dropped, not cut; at least 200 characters of words are kept.\n\nCOPILOT (B, model I/O)\n- A step is {command, why, target}; target \"\" means Stagewatch.\n- The plan may add \"need_verbs\":[id] (one second pass).\n- other_apps[] is {app, id, name, collects, verified, light, headline, verb_heads[], verbs?[{verb,risk,words\u2264100}], more_verbs}.\n\nMCP (B)\n- run_command adds target:string \u2192 \"Queued for the operator's approval as p17-k3m9 (risk review, form \u2026). get_proposal {\\\"id\\\":\\\"p17-k3m9\\\"} follows it.\"\n- get_proposal.id is integer|string.\n- get_context adds peer (verified contexts only, else isError).\n- initialize.instructions gains one sentence.\n\nFRAMES, CONFIG, CONTEXT (new fields at the end)\n- Operator frame and Companion SNAPSHOT (never public): \"desk\":{\"pending\":2,\"next\":{\"id\":\"p18-k3m9\",\"from\":\"AI agent (MCP)\",\"target\":\"PlayMap Hall\",\"line\":\"UNDO\",\"risk\":\"review\",\"collects\":true},\"apps\":[{\"id\":\"pm-a1b2\",\"name\":\"PlayMap Hall\",\"kind\":\"playmap\",\"collects\":true,\"verified\":true}]}. next.line is \u2264120 characters.\n- /api/config and Companion CONFIG: \"peers\":[{\"id\",\"name\",\"kind\"}].\n- Companion (B): per connection, after SUBSCRIBE JSON and whenever the gate changes: ACCESS {\"peer\":true,\"desk\":true,\"why\":\"\"}.\n- Stagewatch's context: peers[] rows append \"collects\". Command rows use \u00a76 notation: start, pause, message <text> [info|warn|crit] [off|slow|fast] [ack], patterns end [<seconds>].\n- POST /api/peers/context over 64 KiB \u2192 413 {\"ok\":false,\"error\":\"a context is at most 65536 bytes (this one is N) \u2014 Show Bus \u00a713\"}.\n\nPATTERNS CONTEXT (Round 90.3, appended after the 14 rows)\n- APPLY <proposal> \u2014 review (only this desk's own)\n- VIDEO STOP \u2014 high\n- EYE NEXT|PREV|RESET \u2014 low\n- EYE LENS <name> \u2014 low\n- CUE STANDBY NEXT|PREV|<cue> \u2014 review\n- PVW LOOK|PRESET|PATTERN|LIBRARY <name> \u2014 review\n- PVW PROGRAM|RESET \u2014 review\n- SCREEN <n> PVW LOOK|PRESET|PATTERN|LIBRARY <name> \u2014 review\n- SCREEN <n> PVW PROGRAM|RESET \u2014 review\n- LIBRARY <name> \u2014 review\n- SCREEN <n> TAKE|CUT \u2014 high\n- WEB NEXT|PREV|FIRST|LAST|PRESENT|EXIT|PLAY|PAUSE|MUTE|RESTART|FORWARD|REWIND|BLACK|WHITE|CAPTIONS|FULLSCREEN [ON <page>] \u2014 high\n- WEB KEY <key name> [ON <page>] \u2014 high\n- WEB CLICK <x> <y> [ON <page>] \u2014 high\n- WEB RELOAD [<page>] \u2014 high\nNot listed: WEB OPEN, WEB TYPE, RESTART, UPDATE APPLY.\nAn APPLY collected with another from.id, or under another desk id, answers (false, \"an APPLY runs only for the proposal this desk made, under its own id\").\n\nPLAYMAP\n- PM-0 (integration pass) appends rows:\n  - ASSISTANT SET enabled|provider <value> \u2014 high\n  - DECODE POLICY AUTO|DIRECT|GPU-COPY|COPY-BACK|SOFTWARE FORCE \u2014 high\n  - MACHINE SET GPU-PRIORITY REALTIME \u2014 high\n  - SEND ENABLE <send> ON \u2014 review\n  - MEDIA OPTIMISE CANCEL|PAUSE|RESUME [<job>|ALL] \u2014 low, one row each\n  - BIND LEARN OFF \u2014 low\n  - TIMECODE SOURCE RESET <source> \u2014 low\n  The LINK PATTERNS and LINK STAGEWATCH rows gain \"secret\":3.\n- PM-1 (after the owner's decision 7):\n  - ASSISTANT SET desk auto|off, from this machine or the paired desk only.\n  - STATE assistant appends \"desk\":{\"name\":\"Stagewatch at 10.0.0.6:9924\",\"on\":true,\"problem\":\"\",\"forwarded\":2,\"ran\":5,\"collector\":\"assistant\"}.\n  - Nothing new on the wire to Stagewatch: the \u00a711 POST with from = target = {t:\"playmap\",\u2026}, its line the shown copy, and its own risk (raises only).\n\nAGMESSAGE (agmessage AG-1): message \"<text, \\\" \u2192 '>\" <info|warn|crit> off ack.",
+  "changes": [
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/VerbSyntax.cs (new)",
+    "change": "A pure \u00a76 notation reader.\n- VerbSyntax.Words is WireGrammar-compatible: a quoted phrase with escapes is one word; { or [ runs to the line's end.\n- VerbForm.\n- VerbTable.Compile(rows): caps 256/512, dropped counts, value kinds (one word / many / line / secret).\n- VerbTable.Rate(line) \u2192 RiskVerdict(Risk, Form, Words, Listed, Secret): memoised over (node, word); specificity is (literals, single literals); ties go higher; carried lines to depth 4; JSON in a carrying row is high; over 64 words is high."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowBus.cs",
+    "change": "- PeerContexts.Parse keeps 256 commands, drops verbs over 512 (counted) and keeps 200 characters of words.\n- Entry.Commands becomes (Verb, Risk, Words, Secret?); Entry gains Verbs (a VerbTable cached per verb list), CommandsDropped and Verified.\n- Accept counts UTF-8 bytes.\n- PeerSummary gains Collects (appended, defaulted)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/Approvals.cs",
+    "change": "- MaxLine is 2048, refused instead of cut.\n- Ids are p<n>-<run> (RandomNumberGenerator, 4 base-32 characters), with Resolve(idOrShort).\n- A new Submit(json, credential, Func<NodeRef,string,RiskVerdict>, fence, now); the 4-argument overload stays for existing callers.\n- from.t main/mcp and the desk's own id are refused.\n- Self-raise when bound.\n- ProposeApproved raises one Approved Changed.\n- LastCollect is recorded in Collect; NextPending.\n- JSON appends collected and form.\n- RiskFromCommands wraps VerbTable."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/CommandRisk.cs, src/Timer.Core/LineFence.cs (new)",
+    "change": "- enum LineRisk {Low, Review, High}.\n- CommandRisk.Of(ShowCommand): Copilot.Classify's switch moved here, plus Peer and Desk \u2192 High.\n- LineFence.Check(line, windowTokens, verdict) \u2192 words: control characters, swk_/agn_, window tokens and the /w/ shape, filled secret placeholders."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowState.cs",
+    "change": "- ShowCommandKind.Peer and .Desk appended.\n- PeerArgs(App, Line), with exactly one line token, and DeskArgs(Action, Id, High, Why).\n- Parser verbs.\n- Help stays AI-facing and unchanged; a new PersonHelp adds peer/desk.\n- CommandReceipt gains RefIds (string refs, appended), merged into refs.\n- IShowContext.PeerContextJson(app) (default).\n- RemoteConfig.Peers."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/SnapshotJson.cs (+ ShowSnapshot), PlayoutGate (shared with playout-links unit 2)",
+    "change": "- DeskSummary is written at the end of the operator frame only.\n- SerializeConfig appends peers.\n- The sender gate lists Peer and Desk; its setting is labelled 'May drive other show apps from'."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/DeskService.cs (new), src/Timer.Show/ShowContext.cs",
+    "change": "DeskService owns ProposalDesk and PeerContexts.\n- Delegates: the desk's id and name, the hello table, verified contexts (posted with a bound key, or link-read, link first), window tokens, the clock.\n- Methods: Risk, Resolve, Send (listed only, fence, freshness, born approved with a role word), Decide(idOrNext, approve, by, high, why, ticked) with freshness and origin rules, Apps, Summary, QuickVerbs, ResultOf.\nShowContext: command rows in \u00a76 notation; peers[].collects."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/WebServer.cs",
+    "change": "- POST /api/peer (JSON body).\n- The generic /api path and WS pass the gate's facts: credentialed, PIN set, loopback or listed; WsClient gains ByKey and Credentialed.\n- 413 for a context over 64 KiB, recorded against the bound node or the address.\n- /api/config appends peers.\n- GET /api/proposals/<id> resolves short and old-run ids."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Desk.cs, .Receipts.cs, .ShowBus.cs, .Copilot.cs, MainViewModel.cs",
+    "change": "- Desk becomes a DeskService mirror. Executors for Peer and Desk: journal rows with who and where, ReceiptRefId, the awaited result.\n- ApproveShared honours the tick and the freshness rule.\n- Receipt notes become a save/restore stack.\n- PeerRow gains Collects, Verified, LastSent and QuickVerbs; playmap => 'PlayMap' (shared with playout-links).\n- The send dialog bypasses RunOperatorLine, so there is no RECORD."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/MainWindow.xaml(.cs), SendLineWindow.xaml(.cs) (new), CopilotWindow.xaml, Help/HelpContent.cs",
+    "change": "- The Show network row's ContextMenu and '\u2026' button, with the same items.\n- The send dialog: completion from forms, a live risk chip, the matched form and its words, collect state, greyed reasons.\n- CopilotWindow: Approve greyed with its reason; a step shows \u2192 <app> (B).\n- Help tips."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/wwwroot/producer.html, producer.js",
+    "change": "The desk panel from frame.desk: the pending list, and Approve/Reject by id. A high item asks to confirm and sends 'desk approve <id> high'."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/Stagewatch.Rig/Program.cs",
+    "change": "- Hosts DeskService.\n- Options --desk-fresh <s> and --node-keys (peers-not-screens SW-6).\n- Run handles Peer and Desk.\n- The frame carries desk; the context carries peers with collects."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Companion/CompanionServer.cs, CompanionProtocol.cs, src/Timer.Remote/OscServer.cs (release B)",
+    "change": "- PEER and DESK go through the gate (loopback or a listed address).\n- An ACCESS line per Companion connection.\n- Protocol help lines.\n- OSC paths /stagewatch/peer and /stagewatch/desk/*."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "companion-module/src/{actions,variables,feedbacks,presets,state}.ts, test/module.test.mjs (release B)",
+    "change": "- Actions: peer_line (app dropdown from CONFIG peers); desk_approve, which approves desk_next_id and needs a second press within 3 s for a high item (sending HIGH); desk_reject.\n- Variables: desk_pending and desk_next_{id,from,target,line,risk}.\n- Feedback: desk_waiting.\n- ACCESS greys the actions.\n- Tests."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/Copilot.cs, src/Timer.Show/AiContext.cs, src/Timer.Show/PlanRunner.cs (new), src/Timer.Remote/McpEndpoint.cs (release B; Classify mapping in A)",
+    "change": "- Classify maps CommandRisk.Of (A).\n- CopilotStep.Target; the schema gains target and need_verbs.\n- ParsePlan(json, apps) keeps a listed, secret-free step at its table's risk and refuses steps over 2048 characters.\n- The prompt paragraph.\n- PeerFact gains Id, Collects, Verified, VerbHeads, Verbs? and MoreVerbs, with a two-pass budget.\n- PlanRunner runs steps in order; an app step waits \u226410 s; it stops on a refusal.\n- MCP: target, string get_proposal (an IShowApprovals overload), get_context.peer, instructions."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tests/Stagewatch.Tests/DeskTests.cs (new), ShowBusTests.cs, fixtures/{playmap-context-busy,playmap-risk-examples,patterns-context,agmessage-context,peer-lines}.json; tests/e2e/fakepeers.cjs (shared), desk.e2e.cjs (new), pages.e2e.cjs",
+    "change": "The suite and rig e2e listed in tests. Each fixture carries _source. The fakes collect with node keys, with a configurable poll and id memory."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "docs/REMOTE.md, FEATURES.md, WHATS_NEXT.md, ECOSYSTEM.md, NODES.md, COMPANION.md (B), README.md, CLAUDE.md; SHOWBUS words to spec-1-3 S1",
+    "change": "- Per release: the verbs, the gate, ids, fences, fields, and what B adds.\n- \u00a76 notation, \u00a711 rules and \u00a78 desk flows, handed to spec-1-3's single master edit (1.3).\n- CLAUDE.md names CommandRisk.Of and PersonHelp."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/ShowContext.cs",
+    "change": "ShowContextBuilder.Commands appends the 16 rows of the wire section after the existing 14, in order. WEB OPEN, WEB TYPE and the admin verbs are not listed."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/StagewatchLinkService.cs:482-495",
+    "change": "APPLY runs only when p.FromId == SelfId and Approvals.ByDesk(p.Id)?.LocalId equals the line's local id. Otherwise it answers (false, 'an APPLY runs only for the proposal this desk made, under its own id')."
+   },
+   {
+    "repo": "Patterns",
+    "file": "tests/Patterns.Core.Tests/ShowBusTests.cs, tests/Patterns.App.Tests (fence case)",
+    "change": "- The first 14 rows are unchanged; the appended rows have their risks.\n- Every row's example parses (APPLY via DeskProposals.LocalId).\n- No secret-named placeholder; absent verbs absent.\n- A foreign APPLY is refused."
+   },
+   {
+    "repo": "Patterns",
+    "file": "docs/PLAN.md \u00a7108, REVIEW.md, CHANGELOG.md, REMOTE.md, SHOWBUS.md, OPEN.md (Round 90.4, with the round)",
+    "change": "- Evidence class: a handed-in critique.\n- The readers named: the CONTEXT reply, /api/context, the posted context; node mode unchanged.\n- OPEN: add and close 'context omits VIDEO STOP and staged verbs'; add 'WEB OPEN/TYPE not advertised'.\n- The 1.3 byte copy."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Core/Bus/ShowContext.cs, tests/PlayMap.Core.Tests/ContextRiskRowsTests.cs (new), tests/fixtures/bus/risk-examples.json (PM-0, integration pass)",
+    "change": "- CommandsFromCatalog appends one row per RiskWhen and HighFor, and writes \"secret\" from SecretFrom.\n- ContextRiskRowsTests: each derived row's example has RiskOf equal to its risk; ContextOrderTests holds (\u2264256, air first).\n- The fixture is written with PLAYMAP_WRITE_FIXTURES=1."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Engine/Host/NetworkHost.cs, src/PlayMap.Net/Links/StagewatchLink.cs, src/PlayMap.Engine/OpsParts.cs (PM-1)",
+    "change": "- NetworkHost: ApprovalDesk and ApprovalDeskChanged (link Live with Approvals and a key), PauseLinkApprovals.\n- StagewatchLink: a CollectApprovals switch at :471, and DeskHandler() with the pin validator.\n- The assistant extension wires UseApprovalDeskAsync(CollectApproved=true) and pauses the link's pull while on."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Engine/Assistant/AssistantService.cs, EngineCore.Assistant.cs (workflows' in W4), src/PlayMap.Core/Wire/VerbCatalog.cs (spine lane), src/PlayMap.App/Views/NetworkDrawer.axaml, integrations/companion-module-playmap/src/catalog/verbs.json (PM-1)",
+    "change": "- ASSISTANT SET desk auto|off.\n- STATE assistant.desk {name, on, problem, forwarded, ran, collector}, with its card descriptor and fixture.\n- Orphaned forwarded ids fail with words.\n- The NetworkDrawer toggle and right-click.\n- verbs.json regenerated."
+   },
+   {
+    "repo": "Mapper",
+    "file": "tests/PlayMap.Engine.Tests/StagewatchSinkTests.cs, Network/ApprovalDeskWiringTests.cs (new), tests/PlayMap.App.Tests/DeskVerbRuleTests.cs",
+    "change": "Wiring, a single collector, the own-record run, orphans after a switch-off, no double run, the STATE row, and the toggle as a catalogue line."
+   },
+   {
+    "repo": "Mapper",
+    "file": "README.md:208-213, docs/UX.md:280, docs/round2/CARRYOVER.md:99, docs/SHOWBUS-NODE.md (PM-2)",
+    "change": "- Forwarding is on with ASSISTANT SET desk auto.\n- CARRYOVER is answered with the corrected reason (shown copies are refused).\n- SHOWBUS-NODE: the desk rows, the derived risk rows and the secret field."
+   }
+  ],
+  "tests": [
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/DeskTests.cs \u2014 VerbSyntax",
+    "proves": "- Each notation piece.\n- A one-word middle value vs the last element, and words/line values.\n- EYE vs EYE NEXT.\n- Specificity, and ties going higher.\n- Carried ' | ' forms.\n- Quoted and JSON words.\n- A carried line naming no verb adds nothing; depth 5 is high.\n- JSON in a carrying row is high; 65 words are high.\n- A 513-character verb is dropped and counted; 300 rows keep 256 and count 44."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/DeskTests.cs \u2014 golden replay (fixtures/playmap-context-busy.json; playmap-risk-examples.json after PM-0)",
+    "proves": "- 502 of 504 examples are rated as their row, 2 higher and 0 lower.\n- The 35 Appendix A probes hold (SCREEN 2 TAKE PVW LOOK x high; BIND ADD \u2026 TO BLACKOUT ON high; MOVE it1 3 BLACKOUT ON low, as PlayMap's RiskOf says).\n- The legacy matcher is pinned at 114 of 144 wrong.\n- After PM-0, no PlayMap line is rated lower than RiskOf."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/ShowBusTests.cs DeskRules (old 4-arg and new Submit)",
+    "proves": "- Self-raise only when bound, never lowering.\n- 2049 characters are refused, not cut.\n- swk_/agn_, a window token, a control character and LINK STAGEWATCH h swk_x are refused; LINK STAGEWATCH h \u2039secret\u203a is accepted.\n- from.t main/mcp and from.id = desk are refused; peer/desk lines to the desk are refused.\n- Ids p1-<run> start a fresh run with a new desk; p1 resolves; an old-run id gets 404 with words.\n- LastCollect; ProposeApproved raises one Approved Changed.\n- The JSON ends with collected and form."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/DeskTests.cs \u2014 peers' documented lines (fixtures/peer-lines.json)",
+    "proves": "- AGMessage's AG-1 line parses as Message warn/off/ack, and the old line fails 'flash must be off|slow|fast'.\n- Patterns' APPLY rates review on its fixture.\n- AGMessage's notice rates review."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/DeskTests.cs \u2014 DeskService on an injected clock",
+    "proves": "- Unknown and ambiguous app words are refused; 'stagewatch' is not an app word.\n- Unlisted and unverified sends are refused.\n- After 16 s with no collect, send and approve are refused.\n- A collect 3 s ago \u2192 born approved with decidedBy 'wire' and a journal row holding the key name.\n- ResultOf completes.\n- next takes the oldest and refuses a high item; '<id> high' approves it.\n- An unticked approve does nothing.\n- desk from a trigger, MCP or the advisor is refused."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/DeskTests.cs \u2014 grammar and receipts",
+    "proves": "- peer with two tokens after the app is refused.\n- Help has no peer/desk; PersonHelp has both.\n- CommandRisk.Of matches Classify for every kind; neither kind is in ShowContext.Commands or the advisor's allow-list.\n- A desk approve of a desk-targeted line keeps the outer receipt's refs and returns the inner refusal.\n- refs.sharedProposal is a string."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/DeskTests.cs \u2014 transports over a loopback WebServer",
+    "proves": "- With the PIN: a receipt on HTTP and WS.\n- With an empty PIN from a non-loopback address: 403 with words on HTTP and on WS role=control. From loopback: allowed.\n- A node key: 403.\n- SET out1 name \"Left wall\", ADD media {\"path\": \"a b.mp4\"} and a/b round-trip exactly through the GET segment, the POST body and WS args.\n- The operator frame ends with desk and the public frame has none; config ends with peers."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/DeskTests.cs \u2014 release B",
+    "proves": "- Companion and OSC: loopback is OK; another address is refused unless listed; ACCESS follows the setting; a \\n inside a line is refused.\n- ParsePlan keeps listed target steps and drops unlisted, secret and over-2048 ones with app words; need_verbs triggers one second pass.\n- PlanRunner stops after a failed app step.\n- AiApps budgets.\n- MCP: target is pending even with direct agents; get_proposal 'p1'; get_context {peer} reads verified contexts only; peer/desk are isError."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.UiSmoke (Bench.OnWindows)",
+    "proves": "- Row menu items are greyed with reasons.\n- The send dialog's risk chip follows typing.\n- An unticked shared item stays pending.\n- Approve is greyed for a silent target."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/e2e/desk.e2e.cjs (rig --desk-fresh 2, fakes polling every 200 ms with node keys); pages.e2e.cjs",
+    "proves": "- POST risks: UNDO review, PANIC high, SHOW SET REMOTE-VIEW-ONLY ON review, BIND ADD note 60 TO BLACKOUT ON high.\n- peer playmap is exactly 'applied', and the fake saw the line once.\n- peer agmessage notice is applied, with decidedBy 'wire'.\n- A silent fake is refused with nothing queued.\n- Restart: a run-B id is run, not skipped, by all three fake collectors.\n- Empty PIN: non-loopback 403, loopback OK.\n- desk approve next works for a review item; a high item needs '<id> high'.\n- LINK STAGEWATCH \u2026 swk_x and LINK PATTERNS \u2026 tok are refused, and neither appears in the log, journal, frames or /api/proposals.\n- The producer page approves by id."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "companion-module/test/module.test.mjs (release B)",
+    "proves": "- peer_line, desk_approve (by id, high double press) and desk_reject send the right lines.\n- Variables and feedback follow the desk block.\n- ACCESS greys the actions."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.Core.Tests/ShowBusTests.cs; tests/Patterns.App.Tests (APPLY fence)",
+    "proves": "- The first 14 rows are unchanged.\n- The 16 appended rows have their risks, and each example parses (APPLY via LocalId).\n- WEB OPEN, WEB TYPE, RESTART and UPDATE are absent; no secret-named placeholder.\n- An APPLY with another FromId or another desk id is refused and never applied."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Core.Tests/ContextRiskRowsTests.cs, ContextOrderTests (PM-0)",
+    "proves": "- Every derived row's example line has RiskOf equal to its risk.\n- secret equals SecretFrom.\n- At most 256 rows, with panic/air/transport first.\n- risk-examples.json is written from RiskOf."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Engine.Tests/Network/ApprovalDeskWiringTests.cs, StagewatchSinkTests.cs, tests/PlayMap.App.Tests/DeskVerbRuleTests.cs (PM-1)",
+    "proves": "- The desk appears with the link Live, approvals and a key, and goes when the link stops.\n- There is one collector.\n- A secret-bearing own proposal shows \u2039secret\u203a at the desk and runs the node's record.\n- After a switch-off, an orphaned forwarded id fails with words and runs nothing.\n- No line runs twice across a switch.\n- The STATE assistant.desk fixture includes ran and collector.\n- The NetworkDrawer toggle is a catalogue line."
+   }
+  ],
+  "units": [
+   {
+    "repo": "Stagewatch",
+    "title": "SW-1 The verb table: VerbSyntax/VerbTable, PeerContexts caps (256/512/words, UTF-8 bytes, 413), verified-only risk with the link context first, golden replay and probes",
+    "gaps": [
+     "G02"
+    ],
+    "dependsOn": [
+     "peers-not-screens SW-1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-2 The desk's rules: run-tagged ids, LineFence, refuse-not-cut 2048, from.t/desk-id refusal, self-raise, last collect, ProposeApproved, JSON collected/form, \u00a76-notation context rows, peers' documented lines test",
+    "gaps": [
+     "G02",
+     "G03",
+     "G05"
+    ],
+    "dependsOn": [
+     "SW-1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-3 DeskService, LineRisk/CommandRisk.Of in Core, shared-approve tick fix, receipt-notes stack and RefIds, MainViewModel.Desk as a mirror",
+    "gaps": [
+     "G14"
+    ],
+    "dependsOn": [
+     "SW-2"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-4 Release A grammar: peer and desk on HTTP/WS, PersonHelp, the shared sender gate (with playout-links unit 2), POST /api/peer, executors with receipts, rig hosts the desk, desk.e2e.cjs",
+    "gaps": [
+     "G14",
+     "G20"
+    ],
+    "dependsOn": [
+     "SW-3",
+     "peers-not-screens SW-2"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-5 Release A readers: operator frame desk block, config peers, context collects, producer page desk panel, pages e2e",
+    "gaps": [
+     "G14",
+     "G20"
+    ],
+    "dependsOn": [
+     "SW-4"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-6 The desk (Windows PC): Show network row menu and '\u2026', send dialog with live risk, greyed approvals, help, UiSmoke",
+    "gaps": [
+     "G14",
+     "G20"
+    ],
+    "dependsOn": [
+     "SW-4"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-7 Release A papers and the \u00a76/\u00a78/\u00a711 words to spec-1-3 S1",
+    "gaps": [
+     "G02",
+     "G14",
+     "G20"
+    ],
+    "dependsOn": [
+     "SW-4",
+     "SW-5",
+     "SW-6"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-8 Release B: Companion and OSC doors through the gate, ACCESS line, Companion module actions/variables/feedback, tests",
+    "gaps": [
+     "G14",
+     "G20"
+    ],
+    "dependsOn": [
+     "SW-4"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-9 Release B: copilot step targets, two-pass verbs, ParsePlan with tables, PlanRunner in order, AI Help split",
+    "gaps": [
+     "G14"
+    ],
+    "dependsOn": [
+     "SW-4"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-10 Release B: MCP run_command target, string get_proposal, get_context peer",
+    "gaps": [
+     "G14"
+    ],
+    "dependsOn": [
+     "SW-4"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-11 Release B papers",
+    "gaps": [
+     "G14"
+    ],
+    "dependsOn": [
+     "SW-8",
+     "SW-9",
+     "SW-10"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-90.3 Round 90.3: context gains APPLY and 15 more rows; APPLY runs only this desk's own proposal; fences",
+    "gaps": [
+     "G03",
+     "G33"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Patterns",
+    "title": "PT-90.4 Round 90.4: the round's papers (PLAN \u00a7108, REVIEW, CHANGELOG, REMOTE, SHOWBUS 1.3 copy, OPEN rows), with patterns-playmap-side's 90.x",
+    "gaps": [
+     "G03",
+     "G33"
+    ],
+    "dependsOn": [
+     "PT-90.3"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-0 Integration pass: derived RiskWhen/HighFor rows, the secret field, risk-examples.json, ContextRiskRowsTests",
+    "gaps": [
+     "G02"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-1 After W4, the integration pass and the owner's decision 7: NetworkHost publishes the desk, sink collects, link pull pauses, orphan words, ASSISTANT SET desk, STATE assistant.desk, NetworkDrawer door, verbs.json",
+    "gaps": [
+     "G13"
+    ],
+    "dependsOn": [
+     "SW-2",
+     "PM-0"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-2 Papers: README, UX.md, CARRYOVER answered with the corrected reason, SHOWBUS-NODE",
+    "gaps": [
+     "G13"
+    ],
+    "dependsOn": [
+     "PM-1"
+    ]
+   }
+  ],
+  "gapsClosed": [
+   "G02",
+   "G03",
+   "G05 (with agmessage AG-1, which owns AGMessage's line)",
+   "G14",
+   "G20",
+   "G33"
+  ],
+  "gapsLeft": [
+   {
+    "id": "G13",
+    "why": "Designed and tested in PM-1/PM-2, but it cannot close now. Turning forwarding on is the owner's parked decision (round 2 decision 7, CARRYOVER.md:99). EngineCore.Assistant.cs is workflows' file in W4, and NetworkHost, StagewatchLink and OpsParts have no round-3 owner. The carry-over's reason is corrected: with the link collecting, PlayMap's own secret-bearing proposals would be refused as shown copies (EngineCore.cs:330)."
+   },
+   {
+    "id": "G33 (WEB OPEN and WEB TYPE)",
+    "why": "Not advertised. WEB OPEN's address can be a Stagewatch window's pass (needs G10's lease), and WEB TYPE's text can be a password, which would ride a proposal line and the journal. The desk's fence refuses window addresses meanwhile."
+   }
+  ],
+  "risks": [
+   "Until PM-0 lands at Mapper's integration pass, three kinds of PlayMap line rate review on the desk where PlayMap says high: ASSISTANT SET enabled|provider, DECODE POLICY \u2026 FORCE and MACHINE SET GPU-PRIORITY REALTIME. PlayMap's own policy still applies (the Approved role while armed, ShowPolicy.cs:266-280).",
+   "peer makes a Stagewatch credential a relay onto Patterns and PlayMap. It is bounded by the listed-only rule, the secret fence, the sender gate (a PIN or control key, else this PC or a listed address) and the targets' own fences. REMOTE.md and SHOWBUS.md say so.",
+   "An AI's unlisted POST proposal can still carry a secret the desk cannot recognise. \u00a711 tells proposers to send \u2039secret\u203a, and the line stays high.",
+   "Hard dependency on peers-not-screens SW-1/SW-2 (verified tables, credentials on routes). Without them, risk reads high everywhere (fail-safe), and peer refuses as unverified.",
+   "Merge order with playout-links must be agreed: the sender gate (PlayoutGate, Remote.PlayoutFrom), ReceiptNotes.Peer, the appended ShowCommandKind order, the playmap label, fakepeers.cjs and final receipts. Field order is shared with agmessage's delivery, and the master text with spec-1-3 S1.",
+   "Born-approved lines skip pending, so a typo goes out. Mitigations: the dialog's live form and risk, the listed-only rule, the target refusing unknown words, and the journal.",
+   "The 15 s freshness rule refuses sends and approvals just after a target or the desk restarts. The words say to try again.",
+   "Release B's copilot second pass costs one more model call when the model needs an app's full verbs.",
+   "SW-6 (WPF) is the maintainer's PC work. A cloud session names it and leaves it."
+  ],
+  "processNotes": "**Stagewatch (CLAUDE.md)**\n- One dotnet build at a time.\n- New kinds are appended. Each comes with its parser verb, a PersonHelp line and its risk in CommandRisk.Of, which Copilot.Classify maps; the CLAUDE.md line is updated.\n- peer and desk are kept out of ShowContext.Commands and the AI-facing Help, and REMOTE says so.\n- Frame and config fields go at the end.\n- Secrets appear in no log, journal or frame (tested end to end in the rig).\n- Windows-only checks go through Bench.OnWindows.\n- The tools/test.sh lanes (build, unit, module, holo, e2e) stay green.\n- Each release's papers say what it did not do. Release A names B's items and why they wait.\n- The SHOWBUS words go to spec-1-3's single master edit (1.3; copies byte-identical under its body hash).\n\n**Patterns (CLAUDE.md)**\n- The units are Round 90.3 and 90.4 (PLAN \u00a7108), as patterns-playmap-side numbers the round; the maintainer's numbering wins.\n- Open by reading the newest docs/field and OPEN.md.\n- The PLAN section names the requester and the evidence class (a handed-in critique).\n- Commits are 'Round 90.k: \u2026' in the maintainer's authorship.\n- Context rows are appended (substring tests).\n- No verb an output can show, so the papers say there is no journal, log or Super Check row.\n- 'Walk: unwalked \u2014 no platform path'.\n- The papers name every reader of the rows: the CONTEXT reply, /api/context, the posted context; node mode is unchanged.\n- The SHOWBUS copy is byte-identical 1.3.\n- OPEN rows are added and closed; the tag row is the round before's.\n- All seven suites and the module's tests are green before push.\n\n**Mapper (CLAUDE.md, round 3 \u00a74/\u00a75.6/\u00a75.7)**\n- PM-0 edits Core/Bus/ShowContext.cs, the integration pass's file (\u00a75.6 item 7: \u2264256 rows, air first).\n- PM-1 waits for W4 (EngineCore.Assistant.cs is workflows') and the owner's decision 7. Its VerbCatalog edit goes through the spine amendment lane or the post-round owner.\n- STATE fixtures are regenerated with PLAYMAP_WRITE_FIXTURES=1, with card descriptors.\n- DeskVerbRuleTests holds the desk's toggle.\n- Companion verbs.json is regenerated (integration pass item 6).\n- The analyzers apply to tests. No model identifiers.\n\n**AGMessage**: no change from this area; agmessage AG-1 (0.5.0) owns the stage line."
+ },
+ "critique": {
+  "verdict": "needs-changes",
+  "issues": [
+   {
+    "severity": "high",
+    "issue": "`peer` and `desk` work over HTTP and WS with no PIN at all. When no PIN is configured, any host on the LAN can send born-approved lines. Patterns runs them as a paired wire client and PlayMap runs them in its Approved role. This is the same pairing bypass the design uses to justify the loopback gate on Companion and OSC, but HTTP and WS are left open.",
+    "fix": "Refuse `peer`/`desk` unless a PIN is set or a control key is used. With no PIN, allow them only from loopback. Add a test with an empty PIN on HTTP and on WS role=control.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:870 (CheckPin returns null when the PIN is empty); :1163,1191 (WS role=control gets CanControl with no PIN); :804-806 (the generic path only asks for Control); Patterns/src/Patterns.App/Services/AppServices.cs:682-686 (approved lines go to Router as OriginKind.Tcp); Mapper/src/PlayMap.Core/Show/ShowPolicy.cs:35-36"
+   },
+   {
+    "severity": "high",
+    "issue": "`peer` sends unlisted lines, only rated high. That turns Stagewatch's 4-digit PIN, which locks out per IP, into full wire control of Patterns and PlayMap, admin verbs included: Patterns `RESTART <passcode>`, `UPDATE APPLY <passcode>`, `DEVICE * \u2026`, `OUTPUTS OFF`. It also breaks Stagewatch's own doctrine ('an unknown word is refused, never defaulted').",
+    "fix": "Fail closed: `peer` sends only lines that match a listed form of the target's verified table and refuses anything else with words. A target can widen this with an advertised opt-in (a \u00a76 flag), never by the desk's default.",
+    "evidence": "Patterns/docs/REMOTE.md (RESTART/UPDATE APPLY rows); design decision 7 ('Unlisted lines are allowed for a person, rated high'); Stagewatch/CLAUDE.md doctrine 'Fail closed on the wire'"
+   },
+   {
+    "severity": "high",
+    "issue": "The secret fence covers only swk_/agn_ keys and window tokens. Peer-native secrets pass it. Examples: PlayMap `LINK PATTERNS <host> [<token>]` (Patterns' pairing token, row 72, rated review), and Patterns `RESTART <passcode>` / `UPDATE APPLY <passcode>`. These then sit in the queue and the journal, in GET /api/proposals (read scope), in the frame's desk.next, in MCP get_state and get_proposal, and in the Companion recorder if the send dialog goes through RunOperatorLine, which broadcasts to every Companion client.",
+    "fix": "Refuse a line whose matched form has a secret placeholder (<token>|<key>|<passcode>|<password>), or have \u00a76 rows say which word starts the secret. PlayMap already knows this per verb (VerbSpec.SecretFrom, VerbCatalog.Redacted). Never pass peer lines to RecordUi. Test with LINK PATTERNS and RESTART lines.",
+    "evidence": "Mapper/tests/PlayMap.Engine.Tests/Fleet/Golden/context-busy.json rows 72-73; Mapper/src/PlayMap.Core/Wire/VerbCatalog.cs:607-650; Stagewatch/src/Timer.App/ViewModels/MainViewModel.cs:113-117,694-698; WebServer.cs:604-606 (proposals readable with Read)"
+   },
+   {
+    "severity": "high",
+    "issue": "Rebuilding the `peer` line by re-joining tokens corrupts it silently. Every Stagewatch tokenizer drops `\"` and the parser joins the remaining tokens with spaces, so `SET out1 name \"Left wall\"` becomes `SET out1 name Left wall` and `ADD media {\"path\": \"a b.mp4\"}` becomes invalid JSON. The app's own line builder Q() turns quotes into apostrophes. HTTP joins extra path segments with spaces, so an unencoded '/' turns into a space. Companion's `\\n` escape puts a newline into the line, and ProposeApproved skips Submit's control-character strip. All of this contradicts the design's own 'refused, never cut'.",
+    "fix": "Treat the line as exactly one argument: refuse when more than one token follows <app>. The send dialog and the copilot call DeskService.Send with the raw string, never a built grammar line. Refuse control characters. Add round-trip tests for quoted, JSON and '/' lines on HTTP, WS, Companion, OSC and triggers.",
+    "evidence": "Stagewatch/src/Timer.Remote/McpEndpoint.cs:180; Timer.Companion/CompanionProtocol.cs:71-78; Timer.App/ViewModels/MainViewModel.cs:119 (Q); MainViewModel.Systems.cs:751-756 (RunCommandLine tokenizes); WebServer.cs:791-792 (split on '/', then unescape)"
+   },
+   {
+    "severity": "high",
+    "issue": "Proposal ids start again at p1 every time Stagewatch starts, but every target remembers ids across desk runs. After a Stagewatch restart mid-show, a `peer` line or an approved AI proposal that reuses an id a target already ran is skipped with no result posted. The desk shows it collected, then 'didn't report back' 5 minutes later. The design makes this queue the operator's main command path, and its 15 s freshness check gives false confidence.",
+    "fix": "Make ids unique across desk runs (for example a run-epoch prefix, still opaque under \u00a711), and add a restart test against all three collectors. Then refs.proposal cannot be a long; make it a string.",
+    "evidence": "Stagewatch/src/Timer.Core/Approvals.cs:52,101 (_next in memory); Mapper/src/PlayMap.Net/Links/StagewatchLink.cs:538-541; Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:460; AGMessage/app/server.js:1098-1100 (cached r.reported, so no new report)"
+   },
+   {
+    "severity": "high",
+    "issue": "G15 has to block this work, not sit in the risks list. The design makes the posted table decide four things: pre-ticking, which copilot app steps are kept, what a born-approved Run sends, and the model's prompt (verbs plus `words` of up to 200 characters \u00d7 256 rows, untrusted text). A forged context can list `BLACKOUT ON` as low for Patterns' id. The copilot then proposes it pre-ticked and 'Run ticked steps' sends it born-approved. RiskFor also prefers a posted context over the authenticated Patterns link's context.",
+    "fix": "Make SW-1 and SW-5 depend on the peers-not-screens units: decision 3 (NodeBindings checked before storing) and decision 8 (unverified contexts never set risk). Prefer the link-read context for Patterns. Mark peers' `words` as untrusted data in the prompt, or leave them out.",
+    "evidence": "Stagewatch/src/Timer.App/ViewModels/MainViewModel.Desk.cs:65-70 (BindKey false ignored), :81-82 (posted context wins over _patterns.Context); scratchpad/design/peers-not-screens.md decisions 3 and 8"
+   },
+   {
+    "severity": "high",
+    "issue": "'0 wrong, never lower' only holds against the context rows, and only on self-generated canonical examples where every value is the single word 'x1'. First, PlayMap raises risk by argument (RiskWhen), and the context publishes only the row's risk: `MACHINE SET GPU-PRIORITY REALTIME` and `DECODE POLICY DIRECT FORCE` rate review (pre-ticked, born-approved) where PlayMap says High. Second, a `<x>` placeholder takes one or more words, so trailing words are absorbed: running the prototype gives `MOVE it1 3 BLACKOUT ON` = low, `PROJECT SAVE x BLACKOUT ON` = low, `UNDO TO 5 BLACKOUT ON` = review.",
+    "fix": "Only a form's last value, or an explicit `\u2026`, may take several words; every other `<x>` is one word. Carry per-argument risk in \u00a76: PlayMap emits a raised row per RiskWhen through the integration pass or the spine lane, and ties already go higher. Add adversarial lines and RiskWhen lines to the golden replay.",
+    "evidence": "Mapper/src/PlayMap.Core/Wire/VerbCatalog.cs:350,541 (RiskWhen FORCE and REALTIME \u2192 High); Mapper/src/PlayMap.Core/Bus/ShowContext.cs:95 (only v.Risk is emitted); proto/verbsyntax.py match(): 'val' loops k over wi+1..len(words); reproduced with the prototype on context-busy.json"
+   },
+   {
+    "severity": "high",
+    "issue": "Approval without a person. `desk approve` passes 'the same gate as peer', but Command triggers and assistant paths run grammar lines with no transport gate, so a trigger `desk approve next` approves AI proposals sight unseen. That breaks \u00a711 ('a human approves') and the design's 'an AI never approves'. The deck's `desk approve next` is also blind: it approves whatever is oldest at press time, a high item included, with no tick, while the window insists on the tick.",
+    "fix": "Refuse `desk` from triggers, the advisor and the copilot. The deck approves by id (a desk_next_id variable) and is refused when that id is no longer the next one or was already decided. A high item takes a second press or is refused for `next`.",
+    "evidence": "Stagewatch/src/Timer.Integrations/Triggers.cs:56,81 (Command \u2192 _runCommand); Timer.App/ViewModels/MainViewModel.Integrations.cs:59; MainViewModel.Systems.cs:751-756; Stagewatch/docs/SHOWBUS.md \u00a711"
+   },
+   {
+    "severity": "medium",
+    "issue": "The design's claim about PlayMap is wrong. CollectApproved=false would not 'run \u2039secret\u203a lines'. The engine refuses any shown copy before running it ('this is a shown copy \u2026 never runs'), and the link's CommandRunner goes through the engine endpoint. With the link collecting, PlayMap's own secret-bearing proposals would fail; they would not run redacted. The conclusion (the sink collects) still holds, but CARRYOVER's answer and the PM-1 test need the true reason. A different hole is untested: proposals forwarded before a switch-off or restart lose their record and then fail. Collector counters also move (the link's _approvalsRun vs the sink's Ran).",
+    "fix": "Restate the reason ('own secret-bearing proposals would be refused as shown copies'). Test that an orphaned forwarded proposal fails with words after switch-off or restart. Keep STATE's approval counters consistent across the switch.",
+    "evidence": "Mapper/src/PlayMap.Engine/EngineCore.cs:328-331; Mapper/src/PlayMap.Core/Wire/VerbCatalog.cs:950-958 (IsShownCopy); Mapper/src/PlayMap.Net/Links/StagewatchLink.cs:125,569; Mapper/src/PlayMap.Engine/Host/NetworkHost.cs:757"
+   },
+   {
+    "severity": "medium",
+    "issue": "The design writes into \u00a711 that `from.t` may be `main` or `mcp` on the wire. Any node key or PIN holder can then POST `{from:{t:'main',id:<desk id>}}` or `{t:'mcp',name:'AI agent (MCP)'}` and appear as the desk's own operator or copilot, or as the MCP agent: a peer acting as another. Submit would also bind that node key to the desk's id.",
+    "fix": "Refuse from.t main or mcp, and from.id equal to the desk's id, on POST /api/proposals. Only DeskService creates those internally. Add a test.",
+    "evidence": "Stagewatch/src/Timer.Core/Approvals.cs:86-92,204-211 (any alphanumeric kind; BindKey on from.id)"
+   },
+   {
+    "severity": "medium",
+    "issue": "The Patterns APPLY row is rated review whoever proposes it. Patterns applies `APPLY <localId>` without checking who proposed it, so another node can re-propose a Patterns proposal the operator rejected, and it now arrives pre-ticked.",
+    "fix": "Rate APPLY review only when from.id == target.id with a bound key (otherwise high), or have Patterns check FromId == SelfId. Fence it in Patterns' round.",
+    "evidence": "Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:482-495; Patterns/src/Patterns.Core/Services/ShowBusNodes.cs:232-240 (LocalId ignores from)"
+   },
+   {
+    "severity": "medium",
+    "issue": "decidedBy values such as 'PIN 10.0.0.7' and 'key <name>' go verbatim to targets. AGMessage shows them to every open meeting ('approved by \u2026'), and those meetings can include people off-site through the tunnel. That leaks the desk's addresses and key names.",
+    "fix": "Send targets a role word ('operator', 'operator (copilot)', 'deck', 'trigger') and keep the details in the desk's journal.",
+    "evidence": "AGMessage/app/server.js:1073"
+   },
+   {
+    "severity": "medium",
+    "issue": "The `peer` app words include stagewatch/main, but no Stagewatch ever collects as a target, so the freshness check always refuses and `main` can resolve to this desk itself.",
+    "fix": "Drop stagewatch/main from `<app>` resolution.",
+    "evidence": "grep: 'state=approved' appears in Stagewatch src only in WebServer's serve path; MainViewModel.ShowBus.cs:100"
+   },
+   {
+    "severity": "medium",
+    "issue": "A `desk approve` of a desk-targeted proposal nests receipts. ApproveShared calls RunWithReceipt inside the outer RunWithReceipt, but _receipt and _executingRemote are single fields reset in finally, so the outer receipt loses its refs, errors and handed-on state.",
+    "fix": "Decide returns the inner outcome. The desk-target run goes through a non-receipt executor, or the receipt notes become a stack.",
+    "evidence": "Stagewatch/src/Timer.App/ViewModels/MainViewModel.Receipts.cs:29-38; MainViewModel.Desk.cs:157"
+   },
+   {
+    "severity": "medium",
+    "issue": "The copilot path breaks the design's own rules and the plan's order. ParsePlan silently cuts commands at 400 characters. 'Run ticked steps' runs Stagewatch steps at once while app steps land 0\u20133 s later, so the order across apps is not kept. PlanConsequence and the Dropped text assume Stagewatch grammar. ShowCommandParser.Help, which goes into the copilot prompt and the MCP tool description, will advertise peer/desk to the AIs.",
+    "fix": "Refuse over-long commands instead of cutting them. Either state that app steps are asynchronous or run steps in order and wait for each result. Leave peer/desk out of the Help given to AIs. Write separate Dropped words for app steps.",
+    "evidence": "Stagewatch/src/Timer.Integrations/Copilot.cs:73-74,189; Timer.Remote/McpEndpoint.cs:87; MainViewModel.Copilot.cs:137"
+   },
+   {
+    "severity": "medium",
+    "issue": "A context over 64 KB is refused whole, which interacts badly with the 256/512/200 caps. PlayMap's busy context is already 43.6 KB at 199 rows. At round 3's rows and longer words it can pass 64 KB, and then everything is lost: every risk reads high, the light and the headline go, and nobody is told. The cap also counts UTF-16 characters, not bytes.",
+    "fix": "State the byte cap next to the row caps in \u00a76 and trim rows (counting the dropped) rather than refusing the whole context. Count UTF-8 bytes. Coordinate with the spec-1-3 sizes table.",
+    "evidence": "Stagewatch/src/Timer.Core/ShowBus.cs:43,60; WebServer.cs:456; measured: context-busy.json is 43,640 bytes"
+   },
+   {
+    "severity": "medium",
+    "issue": "The cost of the copilot brief is measured in bytes but not governed by need: about 30\u201333 KB (roughly 8\u201310k tokens) is added to every copilot request while PlayMap is linked, whatever the request is about. More generally this is over-building: 13 units in 4 repos, `peer` on 5 transports, plus copilot targets, an MCP target, quick verbs and a send dialog.",
+    "fix": "Include an app's verbs only when the request names that app, or in a second pass. Ship a smaller first cut (the matcher, the tick fix, the send dialog plus `peer` on HTTP/WS with the PIN, the AGMessage and Patterns rows) and leave copilot/MCP targets and Companion/OSC transports for a later step.",
+    "evidence": "design \u00a71 decision 9 (measured 33 KB for 199 rows)"
+   },
+   {
+    "severity": "low",
+    "issue": "Ambiguous ids and field names. refs.proposal=17 (a long) clashes with MCP get_proposal's integer ids, which are local CopilotProposal ids. The POST reply's new `words` (the form's description) clashes with the proposal JSON's `words`, which is the target's result.",
+    "fix": "Use a string ref (\"p17\") under its own name, and name the reply field `formWords`.",
+    "evidence": "Stagewatch/src/Timer.Core/Approvals.cs:31; McpEndpoint.cs:151-155"
+   },
+   {
+    "severity": "low",
+    "issue": "Gaps in the spec and process text. A `final:true` follow-up receipt is a \u00a73 change that is not in the \u00a72.6 SHOWBUS edits, and the Companion module would get two OK lines per id. The rule 'Patterns' copy word for word but the model name' conflicts with spec-1-3's byte-identical body hash. The version bump to 1.3 is not stated.",
+    "fix": "List the \u00a73 change or drop the follow-up receipt. Align the copy rule with spec-1-3 and name the version.",
+    "evidence": "Stagewatch/docs/SHOWBUS.md \u00a73; scratchpad/design/spec-1-3.md:14,250-254"
+   },
+   {
+    "severity": "low",
+    "issue": "Some tests are weak or will break. The e2e accepts either 'applied' or 'accepted then done', so it does not prove the awaited-result seam. It also waits 16 s of real time. Its fake peers must collect with node keys once peers-not-screens refuses the PIN for bound ids. Changing Submit's signature breaks the existing DeskRules calls unless an overload is kept. CommandRisk.Of in Core cannot return CopilotRisk, which is an Integrations type.",
+    "fix": "Use a rig option for the freshness window and the poll interval so a single outcome can be asserted. Keep the old Submit overload. Move the risk enum to Core.",
+    "evidence": "Stagewatch/tests/Stagewatch.Tests/ShowBusTests.cs:296-299; Timer.Integrations/Copilot.cs:11-20"
+   },
+   {
+    "severity": "low",
+    "issue": "The Companion/OSC loopback gate leaves the deck with no path whenever Companion runs on another PC (bound to all interfaces), and the module cannot know this until a press fails. The URL-path HTTP form also cannot carry a 2048-character quoted line inside the 8192-byte header cap.",
+    "fix": "Put a flag in CONFIG saying whether peer/desk are allowed on this port so the module greys its actions out. Accept the line in a POST body for /api/peer.",
+    "evidence": "Stagewatch/src/Timer.Companion/CompanionServer.cs:40-44; WebServer.cs:27"
+   }
+  ],
+  "missing": [
+   "A blocking dependency on peers-not-screens (G15) decisions 3 and 8: only verified contexts set risk, feed the copilot or decide a born-approved send; the authenticated Patterns link context is preferred.",
+   "Proposal ids unique across Stagewatch restarts (all three targets remember ids across desk runs), with a restart test.",
+   "A policy for no PIN: `peer`/`desk` refused, or loopback only, when no PIN is set.",
+   "Per-argument risk (PlayMap's RiskWhen) carried in \u00a76 rows, plus the one-word-per-placeholder rule and adversarial replay lines.",
+   "Per-verb secret awareness for peer-native secrets (Patterns' pairing token, RESTART/UPDATE passcodes), and keeping peer lines out of the Companion recorder.",
+   "A gate keeping `desk approve` away from triggers and automation; the deck approves by id, not `next`.",
+   "The browser pages chain: no Producer/Showcaller page shows or decides the shared queue, though the operator frame now carries `desk`.",
+   "PlayMap chains for ASSISTANT SET desk: the Avalonia desk's menu and right-click door (MenuCoverageTests), regenerated Companion verbs.json and fixtures, and the fact that EngineCore.Assistant.cs belongs to wp3-workflows in W4.",
+   "A freshness check, or at least a warning, when the operator approves a pending proposal for a target that is not collecting.",
+   "Patterns' papers naming every reader of the new context rows (its 'every reader' rule): the CONTEXT wire reply, /api/context, the Eye, and node mode (ShowBusNodes.Commands).",
+   "Rows for Patterns WEB TYPE/CLICK, or an explicit 'not listed and why'; the APPLY row limited to self-proposals.",
+   "A \u00a73 spec change for follow-up `final` receipts, and the 1.3 version and copy-hash rule, coordinated with spec-1-3."
+  ]
+ }
+}

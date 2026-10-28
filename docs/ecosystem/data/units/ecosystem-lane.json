@@ -1,0 +1,738 @@
+{
+ "area": "ecosystem-lane",
+ "revised": {
+  "area": "ecosystem-lane",
+  "summary": "The full revised design is in /home/user/Stagewatch/docs/ecosystem/ecosystem-lane.md. \u00a710 of that file answers the critique item by item.\n\nNew measurements are in <scratch>/lane-probe2/ and <scratch>/lane-probe3/. They show:\n- **One LAN on one Linux kernel works unprivileged.** Each app gets its own network namespace on one bridge, with its own address, its own loopback and its own ports.\n- **Broadcast reaches everyone.** Each app hears every other app's broadcast hello from that app's own address.\n- **Each app dials from its own address.** Every server sees each dialler from that app's address.\n- **A pulled cable is real.** Pulling one host's bridge port cuts it off both ways, while the others keep hearing each other.\n- **Nothing survives the run.** A PID namespace kills every process when the run ends, including after a timeout.\n- **No iproute2 is needed.** The bench has none; a stdlib Python rtnetlink helper does the setup.\n\n**What the maintainer gets**\n- One command: `tools/test.sh interop` in Stagewatch, on the cloud bench or in CI.\n- It builds the four apps in clones the lane owns, so it never writes into another session's tree. Then it runs four real apps on that LAN:\n  - Stagewatch's real servers, in the rig;\n  - Patterns' real desk services, headless (new `tools/Patterns.Bench`);\n  - PlayMap's real engine (`PlayMap.Node engine --headless`);\n  - AGMessage's real server.\n- The run uses the real UDP 9928 and real keys and tokens, with real faults: SIGKILL, a pulled cable, and a stuck show thread (SW-ST's `stall`).\n- Three topologies:\n  - separate hosts on one switch;\n  - the show laptop, all four apps on one host with its Wi-Fi up, which is the maintainer's real rig;\n  - the laptop with only loopback.\n- A matrix gives one row per cross-app fact, with pass, fail or not run, the measured time, the evidence files, and a snapshot of Stagewatch's lockout table after every row.\n- CI runs the lane at pinned sibling commits, and releases wait for it. A nightly run against the siblings' heads reports drift.\n\n**G49**\n- **One verdict for the doors.** `GET /api/preflight`, the operator frame's `network` (after `desk`), Companion `network_ready` (yes/no/unknown), MCP `get_preflight`, the copilot's facts, the producer page and the desk.\n  - `ready` means no red row. Amber is listed and never blocks.\n  - A node that is only seen and then leaves goes amber, not red.\n  - While the show thread is stuck, the verdict is `ready:false,stuck:true`.\n  - The verdict is never an item of Stagewatch's own context, so the context stays one hop.\n- **One report that names every app.**\n  - Peers' recent lines are journalled only from verified contexts: posted with a key bound to that node, or read over a link Stagewatch paired. Each row says how it came (`via`).\n  - Both roads are covered: posted and link-read.\n  - A node's first sight copies no backlog, and gap rows mark lines that may be missing.\n  - Every desk decision is journalled, rejections included.\n  - Times are culture-invariant.\n- **The manifest** is closed as superseded.\n- **\"Link all\"** is left: it is a security design of its own.\n\n**What each app gains**\n- **Stagewatch:** the lane; a rig with a stable id, a journal and report, secrets kept off stdout, and a readable lockout table; the preflight; the merged report; two fixed defects (F3: a rejection writes no row; F4: culture in the CSV and the context times).\n- **Patterns:** one headless boot seam, `HeadlessDesk.Create` and `Show`. Its test knob still sits between the two calls. The bench and the tests both use it, so the lifecycle lane fences the bench.\n- **PlayMap and AGMessage:** no change. The lane uses their documented doors only.\n\n**Two findings handed to their owners**\n- **F1:** a keyless Patterns counts a 'PIN required' failure against its own address every ~5 s, because a missing PIN counts toward Stagewatch's lockout. On one laptop that locks 127.0.0.1 out of Stagewatch within a minute. Proposed owner: peers-not-screens SW-2.\n- **F2:** AGMessage never sees a stuck Stagewatch, because pongs refresh `lastHeard`. No unit in design/agmessage.md owns this.\n\n**How the critique was folded in**\n- **Accepted in full:** 18 of 22 items, including all three high ones.\n- **Accepted with a different remedy:**\n  - amber no longer blocks, so no forget or accept verb is needed;\n  - the shared namespace becomes one namespace per app, because one shared namespace keeps every app behind one lockout address, and the kernel has no `dummy` link.\n- **Partly accepted:** over-building. `DISPLAY`, Mesa and Playwright wait for SW-R6, and the context item is removed. Shipping the verdict to only some readers is rejected under Stagewatch's every-reader rule.\n- **Remedies rejected by measurement:**\n  - a 127.0.0.x address per app: Linux dials all of 127.0.0.0/8 from 127.0.0.1;\n  - the critic's claim that Mapper has a SHOWBUS copy: it has none today; spec-1-3 adds one.",
+  "decisions": [
+   {
+    "decision": "The lane lives in Stagewatch: `tools/test.sh interop` (not a default lane), the driver in `tests/interop/`, and the pins, the clone builds and the LAN helper in `tools/interop/`.",
+    "why": "Stagewatch is the hub, keeps the master spec and owns the rig. Its `tests/e2e` already runs Node and the rig. Six other designs point at this lane.",
+    "alternatives": "A fifth repository: one more tree and CI, and no rig. Slices in each repo: the apps never run together. Mapper: round-3 ownership forbids it."
+   },
+   {
+    "decision": "Each app runs as its real self on Linux. Stagewatch runs as the rig, with the shared services other areas add. Patterns runs as `tools/Patterns.Bench` (real AppServices, MainViewModel and MainWindow on Avalonia.Headless). PlayMap runs as `PlayMap.Node engine --headless`. AGMessage runs as `node app/server.js`.",
+    "why": "The WPF desk cannot run on Linux. Patterns' headless boot is what its lifecycle lane proves 100 times a build (`build.yml:40-56`, `TestApp.cs:138-170`). Mapper's CI already drives PlayMap.Node from Node.",
+    "alternatives": "The Patterns exe under Xvfb is untried. Scripted fakes are the gap itself."
+   },
+   {
+    "decision": "The default topology is a one-kernel LAN. `lan.py` makes a bridge in the switch's namespace (10.99.0.1, the driver) and one network namespace per app: rig .2, Patterns .3, PlayMap .4, AGMessage .5. Each app runs on its default ports. The whole run is inside `unshare --user --map-root-user --net --pid --fork --mount-proc --kill-child`. The laptop topology (one namespace with a veth and a default route) and the offline topology (lo only) are runs of their own.",
+    "why": "Measured on this bench: each app hears the others' broadcast hellos from their own addresses, each 127.0.0.1 copy stays on its own host, and every server sees each dialler from its own address. That breaks the shared per-address lockout coupling. Pulling a cable is a real half-open fault. The PID namespace reaps every process, a crashed driver included. Nothing touches the host's 9928 or other sessions' processes. The laptop run keeps the maintainer's real one-laptop rig under test, shared address and 127.0.0.1 lottery included.",
+    "alternatives": "One shared namespace (the critic's recipe): every app stays behind one lockout address, and `dummy` is absent from this bench's kernel. A distinct 127.0.0.x per app: measured, all are dialled from 127.0.0.1. The host network with a flock: no isolation and no per-app addresses. The flock is dropped."
+   },
+   {
+    "decision": "The lane builds in clones it owns by default: `git clone --shared --no-checkout` into `$SW_INTEROP_OUT/trees/<app>`, at the sibling's HEAD on the bench or the pin in CI or with `SW_INTEROP_PINNED=1`. A missing pin is fetched into the clone, never into the sibling. AGMessage runs `npm ci --ignore-scripts` there. `SW_INTEROP_LIVE=1` opts into the working trees.",
+    "why": "A default must not rewrite another session's `obj/`, `node_modules` or AGMessage's `uploads/`, which goes beside the code (`server.js:45,51`). Each tree's one-build rule then holds by construction.",
+    "alternatives": "`--artifacts-path`: it still restores against the shared tree and does not cover npm. Working trees by default: destructive on a shared bench."
+   },
+   {
+    "decision": "CI pins siblings by full commit, and `release` needs the interop job. A nightly heads workflow gates nothing. The sibling checkouts use `persist-credentials: false`. Fork pull requests skip the job, and the summary says so in words.",
+    "why": "A sibling's push must not turn a Stagewatch pull request red unless Stagewatch changes too, and drift must still be seen within a day. No token may reach `.git/config` or third-party scripts.",
+    "alternatives": "Always the heads: Stagewatch cannot fix the red it causes. Submodules: shallow trees with their own round processes."
+   },
+   {
+    "decision": "Typed addresses are the addresses the hello comes from: on the LAN, the rig at 10.99.0.2 and Patterns at 10.99.0.3. On the laptop the typed address is 127.0.0.1, as the maintainer types it.",
+    "why": "Patterns gives a typed host the hello's `approvals` cap only when the host matches a heard peer's address (`StagewatchLinkService.cs:225-243`). AGMessage's `findPeer` matches the same way.",
+    "alternatives": "A per-app source address dialled at a different typed address: that breaks the cap match."
+   },
+   {
+    "decision": "A row exists only when it can pass, and it lands with the pin that makes it pass. A 'today' row is a reading of the code until it passes on the bench. A failing one becomes a named finding, not a row. 'Not run' exists only for an absent tree, a pin that cannot be fetched, or no user namespaces, and REQUIRED makes 'not run' a failure.",
+    "why": "Stagewatch's rule: never skip, disable or quarantine. The design could not run the apps (no builds), so the code reading must be confirmed by a run before a row is committed.",
+    "alternatives": "Rows expected to fail: a quarantine by another name."
+   },
+   {
+    "decision": "Every assertion reads the app's own published state. AGMessage's admin is read by a helper inside AGMessage's namespace, on its 127.0.0.1. The driver never binds UDP 9928.",
+    "why": "Attempts are not facts. Admin is loopback-only (`server.js:262`). One more listener on 9928 changes who receives unicast hellos (measured).",
+    "alternatives": "Driver-side hello sniffing: rejected by the measurement."
+   },
+   {
+    "decision": "No app gets a Stagewatch key until the rig makes keys (peers-not-screens SW-6 `--node-keys`). After every row the rig's lockout table is read (`auth`). The driver's, PlayMap's and AGMessage's addresses must be 0, and Patterns' count is recorded. S7.4 asserts every address 0 once every app is keyed and F1 is fixed.",
+    "why": "Verified: unknown keys and missing PINs both count per address, and a success clears the count (`WebServer.cs:867-883,1068-1090`). A keyless Patterns reads `/api/context` with no credential every ~5 s (`StagewatchLinkService.cs:347-351`). Without this check, the lane would hide F1 or let one app's failures change another app's row.",
+    "alternatives": "Keys from the start: a key the rig does not know is counted on every redial and poll."
+   },
+   {
+    "decision": "Deadlines are the contract number \u00d7 1.5 + 2 s. A stall lasts 12 s (StuckAfter 3 s + 2 \u00d7 HeartbeatEvery + 5 s), with 9.5 s to stuck and 5 s to recover, measured from the rig's reported `at`. Times are recorded and nothing is retried.",
+    "why": "The stuck beat comes 3\u20135 s after the last MarkAlive (`ShowState.cs:216`, `WebServer.cs:1268,1280,1295`). A hand-picked 4 s stall raced. Recorded times are the evidence for any change.",
+    "alternatives": "Fixed generous timeouts hide regressions. Retries hide flakes."
+   },
+   {
+    "decision": "Secrets are made for each run and handed over off argv: the rig's `--pin-file` and `--secrets-out`, 0600 files, the apps' settings files, and AGMessage's `ADMIN_TOKEN` environment variable (its only door). Two fields are redacted at capture time, by name: the `/api/windows` `path` read with the PIN, and `admin:settings` `contextToken`. These files are exempt by name: `playmap.node.json`; Patterns' settings with its `.bak`, `backups/` and recovery record with its `.bak`; the rig's `--state`, `--pin-file` and `--secrets-out` files; and AGMessage's banner `Token:` line. Everything else is swept, and the exemption list never grows to make a row pass.",
+    "why": "Verified: these files hold secrets by design (`SettingsStore.cs:7,49,111,330-345`; `Resilience.cs:232-233`; `RemoteAdmin.cs:125-133`). The rig's ready line prints window paths and the PIN today (`Program.cs:132-136`). One cross-app sweep catches leaks no single suite sees.",
+    "alternatives": "Exempting only the settings file: the sweep would fail today and flag its own captures."
+   },
+   {
+    "decision": "Faults come from outside each app: SIGKILL and restart in the same home, address and id; a pulled cable (`lan.py down/up`, the host's bridge port); SW-ST's `stall <ms>` as the one stall mechanism; and the offline topology.",
+    "why": "These are the real failure modes: a crash, a cable or radio loss (half-open TCP rather than a reset), and a hung show thread. All are measured or already designed. Using SW-ST's stall avoids two stdin grammars in one rig.",
+    "alternatives": "A second, owner-thread-blocking stall: a duplicate mechanism. An HTTP fault route: surface on the real WebServer."
+   },
+   {
+    "decision": "Picture sources are synthetic where Linux has none: BenchClip for Patterns, a 60 s colour item for PlayMap. `DISPLAY`, Mesa, Xvfb and Playwright join only with the first row that needs drawing or a browser (SW-R6).",
+    "why": "libVLC and WebView2 are Windows dependencies of Patterns. With no GL, PlayMap runs NullBackends (`RenderHost.cs:91-98`), and turning GL on early perturbs the run with nothing to show for it.",
+    "alternatives": "Installing libVLC on Linux: unmeasured. Mesa from day one: CPU load and shader compiles with no row needing them."
+   },
+   {
+    "decision": "G49 piece by piece. (4) The manifest is closed as superseded. (3) The merged report is built from verified contexts only, from both roads, with `via`, no backlog on first sight, gap rows, and every desk decision including rejections. (2) The preflight is built read-only, on its own doors only. (1) 'Link all' is not built.",
+    "why": "G15 must not become a durable record that names the wrong node (`Desk.cs:65-70`, `ShowBus.cs:56-69`). Today Patterns' link-read context never goes through Accept (`MainViewModel.ShowBus.cs:79,92,115,126`). A rejection writes no row (`Desk.cs:127-129`).",
+    "alternatives": "Journalling every posted context: forgeable. A cross-node journal API with clock-corrected merging: only playout links measure an offset."
+   },
+   {
+    "decision": "Preflight lights. Configured relationships (playout links, bound node keys, window grants, the Patterns link) are expected, and a configured node that is gone or never heard is red. A node that is only seen and goes away is amber ('went away at HH:mm') and drops out after 10 minutes. `ready` = `red == 0`; amber is listed and never blocks.",
+    "why": "Show Bus amber means attention. PlayMap is amber whenever it is blacked out, Patterns' blackout included (`ContextBuilder.cs:26-29`), which is the normal state before doors. Nothing a person did not configure should turn the verdict red by leaving: that is alarm fatigue.",
+    "alternatives": "Amber blocks: wrong at the moment the verdict is used. A 'Forget this node' / 'Accept amber' verb: a parser, a risk, five transports and menus, designed out instead."
+   },
+   {
+    "decision": "The verdict is never an item of Stagewatch's own context. Its readers are `/api/preflight`, the operator frame's `network` (after cross-app-proposals' `desk`), Companion, a new MCP tool `get_preflight`, the copilot's facts, the producer page and the desk.",
+    "why": "Stagewatch's context light and headline are the worst of its own items (`ShowContext.cs:105,115-116`), so a peer's amber would colour Stagewatch. MCP needs a reader once the item is gone.",
+    "alternatives": "A context item whose light never feeds Stagewatch's: a \u00a76 rule change for spec-1-3."
+   },
+   {
+    "decision": "While the show thread is stuck, or the cached verdict is older than 3 s, `/api/preflight` answers `ready:false`, `stuck:true` and one red row. Companion's `network_ready` reads `unknown` when the module is stuck or disconnected.",
+    "why": "The web thread serves cached JSON while the show thread is stuck (`ShowState.cs:216-226`). A confident stale 'ready' contradicts 'silence is never fine'. The module already knows `STUCK` (`connection.ts:193-196`).",
+    "alternatives": "A 503: it reads less uniformly to machine readers than a 'not ready' verdict with its reason."
+   },
+   {
+    "decision": "Patterns' boot seam is `HeadlessDesk.Create(store, profile)` (services and view model) plus `HeadlessDesk.Show(services, vm)` (window, attach, show, one RunJobs). TestApp sets `PollLanes.BudgetMs` between the two. The bench calls both back to back.",
+    "why": "TestApp's knob must sit between the view model and the window (`TestApp.cs:155-164`). The lifecycle lane then fences the bench's exact boot, with its census unchanged. App.axaml.cs is untouched, so no walk is needed.",
+    "alternatives": "One `Boot`: it moves the knob after the first poll. Copying the boot: silent drift."
+   },
+   {
+    "decision": "The bench's `propose look` builds an AssistantProposal (a look) and an AssistantChip, and calls `vm.Assistant.ApplyProposal(chip)`. It refuses before the call when no approval desk is live.",
+    "why": "That is the product's path, and its apply opens EDIT SAFE so a look lands in the preview (`AssistantPage.cs:379-413`). Without a desk, `ApplyProposal` applies locally, which the refusal must prevent.",
+    "alternatives": "A bench lambda running `LOOK SAVE`: it proves the bench, not the product, and misses one air."
+   },
+   {
+    "decision": "The SHOWBUS \u00a76 and \u00a78 sentences are handed to spec-1-3 S1, the single master edit for 1.3. This area edits no SHOWBUS text. S7.2 lands after spec-1-3 S8 and every copy.",
+    "why": "spec-1-3 decision 1 has one master edit and one owner, and the copies are held by one body hash. Patterns and AGMessage have copies; Mapper gets one through spec-1-3.",
+    "alternatives": "A separate master edit: two hashes per revision, and the copies left stale."
+   }
+  ],
+  "wire": "The design file \u00a72 gives every shape in full. Summary:\n\n**1. Rig CLI** (`tools/Stagewatch.Rig`, new options, SW-L1)\n- `--node-id <[A-Za-z0-9_-]{6,40}>`.\n- `--journal <file>|-`: `/report` and `/api/report.csv` answer from it.\n- `--pin-file <file>`: the first line is the PIN; an empty line means no PIN. Not allowed together with `--pin`.\n- `--secrets-out <file>`: mode 0600, `{\"pin\",\"windows\":[{\"name\",\"path\"}],\"nodeKeys\":[{\"id\",\"secret\"}]}`. With it, the ready line carries names only.\n- `--exit-on-eof`.\n\nReady line (stdout line 1; fields appended):\n```\n{\"rig\":\"ready\",\"http\":19940,\"companion\":19941,\"osc\":19942,\"pin\":\"set\",\"node\":\"interop-sw-1\",\"windows\":[{\"name\":\"lobby\"}],\"bind\":\"all\",\"journal\":true,\"secrets\":\"file\",\"bus\":9928,\"nodeKeys\":[{\"id\":\"k1\"}],\"playout\":[\"patterns\"]}\n```\n- `pin` is `\"set\"` or `\"none\"`. The value is printed only with `--pin` and no `--secrets-out`.\n- `bus`, `nodeKeys` and `playout` appear as their areas land.\n\nControl lines on stdin (one reader, shared with SW-ST):\n\n| Line | Answer |\n|---|---|\n| `stall <ms>` (SW-ST) | `{\"rig\":\"stalled\",\"ms\":12000,\"at\":<unix ms>}`, then `{\"rig\":\"running\",\"at\":<unix ms>}` |\n| a second stall | `{\"rig\":\"refused\",\"line\":\"stall\",\"error\":\"already stalled\"}` |\n| `auth` | `{\"rig\":\"auth\",\"at\":\u2026,\"addresses\":[{\"address\":\"10.99.0.3\",\"failures\":4,\"windowAgeMs\":31200}]}` (open windows only, no secret) |\n| `exit` | `{\"rig\":\"exiting\"}` |\n| anything else | `{\"rig\":\"refused\",\"line\":\"<word>\",\"error\":\"unknown (stall <ms>, auth, exit)\"}` |\n\n**2. `WebServer.AuthFailures()`** (Timer.Remote, new public read)\n- Returns `IReadOnlyList<AuthFailureCount(string Address, int Failures, long WindowAgeMs)>`.\n- The counting itself does not change here.\n\n**3. Patterns bench CLI**\n```\ndotnet Patterns.Bench.dll --home <dir> --token-file <file> [--http 9696] [--wire 9697] [--bind <addr>] [--name <words>] [--stagewatch <host:port>|find] [--stagewatch-key-file <file>] [--trust-loopback on|off (off)] [--clips synthetic] [--control stdin] [--exit-after <s>]\n```\n- Before the boot it writes `patterns.settings.json` from `SettingsStore.Fresh()`.\n- An unknown option is refused with words, exit 2.\n\nReady line:\n```\n{\"patterns\":\"ready\",\"http\":9696,\"wire\":9697,\"node\":\"<ShowBusId>\",\"build\":\"\u2026\",\"clips\":\"synthetic\",\"stagewatch\":\"10.99.0.2:19940\",\"key\":false,\"trustLoopback\":false}\n```\n\nControl lines:\n\n| Line | Answer |\n|---|---|\n| `clip <name> <s>` | `{\"control\":\"clip\",\"ok\":true,\"key\":\"\u2026\"}` |\n| `propose look <title>` | `{\"control\":\"propose\",\"ok\":true,\"title\":\"\u2026\"}`, then `{\"proposal\":\"<title>\",\"said\":\"\u2026\"}` lines |\n| `propose look` with no desk live | `{\"control\":\"propose\",\"ok\":false,\"error\":\"no Stagewatch approval desk linked\"}` |\n| `exit` | `{\"control\":\"exit\",\"ok\":true}` |\n| anything else | `{\"control\":\"<word>\",\"ok\":false,\"error\":\"unknown control (clip, propose look, exit)\"}` |\n\n- EOF with `--control stdin` stops the bench.\n\n**4. PlayMap (no change)**\n- `<home>/playmap.node.json`: the NodeSettings keys, with `patternsHost` `10.99.0.3:9697`, `stagewatchHost` `10.99.0.2:19940`, and `stagewatchKey` `\"\"` until SW-R1.\n- Tokens are 32 upper-case hex, already normalised.\n- Start: `nsenter --net=<ns> dotnet PlayMap.Node.dll engine --headless --home <home> --no-recover`. Ready: `is up: wire N, web N`.\n- Wire session: `HELLO Interop`, then `NONCE` \u2192 `AUTH-PROOF hex(HMAC-SHA256(Normalise(token), nonce+\"Interop\"))` \u2192 `OK paired`.\n- Reads: STATE `air.blackout`, `air.patternsBlackout`, `links.*`, `video`; `CONTEXT`; `NODES`.\n\n**5. AGMessage (no change)**\n- Environment: `PORT=3023`, `HOST=0.0.0.0`, `AGM_DATA_DIR`, `AGM_KEY_DIR`, `ADMIN_TOKEN`, `ANTHROPIC_API_KEY=`, `AGM_TLS=0`, run in its namespace.\n- The admin helper `tests/interop/apps/agmessage-admin.cjs` runs inside AGMessage's namespace on 127.0.0.1 and speaks JSON lines: `login`, `settings <json>`, `room <name>`.\n- `contextToken` is redacted from the output and handed over on a separate line that is never logged.\n\n**6. `tools/interop/lan.py`** (stdlib, Python \u2265 3.12)\n- Usage: `lan rig patterns playmap agmessage` | `laptop` | `offline`.\n- Stdout line 1: `{\"topology\",\"switch\":\"10.99.0.1\",\"hosts\":{name:{\"addr\",\"ns\":\"/proc/<pid>/ns/net\"}}}`.\n- Stdin: `down <host>` / `up <host>` \u2192 `{\"cable\":\u2026,\"state\":\u2026}`; anything else \u2192 `{\"error\":\"unknown (down <host>, up <host>)\"}`.\n\n**7. `tools/interop/siblings.json`**\n- `{\"v\":1,\"patterns\":{\"repo\",\"ref\":\"<40 hex>\",\"build\"},\"mapper\":{\u2026},\"agmessage\":{\u2026}}`.\n- A branch name or an unknown key is refused.\n\n**8. `artifacts/interop/matrix.json`**\n- `{\"v\":1,\"at\",\"machine\",\"topology\":\"lan|laptop|offline\",\"builds\":{\u2026},\"rows\":[\u2026],\"measured\":{\u2026}}`.\n- Each row: `{\"id\",\"title\",\"apps\",\"verdict\",\"ms\",\"deadlineMs\",\"auth\":{addr:n},\"why\",\"evidence\"}`.\n- `builds` holds each sha, with uncommitted files named as \"not included\".\n- `measured` holds `authFailures`, `ownItems`, `peerRowsPerMin` and `reconnectMs`.\n\n**9. `GET /api/preflight`** (Stagewatch, new)\n- Auth: read scope (the PIN or any key); rate headers.\n- A query \u2192 400 `{\"ok\":false,\"error\":\"/api/preflight takes no query\"}`. No host \u2192 404 `{\"ok\":false,\"error\":\"no preflight here\"}`.\n- Answer: `{\"v\":1,\"at\",\"ready\",\"stuck\",\"red\",\"amber\",\"green\",\"words\",\"rows\":[{\"id\",\"node\",\"name\",\"kind\",\"check\":\"heard|context|own|link|window|key|desk|clock|stagewatch\",\"light\",\"configured\",\"words\",\"fix\"}]}`.\n- `ready` = `red == 0`. At most 200 rows (red, amber, green), at most 32 nodes.\n- Stuck, or a cached verdict over 3 s old \u2192 `ready:false`, `stuck:true` and the row `stagewatch:show-thread` red.\n\nReaders:\n- **Operator frame:** `\u2026,\"desk\":{\u2026},\"network\":{\"ready\",\"red\",\"amber\",\"stuck\"}`. The public frame never has it.\n- **Companion:** `network_ready` (yes/no/unknown), `network_red`, `network_amber`; feedback `network_not_ready`.\n- **MCP:** a new tool `get_preflight` (no arguments, read) returning the route's JSON.\n- **Copilot's facts:** the red and amber rows (at most 12).\n- **Desk and producer page:** from the same verdict.\n- Not in Stagewatch's own context items. No new `ShowCommandKind` and no hello cap.\n\n**10. Report**\n- `JournalKind` gains `Peer` and `Desk` (appended, written as strings).\n- `JournalEntry` gains `n` (node id), `pt` (the line's time on its node, Unix ms) and `via`, at the end, written only when set:\n```\n{\"t\":\"\u2026\",\"k\":\"Peer\",\"i\":3,\"x\":\"PLAYLIST GO show \u2014 Intro\",\"n\":\"9f8e7d6c\",\"pt\":1761362411022,\"via\":\"node key 'Stage left'\"}\n```\n- `via` is one of: `node key '<name>'`, `the link`, `the PIN from <addr>`, `control key '<name>' from <addr>`.\n- `PeerContexts.Entry` gains `RecentLines` (`PeerLine(AtMs, Text)`) beside `Recent`.\n- New pure `PeerLines`:\n  - per node: a high-water `at`, the texts at that `at`, and the last list (for lines without `at`);\n  - 32 nodes, least recently heard evicted;\n  - a first sight gives a 'joins the report' row and no backlog;\n  - a post sharing no line with the last gives a gap row.\n- Peer rows come only from verified contexts, posted or link-read, through cross-app-proposals' `DeskService`. Desk rows are written on every decide path, rejection included.\n- `/report`: the AI section is AiPrefix notes plus every Desk row; a last section, 'The show network'.\n- `GET /api/report/network.csv` (read scope, CORS): columns `Time,Node,Kind,Node id,Node time,Via,Text`, invariant culture.\n- Stagewatch's own context `recent` leaves out Peer rows and is formatted with the invariant culture.\n\n**11. Words handed to spec-1-3 S1** (no edit here)\n- \u00a76: \"A context posted to, or read by, a desk may appear line by line in that desk's show report and its operator's AI summary; put nothing in `recent` that the desk's readers may not see.\"\n- \u00a78: Stagewatch's consumes cell, \"verified peers' `recent` \u2192 its show report\".\n\n**12. CI** (`ci.yml`, new job `interop`)\n- Runs on ubuntu-24.04, 30 min. Skipped for fork pull requests, with words in the summary.\n- Environment: `SW_INTEROP_REQUIRED=1`, `SW_INTEROP_LIVE=1`.\n- Sibling checkouts at the pins with `persist-credentials: false` and the `SIBLINGS_READ_TOKEN || github.token` token.\n- `sudo modprobe -a bridge veth` and `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, on the ephemeral runner only.\n- `npm ci --ignore-scripts`, then `tools/test.sh interop`, then the artifact upload.\n- `release` needs `[build-test-package, smoke, linux, interop]`.\n- New `interop-heads.yml`: a nightly schedule `23 3 * * *` and `workflow_dispatch` with refs. It gates nothing.\n\n**13. Lane environment**\n- `SW_PATTERNS_DIR`, `SW_MAPPER_DIR`, `SW_AGMESSAGE_DIR`.\n- `SW_INTEROP_PINNED`, `SW_INTEROP_LIVE`, `SW_INTEROP_REQUIRED`, `SW_INTEROP_TOPOLOGY` (`lan|laptop|offline|all`), `SW_INTEROP_OUT`, `SW_INTEROP_HEADS`.",
+  "changes": [
+   {
+    "repo": "Stagewatch",
+    "file": "tools/Stagewatch.Rig/Program.cs",
+    "change": "SW-L1: adds `--node-id`, `--journal <file>|-` (a ShowJournal, with `IShowReports.Report` built from the rig's agenda), `--pin-file`, `--secrets-out` (0600; the ready line then carries names only) and `--exit-on-eof`. Adds the `auth` and `exit` control lines to the stdin reader it shares with SW-ST's `stall <ms>`. The ready line gains bind, journal and secrets, and prints `pin` as set, none or the value. SW-G49c: computes and serves the preflight once it holds the hello and peer contexts."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/WebServer.cs",
+    "change": "SW-L1: public `AuthFailures()`, a read of the lockout table. SW-G49a: GET /api/report/network.csv. SW-G49b: GET /api/preflight with read scope, rate headers, a refused query, 404 when the host has none, and the stuck rule."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tests/e2e/rig.cjs, tests/e2e/rig-faults.e2e.cjs (new), tests/e2e/preflight.e2e.cjs (new, SW-G49c)",
+    "change": "Rig options and `rig.control(line)`. Fault checks: the id survives a restart; no secret on stdout with the file options; `auth` counts wrong PINs and a right one clears them; an unknown control is refused; EOF stops the rig; /report answers. Preflight e2e: one scripted peer goes ready \u2192 amber at 6 s \u2192 red at 12 s when configured, amber when only seen."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/interop/{siblings.json, build.sh, lan.py, run.sh} (new)",
+    "change": "Pins. Clone builds: `git clone --shared` into the lane's folder, a pin fetched into the clone, one dotnet build at a time, `npm ci --ignore-scripts`. The one-kernel LAN, laptop and offline topologies, built with stdlib rtnetlink (measured in lane-probe3), with `down`/`up` cable control. `run.sh` runs inside the user, net and pid namespace."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tests/interop/ (new: package.json + lock, lib/{until,secrets,wire,sweep,matrix,contract,auth}.cjs, apps/{stagewatch,patterns,playmap,agmessage,agmessage-admin}.cjs, lan.interop.cjs, laptop.interop.cjs, offline.interop.cjs, scenarios/*.cjs)",
+    "change": "The driver. It starts the apps in their namespaces with the rig first, pairs by proof over normalised tokens, and reads each app's own state. After every row it reads the rig's lockout table. It writes matrix.json and matrix.md, then runs the sweep with its named exemptions and capture-time redactions. Other areas' interop files become scenario modules here."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/test.sh, tools/setup-dev.sh",
+    "change": "Lane `interop`: build, then tools/interop/build.sh, then `timeout 1200 unshare --user --map-root-user --net --pid --fork --mount-proc --kill-child tools/interop/run.sh`. It is not a default lane. With no user namespaces it reports not run. setup-dev checks python3 \u2265 3.12, unshare and nsenter, and runs npm ci for tests/interop."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/Journal.cs",
+    "change": "SW-G49a: Peer and Desk kinds; `n`, `pt` and `via` fields with an Add overload; ShowReport.Network; AiDecisions includes Desk rows; the HTML 'show network' section; NetworkCsv. Invariant-culture formatting in ToCsv and NetworkCsv (F4)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowBus.cs",
+    "change": "SW-G49a: PeerLine; Entry.RecentLines beside Recent; Parse keeps `at`; new pure PeerLines (high-water per node, overlap rule for lines without `at`, 32 nodes with LRU eviction, no backlog on first sight, gap rows)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/DeskService.cs (cross-app-proposals SW-3's file)",
+    "change": "SW-G49a: fresh lines from verified contexts (posted with a bound key, or link-read) become Peer rows with `via`. Every decide path writes one Desk row, the rejection included (F3). The WPF mirror writes none of its own."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.ShowBus.cs, MainViewModel.Desk.cs",
+    "change": "SW-G49a: no journal rows of the mirror's own; PeerFacts unchanged (it reads Recent). SW-G49b: RefreshShowBus builds the verdict once a second, keeping `_preflightJson` with its `at`, the frame triple and ShowNetworkLine."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/ShowContext.cs",
+    "change": "SW-G49a: `recent` skips Peer rows and formats HH:mm:ss with the invariant culture (F4). No preflight item is added, so Stagewatch's own light stays one hop."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/NetworkPreflight.cs (new)",
+    "change": "SW-G49b: pure PreflightInput, PreflightRow and Run. Checks heard, context, own, link and window, with key, desk and clock joining as their areas land. Configured nodes go red when gone and seen-only nodes go amber; ready = no red; SeenNodes is 10 min and 32 nodes; at most 200 rows; the stuck answer."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowState.cs, src/Timer.Core/SnapshotJson.cs",
+    "change": "SW-G49b: IShowContext.PreflightJson() (default null). The operator frame's `network` comes after cross-app-proposals' `desk`, and the public frame never has it."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/McpEndpoint.cs",
+    "change": "SW-G49b: a read-only `get_preflight` tool that returns the route's JSON."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/AiContext.cs, src/Timer.App/Help/HelpContent.cs, src/Timer.Remote/wwwroot/producer.js",
+    "change": "SW-G49b: the copilot's facts gain the red and amber rows (at most 12); a `network-ready` help tip; the producer page's network chip."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/MainWindow.xaml(.cs)",
+    "change": "SW-G49b (PC work): the Show network header's verdict and tooltip, and 'Copy the preflight' on its right-click and as a button, in step."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "companion-module/src/{variables,feedbacks,state}.ts + test",
+    "change": "SW-G49b: network_ready (yes/no/unknown: unknown when stuck or disconnected), network_red, network_amber, and the feedback network_not_ready."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": ".github/workflows/ci.yml, .github/workflows/interop-heads.yml (new)",
+    "change": "SW-L4: the interop job (pins, persist-credentials false, a fork guard with words, modprobe and the AppArmor userns relax on the runner, --ignore-scripts). `release` needs interop. The nightly heads workflow gates nothing. Xvfb, Mesa and Playwright arrive with SW-R6."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "docs/BUILD.md, REMOTE.md, COMPANION.md, ECOSYSTEM.md, FEATURES.md, WHATS_NEXT.md, CLAUDE.md, README.md",
+    "change": "SW-P. BUILD: the lane, topologies, clones and pins, what it proves and does not. REMOTE: /api/preflight, network.csv, the frame field, get_preflight, report sections, key scope per route, rig options. COMPANION: the variables. ECOSYSTEM: the manifest superseded, report and preflight built, link all not built, the conformance note, PlayMap added. CLAUDE.md: the loop line and where things live. The SHOWBUS \u00a76 and \u00a78 words go to spec-1-3 S1, not edited here."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/HeadlessDesk.cs (new)",
+    "change": "`Create(SettingsStore, NodeKind)` \u2192 (AppServices, MainViewModel), setting Instance. `Show(AppServices, MainViewModel)` \u2192 MainWindow: attach, show, one RunJobs. No sleeps and no test knobs."
+   },
+   {
+    "repo": "Patterns",
+    "file": "tests/Patterns.App.Tests/TestApp.cs",
+    "change": "Boot keeps CloseLeftovers, MachineGB, PauseOverride, QualityService.MachineGB and RenderFence. It calls Create, sets `vm.PollLanes.BudgetMs = 10_000`, then calls Show."
+   },
+   {
+    "repo": "Patterns",
+    "file": "tools/Patterns.Bench/{Patterns.Bench.csproj, Program.cs, BenchClip.cs, BenchControl.cs} (new)",
+    "change": "An Exe on $(PatternsTfm) referencing Patterns.App, Avalonia.Headless 11.3.20 and SkiaSharp.NativeAssets.Linux 3.116.1, with the fences applied. Program: options, settings file, headless AppBuilder, TrustLoopback, HeadlessDesk.Create then Show, the clip factory, the ready line, then MainLoop until a signal, exit, EOF or exit-after. BenchClip: a synthetic IMountedSource with a wall-clock playhead. BenchControl: `clip`, `propose look` (through AssistantPage.ApplyProposal, refused when no desk is live) and `exit`."
+   },
+   {
+    "repo": "Patterns",
+    "file": "Patterns.sln, tests/Patterns.App.Tests/Patterns.App.Tests.csproj, tests/Patterns.App.Tests/BenchHostTests.cs (new)",
+    "change": "The bench goes under tools, and the test project references it with ReferenceOutputAssembly=false. Process test: ready within 60 s; pairs by proof and STATE has the bus row; a proposal with no desk is refused with the looks and the air unchanged; `clip a 30` gives video.lengthMs 30000; `exit` gives code 0."
+   },
+   {
+    "repo": "Patterns",
+    "file": "docs/PLAN.md \u00a7NN, docs/REVIEW.md, CHANGELOG.md, README.md, docs/OPEN.md, tag table",
+    "change": "The round's papers. Evidence class: the maintainer's list, with the ask quoted. Walk: none asked. OPEN: L47, L50 and L56 annotated and still open; L40 annotated with the exempt files; one row added for the synthetic clips."
+   },
+   {
+    "repo": "Mapper",
+    "file": "(none)",
+    "change": "No change. A later SHOWBUS-NODE.md line goes only by the owner's papers lane."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "(none)",
+    "change": "No change in this area. F2 (stuck beat; pongs refresh lastHeard) is handed to the agmessage area as a new unit."
+   }
+  ],
+  "tests": [
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests PeerLinesTests (new, pure)",
+    "proves": "A node's first post gives no backlog and one 'joins' row. New lines give exactly the new ones. A re-post gives 0, including after the 30 s expiry. The same text at a different `at` is kept. Lines without `at` follow the overlap rule. A post with no overlap gives a gap row. The 33rd node evicts the least recently heard, and that node's return gives a 'joins' row, not a backlog."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests ReportTests (new)",
+    "proves": "The AI section holds every Desk row (the rejection included) and the matching notes, and no plain notes. The network section shows `via` and 'its clock'. NetworkCsv's header, quoting and Via column. Under th-TH and a culture with '.' as its time separator, ToCsv, NetworkCsv and the context's recent give Gregorian invariant times. An old journal loads and its report is byte-identical. A context forged with another node's id writes no Peer row, and neither does a context marked verified:none."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests ShowContextTests",
+    "proves": "Peer rows never reach Stagewatch's own recent. No preflight item ever reaches Stagewatch's own items, light or headline."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests NetworkPreflightTests (new, pure, injected time)",
+    "proves": "All live gives ready. A configured node goes amber at 8 s and red at 13 s, and red when never heard. A seen-only node gone gives amber and still ready, and is dropped at 11 min. A peer's own amber (blacked out) does not block; its own red does. A red link gives red. 40 nodes give 32 plus one amber row; 250 inputs give 200 rows, reds first. Stuck, or a cache 3.1 s old, gives ready:false, stuck:true and one red row."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests WebV2Tests (real WebServer)",
+    "proves": "/api/preflight: 401 without auth, 200 with any key, 400 for a query, rate headers, stuck:true with a stuck SnapshotHub. network.csv: read scope and CORS. The operator frame ends desk then network, and the public frame has neither. AuthFailures() counts 3 wrong PINs and is cleared by the right one. MCP get_preflight returns the route's JSON."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests DeskTests (cross-app-proposals' file)",
+    "proves": "Every decide path writes exactly one Desk row, including a rejection from the deck, from MCP and from the desk."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "companion-module test",
+    "proves": "network_ready follows network.ready and reads unknown when disconnected or STUCK. network_not_ready is red at ready:false."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/e2e/rig-faults.e2e.cjs, tests/e2e/preflight.e2e.cjs",
+    "proves": "The rig's id survives a restart. With --pin-file and --secrets-out, no PIN, window path or key appears on stdout. `auth` reads the lockout table. Unknown control lines are refused, and EOF stops the rig. The preflight is ready, then amber at 6 s, then red at 12 s for a configured peer, and amber for a seen-only one."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/interop (the lane; LAN, laptop and offline runs)",
+    "proves": "Today, after each passes on the bench: S0.1 the apps start in their namespaces; S1.1\u2013S1.3 discovery across hosts; S4.5 PlayMap pairs with Patterns by proof and follows its clip and `air.blackout`; S6.1 the rig killed and restarted; S6.1b the rig's cable pulled; S6.4 Patterns killed; S6.7 Patterns' cable pulled; S7.1 no secret anywhere; S7.3 unknown words refused. Then S1c.1\u2013S1c.2 on the laptop. After every row, the driver's, PlayMap's and AGMessage's lockout counts are 0. As pins move: S1.4\u2013S1.6, S2.* (with S2.7, a forged id refused and no Peer row), S3.* (with S3.3, the look landing in EDIT SAFE and the air unchanged, and S3.7, the rejection reported), S4.1\u2013S4.4, S5.*, S6.2a/b/c stuck, S6.3, S6.5, S7.2, S7.4 nobody counted, S8.1\u2013S8.4 the doors (S8.4: a seen-only node leaving does not block), S1b offline."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.App.Tests/BenchHostTests.cs, the lifecycle lane",
+    "proves": "The bench boots the real desk headless, pairs by proof, publishes the bus row, and refuses a proposal with no desk without applying it locally. A synthetic clip shows the right length. It exits cleanly. Through TestApp, the lifecycle lane fences HeadlessDesk.Create and Show with its census unchanged."
+   },
+   {
+    "repo": "Mapper",
+    "where": "(existing) integrations/companion-module-playmap/test/e2e-engine.test.ts, NodeHome tests, tests/fixtures/state/main.json",
+    "proves": "The doors the lane uses stay fenced in Mapper's own CI: the `is up` line, the settings keys, and STATE `air.*`, `links` and `video`. No new test."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "(existing) app/test/server.test.js, tls.test.js",
+    "proves": "The environment, the readiness line, admin login and the socket events the lane uses stay fenced. No new test in this area."
+   }
+  ],
+  "units": [
+   {
+    "repo": "Patterns",
+    "title": "P-B1 Round NN.1: the bench host \u2014 the real desk headless off Windows, for Stagewatch's interop lane (HeadlessDesk Create/Show, TestApp, tools/Patterns.Bench, BenchClip, BenchControl, sln, BenchHostTests)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Patterns",
+    "title": "P-B2 Round NN papers (PLAN \u00a7NN with the maintainer's list as evidence class, REVIEW 'Walk: none asked', CHANGELOG, README, OPEN L40/L47/L50/L56 annotated plus one row, the tag table)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "P-B1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-L1 Rig: a stable node id, a journal and its report, secrets off stdout (--pin-file, --secrets-out), --exit-on-eof, the lockout table readable (WebServer.AuthFailures, `auth`), rig-faults.e2e.cjs",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "shares the stdin reader with patterns-playmap-side SW-ST, whichever lands first"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-L2 Interop: four real apps on a one-kernel LAN \u2014 clones, pins, lan.py, sweep, matrix, per-row lockout check (rows S0.1, S1.1\u2013S1.3, S4.5, S6.1, S6.1b, S6.4, S6.7, S7.1, S7.3 first three, each only after it passes on the bench)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "P-B1 pushed and pinned",
+     "SW-L1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-L3 Interop: a stuck rig (S6.2a)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "patterns-playmap-side SW-ST",
+     "SW-L2"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-L4 CI: the interop job at the siblings' pins (hardened, fork-guarded), the nightly heads run, releases wait for it",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "SW-L2"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-L5 Interop: the show laptop topology (S1c.1, S1c.2)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "SW-L2"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-G49a Report: verified peers' lines and every desk decision, rejection included; culture-invariant times (Journal, ShowBus PeerLines, DeskService rows, ShowContext, WebServer network.csv; tests)",
+    "gaps": [
+     "G49"
+    ],
+    "dependsOn": [
+     "peers-not-screens SW-2 (verified credentials, G15)",
+     "cross-app-proposals SW-3 (DeskService)"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-G49b Preflight: one verdict for the doors (NetworkPreflight, /api/preflight with the stuck rule, operator frame `network` after `desk`, MCP get_preflight, AI facts, Companion, producer page, desk header and right-click (PC), help; pure and WebV2 tests)",
+    "gaps": [
+     "G49"
+    ],
+    "dependsOn": [
+     "frame field order agreed with cross-app-proposals SW-5 (whichever lands first)"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-G49c Rig: the preflight, and preflight.e2e.cjs",
+    "gaps": [
+     "G49"
+    ],
+    "dependsOn": [
+     "SW-G49b",
+     "spec-1-3 S2",
+     "peers-not-screens SW-6"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-P Papers: the interop lane, the report's network section, the preflight, ECOSYSTEM's manifest superseded, REMOTE's key scope per route; the \u00a76 and \u00a78 words handed to spec-1-3 S1",
+    "gaps": [
+     "G49",
+     "G44"
+    ],
+    "dependsOn": [
+     "SW-L2",
+     "SW-G49a",
+     "SW-G49b"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R1 Interop: keys from the rig; the rig on the bus; contexts both ways (S1.4\u2013S1.6, S2.1\u2013S2.7)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "spec-1-3 S1\u2013S2",
+     "peers-not-screens SW-2, SW-6 and their Patterns, PlayMap and AGMessage halves"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R2 Interop: the desk rows (S3.1, S3.2, S3.5, S3.7, S3.8, S7.3's last word)",
+    "gaps": [
+     "G44",
+     "G49"
+    ],
+    "dependsOn": [
+     "cross-app-proposals SW-1\u2013SW-4, SW-10",
+     "agmessage AG-1, AG-2",
+     "SW-G49a"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R3 Interop: Patterns' desk and stuck rows (S3.3, S3.4, S6.2b)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "Patterns PT-89.1, PT-90.3",
+     "SW-R2"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R4 Interop: the VT rows (S4.1\u2013S4.4), which also prove G44's first untested pairing once PlayoutLink replaces PatternsLink",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "playout-links 1\u20135"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R5 Interop: the doors (S6.3, S8.1\u2013S8.4)",
+    "gaps": [
+     "G44",
+     "G49"
+    ],
+    "dependsOn": [
+     "SW-G49c",
+     "SW-R1",
+     "patterns-playmap-side SW-ST",
+     "S8.0's measurement showing no red own item"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R6 Interop: windows for peers (S5.1\u2013S5.3); Xvfb, Mesa and Playwright join the job",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "windows-for-peers SW-W1\u2013W5, PM-W",
+     "Patterns PT-92.2\u20134"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R7 Interop: nobody locks anybody out, and the offline laptop (S7.4, S1c.3, S1b.1)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "SW-R1",
+     "F1's fix (proposed in peers-not-screens SW-2: a missing credential is not counted)"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R8 Interop: AGMessage hears PlayMap, re-offers, and sees a stuck Stagewatch (S1.3b, S6.5, S6.2c)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "agmessage AG-4, AG-3",
+     "F2's new agmessage unit"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-R9 Interop: one contract (S7.2)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "spec-1-3 S8 and every copy (Patterns PT-90.4, AGMessage AG-7, Mapper's owner papers)"
+    ]
+   }
+  ],
+  "gapsClosed": [
+   "G44 (substance): real apps run against each other on Linux, in CI and on the cloud bench, on three topologies: separate hosts on a one-kernel LAN, the show laptop, and offline. The apps are Stagewatch's shared services in the rig, Patterns' real desk services (headless), PlayMap's real engine and AGMessage's real server. Faults are real: kill, pulled cable, stuck show thread. Each row records its measured time and the lockout table. Results are pinned and reproducible, with nightly drift checks, and Stagewatch's release waits for them.",
+   "G49 (2) one preflight, read-only: /api/preflight, the operator frame's `network`, Companion network_ready (yes/no/unknown), MCP get_preflight, the copilot's facts, the producer page and the desk give one verdict, 'ready for doors', with a reason per node. Amber never blocks. A configured node that is gone is red, and a seen-only one goes amber. A stuck Stagewatch is never 'ready'. The verdict is kept out of Stagewatch's own context.",
+   "G49 (3) merged report: verified peers' recent lines, from both the posted road and the link-read road, carrying the node, its own time and how the line came. Every desk decision is journalled, rejections included, so \u00a711's evidence is repaired. Adds network.csv and culture-invariant times. The report says it is a sample and each node's own journal is the record.",
+   "G49 (4) manifest: closed as superseded. ECOSYSTEM.md is corrected, and REMOTE.md gains each route's key scope."
+  ],
+  "gapsLeft": [
+   {
+    "id": "G44 (two machines and a real network)",
+    "why": "The one-kernel LAN proves addressing, broadcast, lockout separation and cable loss. It does not prove Windows' UDP stack, firewall prompts, multi-NIC machines or radio loss. Patterns' QUALIFICATION \u00a726 and \u00a727 and OPEN L47, L50 and L56 stay walk rows; they are annotated, not closed."
+   },
+   {
+    "id": "G44 (Windows-only parts)",
+    "why": "The WPF desk's mirror and right-click menus (UiSmoke), Patterns' WebView2 showing a granted window (S5.1w), DPAPI, and PlayMap's Direct3D 12."
+   },
+   {
+    "id": "G44 (Stagewatch's existing PatternsLink against PlayMap's TCP 9941)",
+    "why": "PatternsLink lives in the WPF app, not the rig, and playout-links replaces it with PlayoutLink. The pairing is proved by S4.1 and S4.2 once that is pinned. Until then it stays untested."
+   },
+   {
+    "id": "G44 (TLS between real apps)",
+    "why": "The rig serves plain HTTP. A rig `--tls` unit is not designed here, so Patterns L56 stays open."
+   },
+   {
+    "id": "G44 (real decoders and AI models)",
+    "why": "Patterns' clips are synthetic and PlayMap's VT is a colour item. The AI path is exercised by an MCP client and Patterns' assistant call, never by a model's output."
+   },
+   {
+    "id": "G49 (1) link all",
+    "why": "It needs the node link, pinned TLS and one approval per node: a security design of its own, and no lane row needs it."
+   },
+   {
+    "id": "G49 (clock-corrected merge)",
+    "why": "Peer lines are ordered by when Stagewatch heard them, with the node's own time beside them. Only playout links measure an offset, so any shift would be a pretence."
+   },
+   {
+    "id": "F1 (handed over)",
+    "why": "A missing PIN counts toward Stagewatch's lockout, and a keyless Patterns sends one every ~5 s. On one laptop that locks 127.0.0.1 out within a minute. The fix belongs in peers-not-screens SW-2, which already changes the same counting for unknown keys. Rows S7.4, S1c.3 and S1b.1 wait for it."
+   },
+   {
+    "id": "F2 (handed over)",
+    "why": "AGMessage never goes stale on a stuck Stagewatch, because pongs refresh lastHeard (G04's last paragraph). No unit in design/agmessage.md owns it. Row S6.2c waits for a new agmessage unit."
+   },
+   {
+    "id": "ECOSYSTEM roadmap remainder",
+    "why": "Not asked of this area: the heartbeat dashboard (the preflight is its data), ecosystem failover, the operator's chaos-rehearsal mode (the lane's fault rows are its automated first form), the local-model advisor, and one Companion module for the network."
+   }
+  ],
+  "risks": [
+   "Cross-repo coupling. Stagewatch's CI builds three other repositories. Pins keep it deterministic and the nightly heads show drift, but a sibling contract change costs a pin-bump commit. Private siblings need SIBLINGS_READ_TOKEN, which never persists in a checkout. Forks skip the job and the summary says so.",
+   "Kernel features. The lane needs user, network and pid namespaces, bridge, veth and Python \u2265 3.12. CI relaxes Ubuntu 24.04's AppArmor userns restriction and loads bridge and veth on the ephemeral runner only. A machine without them reports 'not run', which fails under REQUIRED. lan.py is the tree's first Python file: stdlib rtnetlink, because the bench has no iproute2 and Node cannot speak rtnetlink.",
+   "One kernel is not a network. The LAN shares one clock, one scheduler and one TCP stack. It proves addressing, broadcast, lockout separation and cable loss, not Windows' stack or radio behaviour.",
+   "Time. About 12\u201315 minutes cold: two .NET builds of about 6 minutes, npm, and 4\u20135 minutes of rows per topology. Later topologies run nightly until their rows exist. The release now waits for the LAN run.",
+   "Flakiness. Deadlines are the contract number \u00d7 1.5 + 2 s with no retries. Recorded times are the evidence for change. A flaky row is fixed or re-justified, never quarantined.",
+   "'Today' rows are a reading of the code, because the design could not run the apps. Some may fail on their first run. Each such failure becomes a named finding for its owner, not a row, so SW-L2's first row set may be smaller than listed.",
+   "The rig is not the app, and the bench is not the exe. The WPF mirror must stay thin (cross-app-proposals decision 10), or the lane proves less than it seems; only UiSmoke fences the mirror.",
+   "Clones versus live trees. The default never writes into a sibling tree. SW_INTEROP_LIVE=1 on the bench hands the one-build rule back to the operator. Uncommitted sibling changes are not included by default, and the matrix says so.",
+   "Report readership widens. Verified peers' lines, which can include a controller's address in Patterns' origins, become readable by any read key holder. The \u00a76 sentence handed to spec-1-3 says so, and the sweep covers the report.",
+   "Journal growth. At most 20 peer lines per post, with no governor because there is no measured cause. The lane records peer rows per minute per app.",
+   "AGMessage prints its admin token on its console by design. The sweep exempts that line by name, and AGMessage's area decides whether it should change."
+  ],
+  "processNotes": "**Stagewatch (CLAUDE.md)**\n- One dotnet build at a time per tree. The lane builds Stagewatch, then each clone, in sequence.\n- The guard rails and TreatWarningsAsErrors apply to src/. NetworkPreflight and PeerLines are pure on injected time, and culture-invariant formatting is fixed and tested under th-TH (F4).\n- Windows-only checks (the Show network header, its right-click and button) go through Bench.OnWindows, and the WPF work is named as PC work.\n- Hand-written frames: the operator frame's `network` comes after cross-app-proposals' `desk`, and JournalEntry's n, pt and via go at the end.\n- No new ShowCommandKind, so the copilot's risk does not change. The route, frame field, Companion variables and feedback, MCP get_preflight, producer page, AI facts, help and desk are each followed down their chain. Stagewatch's own context stays one hop.\n- Comments state invariants (the bench's two boot calls, the stall, the namespace holders), with no model or tool names.\n- Papers: REMOTE, COMPANION, ECOSYSTEM, FEATURES, WHATS_NEXT, BUILD, README, and CLAUDE.md (the loop line `tools/test.sh interop` and the where-things-live rows). The SHOWBUS words go to spec-1-3 S1, the single master edit; they are not edited here.\n- CI: the interop job, which the release needs, and the heads workflow.\n- Commits: subjects `Rig: \u2026`, `Interop: \u2026`, `Report: \u2026`, `Preflight: \u2026`, `CI: \u2026`, `Papers: \u2026`. Each pin bump is its own commit and adds only rows that pass at the new pins.\n\n**Patterns (CLAUDE.md)**\n- One round, numbered by the maintainer. It depends on no other Patterns round.\n- Commits: `Round NN.1: the bench host \u2026` and the papers commit, with the maintainer's authorship and the reasoning in the body.\n- Validation: dotnet build Patterns.sln (the bench is fenced like src/ because its name does not end in .Tests), all seven suites and the module's tests, with the lifecycle lane's census unchanged.\n- PLAN \u00a7NN opens with the requester and the evidence class, the maintainer's list, quoting the ask. It says what the round did not do: no libVLC on Linux, no WebView2, no change to the exe's start.\n- REVIEW: 'Walk: none asked', because App.axaml.cs, the watchdog and the process start are unchanged.\n- CHANGELOG in the ChangelogTests header shape. README names the bench.\n- OPEN.md: L47, L50 and L56 annotated and not closed; L40 annotated with the exempt files; one row added for synthetic clips.\n- The tag table row for the round before.\n- Closing sentence: the round adds no verb an output can show, so the papers say it has no journal, log or Super Check row for one.\n\n**Mapper (CLAUDE.md, round-3 ownership)**\n- Nothing is edited. The lane uses only documented doors already fenced by Mapper's tests.\n- A later SHOWBUS-NODE.md line goes only through the owner's papers lane, because round 3 \u00a74 gives that file to no package.\n- No lab claim: the lane runs PlayMap on NullBackends (Mesa only from SW-R6) and claims nothing about frame lock or latency.\n\n**AGMessage (no agent brief)**\n- Nothing is edited in this area.\n- F2 (the stuck beat, where pongs refresh lastHeard) is handed to the agmessage area as a new unit. Rows S1.3b, S3.1, S6.5 and S6.2c wait for its units AG-4, AG-1/AG-2, AG-3 and the new one.\n- Its CI stays Windows-only. This lane is AGMessage's first Linux run in CI."
+ },
+ "critique": {
+  "verdict": "needs-changes",
+  "issues": [
+   {
+    "severity": "high",
+    "issue": "On one machine, Stagewatch's per-address auth lockout puts all four apps and the driver behind one identity. The \"today\" configuration gives PlayMap (stagewatchKey = node key 2), AGMessage (node key 3) and the Patterns bench (--stagewatch-key-file) keys that the rig does not know until peers-not-screens SW-5. Every redial, fetchContext, pushContext and checkDesk from those apps counts as a failure against 127.0.0.1. After 5 failures in a minute, 127.0.0.1 is locked out, and the driver's own PIN requests fail too. A missing PIN also counts. Each driver success resets the counter (TryRemove), so whether the lockout trips depends on how often the driver polls the rig. The driver ends up changing the system under test, the same problem decision 6 avoids for UDP. Rows S1, S4.5, S6.1 and S6.4 become nondeterministic.",
+    "fix": "Until SW-5 lands, configure no Stagewatch key in PlayMap, AGMessage or the bench (empty stagewatchKey and ApiKey, viewer access only). Add keys in the same pin-bump commit that gives the rig --node-key-file. Expose the rig's auth-failure count (a ready-line field or a control line, `auth`) and assert it is 0 at the end of every row. Name the shared-loopback lockout coupling in the risks. Optionally give each app its own source address (127.0.0.x) to dial the rig from.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:1068-1090 (Authorize: an unknown key counts against the remote address; TryRemove on success); :867-883 (CheckPin counts a null or wrong PIN when a PIN is set); :625-626 LockedOut per IPAddress; AGMessage/app/lib/nodes.js:387-405 (fetchContext and pushContext with the key) and server.js:1126 (fetch every 5 s); design \u00a72.3 sets stagewatchKey from the start while S6.1 and S4.5 are marked 'today'."
+   },
+   {
+    "severity": "high",
+    "issue": "The S7.1 secret sweep, written as a row that passes today, would fail today and would also flag its own captures. Patterns stores the token and the Stagewatch ApiKey in more files than patterns.settings.json: patterns.settings.json.bak, backups/<time>.json, and patterns.recovery.json (+.bak), which RemoteAdmin redacts because they hold 'the same secrets the settings hold'. Only the settings file is exempted. With the PIN, /api/windows returns `path` /w/<token> by design. AGMessage's admin:settings reply includes contextToken. The rig's ready line prints `windows:[{path:\"/w/\"+token}]` for windows loaded from --state, which the S6.1 restart reuses, and the --state file holds the tokens. The design keeps that ready-line field and says to search those captures.",
+    "fix": "Redact captures at capture time: the PIN-scoped `path` in /api/windows, `contextToken` in admin:settings. Or read /api/windows with a read key that gets no path. Remove window paths from the rig's ready line, or print names only, because Stagewatch doctrine says window addresses ride in no log line. Exempt by name: Patterns' settings .bak, backups/ and recovery files, and the rig's --state file. Record that this widens Patterns' L40. Run the sweep against today's trees once before calling S7.1 a 'today' row.",
+    "evidence": "Patterns/src/Patterns.Core/Services/SettingsStore.cs:7,49,111,337-340 (.bak and backups/); Patterns/src/Patterns.Core/Services/RemoteAdmin.cs:125-133 ('the recovery record (a whole show state, the same secrets the settings hold)'); Resilience.cs:232-233; Stagewatch/docs/REMOTE.md:264 (/api/windows `path` with the PIN); AGMessage/app/server.js:855-856 (contextToken in the admin:settings reply); Stagewatch/tools/Stagewatch.Rig/Program.cs:132-136 (the ready line prints window paths)."
+   },
+   {
+    "severity": "high",
+    "issue": "Security: Peer journal rows turn G15's context forgery into a durable record that names the wrong node. PeerContexts.Accept stores a context under the node.id inside the body, and BindKey's false is ignored. Any node key holder can post as PlayMap or Patterns, and so can anyone on the LAN when no PIN is set. SW-G49a would then write that text into Stagewatch's flight recorder, the client report, network.csv and the AI summary as the other node's lines, with `n` set to the forged id. SW-G49a declares no dependency on the G15 fix, while S2.7 sits in SW-R1.",
+    "fix": "Make SW-G49a depend on the G15 fix: refuse with 403 when the key is bound to another id, checked before Accept. Journal Peer rows only from contexts whose poster is authenticated as that node, meaning a node key bound to that id. Otherwise mark the row with the key name or address that posted it ('posted by key <name> from <addr>'). Add a ReportTests case for a forged id.",
+    "evidence": "Stagewatch/src/Timer.App/ViewModels/MainViewModel.Desk.cs:65-70 (BindKey result ignored); Stagewatch/src/Timer.Core/ShowBus.cs:56-69 (Accept stores by body id); WebServer.cs:452-460 (/api/peers/context accepts PIN, control or node key); gaps.json G15."
+   },
+   {
+    "severity": "medium",
+    "issue": "The design claims S6.2 needs only today's code plus SW-L1. The AGMessage half ('AGMessage link stale within 11 s' during `fault stall 8`) fails today. AGMessage does skip the stuck beat, but every non-beat message refreshes lastHeard, including the pongs Stagewatch answers off the show thread to AGMessage's per-tick pings, so the link never goes stale. Under the design's own rule ('a row exists only when it can pass'), S6.2 cannot land in SW-L3 as written.",
+    "fix": "Split S6.2 into S6.2a (PlayMap shows '?', today) and S6.2c (AGMessage goes stale, after AGMessage's stuck-beat fix, the second half of G04). List that fix in the agmessage area's dependencies, as S6.2b already does for Patterns.",
+    "evidence": "AGMessage/app/lib/nodes.js:325-329 (`if (msg.type === 'beat') { if (msg.live !== false) ... return; }`, then lastHeard = Date.now() for pong), :348-356 (_watch pings each tick); Stagewatch/src/Timer.Remote/WebServer.cs:1349-1355 (ping answered without the show thread); gaps.json G04 last paragraph."
+   },
+   {
+    "severity": "medium",
+    "issue": "The preflight's 'ready = 0 red AND 0 amber', including every peer's worst own item, gives the wrong answer at doors. PlayMap's context marks Air amber whenever it is blacked out, including 'blacked out by Patterns', and whenever a test pattern is up. Those are the normal states before doors, so the verdict says 'not ready' exactly when it is meant to be used. A headless Patterns desk on Linux probably also carries amber Eye items (no displays, NDI or audio), so S8.1 ('ready:true with everything up') may never pass, and under rule 4 it would never be written. Nodes that have gone stay red for 10 minutes and the operator cannot clear them (an AGMessage closed after Q&A, a stage-timer tablet switched off). That is the alarm fatigue that medical practice warns against.",
+    "fix": "Show Bus amber means attention, not fault. Make `ready` mean no red rows, with amber rows listed but not blocking, or let amber block only for checks Stagewatch owns (heard, key, desk, link). Add an operator 'Forget this node' / 'Accept this amber' action on the desk and its right-click, in step, plus a Companion action, journalled as Desk rows. Measure the bench's and PlayMap's headless context items before promising S8.1.",
+    "evidence": "Mapper/src/PlayMap.Engine/ContextBuilder.cs:26-29 (Air amber when blacked out or a pattern is up); design \u00a72.7 (`ready` = red==0 && amber==0; `own` = worst item); decision 13 (gone nodes stay red 10 min); Patterns/src/Patterns.Core/Services/ShowContext.cs:186-188 (context items are the Eye's own nodes)."
+   },
+   {
+    "severity": "medium",
+    "issue": "Appending `preflight:network` to Stagewatch's own context items breaks one hop, which decision 12 itself defends. ShowContext sets Stagewatch's `light` to the worst of its items, and the headline adds the first red or amber item's 'label: state'. Any peer's amber or red, for example PlayMap blacked out by Patterns, then turns Stagewatch amber and rewrites Stagewatch's headline as 'Ready for doors: not ready: PlayMap \u2026'. Patterns' Eye, PlayMap and AGMessage's stage view would show Stagewatch as faulted because of another node.",
+    "fix": "Keep the verdict off Stagewatch's own `items` and light. Either serve it only on /api/preflight, the operator frame, Companion and the desk, or add it as a context item whose light never feeds Stagewatch's own light or headline. That needs a \u00a76 rule, so it is a spec change for spec-1-3 to carry.",
+    "evidence": "Stagewatch/src/Timer.Show/ShowContext.cs:105 (`light = Light.Worst(items\u2026)`), :115-116 (the headline takes the first red or amber item); Stagewatch/src/Timer.App/ViewModels/MainViewModel.ShowBus.cs:68-69 ('One hop'); design decision 12 and \u00a72.7 'appended to items'."
+   },
+   {
+    "severity": "medium",
+    "issue": "Fail-safe gap: the show thread builds the preflight once a second (RefreshShowBus) and the web thread serves the cached copy. While the show thread is stuck, /api/preflight and the context item keep answering a confident, stale 'ready:true'. Companion's network_ready keeps its last 'yes'. That goes against 'a screen never shows a confident stale time' and 'silence is never fine'.",
+    "fix": "While Snapshots.ProducerStuck holds, or when the cache's `at` is older than 3 s, /api/preflight answers 503 or `ready:false` with words 'the show thread is stuck'. The module sets network_ready to 'unknown' when stuck or disconnected, as state.ts already does for `state`. Add a WebV2 test with a stuck SnapshotHub.",
+    "evidence": "Stagewatch/src/Timer.Core/ShowState.cs:216-226 (ProducerStuck); WebServer.cs:1264-1270 (frames stop when stuck, but cached JSON routes keep answering); companion-module/src/state.ts:346 (unknown/offline when not connected); design \u00a74 'RefreshShowBus (once a second) \u2026 keeps _preflightJson'."
+   },
+   {
+    "severity": "medium",
+    "issue": "HeadlessDesk.Boot cannot both carry 'no test knobs' and leave TestApp's knobs where they are. TestApp sets `vm.PollLanes.BudgetMs = 10_000` after the view model is created and before the window is made, shown and given its first RunJobs. If HeadlessDesk does services \u2192 vm \u2192 window \u2192 Show \u2192 RunJobs in one call, the first poll runs with the desk's real budget. The comment says tests read the Install page or the machine's lines 'after one poll', so App.Tests could start to flake.",
+    "fix": "Give HeadlessDesk.Boot an `Action<MainViewModel>? beforeWindow` hook, or split it into Create (services + vm) and Show (window, attach, show, RunJobs), and say in Patterns' PLAN that this is the seam. Have the lifecycle lane prove the census is unchanged before and after the refactor.",
+    "evidence": "Patterns/tests/Patterns.App.Tests/TestApp.cs:155-165 (BudgetMs set between `new MainViewModel` and `new MainWindow`/Show/RunJobs, with the comment 'a test reads the Install page \u2026 after one poll')."
+   },
+   {
+    "severity": "medium",
+    "issue": "Unit dependencies are wrong in three places. (1) SW-G49b declares no dependency, but its rig part and preflight.e2e ('one scripted peer posting with a node key \u2026 amber at 6 s, red at 12 s (heard)') need a hello table in the rig (spec-1-3 S2), peer contexts and node keys (SW-5). Today the rig has none of these. (2) SW-G49a changes PeerContexts.Accept's signature, Entry.Recent's type, the desk journal rows at Desk.cs:108/124/139 and PeerFacts. cross-app-proposals unit 3 moves exactly those into DeskService, and the design names no order between the two. (3) Both this design and cross-app-proposals call their operator-frame field (`network`, `desk`) 'the last field'.",
+    "fix": "Make SW-G49b depend on spec-1-3 S2 and SW-5 for the rig and e2e parts, or ship it app-only first with pure tests. Order SW-G49a after cross-app-proposals unit 3 and write its rows in DeskService. State the frame field order: `desk` first, `network` after. Keep `Entry.Recent` and add `RecentLines` beside it to limit churn for other readers.",
+    "evidence": "Stagewatch/tools/Stagewatch.Rig/Program.cs:296-301 (no peers, no journal); ShowState.cs:503 (no ApiKeys); design/cross-app-proposals.md:140-147, 432-488 (DeskService owns PeerContexts; Desk.cs rewritten; PeerFacts reads the service; the operator frame's `desk` at the end)."
+   },
+   {
+    "severity": "medium",
+    "issue": "The design edits SHOWBUS.md \u00a76 and \u00a78 in Stagewatch's master but not the copies. The master says 'A copy of this file lives in each repository; this one is the master', and copies exist in Patterns, Mapper and AGMessage. The design's own S7.2 row (showbus-copies.sh: every body hash equals the master's) would go red. Updating the copies needs a Patterns round and Mapper's owner papers lane (round-3 \u00a74 gives SHOWBUS.md to no package), and neither is listed. A \u00a76 rule change ('put nothing in recent the desk's readers may not see') should also ride a version change.",
+    "fix": "Put the two sentences in spec-1-3's version change (1.3) and its copy chain, not as a separate edit. Otherwise list the three copy updates as units (a Patterns round, Mapper's owner papers lane, AGMessage) and order S7.2 after them. Also audit what each app puts in `recent` today before those lines land in a client report.",
+    "evidence": "Stagewatch/docs/SHOWBUS.md:6 ('A copy of this file lives in each repository; this one is the master'); copies at Patterns/docs/SHOWBUS.md, Mapper/docs/SHOWBUS.md, AGMessage/docs/SHOWBUS.md; design \u00a72.9 changes only the master; \u00a73 S7.2."
+   },
+   {
+    "severity": "medium",
+    "issue": "CI security: the sibling checkouts use `token: secrets.SIBLINGS_READ_TOKEN` with actions/checkout's default persist-credentials:true, so the token is written into Patterns/.git/config, Mapper/.git/config and AGMessage/.git/config. The job then runs third-party npm install scripts (`npm ci` for AGMessage) and three repositories' MSBuild targets, any of which can read it. The secret sweep never looks at .git/config. On fork PRs github.token cannot read private siblings and SW_INTEROP_REQUIRED=1 makes that a failure, not 'not run'.",
+    "fix": "Set `persist-credentials: false` on every sibling checkout. Run `npm ci --ignore-scripts` where AGMessage allows it. Guard the job with `if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'` and report the skip in the summary.",
+    "evidence": "design \u00a72.10 YAML (sibling checkouts with the token, then `npm ci` and `dotnet build` of the siblings); Stagewatch/.github/workflows/ci.yml:13-14 (permissions contents: read only)."
+   },
+   {
+    "severity": "medium",
+    "issue": "Bench defaults are destructive on the shared cloud bench. By default the lane builds Release in the siblings' working trees: restore rewrites obj/project.assets.json, which every configuration shares. It also runs `npm ci --prefix <AGMessage>/app`, and npm ci deletes node_modules first. AGMessage writes uploads/ into its own app folder whatever AGM_DATA_DIR says. Another session building or testing a sibling at the same time, which is the normal state in this multi-session workflow, breaks. Each sibling's 'one build at a time' rule is broken by default, and only an opt-in (SW_INTEROP_PINNED) avoids it.",
+    "fix": "Default to isolated trees: `git worktree add` or a shared clone under SW_INTEROP_OUT, or build with `--artifacts-path` into the lane's own folder and run AGMessage from a copy. Make working trees the opt-in (`SW_INTEROP_LIVE=1`). Do not use `npm ci` on a tree the lane does not own.",
+    "evidence": "AGMessage/app/server.js:45,51 (UPLOAD_DIR = path.join(__dirname,'uploads'), mkdirSync); Patterns/CLAUDE.md and Mapper/CLAUDE.md ('One dotnet build at a time' in a tree); design \u00a74 tools/interop/build.sh and decision 3."
+   },
+   {
+    "severity": "medium",
+    "issue": "The flock covers only this lane, but UDP 9928 is shared by the whole machine. On the shared bench, other sessions' suites also say hello on 9928: Patterns App.Tests boot desks with control enabled, which opens the hello sender and listener, and Mapper's and AGMessage's tests run too. The lane's apps will hear transient foreign nodes, and the preflight's expected set ('seen in the last 10 minutes') will count them, so S8.1 and any row asserting peer sets become flaky. The lane's hellos also pollute other sessions' tests.",
+    "fix": "Run the whole lane in its own network namespace: `unshare -rn`, then `ip link add d0 type dummy; ip addr add 10.99.0.1/24 brd + dev d0; ip link set d0 up; ip link set lo up` (root inside the user namespace). That gives broadcast without touching the host's 9928, makes the bench and CI the same, makes the flock unnecessary and gives S1b nearly free. Rows assert 'contains', never exact sets.",
+    "evidence": "Patterns/src/Patterns.Devices/BeaconService.cs:104-114 (the hello opens with Control.Enabled), :132-150 (listener on 9928); lane-probe/udp4.cjs + loup.py (unshare -rn works unprivileged on this bench); a probe in critique-lane/mix.py showed 127.0.0.1 hellos land on whichever SO_REUSEPORT socket the hash picks, and a node REUSEADDR-only socket got none."
+   },
+   {
+    "severity": "low",
+    "issue": "Fault timing contradicts decision 7 and has a race. Stuck is declared 3 s after the last MarkAlive, and the WS loop checks only after a \u22642 s heartbeat wait, so the stuck beat arrives 3\u20135 s after the stall starts. rig-faults.e2e's `fault stall 4` can end before or exactly at the second check: if the last publish coincides with the stall's start, the check at t0+4 races the stall's end. S6.2's '5 s' deadline for PlayMap '?' and its 4 s recovery are hand-picked. Decision 7's formula gives (3+2)\u00d71.5+2 = 9.5 s, which is longer than the 8 s stall.",
+    "fix": "Derive the stall length and deadlines from StuckAfter and HeartbeatEvery: stall \u2265 StuckAfter + 2\u00d7HeartbeatEvery + margin (e.g. 12 s), deadline 9.5 s. Have the rig report the stall's actual start and end in its control answer so rows measure from those.",
+    "evidence": "Stagewatch/src/Timer.Core/ShowState.cs:216 (StuckAfter 3 s); WebServer.cs:1264-1270, 1283-1286 (wait up to HeartbeatEvery, 2 s, before rechecking); design \u00a74 rig-faults ('fault stall 4 \u2026 within 5 s') and \u00a73 S6.2 (5 s / 11 s / 4 s)."
+   },
+   {
+    "severity": "low",
+    "issue": "Decision 8 says no secret is ever in argv, but the rig takes the PIN only as `--pin <value>`, as rig.cjs does today. The new ready line's `\"pin\":\"set\"` assumes --pin was given, so the PIN appears in `ps` for the whole run.",
+    "fix": "Add `--pin-file <file>` (0600) to the rig and use it in the lane, while e2e keeps its constant. Have the ready line say `\"pin\":\"set\"|\"none\"`, where an empty --pin means none.",
+    "evidence": "Stagewatch/tools/Stagewatch.Rig/Program.cs:36,120 (PIN from argv); tests/e2e/rig.cjs:41; design decision 8 and \u00a72.1."
+   },
+   {
+    "severity": "low",
+    "issue": "The bench's `propose look` is not 'the assistant's own call'. It calls Approvals.Add with a bench lambda that runs `LOOK SAVE` through CommandRouter. The real path is AssistantPage.ApplyProposal \u2192 Approvals.Add(\u2026 () => ApplyHere(chip,p)), which opens EDIT SAFE so a drawing proposal lands in the preview, never on air. S3.3's 'looks has Keynote blue' would show the bench's own effect, not the product's, and would miss the One-air doctrine.",
+    "fix": "Have BenchControl build an AssistantProposal (Looks) and call the view model's AssistantPage.ApplyProposal(chip). Assert that the look lands with EDIT SAFE open and the programme unchanged (STATE air vs preview).",
+    "evidence": "Patterns/src/Patterns.App/ViewModels/AssistantPage.cs:379-413 (ApplyProposal / ApplyHere opens the sandbox); design \u00a72.2 ('apply = the wire line LOOK SAVE')."
+   },
+   {
+    "severity": "low",
+    "issue": "The Desk rows the design lists (Desk.cs:108, 124, 139) miss the rejection path. OnSharedProposal's Rejected case writes no journal row, and a Companion or deck `desk reject` would not go through DiscardProposal's 'Copilot proposal discarded' note. So S3.7's rejection and 'reported in one place \u2026 with their outcomes' (S3.8) cannot both hold.",
+    "fix": "Write a Desk row in the Rejected case (who rejected it and why), and list it with the other three.",
+    "evidence": "Stagewatch/src/Timer.App/ViewModels/MainViewModel.Desk.cs:127-129 (Rejected: state only, no _journal.Add); MainViewModel.Copilot.cs:184-191."
+   },
+   {
+    "severity": "low",
+    "issue": "network.csv is specified to format 'as /api/report.csv writes them', but report.csv formats times with `ToString(\"yyyy-MM-dd HH:mm:ss\")` and no culture. That breaks Stagewatch's culture-invariant rule, for example under a Buddhist-calendar culture. The new route would copy the defect.",
+    "fix": "Format with CultureInfo.InvariantCulture in NetworkCsv, fix ToCsv beside it, and add a test under a th-TH culture.",
+    "evidence": "Stagewatch/src/Timer.Core/Journal.cs:214 (`clock.ToShow(u).ToString(\"yyyy-MM-dd HH:mm:ss\")`); Stagewatch/CLAUDE.md 'Culture-invariant parsing and formatting'."
+   },
+   {
+    "severity": "low",
+    "issue": "The 'one report that names every app' has holes the design does not state. (1) Patterns' context, when Stagewatch pulls it through PatternsLink rather than Patterns posting it, never goes through Accept, so its lines are never journalled. (2) Only the last 20 lines per 5 s post are seen, and anything beyond is dropped without notice. (3) The seen set's eviction is undefined ('32 nodes \u00d7 64 keys, survives the 30 s expiry'): either a 33rd node is never journalled, or an evicted node re-journals 20 old lines. (4) Lines without `at` are deduplicated on text alone, so a repeated 'GO' is lost.",
+    "fix": "Journal fresh lines from both sources: posted, and pulled via the link. Say in the report and the CSV header that peer lines are a sample and the node's own journal is the record. Specify LRU eviction keyed by node with a per-node high-water `at`. Count dropped lines in the network section.",
+    "evidence": "Stagewatch/src/Timer.App/ViewModels/MainViewModel.ShowBus.cs:77-78,126 (PatternsLink context parsed separately); Stagewatch/src/Timer.Core/ShowBus.cs:96 (TakeLast(20)); design \u00a72.8."
+   },
+   {
+    "severity": "low",
+    "issue": "Some claims about existing behaviour are wrong in detail. PlayMap's blackout is in STATE at `air.blackout` (EffectiveBlackout) and `air.patternsBlackout`, not at a top-level `blackout`. PlayMap's AUTH-PROOF keys the HMAC with the normalised token. Rows written to the design's paths would read nothing.",
+    "fix": "Use `air.blackout` / `air.patternsBlackout` in S4.5, compute the proof as Pairing.Proof does (Normalise(token)), or generate tokens already in canonical form.",
+    "evidence": "Mapper/src/PlayMap.Engine/StateWriter.cs:86-88,103-104; Mapper/src/PlayMap.Core/Bus/Pairing.cs:53-58."
+   },
+   {
+    "severity": "low",
+    "issue": "Over-building and perturbation. The CI job sets DISPLAY=:99 with Mesa for every app, which switches PlayMap from NullBackends to an llvmpipe GL context (shader compile, CPU load) before any row needs drawing (S5.2 is SW-R6). It installs Playwright and Chromium for a lane with no browser row until S5. G49's preflight ships with eight check kinds, a context item, a frame field, Companion variables and feedback, a producer chip, AI facts and WPF work, although no lane row reads it before SW-R5.",
+    "fix": "Leave DISPLAY unset for PlayMap and Playwright out until SW-R6. Ship the first preflight as /api/preflight + the desk + Companion, and add the other readers when a row or an operator needs them.",
+    "evidence": "Mapper/src/PlayMap.Engine/Rendering/RenderHost.cs:91-98 (no GL means NullBackends); design \u00a72.10 (Xvfb, Mesa, Playwright in the interop job); units SW-G49b vs SW-R5."
+   },
+   {
+    "severity": "low",
+    "issue": "Patterns process detail: CLAUDE.md names the evidence classes (the maintainer's list, a handed-in critique, a verbal report from the rig, the show laptop's files, web research), and 'a handed-in design' is not among them.",
+    "fix": "Name it as the maintainer's list (the ask came from the maintainer) or a handed-in critique, and quote the ask in PLAN \u00a7NN's first lines.",
+    "evidence": "Patterns/CLAUDE.md 'How a round opens' step 3."
+   }
+  ],
+  "missing": [
+   "The shared-loopback lockout coupling. Nothing in the lane observes Stagewatch auth failures, and the 'today' rows configure keys before the rig knows any.",
+   "Run-time isolation of UDP 9928 and fixed ports on the shared bench (a per-run network namespace with a dummy broadcast interface) and cleanup of orphaned app processes from a crashed driver. The rig should also exit on stdin EOF when --control stdin is given, like the bench.",
+   "A complete secret-sweep exemption and redaction list: Patterns' settings .bak, backups/ and recovery record; the rig's --state file and ready-line window paths; the PIN-scoped `path` in /api/windows; contextToken in AGMessage's admin:settings.",
+   "G15's key-binding fix as a dependency of Peer journal rows, and attribution of each row to the key or address that posted it.",
+   "Propagating the SHOWBUS \u00a76 and \u00a78 text to the Patterns, Mapper and AGMessage copies (Patterns round, Mapper owner's papers lane, AGMessage), with a spec version, and an audit of what each app puts in `recent` before it reaches a client report.",
+   "Fail-safe preflight semantics when the show thread is stuck or the Companion link is down (503 or ready:false; network_ready 'unknown').",
+   "Operator actions for the preflight (forget a gone node, accept a known amber) on the desk, its right-click and Companion, journalled as Desk rows; without them the verdict stays red or amber.",
+   "A Desk journal row for rejected shared proposals.",
+   "An explicit order and file split between SW-G49a and cross-app-proposals unit 3 (DeskService), and the field order of `desk` and `network` at the end of the operator frame.",
+   "A HeadlessDesk seam that keeps TestApp's between-vm-and-window knob (PollLanes.BudgetMs).",
+   "CI hardening: persist-credentials:false on sibling checkouts, --ignore-scripts where possible, and fork-PR gating reported as not run.",
+   "A statement that G44's first untested bullet (Stagewatch's existing PatternsLink against PlayMap's 9941 and real Patterns) is covered only after playout-links replaces PatternsLink, or a row that exercises today's link.",
+   "A measurement of the bench's and headless PlayMap's context items, to check that S8.1 (ready with everything up) can pass at all."
+  ]
+ }
+}

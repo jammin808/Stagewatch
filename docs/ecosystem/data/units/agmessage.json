@@ -1,0 +1,503 @@
+{
+ "area": "agmessage",
+ "revised": {
+  "area": "agmessage",
+  "summary": "The operator gets an AGMessage that works with Stagewatch's show desk, says honestly how its link stands, and needs no Stagewatch release to do it.\n\nWhat AGMessage gains:\n- **The stage proposal parses.** The research team's stage-message proposal is now `message \"<text>\" <urgency> off ack`, built by one pure function. The desk rates it review instead of high, and the risk Stagewatch stored shows on the message.\n- **Each approved line runs at most once, and its result arrives.** AGMessage records each run on disk before running it. It refuses to run if that record does not land. Each run is keyed by the desk's id, the proposal id and its `created` time, because today's ids restart at p1 with every Stagewatch run. AGMessage reports the result until the desk takes it, or for 30 minutes on a 3\u219230 s backoff. Before each retry it reads the proposal back and posts only onto the one it ran.\n- **A lost collect reply is recovered.** AGMessage reads the desk's queue (`GET /api/proposals`), which every Stagewatch already serves. Stagewatch needs no re-offer word, governor or journal flood.\n- **The desk's proposals are read as Stagewatch sends them**, with `ok` and `words` at the top level.\n- **Every node is heard.** AGMessage hears PlayMap and any other kind of node, names PlayMap, and keeps at most 128 peers, as Stagewatch does.\n- **The AI brief and the admin page show what needs attention.** They show Stagewatch's red and amber items and every window, with a mark beside each colour and \"+N more\" where the list is cut.\n- **The admin can propose any line Stagewatch lists.** The admin logs in only on the host laptop. Window actions come from Stagewatch's own rows: today hold, show and revoke; release once Stagewatch lists it. Lines are fenced for keys, tokens and window addresses. One `?from=` request per tick follows them all, and they are persisted across restarts.\n\nWhat the link gains:\n- **A key only.** AGMessage takes only a Stagewatch `swk_` key, as Show Bus \u00a77 says.\n- **`connected` and the TLS pin come from evidence, never a race.** Which evidence counts is set by the first message on the socket:\n  - Stagewatch's verdict, when the first message is `auth`; the latest verdict always wins;\n  - on today's Stagewatch, a `/api/context` 200 that carries Stagewatch's `X-RateLimit-Limit` header, which it sends only when a key matched.\n- **One door for refusals.** Any 401 on any keyed call refuses the link in one place. Nothing keyed leaves AGMessage during the 60 s hold, so it never feeds Stagewatch's 5-a-minute lockout. The hold survives a restart, and the admin has \"Link again now\".\n- **The board keeps its public timer** while the key is refused.\n- **One row per install.** Each install dials with its own node id, so two AGMessages are two rows on Stagewatch. Stagewatch's \"disconnect\" holds the redial for 30 s.\n\nWhat else changes:\n- **Stagewatch** gets papers only: words for \u00a711 and NODES.md through spec-1-3's single master edit. It also gets four new interop rows plus a reworded S6.5 in the ecosystem lane, which CI runs with AGMessage pinned.\n- **Patterns and PlayMap** are unchanged. AGMessage will not read Patterns' context, and its false claim that Patterns' Eye reads AGMessage's context is corrected.\n\nFull design: /home/user/Stagewatch/docs/ecosystem/agmessage.md",
+  "decisions": [
+   {
+    "decision": "The stage proposal line is `message \"<text>\" <info|warn|crit> off ack`, built by a pure exported `proposeStageLine(text, urgency)` in `app/lib/nodes.js`. It collapses whitespace, turns `\"` into `'`, cuts the text at 300 and turns an unknown urgency into `info`. The risk the desk stored (the 201 reply) is kept on the message and shown while it is pending.",
+    "why": "Stagewatch reads the third argument as the flash rate (`Stagewatch/src/Timer.Core/ShowState.cs:750-756`), and `ack` there throws (`:1187-1193`). The desk rates desk-bound lines from its own parse (`MainViewModel.Desk.cs:75-79`, `:149-155`). The direct path already sends `off` (`AGMessage/app/lib/nodes.js:374`).",
+    "alternatives": "Make Stagewatch accept `ack` in the flash slot: rejected, because an unknown word stays refused."
+   },
+   {
+    "decision": "`readProposal` reads top-level `ok` and `words` first, then a string `result`, then an object `result`. It keeps `risk`, `created` and, when present, `collected`. One shared fake Stagewatch (`app/test/fake-stagewatch.js`) speaks `ToJson`'s exact shape for every test file. \u00a711's shape goes into the master through spec-1-3 S1.",
+    "why": "`SharedProposal.ToJson` sends `result` as a string, with `ok` and `words` at the top level (`Approvals.cs:20-31`; `REMOTE.md:250`). AGMessage reads `ok` only from an object (`nodes.js:169`, `:175`). Its fakes asserted a shape the desk never sends (`tls.test.js:83-84`, `:105`; `server.test.js:312`).",
+    "alternatives": "Change Stagewatch to send an object `result`: rejected, because REMOTE 2.16 documents the top-level shape."
+   },
+   {
+    "decision": "Results owed to the desk live in a pure `DeskRuns` table (new `app/lib/desk.js`), keyed `<desk node id>/<proposal id>@<created>` and persisted to `data/desk-runs.json` through its own WriteLane.\n- **Write-ahead.** A run is recorded `running` and flushed before it runs. The flush counts only if the lane's `writes` went up and `lastError` is null; otherwise the line is not run and the result is failed with words.\n- **Reports.** The first report goes at once. Retries follow 3/6/12/24/30 s, at most 10 per tick, each preceded by `GET /api/proposals/<id>` and posted only if `created` and `target` match and the state is approved or undelivered.\n- **Outcomes.** 2xx is delivered. 409, 404 and 400 are settled. 401 is the link's refusal and 429 the link's wait; neither counts as an attempt. 403, no answer, 408 and 5xx retry.\n- **Bounds.** A result expires 30 min after its run. Tombstones are kept 30 min (\u2264200) and persisted. At 50 owed results, intake stops: no collect and no recovery.\n- **Changes of desk or process.** Results owed to a desk whose id changed are settled with an event. After a restart, `running` entries are reported failed and never re-run.",
+    "why": "Stagewatch hands each approved proposal out once (`Approvals.cs:135-146`) and marks it undelivered after 5 min (`:185-187`). It takes a late report for a claimed one (`:155`). Its ids come from an in-memory counter that restarts every run (`Approvals.cs:51-52`, `:101`; `MainViewModel.Desk.cs:15-23`), and `Result` accepts any approved proposal (`:153-157`). So a bare id could post an old result onto a new proposal. `WriteLane.flushSync` reports success on a failed write (`resilience.js:136-140`). AGMessage reports only what the current collect returns, and only from memory (`server.js:1059`, `:1097-1101`). No measurement this round; deterministic tests fence the schedule.",
+    "alternatives": "Retry only on the next collect (it never comes again). Keep runs in memory (lost on a watchdog restart). Key by bare id (posts onto another proposal after a desk restart). Drop entries past 50 (breaks at-most-once)."
+   },
+   {
+    "decision": "A lost collect reply is recovered by AGMessage, which reads the desk's existing queue, `GET /api/proposals` (read scope). The read happens after a collect that got no answer (0, timeout or reset, 408, 5xx, or an unreadable 200), and on the first desk tick after each verified link. AGMessage runs each proposal that is approved, targets AGMessage, is in no run or tombstone, and that this tick's collect didn't return. When cross-app SW-2's `collected` field is present, it runs only collected ones. Stagewatch gets no `redeliver` word.",
+    "why": "The queue Stagewatch already serves (`MainViewModel.Desk.cs:38-39`; `WebServer.cs:604-605`) answers the question. A re-offer rule would add a wire word, a 10 s gate with no measured cause (against Stagewatch's \"Measured, then governed\", `Stagewatch/CLAUDE.md:40`), a journal row per re-offer and an interface change. Removing the cost beats governing it, and the read works against today's Stagewatch. Its size is bounded by the desk's own retention (`Approvals.cs:42`, `:192-194`) and is asked only on those two events.",
+    "alternatives": "`redeliver=1` with a 10 s gate (the first draft): rejected for the reasons above. `redeliver=1` on every collect with one journal row: still a new word and a Stagewatch release, for a case the list already shows."
+   },
+   {
+    "decision": "`parseHello` accepts a `t` of `[A-Za-z0-9_-]{1,16}` and an `id` of `[A-Za-z0-9_-]{1,40}`, which is Stagewatch's reader rule. `Discovery.heard(h, now)` refuses new ids once 128 peers are listed and reports that once a minute. It is built on spec-1-3 A1's hearing rule. PlayMap is labelled '\ud83c\udf9e PlayMap', and an unknown kind shows as its own word.",
+    "why": "The KINDS filter drops PlayMap's only hello, `t:playmap` (`nodes.js:33`, `:38`; `Mapper HelloService.cs:99-114`). Stagewatch hears any token kind and keeps at most 128 peers (`RemoteSlides.cs:132`, `:186`, `:195`). spec-1-3 decision 4 makes 128 the 1.3 reader rule.",
+    "alternatives": "Add 'playmap' to the allow-list (the next kind would be dropped again). A bound of 64 (the first draft): replaced by the ecosystem's own number."
+   },
+   {
+    "decision": "`readStageFacts(ctx)` follows spec-1-3's reader rules:\n- it reads \u2264256 items;\n- `attention` holds red then amber items, \u22646, plus a count of the rest;\n- `windows` holds `window:*` items, \u22648, plus a count of the rest;\n- `commands` holds \u2264256 rows; a verb over 512 characters is dropped, never cut; `words` keeps 200;\n- ids are capped at 80 and control characters stripped, and an item is never dropped for its id.\n\nThe AI brief and the admin page show the attention items and windows, with marks and colours.\n\nThe admin's 'Propose to Stagewatch's show desk' panel and each window's Propose\u2026 menu are built from the listed rows by `windowActions`: today show, hold and revoke, with release only where Stagewatch lists it. Lines are checked before they leave AGMessage:\n- 1 to 400 characters, refused, never cut;\n- no `swk_`, `agn_` or `sk-ant-` word, no stored AI key, context token or admin token, no `/w/`+26-character window address, no control character;\n- the leading words must match a listed form.\n\nThe risk shows as predicted before sending and as stored after. Research and admin proposals are followed with one `GET ?from=<nodeId>` per tick while any is open. Admin proposals are persisted (\u226420). A 403 from collect or propose is shown with Stagewatch's words.",
+    "why": "AGMessage uses only `headline`, `light` and `peers` (`context.js:112-115`; `server.js:860`). The headline names at most one item (`ShowContext.cs:116-117`). Today's rows have no `window release` (`ShowContext.cs:41-43`), though Stagewatch runs it (`ScreenWindows.cs:255-261`). Cue ids come from free-text names (`ShowContext.cs:92`). Today's desk silently cuts lines at 400 (`Approvals.cs:88`). One GET per followed proposal could reach the key's 600 a minute (`server.js:1090-1095`; `ApiKeys.cs:46`). A node key can't run window verbs (`ApiKeys.cs:85`). Admin login is host-only (`server.js:262-263`).",
+    "alternatives": "Poll `GET /api/windows` (more load, no fact the brief needs). Limit lines to 2048 (today's desk would cut a line silently). Give the research team a picker, or let the AI draft proposals (left; no ask from the room yet)."
+   },
+   {
+    "decision": "The link:\n- **A key only.** It takes only `swk_[A-Za-z0-9]{8,76}`. `admin:settings` refuses anything else and saves nothing; a legacy non-key value is not sent.\n- **The dial** is `/ws?node=<id>&t=messenger&cid=<id>&page=%2Fagmessage` with a Bearer header.\n- **The first message picks the evidence.**\n  - If it is `auth`, the socket's verdicts decide, and the latest wins. `ok:true` with `verified` key or operator gives `connected`, and the pin is confirmed. `verified:\"none\"` gives `connected` as 'unbound' or 'read', with words. `ok:false` is a refusal.\n  - Otherwise the frame is held, and a `GET /api/context` 200 with a \u00a76 body and `X-RateLimit-Limit` decides. A later `auth` overrides it.\n- **Scope** on that path comes from the first context post: a 403 sets 'read'.\n- **One door.** `_call` is the one door for keyed HTTP: a 401 is the refusal, a 429 waits for `Retry-After`, and nothing is sent while held.\n- **A refusal** is sticky `key refused`, with words to admins only. The hold is max(60 s, retry), persisted in `settings.stageHold`. The public frame keeps the board's timer. After the hold, AGMessage re-checks once.\n- **The admin** has 'Link again now'.\n- **No verdict** within 12 s closes the socket.\n- **Keyless** keeps today's trust-on-first-frame pin.\n- **The shared `stage` event** carries a status from a closed set.",
+    "why": "A non-swk_ value is checked as the PIN, and an open Stagewatch lets it in (`WebServer.cs:869-870`, `:1073-1074`). Show Bus \u00a77 says AGMessage uses a node key (`SHOWBUS.md:138-139`). Rate headers are sent only when a key matched (`WebServer.cs:1121-1127`). Every unknown key counts toward the 5-a-minute address lockout on HTTP and on /ws (`:1077-1082`, `:1157`). Today the desk tick, the context fetch and the reports would each send the dead key. A first-message rule removes the context-versus-verdict race without a timer. The sibling's binding conflict is `ok:true` with `verified:\"none\"`, which keeps frames (peers-not-screens decisions 4 and 6). `configure` does nothing on an unchanged re-save (`nodes.js:229`), and watchdog restarts could otherwise sum past the lockout (`resilience.js:30`).",
+    "alternatives": "Label 'PIN or open' from evidence: weaker; a non-key value can never prove itself. A grace timer before the context read: racy. Close the socket on a refusal (the first draft): the board would lose its timer. Never pin keyless links: a later key would go to whatever certificate first answers."
+   },
+   {
+    "decision": "One id per install: `node=<nodeId>` for a Stagewatch with peers-not-screens SW-3, and `cid=<nodeId>` (8 hex, a valid Screens id) for an older one. A `{type:'disconnect'}` frame holds the redial for 30 s, with words. `identify`, `redirect` and `reload` stay ignored.",
+    "why": "Every install dials `cid=agmessage` today (`nodes.js:317`), so two installs share one Screens row (`WebServer.cs:1195`, `:76-86`). AGMessage ignores disconnect and redials 0.5 s later. PlayMap already sends its node id and holds 30 s (`StagewatchLink.cs:59`, `:283-284`, `:404`).",
+    "alternatives": "A padded 'agmessage-<id>' cid: rejected, because the bare id matches PlayMap and the Show Bus id."
+   },
+   {
+    "decision": "Cadence and caps are spec-1-3's. Its decision 12 keeps the cap `proposals` and the 1 s ping, and its unit A1 (0.4.1) corrects the papers. This design withdraws its rename to `proposes` and changes neither.",
+    "why": "spec-1-3 owns the master's vocabulary and the hello hunks of `nodes.js`. Editing them here would duplicate A1.",
+    "alternatives": "Rename once the master lists it (the first draft): superseded by spec-1-3's decision to keep caps as sent."
+   },
+   {
+    "decision": "AGMessage does not read Patterns' context. Its admin text (`admin.html:136-137`) and comments (`server.js:298`, `context.js:3`) now say the truth: Stagewatch receives this context every 5 s; Patterns and PlayMap see it as one line in Stagewatch's peers; the `agn_` token is for a tool or AI that asks directly.",
+    "why": "Show Bus \u00a78's hub already brings Patterns' light and headline through Stagewatch's peers (`ShowContext.cs:138`). Patterns' HTTP context needs its control token, which is too strong for a messenger. No Patterns or Mapper code calls AGMessage's context.",
+    "alternatives": "Patterns reads peers' contexts with a typed token (Patterns' own round; left)."
+   }
+  ],
+  "wire": "AGMessage \u2192 Stagewatch. Every call carries `Authorization: Bearer swk_<node key>`; only `swk_` keys are ever sent. There is no new route, verb or field on Stagewatch.\n\n1. **Research proposal:** `POST /api/proposals`\n`{\"from\":{\"t\":\"messenger\",\"id\":\"ab12cd34\",\"name\":\"AGMessage\"},\"target\":{\"t\":\"main\"},\"line\":\"message \\\"Capex was '4.2m'\\\" warn off ack\",\"reason\":\"The research team in AGMessage suggests this for the speaker.\",\"risk\":\"review\"}`\n\u2192 `201 {\"ok\":true,\"id\":\"p17\",\"state\":\"pending\",\"risk\":\"review\"}`. The stored risk is kept on the message.\n\n2. **Admin proposal:** the same route, with `\"line\":\"window hold lobby\"`, `\"reason\":\"AGMessage's admin proposes this: <reason>\"`, and `\"risk\"` set to the risk of the matched listed row. It is sent only when all of these hold:\n- the line is 1-400 characters;\n- it has no `swk_`, `agn_` or `sk-ant-` word, no stored AI, context or admin token, no `/w/`+26-character window address, and no control character;\n- its leading words match a listed form.\n\nOtherwise nothing is sent.\n\n3. **Follow:** `GET /api/proposals?from=<nodeId>`, once per 3 s tick, only while a research or admin proposal is open. Proposals are matched by id and line. An id missing from a 200 reply ends as `undelivered` with words.\n\n4. **Collect:** `GET /api/proposals?target=<nodeId>&state=approved`, unchanged. It is skipped while 50 results are owed.\n\n5. **Recovery:** `GET /api/proposals` (read, the whole queue). It is sent only after a collect with no answer (0, timeout or reset, 408, 5xx, or an unreadable 200), and on the first tick after each verified link. AGMessage runs a proposal from it only if all of these hold:\n- the proposal is `approved`;\n- its `target.id` is this AGMessage;\n- its key `<desk node.id>/<id>@<created>` is in no run or tombstone;\n- this tick's collect did not return it;\n- when `collected` is present (cross-app SW-2), it is non-null.\n\n6. **Read-back before every retry:** `GET /api/proposals/<id>`. AGMessage posts only when `created` and `target.id` match and the state is `approved` or `undelivered`. Otherwise the result is settled with words.\n\n7. **Result:** `POST /api/proposals/<id>/result {\"ok\":bool,\"words\":\"\u2264300\"}`. The body is unchanged.\n- 2xx: delivered.\n- 409, 404, 400: settled.\n- 401: the link refusal; the attempt doesn't count.\n- 429: the link waits `Retry-After`; the attempt doesn't count.\n- 403, 0, 408, 5xx: retried on a 3/6/12/24/30 s backoff, at most 10 per tick.\n- The result expires 30 min after the run.\n\nRequest budget: at most about 270 a minute per key, of 600.\n\n8. **WebSocket:** `GET /ws?node=<nodeId>&t=messenger&cid=<nodeId>&page=%2Fagmessage` (was `?cid=agmessage&page=%2Fagmessage`).\n\n**If the first message is `auth`,** the socket path decides, and the latest verdict wins:\n- `{\"type\":\"auth\",\"ok\":true,\"scope\":\"node|control|read|mcp|pin\",\"node\":{\"t\":\"messenger\",\"id\":\"\u2026\",\"verified\":\"key|operator|none\"}[,\"words\":\"\u2026\"]}`\n  - `verified` key or operator: `connected`, and the pin is confirmed.\n  - `verified` none: `connected` as `unbound` or `read`, with the words; the pin is confirmed.\n- `{\"type\":\"auth\",\"ok\":false,\"error\":\"\u2026\",\"retry\":60}` or `{\"type\":\"auth\",\"ok\":false,\"view\":true,\"error\":\"\u2026\"}`: refused.\n- `{\"type\":\"disconnect\"}`: the redial is held 30 s.\n\n**If anything else comes first,** the HTTP path decides. The frame is held, and AGMessage sends `GET /api/context` with the key.\n- A 200 with a \u00a76 body and an `X-RateLimit-Limit` header: `connected`, and the pin is confirmed.\n- A 401: refused.\n- Anything else: stays `connecting` with words, asked again every 5 s. The socket closes at 12 s.\n- A later `auth` overrides the HTTP verdict.\n\n**Scope on the HTTP path:** the first `POST /api/peers/context` reply. A 403 sets `read` with Stagewatch's words. A `verified` field is read when present.\n\n**Refusal:**\n- the status becomes `key refused`;\n- `heldUntil` = now + max(60 s, retry), persisted as `settings.stageHold {until, base}`;\n- no keyed HTTP is sent while held (one door: `_call`);\n- the public frame keeps the board's timer;\n- after the hold, one re-check: a `/api/context` read on the HTTP path with the socket open, otherwise a redial.\n\n**Keyless:** the first frame gives `connected` and the trust-on-first-frame pin, both unchanged.\n\n9. **Hello:** unchanged by this design. spec-1-3 A1 owns `proto` and caps.\n\nStagewatch \u2192 AGMessage (read):\n\n10. **Proposal JSON** (`ToJson`):\n`{\"id\",\"from\":{t,id,name},\"target\":{t,id,name},\"line\",\"reason\",\"risk\",\"state\",\"created\":ms,\"decided\",\"decidedBy\",\"result\":\"<words>\",\"ok\":true|false|null,\"words\":\"<words>\"[,\"collected\":ms|null,\"form\"]}`\nAGMessage reads `ok` and `words` first, then `created` and `collected`.\n\n11. **Hellos:** any `t` of `[A-Za-z0-9_-]{1,16}` with an `id` of `[A-Za-z0-9_-]{1,40}`. At most 128 peers are kept.\n\n12. **`GET /api/context`:** AGMessage now reads `items` (\u2264256) and `commands` (\u2264256; a verb over 512 characters is dropped, never cut; `words` keeps 200).\n\nStagewatch: nothing new on the wire. \u00a711 words go to spec-1-3 S1:\n- the proposal JSON shape;\n- `undelivered` also covers \"collected but no result in 5 min\";\n- targets retry results until taken;\n- a target recovers a lost collect reply by reading `GET /api/proposals`, keeping its runs across restarts;\n- ids pair with `created` (unique only within a desk run until cross-app SW-2's run tag).\n\nAGMessage's own surfaces (Socket.io and HTTP):\n- **`admin:settings` patch:** `stagewatchKey` must match `swk_[A-Za-z0-9]{8,76}` or be empty. Otherwise the reply is `{ok:false,error:\"AGMessage takes a Stagewatch node key (swk_\u2026)\u2026\"}` and nothing is saved.\n- **`admin:settings` reply:**\n  - `stageContext` gains `attention[]` and `windows[]` (each `{id,label,light,state}`), `commands[]` (`{verb,risk,words}`), `windowActions[]`, `moreAttention` and `moreWindows`;\n  - new `link:{auth:\"key\"|\"operator\"|\"unbound\"|\"read\"|\"refused\"|\"none\"|\"\", scope, words, heldUntil, evidence:\"ws\"|\"http\"|\"\"}`;\n  - new `deskProposals[]`.\n- **New pushes and handlers (admin only):**\n  - `admin:stageLink` (push): the link object above, on change;\n  - `admin:linkAgain`: `{}` \u2192 `{ok:true,status}`;\n  - `admin:deskPropose`: `{line,reason}` \u2192 `{ok:true,proposal:{id,state,risk,line}}` | `{ok:false,error}`;\n  - `admin:deskProposals` (push): `[{id,line,state,risk,by,words,at}]`, \u226420.\n- **`stage` event (everyone):** `status` from the closed set `connected|connecting|reconnecting|stale|key refused|certificate refused|off`, with no refusal words.\n- **`proposalUpdate` and the message `proposal`** gain `risk`.\n- **`GET /api/health` detail** (admin cookie or host laptop) gains `desk:{owed,oldestMs,nextInMs,collecting,lastError}` and `link:{auth,heldUntil}`.\n- **AGMessage's own `GET /api/context`** (`agn_` token or admin cookie), and the copy it posts to Stagewatch:\n  - item `desk:results` (kind link), only while true: amber \"N result(s) for Stagewatch not yet taken \u2014 retrying\", or red \"AGMessage has stopped taking approved lines: 50 results the show desk hasn't taken\"; with the headline part \"N desk result(s) owed\";\n  - item `desk:collect`, amber, with Stagewatch's 403 words;\n  - the `link:stagewatch` state: `key refused: <words>` (red), the `unbound`/`read` words (amber), or `viewing only \u2014 no key`;\n  - no countdowns.\n\nAuth is unchanged everywhere else. No secret is in any line, row, URL or frame.",
+  "changes": [
+   {
+    "repo": "AGMessage",
+    "file": "app/lib/nodes.js",
+    "change": "- **New pure exports:** `proposeStageLine` (the line with `off`), `linkUrl` (`node`/`t`/`cid`/`page`) and `isNodeKey`.\n- **`readProposal` (:166-178):** reads top-level `ok`/`words` first, then a string or object `result`; keeps `risk` and adds `created` and `collected`.\n- **`parseHello` (:37-52):** kind and id regexes; `KINDS` removed.\n- **`Discovery.heard(h, now)`:** applies spec-1-3 A1's rule and caps the table at `MAX_PEERS` 128.\n- **`StagewatchLink`:**\n  - options `nodeId`, `goneMs`, `holds` and `hold`; fields `auth`, `evidence`, `heldUntil`, `pendingView`, `firstSeen`; callback `onLink`;\n  - `configure` (:225-239): a non-key value is not sent, with words;\n  - `linkAgain()`;\n  - `_dial` (:316-335): the first message picks the socket or HTTP path; `auth` is handled at any time (latest wins); `state` frames are held until verified, keyless or refused; `disconnect` holds 30 s;\n  - `_verified`, `_refused` and `_wait`;\n  - `_retry` (:341-348) respects refusals and holds; `_watch` (:350-359) re-asks and closes at `goneMs`;\n  - `_call` (:284-287) is the one door: no I/O while held, a 401 refuses the link, a 429 waits;\n  - `fetchContext` (:387-398) is the HTTP verdict with the `X-RateLimit-Limit` check;\n  - `pushContext` returns `{ok,status,error,verified}` and sets `read` on a 403;\n  - new `followFrom`, `listAll` and `proposal`; `approvedFor` returns `{status,items}`; `reportResult` returns `{ok,status,error}`.\n- **Header comment:** updated, except spec-1-3 A1's lines."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/lib/tls.js",
+    "change": "`request` (:230-253) also resolves `headers`, so the link can read `X-RateLimit-Limit` and `Retry-After`."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/lib/desk.js (new)",
+    "change": "Pure; no `fs`.\n- `runKey(deskId, p)`.\n- `DeskRuns`:\n  - owed and tombstones keyed `<desk>/<id>@<created>`;\n  - `begin`, `finish`, `due(now, 10)`, `reported` (with a `link` outcome for 401/429), `settle`, `changeDesk`, `expire`, `full()` at 50, `stats`;\n  - `toJSON` holds owed, tombstones and `admin[]`;\n  - `restore` turns `running` into failed with words.\n- `reportOutcome`.\n- `retryDelay` (3/6/12/24/30 s).\n- `retryCheck(run, proposalRead)` \u2192 post or settled, with words.\n- `toRecover(list, nodeId, runs, collectedIds)`, honouring `collected`.\n- `fixedWords` and `matchListed` (the most specific form, higher risk on a tie).\n- `windowActions(commands)`.\n- `checkDeskLine`: 1-400 characters, refused not cut; the secret fence (`swk_`, `agn_`, `sk-ant-`, the stored AI, context and admin tokens, `/w/`+26, control characters); listed verbs."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/lib/context.js",
+    "change": "- **`readStageFacts(ctx)`**, by spec-1-3's reader rules:\n  - items \u2264256;\n  - `attention`: red then amber, \u22646, with `moreAttention`;\n  - `windows`: \u22648, with `moreWindows`;\n  - `commands`: \u2264256; a verb over 512 characters dropped; `words` cut at 200;\n  - label 80, state 160; ids capped and stripped, never a reason to drop an item.\n- **`showBrief` (:103-117):** attention and window lines with \"+N more\".\n- **`buildContext` (:25-100):** `desk:results` and `desk:collect` items while true; the headline part; the link verdict words; no countdowns.\n- **Header comment (:2-4)** per decision 10."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/server.js",
+    "change": "- **`stage:propose` (:699-713):** `proposeStageLine`; keeps `proposal.risk`.\n- **`admin:settings` (:841-863):** refuses a non-swk_ key and saves nothing; the reply gains `stageContext` from `readStageFacts`, `link` and `deskProposals`.\n- **New handlers** `admin:linkAgain` and `admin:deskPropose`, with the socket write limiter as at :692.\n- **`StagewatchLink` construction (:995-1011):** `nodeId` and `hold: settings.stageHold`; `onLink` persists the hold and pushes `admin:stageLink`; `onState` emits the closed-set status.\n- **The desk tick (:1034-1103), rebuilt:**\n  1. waits for the desk id from Stagewatch's context;\n  2. settles results owed to an older desk;\n  3. reports due results, each retry after `retryCheck`;\n  4. sends one `?from=` follow;\n  5. collects, unless full: a foreign `target.id` is skipped; otherwise begin \u2192 flush and check \u2192 `runApproved` \u2192 finish \u2192 save \u2192 report;\n  6. runs the recovery read when flagged;\n  7. expires old entries.\n- **Desk state** in `data/desk-runs.json` through `readJsonWithBak` and its own WriteLane (100 ms, mode 0600).\n- **Admin proposals** are persisted and followed.\n- **`healthFacts` (:119-132) and `currentContext` (:1106-1114)** gain desk stats.\n- **`shutdown` (:1208-1218) and the crash handler (:1225-1234)** flush the desk lane.\n- **Comment at :298** corrected; `VERSION` 0.5.0."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/public/admin.html",
+    "change": "Show network section (:113-137):\n- a facts block (the headline with its mark, needs attention, windows, each with \"+N more\");\n- a 'Propose to Stagewatch's show desk' panel: verb select, risk chip, line input with a window datalist, reason, a Propose button and the proposals list;\n- 'Link again now' beside Link;\n- the token text (:136-137) rewritten per decision 10."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/public/admin-plus.js",
+    "change": "- **Link words (:20-27):** from `link`, showing `key refused`, unbound/read words, viewing only, and the hold time.\n- **Facts lists** with \u2715/\u25b3/\u2713/\u25cb marks plus colour and \"+N more\".\n- **Peers (:71-72):** the PlayMap label and hint; an unknown kind shown raw.\n- **The propose panel** and each window's Propose\u2026 menu, both from `windowActions` (they only fill the panel); 'Stagewatch lists it as <risk>' before sending and the stored risk after; `admin:deskProposals` rendered.\n- **'Link again now'.**\n- **`renderHealth` (:53-66):** the owed and collecting lines."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/public/app.js",
+    "change": "- **`proposalLineText` (:181-193):** pending reads '\ud83d\udcdd Waiting for the show desk to approve (Stagewatch rates it <risk>)'; `undelivered` shows its words.\n- **`renderStage` (:296):** the chip is stale when the view is stale or the status is anything but `connected` or `key refused`; for `key refused` the title says 'viewing only'."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/public/styles.css",
+    "change": "`.fact-list` and `.risk-chip`: a mark and a word beside the colour, never colour alone."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/test/fake-stagewatch.js (new)",
+    "change": "Shared fake helpers used by the units, resilience, tls and server tests:\n- `context(res)`: a \u00a76 body with `X-RateLimit-Limit: 600`;\n- `proposal(p)`: `ToJson`'s exact shape;\n- `auth(ws, verdict)`: a socket verdict."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/test/units.test.js",
+    "change": "- `proposeStageLine` with a `Tokenize` port.\n- `readProposal` on `ToJson`'s shape, with `created`/`collected`, and on the old object shape.\n- `DeskRuns`: key, outcomes, backoff, at most 10 per tick, expiry, `retryCheck`, `changeDesk`, restore, tombstones, `full`.\n- The write-ahead check with a throwing writer.\n- `toRecover`.\n- `matchListed`, `checkDeskLine` and `windowActions` against today's 15 rows (no `release`), the \u00a76-notation rows and the 13 grouped rows; the secret fence; 401 characters refused; `nudge 1234` passes.\n- `readStageFacts` bounds; a 600-character verb dropped; `cue:front of house` kept.\n- `linkUrl` and `isNodeKey`.\n- The existing link test (:107-140) moved onto the shared fake."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/test/resilience.test.js",
+    "change": "- **Hellos (:173-180):** playmap and toaster heard; bad kinds and ids dropped; the 129th id refused.\n- **The brief:** attention and window lines.\n- **The link (:235-290) on the shared fake:**\n  - HTTP path: connecting until a context 200 with the header;\n  - no header: connecting with words;\n  - a 401: `key refused`, no keyed request during the hold, the view keeps flowing, one re-check after an injected 1 s hold;\n  - socket path: `auth ok verified key` first gives connected; `verified none` gives unbound; `ok:false` is sticky;\n  - a context 200, then `auth ok:false`: refused;\n  - a 429 with `Retry-After`;\n  - `disconnect`: one dial in 1.5 s;\n  - no context route: `goneMs` close;\n  - `linkAgain`;\n  - a saved hold respected;\n  - the dial URL.\n- **`buildContext`:** the desk items, with two builds 1 s apart equal."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/test/tls.test.js",
+    "change": "- `fakeDesk` (:91-118) on the shared fake.\n- :141 expects the line with `off`; :148 reads `reportResult(...).ok`.\n- The pin is not confirmed while `/api/context` is held 500 ms after a frame, and is confirmed after.\n- A 401 fake is never pinned.\n- A keyless link is pinned on its first frame, unchanged."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/test/server.test.js",
+    "change": "- **Both fakes** (:246-250, :305-317) answer a \u00a76 context with the header; :312 uses the `ToJson` shape and :336 the line with `off`.\n- **New cases:**\n  - result retry: a 503 twice, then taken, with a read-back GET before each retry and one notice;\n  - an owed result survives a restart;\n  - a lost collect reply recovered from `GET /api/proposals`, run once;\n  - a restarted desk: `p9`@c1 settled, `p9`@c2 run;\n  - 50 owed: no collect, and the red item;\n  - `admin:deskPropose`: accepted with the listed risk; refused for an unlisted verb, a key, or 401 characters;\n  - the admin proposal followed through one `?from=` GET per tick, and after a restart;\n  - `admin:settings` refuses '1234';\n  - `stageContext.windows`."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/test/browser-smoke.js",
+    "change": "The admin page with a linked fake shows the facts, the propose panel and 'Link again now', with no script or CSP error; screenshot `admin-desk.png`."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "docs/NODES.md, CHANGELOG.md, README.md, app/package.json, docs/SHOWBUS.md",
+    "change": "- **NODES rows:**\n  - :9 (every kind, PlayMap, 128);\n  - :10 (URL, the evidence paths, key-only, the one door, holds; spec-1-3 A1 owns the ping wording);\n  - :13 (items and windows read);\n  - :14 (the line with `off`; results keyed, retried, persisted; recovery read);\n  - a new row for the admin's proposals.\n- **CHANGELOG 0.5.0** with 'Tests: N (was M)'; README :17-21; `package.json` 0.5.0.\n- **SHOWBUS copy** follows the master if spec-1-3 S9 cuts again with \u00a711's words (byte-equal under its hash)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "docs/SHOWBUS.md (\u00a711, via spec-1-3 S1's single master edit), docs/NODES.md (via spec-1-3 S6), docs/WHATS_NEXT.md",
+    "change": "- **\u00a711:**\n  - the proposal JSON shape (top-level `ok`/`words`, plus `created`);\n  - `undelivered` also means 'collected, no result in 5 min';\n  - targets retry results until taken;\n  - a target recovers a lost collect reply from `GET /api/proposals`, keeping its runs across restarts;\n  - ids pair with `created` (unique only within a desk run until cross-app SW-2's run tag).\n- **NODES.md AGMessage section:** URL, evidence paths, key-only, results keyed and retried, recovery read.\n- **WHATS_NEXT:** Patterns and PlayMap could adopt persisted runs, result retries and the recovery read.\n- No code."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tests/interop (ecosystem lane; rows added with SW-R8's pin bump)",
+    "change": "- **S6.5 reworded** as 'AGMessage dies after a run and comes back': SIGKILL after the rig's proposal reads `done`, restart in the same data folder; for 10 s, no second notice and no second result.\n- **New rows:**\n  - S2.8: link verdict `auth key`, plus the peers `link:\"ws\"` row or one Screens row;\n  - S2.9: a lost window in `stageContext.attention` within 9.5 s;\n  - S3.9: the admin's `window hold lobby` reads high, then after approval `/api/windows` lobby shows `hold:true`;\n  - S7.4: a wrong key gives `key refused` and at most two counted attempts in 60 s.\n- Under the lane's rules: a row only when it can pass; 'not run' is never counted; CI's interop job runs it at AGMessage's pin with `SW_INTEROP_REQUIRED=1`."
+   }
+  ],
+  "tests": [
+   {
+    "repo": "AGMessage",
+    "where": "app/test/units.test.js: proposeStageLine plus a Tokenize port",
+    "proves": "The line tokenizes to message | text | warn | off | ack. Token 4 is `off` and token 5 is `ack`. A `\"` becomes `'`. An unknown urgency becomes `info` (G05)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/units.test.js: readProposal fixtures",
+    "proves": "`ToJson`'s exact shape gives `ok` true, false or null, `words`, `created` and `collected` for done, failed, pending and undelivered. The old object shape still reads (G17)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/units.test.js: DeskRuns, retryCheck, toRecover, the write-ahead check",
+    "proves": "- A new p9 with another `created` is not deduped.\n- 2xx is delivered; 409, 404 and 400 are settled; 401 and 429 are link outcomes that don't count; 403, 0, 408 and 5xx retry on 3/6/12/24/30 s, at most 10 per tick.\n- Expiry falls at exactly 30 min.\n- A `created` mismatch, a foreign target or a done state settles instead of posting.\n- A desk change settles with words.\n- A restored `running` entry is reported failed and never re-run.\n- Tombstones survive a restore.\n- Intake stops at 50.\n- With a throwing writer the line is not run.\n- `toRecover` honours `collected` and skips runs, tombstones and this tick's collected ids (G16)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/units.test.js: matchListed, checkDeskLine, windowActions, readStageFacts, linkUrl, isNodeKey",
+    "proves": "- Listed lines match with Stagewatch's risk across today's 15 rows, the \u00a76-notation rows and the 13 grouped rows.\n- Today's rows yield show, hold and revoke, and no `release`.\n- Unlisted verbs, 401 characters, `swk_`, `agn_` and `sk-ant-` words, the stored AI key, `/w/`+26 and control characters are refused with words; `nudge 1234` passes.\n- Facts are bounded, ordered red then amber, with 'more' counts.\n- A 600-character verb is dropped, not cut.\n- `cue:front of house` is kept.\n- The link URL carries `node`, `t` and `cid` and never a key.\n- A PIN is not a key (G19, G32)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/resilience.test.js: hellos and the brief",
+    "proves": "`playmap` and any token kind are heard. Malformed kinds and ids are dropped. The 129th id is refused. The brief lists Stagewatch's attention items and windows with '+N more' (G18, G19)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/resilience.test.js: link verdict and holds",
+    "proves": "- **HTTP path:** connecting until a key-matched context 200; with no header, connecting with words.\n- **A 401:** `key refused`; no keyed request reaches the fake during the hold; the public view keeps flowing; exactly one re-check after the hold.\n- **Socket path:** auth first decides; `verified none` gives unbound with words.\n- **Latest wins:** a context 200, then `auth ok:false`, gives refused.\n- **429:** nothing is sent for `Retry-After`.\n- **disconnect:** one dial in 1.5 s.\n- **No context route:** closed at `goneMs`.\n- **Holds:** `linkAgain` clears a hold; a saved hold delays the dial.\n- **The fake** sees `/ws?node=\u2026&t=messenger&cid=\u2026` (G43, G32)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/resilience.test.js: buildContext",
+    "proves": "`desk:results` appears while a result is owed (red when intake stops). `desk:collect` carries a 403's words. Two builds 1 s apart are equal, so the context isn't re-posted every second (G16, G19)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/tls.test.js",
+    "proves": "Over TLS, the pin is not confirmed on a frame before the verdict. It is confirmed after the key-matched context read, and never for a key that gets a 401. A keyless link is still pinned on its first frame. The fake desk speaks `ToJson`'s shape, and the proposed line has `off` (G43, G17, G05)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/server.test.js: show desk cases",
+    "proves": "With a real server and the shared fake:\n- results answered 503 twice are retried, each after a read-back GET, until taken with identical bodies, and one notice is shown;\n- an owed result survives a server restart;\n- a collect whose reply is dropped is recovered from `GET /api/proposals` and run once;\n- after a desk restart the old p9's result is settled, not posted, and the new p9 is run;\n- 50 owed results stop the collect;\n- admin proposals are sent with the listed risk, or refused locally with nothing sent;\n- admin proposals are followed with one `?from=` GET per tick, also after a restart;\n- `admin:settings` refuses a non-swk_ key;\n- `stageContext` carries `window:lobby` (G16, G19, G05, G43)."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/browser-smoke.js",
+    "proves": "The admin page's facts, propose panel and 'Link again now' render in headless Edge with no script or CSP error (G19)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests fixtures/peer-lines.json (cross-app-proposals SW-2, AGMessage's row)",
+    "proves": "AGMessage's documented line parses through `McpEndpoint.Tokenize` and `ShowCommandParser.TryParse` as Message warn/off/ack. The old line fails with 'flash must be off|slow|fast' (G05, Stagewatch half)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/interop (ecosystem lane): S2.8, S2.9, S3.9, S7.4, and S6.5 reworded",
+    "proves": "The real AGMessage against the rig:\n- connected on the verdict, with one row per install;\n- a lost window reaches AGMessage's admin facts within 9.5 s;\n- an admin window hold is rated high and holds the window after approval;\n- a wrong key is held to at most two counted attempts a minute;\n- a run survives AGMessage being killed and restarted without a second notice or result (G19, G32, G43, G16, G44 part)."
+   }
+  ],
+  "units": [
+   {
+    "repo": "AGMessage",
+    "title": "AG-1: The stage proposal line Stagewatch parses (message \"\u2026\" <urgency> off ack), and the risk it gave shown on the message",
+    "gaps": [
+     "G05"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-2: The desk's proposal read as Stagewatch sends it (top-level ok/words, created, collected); the shared fake Stagewatch in ToJson's shape with a key-matched \u00a76 context",
+    "gaps": [
+     "G17"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-4: Every token kind of node heard, PlayMap named, at most 128 peers",
+    "gaps": [
+     "G18"
+    ],
+    "dependsOn": [
+     "spec-1-3 A1 (same hello handler, AGMessage 0.4.1)"
+    ]
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-5: The link: key-only credential; node/t/cid; the evidence path set by the first message, latest verdict wins; one door for 401/429; refusal keeps the public timer; persisted hold; Link again now; disconnect held; closed-set status",
+    "gaps": [
+     "G43",
+     "G32"
+    ],
+    "dependsOn": [
+     "AG-2"
+    ]
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-3: Results keyed by desk, id and created; written before they run (checked); retried after a read-back until taken or 30 min; tombstones; intake stops at 50; recovery read for a lost collect reply",
+    "gaps": [
+     "G16"
+    ],
+    "dependsOn": [
+     "AG-2",
+     "AG-5"
+    ]
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-6: Stagewatch's attention items, windows and commands in the brief and the admin page; window actions from listed rows; the admin's fenced desk proposals, followed with one ?from= and persisted",
+    "gaps": [
+     "G19"
+    ],
+    "dependsOn": [
+     "AG-1",
+     "AG-2",
+     "AG-3",
+     "AG-5"
+    ]
+   },
+   {
+    "repo": "AGMessage",
+    "title": "AG-7: Papers and the 0.5.0 release (NODES rows, CHANGELOG, README, package.json, the context-token text and comments)",
+    "gaps": [
+     "G37"
+    ],
+    "dependsOn": [
+     "AG-1",
+     "AG-2",
+     "AG-3",
+     "AG-4",
+     "AG-5",
+     "AG-6"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-AG-1: Words for \u00a711 (via spec-1-3 S1's master edit) and NODES.md (via spec-1-3 S6), and the WHATS_NEXT line; no code",
+    "gaps": [
+     "G16",
+     "G17"
+    ],
+    "dependsOn": [
+     "spec-1-3 S1",
+     "spec-1-3 S6",
+     "cross-app-proposals SW-2"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-AG-2: Interop rows S2.8, S2.9, S3.9 and S7.4, and S6.5 reworded, in the ecosystem lane's tests/interop (with SW-R8's pin bump)",
+    "gaps": [
+     "G44"
+    ],
+    "dependsOn": [
+     "ecosystem-lane SW-L2",
+     "ecosystem-lane SW-R1",
+     "peers-not-screens SW-6",
+     "AG-3",
+     "AG-5",
+     "AG-6"
+    ]
+   }
+  ],
+  "gapsClosed": [
+   "G05: the line is valid Stagewatch grammar (`off` in the flash slot) and the desk's own parse rates it review. Stagewatch's fence on peers' documented lines is cross-app-proposals SW-2, with AGMessage's row.",
+   "G16: AGMessage reports each result until the desk takes it or 30 minutes pass, reading the proposal back before each retry. It runs each line at most once across its own restarts and across desk restarts: runs are keyed by desk, id and created, recorded and checked before they run, with persisted tombstones. A lost collect reply is recovered from the desk's existing queue, so Stagewatch needs no change.",
+   "G17: AGMessage reads top-level ok/words as Stagewatch sends them, its fakes use ToJson's shape through one shared helper, and \u00a711 states the shape (via spec-1-3 S1).",
+   "G18: every token kind is heard, PlayMap is named on the admin page, in the brief and in AGMessage's context peers, and the table is bounded at 128 as Stagewatch's is.",
+   "G19: Stagewatch's red and amber items and every window reach the AI brief and the admin page, with marks. The admin proposes any listed line, including window actions taken from Stagewatch's own rows, with Stagewatch's risk shown before and after.",
+   "G32 (AGMessage half): each install dials with its node id (node= and cid=), so two AGMessages are two rows on old and new Stagewatches alike.",
+   "G37: decided: AGMessage does not read Patterns' context. The false claims in its admin text and comments are corrected to what Show Bus \u00a78 delivers.",
+   "G43 (AGMessage half): 'connected' and the TLS pin come only from Stagewatch's socket verdict or a key-matched /api/context 200, chosen by the first message. A refused key is sticky, holds every keyed call for 60 s or more in one place, and is shown."
+  ],
+  "gapsLeft": [
+   {
+    "id": "G43",
+    "why": "Stagewatch's half (verdicts on node links, unknown keys not counted toward the lockout) is peers-not-screens SW-2/SW-3. AGMessage works without it through the HTTP evidence path."
+   },
+   {
+    "id": "G32",
+    "why": "Patterns' half (its fixed cid=patterns) is peers-not-screens PT-1/PT-2. This area changes only AGMessage."
+   },
+   {
+    "id": "G42",
+    "why": "Owned by spec-1-3: its decision 12 keeps the cap 'proposals' and the 1 s ping, and its unit A1 corrects nodes.js:5,9 and NODES.md:10. This design withdraws its rename and adds nothing."
+   },
+   {
+    "id": "G37",
+    "why": "By decision, Patterns' Eye still cannot draw AGMessage's open action prompts; only AGMessage's headline reaches Patterns through Stagewatch's peers. A direct read with a typed token would be Patterns' own round."
+   },
+   {
+    "id": "G19",
+    "why": "Partly left: the research team gets no picker beyond its stage-message proposal, and AGMessage's AI proposes nothing. Neither has an ask from the room yet."
+   },
+   {
+    "id": "G44",
+    "why": "The lane and its CI job belong to the ecosystem lane. This area adds four rows and rewords S6.5. Result-post faults are proven in AGMessage's own server tests, because the rig cannot fail a result post on cue."
+   },
+   {
+    "id": "G16",
+    "why": "New finding outside the 49: Patterns (StagewatchLinkService.cs:459-463) and PlayMap (StagewatchLink.cs:538-552) also post each result once and keep ran ids only in memory. They could adopt persisted runs, result retries and the recovery read (SW-AG-1's WHATS_NEXT line)."
+   }
+  ],
+  "risks": [
+   "On a Stagewatch without node-link verdicts, the link needs one key-matched /api/context read before it shows connected. A Stagewatch that answers that route 404 never connects, though today it would show 'connected'. The admin page says why.",
+   "An install that saved a PIN or another non-key value loses send-to-stage, the context post and the desk until a node key is made. The admin page says so, and admin:settings refuses non-keys from now on.",
+   "A refused key holds keyed calls for 60 s or more. After a fix on Stagewatch's side, 'Link again now' re-verifies at once. Re-saving the same key does not redial, and the page says so.",
+   "The write-ahead record costs one fsync per approved run, through WriteLane; there are a handful per show. The guard-rails sync-fs caps are unchanged.",
+   "The recovery read lists the whole queue: at most about 700 proposals under the desk's own bounds, and only after a lost reply or on a fresh link. If a sibling narrows the unfiltered GET /api/proposals, recovery would need a Stagewatch change; SW-AG-1's words say so.",
+   "On today's Stagewatch, a recovery read may run a just-approved proposal before it is claimed. The next collect claims it and the run key dedupes it. cross-app SW-2's `collected` field removes the race.",
+   "AGMessage's local line check follows Stagewatch's row notation. A future notation could refuse a line Stagewatch would accept. It fails closed with the listed verbs, and the tests carry all three known notations.",
+   "The admin can propose high-risk lines (window, blackout). The desk rates them high, never pre-ticked, and a person decides. The admin page is host-laptop only.",
+   "Accepting any token kind widens what a stray UDP sender can list. This is mitigated by the 128-peer bound and id validation.",
+   "Five sibling designs name AGMessage work: cross-app's AG-1 pointer, peers-not-screens AG-1\u2013AG-3, spec-1-3 A1, windows-for-peers AG-W1 and ecosystem-lane SW-R8. They must point at this design's units. A1 lands first, because it edits the same hello handler. peers-not-screens must take this design's stricter HTTP evidence (\u00a76 body plus X-RateLimit-Limit, only when the first message is not auth), key-only rule and 'Link again now'."
+  ],
+  "processNotes": "AGMessage has no agent brief. These are its own conventions as the repo shows them:\n- npm test is green on node 22 (CI job: Windows, node 22, .github/workflows/ci.yml), and npm run smoke is green in CI.\n- The guard-rails test (app/test/resilience.test.js:293-315) holds: no eval, no pin= in a URL, and synchronous fs calls within each file's cap. The new lib/desk.js holds no fs. The write-ahead flush goes through WriteLane, and desk-runs.json is read with readJsonWithBak.\n- One CHANGELOG entry for 0.5.0 with 'Tests: N (was M)'.\n- The version is updated in app/package.json and server.js:42.\n- The docs/NODES.md rows, README, and the docs/SHOWBUS.md copy are kept byte-equal with the master under spec-1-3's hash.\n- It ships after spec-1-3 A1's 0.4.1.\n- No model or tool identifiers are added to pushed text.\n\nStagewatch (CLAUDE.md):\n- This area adds no code and no build.\n- Its \u00a711 and NODES.md words go through spec-1-3's single master edit (S1) and NODES rewrite (S6), so the copies change once.\n- The doctrine is honoured by removal: the first draft's 10 s re-offer gate is withdrawn, because 'Measured, then governed' allows no governor without a measured cause. No wire word and nothing on the show thread is added.\n- The interop rows follow the ecosystem lane's rules: a row only when it can pass, landed with the pin bump; 'not run' is named and never counted as passed; CI's interop job runs AGMessage at its pin with SW_INTEROP_REQUIRED=1.\n- No model or tool identifiers.\n\nPatterns (CLAUDE.md round process) and Mapper (round-3 ownership): untouched by this area, so no round, papers or spine amendment is required.\n\nCoordination:\n- cross-app-proposals: AG-1 carries the line. Drop 'before agmessage's delivery' from its JSON note, because `delivery` is withdrawn.\n- peers-not-screens: AG-1, AG-2 and AG-3 become AG-5 and AG-7 here. Reconcile three differences:\n  - the HTTP verdict needs a \u00a76 body plus X-RateLimit-Limit, and applies only when the first message is not auth;\n  - AGMessage takes only swk_ keys;\n  - a refusal keeps the public frame, with 'Link again now'.\n- spec-1-3: A1 first; the \u00a711 and NODES words go to S1 and S6.\n- windows-for-peers: AG-W1 folds into A1 or AG-7.\n- ecosystem-lane: SW-R8's S6.5 is reworded (no re-offer), and rows S2.8, S2.9, S3.9 and S7.4 are added.\n\nFull design: /home/user/Stagewatch/docs/ecosystem/agmessage.md"
+ },
+ "critique": {
+  "verdict": "needs-changes",
+  "issues": [
+   {
+    "severity": "high",
+    "issue": "DeskRuns is keyed by the bare proposal id, persisted, and retried for 30 minutes, but Stagewatch's proposal ids are not unique. They come from an in-memory counter that restarts at p1 on every Stagewatch run, and they repeat on any other Stagewatch the admin re-points AGMessage to. Two failures follow. (a) An owed result for the old p9 is POSTed onto a new p9 that is approved for AGMessage. Result() accepts any Approved proposal, claimed or not, so the desk marks the new p9 done with the old words although it never ran. That is an attempt reported as a fact. (b) has(p9) dedupes a new p9 against the stored old one, so the new line is silently never run: it goes undelivered, or with redeliver it is re-offered and skipped every 10 s. Today's in-memory ranProposals (server.js:1098-1099) already has the restart hazard. The design makes it survive AGMessage restarts and widens the window to 30 minutes.",
+    "evidence": "Stagewatch/src/Timer.Core/Approvals.cs:51-52 (_next is instance state), :101 (\"p\" + ++_next), :153-157 (Result accepts State==Approved with no ClaimedUtc or created check); MainViewModel.Desk.cs:15-23 (one ProposalDesk per app run, nothing persisted); AGMessage/app/lib/nodes.js:229-236 (configure can point at a different Stagewatch); design decision 3 (has(id), persist \u226450, 30 min).",
+    "fix": "Key DeskRuns by (the desk's node id, proposal id, created ms); ToJson already carries created and target. When the linked Stagewatch's node id changes, settle owed results with an event. Before the first retry after any link re-open, GET /api/proposals/<id> and post only when created and target.id match and the state is approved or undelivered. Optionally have SW-AG-1 make ids unique per desk run (a per-boot prefix) and state in \u00a711 that ids are unique only within one desk run."
+   },
+   {
+    "severity": "high",
+    "issue": "Two existing server tests break, and the design's test list does not cover them. Under decision 7 the link becomes 'connected' only on a verdict: an auth message, or a 200 \u00a76 body from /api/context. Both fake Stagewatches in server.test.js answer /api/context with {\"ok\":true}, which is not a \u00a76 body. So the link stays 'connecting' and closes every 12 s. stage:send then fails with 'link is connecting', and stage:propose never succeeds. The design lists only :312 and :336 for server.test.js.",
+    "evidence": "AGMessage/app/test/server.test.js:246-250 (send-to-stage fake: every other path \u2192 '{\"ok\":true}'), :305-317 (desk fake, same fallback at :317); nodes.js:393 (fetchContext requires j.v===1 && j.node); server.test.js:255-261 and :331-332 rely on the link being up.",
+    "fix": "Add a \u00a76 /api/context reply (v:1, node, light, headline, peers, items, commands) to both fakes and list both in the design's test changes. Also add a test that a fake with no context route stays 'connecting' with words, which is the older-Stagewatch risk."
+   },
+   {
+    "severity": "medium",
+    "issue": "The result-report table retries 401 and 403. Every 401 counts toward Stagewatch's lockout of 5 failures per minute per address, which also locks out any browser on the same machine. The design's lockout argument covers only the WebSocket redial. After a key is revoked mid-show, the desk tick (every 3 s) sends one GET per followed proposal, the collect and the owed reports, all with the dead key. That is several 401s per tick before the next 5 s /api/context read sees the refusal. On its own, one owed result's schedule (0/3/9/21/45 s) is 5 attempts in under a minute.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:1077-1082 (unknown key \u2192 failure counted, 5/min \u2192 401 for everything), :873-885 (the PIN counts too); AGMessage/app/server.js:1079-1101 (follows + collect + reports each tick while linked); design decision 3 table ('401, 403 \u2026 retry').",
+    "fix": "Make 401 a link-level refusal. Any keyed call that gets 401 calls the link's _refused() in one place, and every keyed HTTP call stops until the hold ends. Take 401 and 403 out of the per-result retry table. Treat a 403 from collect or result whose error is 'this key speaks for another node' as settled, with words on the admin page."
+   },
+   {
+    "severity": "medium",
+    "issue": "The fallback verdict is not the authentication the design says it is. 'An unknown key is always a 401' holds only for strings that start with swk_. On a Stagewatch with no PIN, any other Bearer value gets 200 from /api/context, and so does a missing key. AGMessage stores any string up to 80 characters as the key. A pasted PIN or a mistyped key on an open Stagewatch is therefore shown as auth 'key', 'connected', with the certificate pinned 'on Stagewatch's word that the key was accepted'.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:1073-1074 (non-swk_ \u2192 CheckPin), :869-870 (no PIN \u2192 allowed), :444-450; ApiKeys.cs:67 (LooksLikeKey = prefix only); AGMessage/app/server.js:847 (no format check); WebServer.cs:1121-1127 and :450 (X-RateLimit-* headers are sent only when ApiKeys.Find matched the key).",
+    "fix": "Label the verdict from evidence. Use 'key' only when the stored value starts with swk_ and the 200 carries X-RateLimit-Limit (tls.request must return headers). Use 'PIN' when a non-key value got a 200, and say 'Stagewatch is open (no PIN)' when no credential is needed. Warn in admin:settings when the key does not look like a key, and test each case."
+   },
+   {
+    "severity": "medium",
+    "issue": "On a Stagewatch with peers-not-screens SW-3, the /api/context fallback and the WebSocket verdict can disagree. A node key that is bound to another node id still reads /api/context (Authorize(Read) never checks the binding), while the node link refuses it. Because the verdict is 'the first of' the two, AGMessage can go connected, confirm the pin, then flip to 'key refused'. The design's tests never cover the race.",
+    "evidence": "WebServer.cs:447 (Read check only); peers-not-screens design decisions 3 and 5 (binding enforced on /ws with auth ok:false); design decision 7 ('the verdict is the first of').",
+    "fix": "Prefer the WebSocket verdict. Use the context fallback only after a short grace period (for example 1 s after open) with no auth message, or only when the Stagewatch is known not to send verdicts (from its hello or version). Let a later auth ok:false override a fallback verdict. Test the order 'auth refused arrives after a context 200'."
+   },
+   {
+    "severity": "medium",
+    "issue": "The write-ahead record is not checked, so 'at most once' does not hold. WriteLane.flushSync catches write errors, records lastError and still returns true. If the 'running' record fails to land (disk full, permissions, AV lock), the line runs with no durable record. After a crash, Stagewatch's re-offer (redeliver) runs it a second time. Persistence is also capped at 50 entries that are not yet settled, so anything past 50 is dropped silently.",
+    "evidence": "AGMessage/app/lib/resilience.js:120-140 (_run swallows the error; flushSync returns pending===null); design decision 3 and the desk.js toJSON '\u2264 50'.",
+    "fix": "After begin() \u2192 flushSync(), check that lane.writes went up and lastError is null. If not, do not run: report failed with 'AGMessage couldn't record the run \u2014 not run'. Refuse new runs while 50 entries are owed instead of dropping them from persistence. Add a units test with a failing writer."
+   },
+   {
+    "severity": "medium",
+    "issue": "SW-AG-1 breaks Stagewatch's own doctrine and floods the journal. Its 10 s RedeliverAfter is a limit with 'No measurement this round', and Stagewatch's brief says 'No limit or governor without a measured cause'. Each re-offer also raises Changed and writes a journal row. So during an ordinary AGMessage report back-off (24 and 30 s gaps), and for any target whose result POSTs keep failing, the desk gets up to about 29 'offered again' rows per proposal in the 5 minutes.",
+    "evidence": "Stagewatch/CLAUDE.md, The doctrine ('Measured, then governed'); design decision 4 and \u00a72.3 (a journal row per re-offer); Approvals.cs:185 (5-minute window).",
+    "fix": "Drop the timed gate: re-offer on every redeliver=1 collect, since the target dedupes. Journal and set the step result once per proposal, on the first re-offer only, and keep the count in delivery. Or avoid a new wire word: once cross-app's 'collected' field exists, AGMessage can list GET /api/proposals and run its own claimed, approved, unreported ids. If the 10 s gate stays, name a measured cause."
+   },
+   {
+    "severity": "medium",
+    "issue": "The 'Propose release' button fails against today's Stagewatch. Today's commands list window show, hold and revoke, but no 'window release' row. AGMessage's own checkDeskLine requires the leading words to match a listed row's fixed words, so the line the button fills is refused locally. Stagewatch itself supports release.",
+    "evidence": "Stagewatch/src/Timer.Show/ShowContext.cs:41-43 (no release row); ScreenWindows.cs:255-261 (release exists); design decision 6 (hold/release buttons plus the listed-verb match).",
+    "fix": "Build each window row's actions from the listed rows: offer release only when a row's fixed words cover 'window release' (windows-for-peers row 9). Add a test against today's 15 rows showing the button is absent or disabled."
+   },
+   {
+    "severity": "medium",
+    "issue": "The Stagewatch half targets files and lines that a sibling unit will have moved, and keeps the new rule out of the code the rig runs. Cross-app-proposals unit 3 moves Submit, Collect and Result into Timer.Show/DeskService.cs and makes MainViewModel.Desk.cs a mirror. Unit 4 (the rig hosts the desk) depends on it, and SW-AG-3 depends on unit 4. SW-AG-1 edits MainViewModel.Desk.cs:41-45 and :89-132 and puts the re-offer step result and journal row in the WPF view model only. The rig and the Linux lanes would then never exercise it; only Windows UiSmoke would.",
+    "evidence": "cross-app-proposals.md \u00a7units 3\u20134 and its file list (DeskService.cs: 'SubmitProposal, Collect, Result \u2026 delegate to it'); design SW-AG-1 file list and dependsOn (units 1\u20132 only); Stagewatch/CLAUDE.md ('One writer\u2026 the rig's owner thread').",
+    "fix": "Make SW-AG-1 depend on cross-app unit 3. Put the re-offer rule, the delivery count and the journal row in DeskService, so the desk, the rig and the suite share one path, and test the journal row on Linux. Keep UiSmoke only for the WPF step text."
+   },
+   {
+    "severity": "low",
+    "issue": "Changing IShowApprovals.CollectApproved's parameter list can fail silently. Any implementer left with the 2-argument method still compiles, stops implementing the interface, and falls through to the default member, which returns an empty list. Nothing warns. The test fake is one such implementer, and so will be the rig's DeskService once cross-app lands.",
+    "evidence": "Stagewatch/src/Timer.Core/ShowState.cs:590 (default member returns empty); tests/Stagewatch.Tests/ShowBusTests.cs:39 (2-arg fake); tests/Stagewatch.UiSmoke/Program.cs:318-319 (2-arg calls).",
+    "fix": "Add a new 3-argument member whose default forwards to the existing 2-argument one (or the reverse), so nothing falls through to an empty list. List every implementer, and add a test that WebServer's collect reaches the real desk with redeliver=false."
+   },
+   {
+    "severity": "low",
+    "issue": "The claim 'MCP get_proposal carries delivery' is wrong. get_proposal serializes a Copilot proposal by its integer id, not a SharedProposal, so the delivery count never reaches MCP.",
+    "evidence": "Stagewatch/src/Timer.Remote/McpEndpoint.cs:151-154; src/Timer.App/ViewModels/MainViewModel.Copilot.cs:226-235.",
+    "fix": "Drop the claim, or say MCP shows only the step's result text. If MCP should show it, name the field and the code that adds it."
+   },
+   {
+    "severity": "low",
+    "issue": "The interop test lands in the default e2e lane, and its 'not run' would count as passed. tests/e2e runs every *.e2e.cjs file, so agmessage.e2e.cjs runs in the normal e2e lane and in CI's Linux job, where ../AGMessage is absent. A node:test skip exits 0, which counts as passed against the design's own rule. No CI job checks out AGMessage, so this interop test is never run in CI. G44 still counts it as partly closed.",
+    "evidence": "Stagewatch/tests/e2e/package.json ('node --test --test-concurrency=1 *.e2e.cjs'); tools/test.sh lanes (no interop lane today); design SW-AG-3 and G44 'partly closed'.",
+    "fix": "Name it *.interop.cjs and run it only in the interop lane. Make that lane print NOT RUN and stay out of the 'All lanes passed' count. Say which job, if any, checks out AGMessage and runs it."
+   },
+   {
+    "severity": "low",
+    "issue": "Context churn. The desk:results item's state carries a countdown ('retrying (40 s)'). AGMessage pushes its context whenever the signature changes, so while a result is owed it POSTs /api/peers/context every second instead of every 5 s. That spends the node key's per-minute budget, which the follow and collect calls also use.",
+    "evidence": "AGMessage/app/server.js:1118-1125 (push on any change, signature at:0 only); Stagewatch ApiKeys.cs:46 (600/min per key); design \u00a72.4 desk:results state.",
+    "fix": "Use a steady state such as 'retrying'. Keep the next-attempt time in the health detail, not in the context."
+   },
+   {
+    "severity": "low",
+    "issue": "AGMessage's line limit will drift from Stagewatch's. It refuses lines over 400 characters with 'Stagewatch takes lines of up to 400 characters', but cross-app unit 2, which SW-AG-1 depends on, raises Stagewatch's limit to 2048, refused rather than cut.",
+    "evidence": "cross-app-proposals.md decision 4 / \u00a72.2 (MaxLine 2048); design \u00a72.4 refusal words; Approvals.cs:42.",
+    "fix": "Set the limit to Stagewatch's (2048 once cross-app unit 2 lands) and word the refusal neutrally, or take the limit from the desk."
+   },
+   {
+    "severity": "low",
+    "issue": "readStageFacts drops items whose id falls outside [A-Za-z0-9:_.-]{1,80}. Stagewatch builds cue ids from free-text department names, so an escalated red cue for a department such as 'Front of House' vanishes from AGMessage's attention list.",
+    "evidence": "Stagewatch/src/Timer.Show/ShowContext.cs:92 (\"cue:\" + g.Target.ToLowerInvariant()); src/Timer.Core/AppSettings.cs:120 (departments are free text).",
+    "fix": "For a display-only list, cap the id and strip control characters instead of dropping the item, or match ids on a looser rule. Test with a department name that contains a space."
+   },
+   {
+    "severity": "low",
+    "issue": "Keyless TLS links stop being pinned, a behaviour change the design does not call out. Today a keyless link pins on the first state frame. Under the design it is never pinned, so a later certificate change is caught only when a hello fingerprint is present. The sibling peers-not-screens design calls the keyless case 'unchanged keyless trust'.",
+    "evidence": "AGMessage/app/lib/nodes.js:329 (_confirmPin on the first state frame); design decision 7 ('With no key\u2026 no pin'); peers-not-screens.md AGMessage section.",
+    "fix": "Decide and say so. Either keep the trust-on-first-use pin for keyless links (no secret is ever sent) or drop it and say why, then reconcile with the sibling and add a test."
+   },
+   {
+    "severity": "low",
+    "issue": "The design says 'saving a key or address in Admin dials at once', but configure() returns early when nothing changed. After the operator fixes the problem on Stagewatch's side (releases a binding, clears a lockout), re-saving the same key does nothing. The 60 s hold also lives only in memory, so watchdog restarts redial straight away.",
+    "evidence": "AGMessage/app/lib/nodes.js:229; server.js:852; supervise backoff 2/4/8/15 s (resilience.js:30).",
+    "fix": "Add an admin 'Link again now' action that clears the hold, and say re-saving the same values does not redial. Optionally keep heldUntil in settings so a crash loop cannot sum past the lockout."
+   },
+   {
+    "severity": "low",
+    "issue": "Efficiency (pre-existing, made larger by the design): every open proposal gets its own GET every 3 s, and the design adds up to 20 admin proposals to that loop. Stagewatch already serves all of a node's proposals in one call.",
+    "evidence": "AGMessage/app/server.js:1090-1095; Stagewatch MainViewModel.Desk.cs:38-39 and WebServer.cs:604-605 (GET /api/proposals?from=<id>).",
+    "fix": "Follow all of AGMessage's own proposals, research and admin, with one GET /api/proposals?from=<nodeId> per tick."
+   },
+   {
+    "severity": "low",
+    "issue": "The secret fence on admin proposals does not cover the Anthropic key. It also fences 'the stored key' even when that is a short numeric PIN, which would refuse ordinary lines such as 'nudge 1234'.",
+    "evidence": "AGMessage/app/server.js:83 (aiKey), :847; design decision 6 fence list; cross-app-proposals decision 4 (the PIN is deliberately not fenced).",
+    "fix": "Add the AI key to the fence. Fence the stored Stagewatch secret only when it looks like a key (swk_\u2026), mirroring the desk's own rule."
+   }
+  ],
+  "missing": [
+   "Proposal identity across desk restarts and across desks: neither the \u00a711 master nor the design says ids are unique only within one desk run. AGMessage's persisted runs need (desk id, id, created), and \u00a711 should say so.",
+   "Interop that actually runs: no CI job checks out AGMessage, so SW-AG-3 never runs automatically. G44 stays open in practice, and the papers should say that.",
+   "DeskService (cross-app unit 3) is where the redeliver rule, the delivery count and the 'offered again' journal row belong, so the rig and the Linux lanes cover them. The design's dependsOn omits unit 3.",
+   "One place where any 401 on any keyed AGMessage call refuses the link and stops all keyed HTTP until the hold ends. Today only the WebSocket path and fetchContext are designed to.",
+   "tls.request returns no response headers. Labelling the verdict from evidence (X-RateLimit-Limit is present only for a matched key) needs that added.",
+   "The admin's desk proposals are kept in memory only. After an AGMessage restart they are no longer followed, unlike research proposals, which are recovered from room messages (server.js:1044-1049).",
+   "A collect that answers 403 'this key speaks for another node' (for example two installs sharing one key) is silent today and stays silent in the design: approvedFor returns [] and nothing tells the admin.",
+   "Stagewatch's context and AI are not told that a target keeps failing to report: the re-offer count is visible only in the WPF Copilot step and the journal (the context and Eye chain).",
+   "Read-scope keys: on today's Stagewatch the context fallback cannot tell a read key from a node key, so AGMessage shows 'connected' and then fails sends and proposals with 403s. The admin page should name the scope it observed, or say it cannot know it."
+  ]
+ }
+}

@@ -1,0 +1,838 @@
+{
+ "area": "patterns-playmap-side",
+ "revised": {
+  "area": "patterns-playmap-side",
+  "summary": "The Patterns and PlayMap halves of the Stagewatch interop, ranked by show risk and cut into units each repo's process can take, revised after the critique. The full design is in /home/user/Stagewatch/docs/ecosystem/patterns-playmap-side.md. \u00a710 answers each critique item: all 17 issues and the missing reader were accepted. Four were adjusted:\n- Patterns' messages have no urgency.\n- The rig option is peers-not-screens' --node-keys.\n- backups/ is not in the support bundle.\n- An unknown key-shaped key gets 401 from /api/context.\nI also closed one hole the critic did not name: a key that was never bound never goes to a target chosen by a wire line.\n\nTIER A, now\n(1) G04, Patterns Round 89.1.\n- The stuck beat sets a flag that only the receive loop writes. The context moves to its own field, written only by the beat task, so a context fetch can no longer restore the live frame.\n- The Sight getter folds the flag in: Frame.Live=false.\n- Every reader then shows no time and a red light: pages, STATE, the twin relay, the Eye, the Nodes card, the brief, the module and the log (one line per transition).\n- If Stagewatch is stuck before its first frame, the desk's own timer keeps running.\n(2) G09, Patterns Round 89.2-89.3.\n- A private address becomes kept://host:port/<id>. The id is 60 random bits from a CSPRNG, kept in a per-machine book, so a 4-digit ?pin= can no longer be brute-forced from what is published.\n- The real URL stays in SettingsStore.BaseDirectory.\n- The twin carries the book under TwinConfig.SendSecrets, so a standby that takes over still draws the page.\n- Readers covered: the OSC status line, the navigate-failure log, the native player, and the support bundle (redacted).\n- The fence test now includes a takeover leg. The WebView2 probe (L26) lands too.\n(3)-(4) G47, G12's air half and G25 on PlayMap.\n- These are now an explicit request for the owner's exception (PM-X). It quotes round 3 \u00a74 in full: a file no wave names may not be edited. They are not presented as allowed by the rule.\n- If declined, they wait for the integration pass.\n- G47 also cleans existing pass-bearing items at engine start.\n- G25 fits by bytes only. Over 64 KiB it trims in order: recent texts to 200 characters (Stagewatch's reader keeps no more), then command words, then green items. A context under 64 KiB is posted unchanged.\n- Stagewatch answers 413 after reading the body (bounded), and the upload and script paths are exempt.\n\nTIER B\n- G21: while following, the speaker message goes through Stagewatch only when the link holds a node key. Otherwise it goes to this desk's displays and says so, so a cue step never fails.\n  - Flash maps to slow or off.\n  - The receipt's stage is read: an 'accepted' receipt is not reported as on screen.\n  - CLEAR clears only messages Patterns itself sent.\n  - Messages go on their own lane, latest wins.\n  - The page draws one message, latest wins. pendingSpeaker keeps its meaning.\n  - The module gains speaker-ACK variables, and DeckSignature follows Stagewatch's ACK.\n- G48: Patterns can pause and hold a playlist item or a stinger's clip, and publishes video.pausable/stoppable.\n- G31: TLS first and a desk probe (after round 3).\n\nTIER C/D\n- G03/G33: the context reader keeps 512 characters of verb and words.\n- G34 (KeyFor bind rules; the assistant does not propose these lines, with the reason).\n- G35:\n  - The Show Bus node profile sends HELLO, then the proof, then SUBSCRIBE OFF/CONTEXT.\n  - The show's facts go untagged through EncodeFact, so PlayMap follows the blackout over the same link.\n- G13 and G36 after round 3.\n\nGains: the operator gets no frozen times, no published passes (nor anything derived from one), a dark stage that stays dark, a failover that keeps keyed pages, one message box with honest receipts, and a deck that can set the link. Patterns gets four rounds (89-92). PlayMap gets a scoped exception request with four fixes, a papers fix now, and four packages after round 3. Stagewatch gets three small units: 413, the rig's stall, and rig message signals.",
+  "decisions": [
+   {
+    "decision": "One order by show risk: Patterns Round 89 holds only G04 and G09; Mapper's tier-A work and G25 go to the owner as one explicit exception request (PM-X); everything else waits for the Stagewatch release or round-3 integration pass it needs.",
+    "why": "Four tier-A faults need no contract change; Patterns' units need no other repo; Mapper's round 3 \u00a74 forbids edits to unnamed files, so the honest path is to ask.",
+    "alternatives": "One interop round per repo (delays safety); reading \u00a74 as allowing fix branches (the critique showed the fix-*-win precedent was CI stability, not new behaviour)."
+   },
+   {
+    "decision": "G04: a volatile _stuck flag written only by the receive loop (set by {\"type\":\"beat\",\"live\":false}, cleared by the next state frame, connect or Reconcile); the context moves to its own field written only by the beat task; the Sight getter composes both and sets Frame.Live=false and Stuck while stuck.",
+    "why": "Today the beat task (StagewatchLinkService.cs:377) and the receive loop (:533) both read-modify-write one volatile record, so a context landing after a stuck beat restores the live frame and repeats the log line; one writer per field removes the race and makes one log line per transition true.",
+    "alternatives": "Writing Live=false into _sight (the beat task undoes it); withholding the last-word refresh (pongs refresh it anyway); dropping the link."
+   },
+   {
+    "decision": "G04: a Stagewatch stuck before its first frame changes nothing on the stage \u2014 StagewatchSight.Stuck (init, non-positional) is set, Following stays false, the desk's timer and TIMER verbs stay, the words say why.",
+    "why": "Creating a frame would make StageService.Following true (StageService.cs:61) and refuse the desk's TIMER verbs for a Stagewatch that never sent a time.",
+    "alternatives": "An empty Unknown frame (the first draft; a silent behaviour change)."
+   },
+   {
+    "decision": "G04 reaches every reader in one unit, including ShowAppCard.Of (red hue, 'its show is stuck') on the Nodes page; ShowBusTests.cs:374 is kept and the beat assertions added beside it.",
+    "why": "Patterns' 'every reader' doctrine; the card colours by state alone (StagewatchFollow.cs:299-310); the live:false parse path still exists.",
+    "alternatives": "Deleting the :374 assertion (weakens coverage)."
+   },
+   {
+    "decision": "G09: kept://host[:port]/<id> with a 60-bit id from RandomNumberGenerator, stored with the URL in the per-machine book; the same normalised URL kept again reuses its entry by lookup.",
+    "why": "An unsalted hash over a URL whose pass is a 4-digit ?pin= (rig default 4321) or a free-text ?view= code is brute-forceable from the published id; a random id is not a function of the URL.",
+    "alternatives": "SHA-256 of the URL (the first draft); an HMAC under a per-machine secret (a second secret file for no gain)."
+   },
+   {
+    "decision": "G09 and the twin: patterns.webpasses.json lives in SettingsStore.BaseDirectory; a new TwinWord KEPT carries the whole book main \u2192 standby on welcome and on change only when TwinConfig.SendSecrets is on; the standby merges into its own book; with SendSecrets off the standby draws kept pages black with words (OPEN L60, a \u00a722 walk row).",
+    "why": "A standby takes the show (TwinService.cs:11-20), including a same-machine standby with its own --home (TwinLauncher.cs:18); the twin already carries device secrets under this switch (L36).",
+    "alternatives": "'Never twinned' beside the exe (the first draft: breaks failover, bypasses BaseDirectory, two writers of one file)."
+   },
+   {
+    "decision": "G09 readers added: WebFrameSource.cs:1402 failure log and _status name the held address; OscService._lastLine shows WindowAddresses.RedactText(line); WebVideoService resolves a held page before the tool and VideoEngine.cs:331 names Origin; the support bundle passes every text entry through RedactText and lists the kept file in NeverBundled.",
+    "why": "Each carried the pass to a published reader (the Eye's OSC node, the log in the bundle).",
+    "alternatives": "Rewriting backups/ and rotating logs at migration (backups are the undo path and are not bundled; the bundle is what leaves the machine)."
+   },
+   {
+    "decision": "G09's remainder (STATE to unpaired wire peers) closes in Round 90.2 with spec-1-3's unit, and that unit changes RemoteTrustTests.Wire and the ShowBusAppTests helpers to pair first.",
+    "why": "After 89 nothing secret rides STATE; the helpers assert 'STATE {' first on a token desk with TrustLoopback=false (RemoteTrustTests.cs:71-78).",
+    "alternatives": "Closing it in 89 (couples a safety fix to the 1.3 contract)."
+   },
+   {
+    "decision": "Mapper: PM-F1..F4 are an explicit exception request (PM-X) quoting round 3 \u00a74 in full; EngineCore.Content.cs (four G47 sites, no hunk slot) lands before W3 begins if granted; declined, all four move to the integration pass and SHOWBUS-NODE says not to paste a window address.",
+    "why": "\u00a74: 'A folder not named for a wave keeps no owner in it, and nothing in that wave edits it' (PLAN.md:2124-2125); \u00a75.7 is for missing seams; W1 is built and W3 has not begun.",
+    "alternatives": "Fix branches as of right (misreads \u00a74); a \u226410-line hunk in an owner's slot (no slot exists, and the change is larger)."
+   },
+   {
+    "decision": "G47: refuse page, embed and private-address imports without echo; Redacted shows a private-address word as \u2039private address\u203a; at engine start a Web/Embed item with a private location is renamed '<host> \u2039private address\u203a' with its location cleared in one journalled edit; https .m3u8/.mpd filed as Stream with its https decode stated as unproven; the catalogue row words and FakeEngineLink.cs:697 go to the integration pass as notes.",
+    "why": "A refusal is journalled through Redacted (EngineCore.Control.cs:172-175); items already holding a pass publish it in MEDIA LIST, STATE and the context, which Redacted does not reach.",
+    "alternatives": "SecretFrom on MEDIA IMPORT (hides every path, misses SET \u2026 location)."
+   },
+   {
+    "decision": "G12 air half on the exception: blackout and watermark appended to STATE's timer and drawn; the desk's StateSnapshot and the assistant's StateExplainer take them at the integration pass (wave-owned files).",
+    "why": "A lit timer in a blackout is an air fault and a missing mark a licence fault; App and Assistant are not PM-F's to edit.",
+    "alternatives": "windows-for-peers' single PM-W2 after round 3."
+   },
+   {
+    "decision": "G25: fit by bytes only. A context \u226465,536 bytes is posted byte for byte; over it: recent texts cut to 200 characters, then command words dropped from the end, then green and grey items; a grey context:trimmed item and link words; still over \u2192 not posted. Per-count 1.3 limits stay the integration pass's.",
+    "why": "The only measured wall is Stagewatch's 64 KiB refusal (WebServer.cs:457, :1613); its reader truncates rather than refuses (ShowBus.cs:97-103) and keeps 200 characters of recent, so step one loses nothing it reads.",
+    "alternatives": "Fitting to spec-1-3's counts (the first draft: governs what was not measured)."
+   },
+   {
+    "decision": "Stagewatch 413: a declared body over 64 KiB on a non-deferred path is drained (\u22641 MiB, 10 s) and answered 413 JSON, then closed; the upload and script paths keep their own caps; a declared body over 1 MiB is closed undrained; no chunked claim.",
+    "why": "Closing with unread data resets the connection on Windows (WebServer.cs:1533-1536 comment), so the sender would never read the 413; HttpRequest has no Transfer-Encoding support.",
+    "alternatives": "413 then close unread (the first draft)."
+   },
+   {
+    "decision": "G21 route: while following, a speaker message goes via Stagewatch only when the link is Live and holds a key not known to be read-only; otherwise it is shown on this desk's displays with words saying Stagewatch's do not show it. Flash maps to slow|off, urgency is info. The receipt's stage is read: applied+refs binds, accepted is journalled 'not yet applied' and binds on the frame, and 409/401/403/timeout falls back locally. CLEAR posts clearmessage only for a message Patterns posted.",
+    "why": "Following needs no key (StagewatchLinkService.cs:269), and cue steps send STAGE MESSAGE (ShowActions.Stage.cs:20-22), so refusing would stop cue stacks. Message defaults to flash=true (StageService.cs:107). A slow show thread answers 200 'accepted' with no refs (ShowState.cs:1203, WebServer.cs:838-851). clearmessage would wipe the Stagewatch operator's own message.",
+    "alternatives": "Refusing when the link cannot carry it (the first draft: breaks cue stacks)."
+   },
+   {
+    "decision": "G21 readers: the page draws one speakerShown (latest wins between Stagewatch's current message and a desk-only one). pendingSpeaker keeps 'waiting for its ACK': a via-Stagewatch message clears when the frame's messageAck is seen or done. STATE appends speakerFrom/speakerAck/speakerAckBy; DeckSignature adds the frame's MessageId/MessageAck; the module adds stage_speaker_from, stage_speaker_ack and a feedback.",
+    "why": "Stagewatch's message stays on screen after its ACK, so reusing pendingSpeaker would leave stage_pending lit falsely (feedbacks.js:227-232). DeckSignature is keyed on local ids (StageService.cs:201-205).",
+    "alternatives": "pendingSpeaker carrying Stagewatch's message (the first draft)."
+   },
+   {
+    "decision": "G21 sends on a SpeakerLane task per connection through the link's HttpClient, one request in flight, latest wins per channel, results posted to the UI thread.",
+    "why": "The beat task runs ping, context and approvals one after another with a 4 s timeout each (StagewatchLinkService.cs:289, :328-355).",
+    "alternatives": "Posting from the beat task's gate (the first draft: seconds of latency)."
+   },
+   {
+    "decision": "G34 KeyFor: node:<id> | addr:<host>:<port> | none | '' (unbound).\n- It is bound when the key is typed on the Nodes page, or for an old key, to the configured host at load.\n- An unbound key binds at the first 2xx to POST /api/peers/context, and only when the key is key-shaped.\n- Any STAGEWATCH LINK line turns an unbound key to none.\n- addr: re-binds to node: only over TLS with that node's pin held.\n- The heard-id form is id:<id>.\n- The ACCEPT prefix is a typing check against stale presses.\n- LINK, FOLLOW and ACCEPT are high risk.",
+    "why": "A line-set host must never receive a key that is not bound to it. A non-key-shaped value passes a Stagewatch that has no PIN (WebServer.cs:867-870); an unknown key-shaped key gets 401 (:1073-1082). A bare word parses as a host (StagewatchFollow.cs:192). FOLLOW OFF changes the speaker's air. A UDP hello alone must not move the key.",
+    "alternatives": "Binding on any 2xx to /api/context (the first draft); FOLLOW at review; the binding rule following any hello."
+   },
+   {
+    "decision": "G34: Patterns' own assistant does not propose STAGEWATCH lines; the brief names them as the operator's.",
+    "why": "Its proposals are typed show content (AssistantPage.cs:380-395); repointing a key-bearing link or the speaker's timer source is a trust decision like a certificate.",
+    "alternatives": "A new assistant proposal kind for the link (rejected for this design; the gap's ask is declined with this reason in the papers)."
+   },
+   {
+    "decision": "G48: PAUSE holds a playlist item's clock or a stinger's clip; STOP restarts and holds a playlist item; STOP on a stinger's clip stays refused toward STINGER STOP; video.pausable/stoppable appended; a schedule entry due during a hold fires at release inside its window, else journalled.",
+    "why": "playout-links' Stagewatch link reads pausable instead of its role rule; the operator's hold is the newer explicit intent.",
+    "alternatives": "Keep refusing."
+   },
+   {
+    "decision": "G03/G33: adopt cross-app-proposals' 15 appended rows. Patterns' context reader keeps 256 commands, drops a command whose verb is over 512 characters, and cuts words at 512. The brief lists 32.",
+    "why": "One cap. PlayMap's busy golden has verbs up to 307 and words up to 403 characters, so all 199 commands and their words are kept.",
+    "alternatives": "200 characters of words (the first draft contradicted its own test)."
+   },
+   {
+    "decision": "G35 ShowBusNode session: NONCE \u2192 HELLO Patterns <desk> \u2192 AUTH-PROOF over nonce+name \u2192 SUBSCRIBE OFF \u2192 SUBSCRIBE CONTEXT. Commands are tagged @d<n>. The show's facts go untagged through a new ProfileSession.EncodeFact, and only for PlayMap's FactLines keys (OPEN 1 is not sent). A STATE greeting is dropped and counted. A wrong token stops sends.",
+    "why": "Tagged facts are read as verbs and refused (WIRE.md:105-106). Without HELLO, PlayMap's client table never lists the desk (WireSession.cs:153). Untagged facts from a paired peer reach PlayMap's air under FOLLOW-BLACKOUT.",
+    "alternatives": "Tag everything (the first draft); no HELLO; HearsShow off (loses blackout following over the link)."
+   },
+   {
+    "decision": "G31, G13, G36 after round 3 as first designed (G31 with peers-not-screens PM-1; G13 on the owner's decision 7; G36 minimal), plus a Mapper contract test against Patterns' Show Bus node session.",
+    "why": "Spine and wave-owned files; owner calls.",
+    "alternatives": "Fix branches (not bugs)."
+   },
+   {
+    "decision": "Stagewatch gains SW-RM: rig message signals, receipts with refs.messageId, frames carrying messageId/messageAck/messageAckBy, and ack. message.e2e.cjs runs on peers-not-screens' --node-keys (SW-6) and is the contract Patterns' FakeStagewatch copies.",
+    "why": "Today the rig's receipts carry no refs (Program.cs:191), ack is not simulated (:217), and its frames carry no message signal (:258-290).",
+    "alternatives": "An e2e in wire.e2e.cjs against today's rig (cannot pass); a --node-key-file option (no such unit exists)."
+   },
+   {
+    "decision": "Round numbers are the maintainer's; this design fixes the order and maps the siblings' guesses in \u00a79.",
+    "why": "The safety units must land first, and two sibling designs cannot both be Round 89.",
+    "alternatives": "Keep the siblings' numbers."
+   }
+  ],
+  "wire": "PATTERNS\n\nRound 89.1 (G04). Nothing new is sent. Patterns reads Stagewatch's existing bytes {\"type\":\"beat\",\"live\":false} (repeated every 2 s while stuck).\n- STATE bus.stagewatch appends, across rounds: stuck (89), key (90), follow and pending (91), windows (92).\n- While stuck, with a frame held: \"text\":\"\", \"light\":\"red\", \"words\":\"following Stagewatch Hall A \u2014 it says its show is stuck; the time is not shown\", \"stuck\":true.\n- While stuck with no frame yet: \"following\":false, \"light\":\"red\", the words \"\u2026 this desk's own stage timer runs until its first frame\", \"stuck\":true.\n- /api/stage follows appends \"stuck\".\n- The twin relay is unchanged (frame.live rides in it already).\n- Companion: variable stagewatch_stuck = yes|no, and a red feedback stagewatch_stuck.\n- Log, one line per transition: \"Stagewatch link: Hall A says its show is stuck \u2014 the stage shows no time.\" and \"\u2026 Hall A's show runs again.\"\n\nRound 89.2-89.3 (G09). No verb.\n- STATE web: {\"page\":\"10.0.0.5 (private address, kept)\",\"url\":\"kept://10.0.0.5:9924/<id>\"}. The id is 12 base32 characters from RandomNumberGenerator, stored in the book, and reused for the same URL.\n- residency.holds[].key: \"web:kept://\u2026\"\n- Eye and CONTEXT id: \"source:web:kept://\u2026\"\n- WEB OPEN <private url> replies with the host only.\n- OSC status line: \"/patterns/web/open \u2192 WEB OPEN http://10.0.0.5:9924 (private address) \u2192 OK \u2026\"\n- patterns.webpasses.json, in SettingsStore.BaseDirectory, at most 64 entries, NeverBundled: {\"v\":1,\"passes\":[{\"id\",\"url\",\"keptUtc\"}]}\n- Twin, main \u2192 standby, only with TwinConfig.SendSecrets: the line `KEPT {\"v\":1,\"passes\":[\u2026]}` on welcome and on every change; the standby merges it.\n- Without the book, the page draws black and reads \"(private address, kept on another machine)\".\n- Migration: one journal row.\n- Support bundle: every text entry passes through WindowAddresses.RedactText, and the kept URLs join Secrets.Scrub.\n- Private means:\n  - a /w/ path of 26 window-alphabet characters;\n  - a query or fragment word win|pin|token|key|view|code|secret|password|pass|apikey|api_key|access_token|auth|sig|signature;\n  - user information in the address.\n\nRound 90. As the siblings define it:\n- the node link /ws?node=<id>&t=patterns with its auth verdict, and STATE bus.stagewatch.key;\n- on a token desk, an unpaired non-loopback connection hears NONCE first and gets no STATE until OK paired, and Broadcast skips unpaired peers;\n- the 15 context rows appended;\n- Parse keeps 256 commands, drops a command whose verb is over 512 characters, and cuts words at 512.\n\nRound 91.1 (G34).\n- STAGEWATCH [STATUS] \u2192 OK {\"on\",\"state\",\"name\",\"address\",\"follow\",\"tls\",\"keyFor\",\"pending\"}\n- STAGEWATCH LINK AUTO|ON|OFF|<host[:port]>|id:<heard id>\n- STAGEWATCH FOLLOW ON|OFF\n- STAGEWATCH ACCEPT <at least 8 hex>\n- STAGEWATCH KEY \u2026 \u2192 ERR \"The Stagewatch key is typed on the Nodes page only \u2014 it never rides a line\"\nRisk: LINK, FOLLOW and ACCEPT are high. None is listed in the context. Refused from origin (Tcp,\"approval desk\").\nKey presentation:\n- KeyFor is node:<id> | addr:<host>:<port> | none | \"\".\n- The key is presented only when KeyGoesTo is true.\n- A line turns an unbound key to none.\n- A key binds at the first 2xx of POST /api/peers/context with a key-shaped key.\nSTATE bus.stagewatch appends follow and pending. Module: actions stagewatch_link, stagewatch_follow, stagewatch_accept; variables stagewatch_follow, stagewatch_pending.\n\nRound 91.2 (G21). Patterns \u2192 Stagewatch on the speaker lane: the link's HttpClient, scheme, host, port and pin.\nRequests:\n- POST /api/message/<text, one percent-encoded segment, \u2264500>/info/<slow|off>/ack\n- POST /api/clearmessage, only for a messageId Patterns posted\n- POST /api/ack/<messageId>/seen/<desk \u226440>\nHeaders: Authorization: Bearer <key>, X-Request-Id: pt<n>.\nReplies:\n- 200 receipt, stage \"applied\", with refs.messageId\n- 200 receipt, stage \"accepted\", no refs\n- 409 receipt\n- 401/403 {\"ok\":false,\"error\"}\nPatterns' answers:\n- via Stagewatch: Requested, \"OK requested: to Stagewatch Hall A's speaker: '\u2026' \u2014 its receipt and the speaker's ACK come back here\";\n- otherwise: Done, \"\u2026 on this desk's displays only; Stagewatch Hall A's displays do not show it (the link holds no node key | the key may read but not send messages | Stagewatch Hall A is quiet)\".\nJournal rows: on the speaker's screen (message 41) / accepted, not yet applied / refused (\u2026) \u2014 shown on this desk's displays only / superseded / seen by \u2026 / \"Stagewatch Hall A's own message stays \u2014 clear it there\".\nSTATE and pages:\n- STATE stage appends speakerFrom (stagewatch|desk|\"\"), speakerAck (\"\"|requested|accepted|sent|seen|done|refused) and speakerAckBy.\n- pendingSpeaker is unchanged in meaning.\n- /api/stage appends speakerShown {id (\"sw:<id>\" or a local id), text, flash, from}; follows appends messageId, messageAck, messageAckBy.\n- The pages draw speakerShown and acknowledge its id.\nModule: variables stage_speaker_from, stage_speaker_ack; feedback stage_speaker_ack_is.\n\nRound 91.3 (G48). STATE video appends pausable and stoppable after seq.\n- VIDEO PAUSE on a playlist item \u2192 OK \"'opener.mp4' paused at 1:02 \u2014 the playlist holds with it; VIDEO PLAY runs both on\"\n- VIDEO STOP on a stinger's clip \u2192 ERR \"\u2026 is a stinger's clip \u2014 STINGER STOP puts the show back\"\n\nRound 92.1 (G35). DeviceProfile.ShowBusNode on TCP:\n\u2190 NONCE <hex>\n\u2192 HELLO Patterns <desk>  \u2190 OK\n\u2192 @dp AUTH-PROOF <hex(HMAC-SHA256(normalised Secret, nonce + \"Patterns <desk>\"))>\n\u2190 OK @dp paired | OK @dp open \u2014 \u2026 | ERR @dp wrong token (sending stops)\n\u2190 STATE {\u2026} (dropped and counted)\n\u2192 @do SUBSCRIBE OFF\n\u2192 @dc SUBSCRIBE CONTEXT  \u2190 CONTEXT {\u2026} on every change\n\u2192 @d<n> <verb line>  \u2190 OK|ERR @d<n>\n\u2192 untagged facts, only PlayMap's FactLines keys (BLACKOUT 0|1, LIVE, LOOK, CUE \u2026); OPEN 1 is never sent.\nKind words: playmap \u2192 PlayMap; peers row t:\"playmap\".\n\nPLAYMAP (Mapper; PM-F1..F4 only on the owner's exception, PM-X)\n\nfix-stagewatch-timer-air (G12):\n- STATE links.stagewatch.timer appends, after why: \"blackout\":bool,\"watermark\":\"StageWatch by Ben Rohleder\".\n- Later fields append in this order: next, urgency, flash, flashTimer, holding, holdingName, holdingFill, timeOfDay, show.\n- The surface draws black under blackout and always draws the watermark.\n\nfix-media-page-import (G47):\n- MEDIA IMPORT <private url> \u2192 ERR \"that address carries a pass \u2026 \u2014 PlayMap keeps no such address: draw Stagewatch's timer with SURFACE SOURCE <surface> timer:stagewatch, or send the page as NDI from a browser\"\n- MEDIA IMPORT <page> or an embed \u2192 ERR \"a web page needs a browser source, which PlayMap has not built (docs/ROADMAP.md L10) \u2014 send it as NDI, OMT or Spout\"\n- https .m3u8/.mpd \u2192 OK added (stream; https decode unproven)\n- Any shown line: a private-address word becomes \u2039private address\u203a.\n- At engine start, a pass-bearing Web/Embed item is renamed \"<host> \u2039private address\u203a\" and its location cleared, with one journal row.\n- MEDIA LIST for a web item: ready:false, state \"unplayable\", words.\n- MEDIA FETCH \u2192 ERR \"\u2026 is a web page PlayMap cannot draw \u2014 never fetched\".\n\nfix-stagewatch-context-size (G25):\n- The body sent to POST /api/peers/context is at most 65,536 bytes. A context at or under that is sent byte for byte.\n- Trimming order: recent texts to 200 characters, then command words, then green and grey items.\n- When trimmed, the body carries {\"id\":\"context:trimmed\",\"kind\":\"health\",\"label\":\"Context trimmed\",\"light\":\"grey\",\"state\":\"\u2026\"}, and links.stagewatch.detail adds \" \u00b7 context trimmed for Stagewatch (\u2026)\".\n- When it cannot fit, nothing is posted: \"this node's context is N KB after trimming \u2014 over Stagewatch's 64 KB; not posted\".\n- A 413 reads \"Stagewatch refused the context as too large (413)\".\n\nAfter round 3:\n- G31: as first designed (TLS first, 403-then-wss words, desk probe GET /api/proposals?target=<id>&state=approved every 60 s).\n- G13: cross-app \u00a72.9.\n- G36: TIMECODE SOURCE ADD <name> PATTERNS and LINK PATTERNS SEND <line\u2026> (high risk; AUTH, AUTH-PROOF, NONCE, HELLO and SUBSCRIBE refused; Redacted journal).\n\nSTAGEWATCH\n- SW-25: a declared Content-Length over 65,536 on a path other than /api/holding/upload and /api/slides/script:\n  - the body is drained (up to 1 MiB, 10 s), then 413 {\"ok\":false,\"error\":\"a request body is at most 64 KB\"}, then close;\n  - over 1 MiB, the connection closes without draining;\n  - no body is logged; no chunked support is claimed.\n- SW-ST, rig only: a stdin line 'stall <ms>' \u2192 {\"rig\":\"stalled\",\"ms\":\u2026}, then {\"rig\":\"running\"}.\n- SW-RM, rig only:\n  - a message with ack makes a signal, and its receipt carries refs.messageId;\n  - frames carry messageId, messageAck and messageAckBy;\n  - ack <id> seen|done <by> moves the signal; a new message cancels the old one; clearmessage clears.\n  - Node keys come from peers-not-screens' --node-keys N.\n- Proposed for spec-1-3 \u00a713: beat.stuck {\"type\":\"beat\",\"live\":false}.\n\nAuth summary:\n- Patterns \u2192 Stagewatch HTTP uses the link's key in a Bearer header, only to a target KeyFor matches.\n- Device links pair by HMAC proof over nonce + hello name.\n- Kept passes travel only on the key-proved twin link under SendSecrets.\n- STAGEWATCH verbs need a paired wire connection and are refused from the approval desk.\n- No kept pass, and no Stagewatch key, rides any line, frame, journal, STATE or bundle.",
+  "changes": [
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/StagewatchFollow.cs",
+    "change": "89.1: StagewatchFrame.IsStuckBeat; StagewatchSight.Stuck (init); StageFollow.Words no-frame stuck case; ShowBusView.Apps/Peers/BriefLines red when stuck; ShowAppCard.Of red hue and stuck line. 90.3: brief Take(32). 91.1: StagewatchLinkVerb.Parse (id: prefix), StageFollow.KeyGoesTo, BindAfterLine; brief names the link's verbs. 91.2: StagewatchFrame.MessageAckBy, StagewatchSight.MessageAtSeconds, StageMessagePath.For/Receipt (with stage), StageSpeakerChoice.Of."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/StagewatchLinkService.cs",
+    "change": "89.1: volatile _stuck written by ReceiveAsync only; _context field written by FetchContextAsync only (:377); the Sight getter (:72-83) composes them and folds stuck into Frame.Live; one log line per transition; cleared in Reconcile and at connect. 90.1: node link. 91.1: header only when KeyGoesTo (:269, :361); id: resolve; bind on the first 2xx to POST /api/peers/context with a key-shaped key; addr\u2192node rebind only over TLS with the pin held. 91.2: MessageAtSeconds; the SpeakerLane task (latest wins, link HttpClient and pin); _readOnlyKey set on 403; CanCarrySpeaker."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/Eye.cs",
+    "change": "89.1: EyeShowApp.Stuck; show-app light (:778-783) red with words. 92.1: ShowAppItem kinds on the Video plane; device\u2192app edge Controls."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/TwinService.Followers.cs",
+    "change": "89.1/91.2: AdoptStagewatch (:357) repaints when Frame.Live, MessageId or MessageAck moves."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/CommandRouter.cs",
+    "change": "89.1: ShowBusRow text empty, light red, stuck appended. 89.3: WebRow url held/public (:294-316), residency key held (:706). 91.1: STATUS answer; follow and pending appended. 91.3: video pausable and stoppable after seq."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/StageService.cs",
+    "change": "89.1: FollowJson stuck. 91.2:\n- Message (:107) routes by the rule: via Stagewatch when the link can carry it, else local with words.\n- Clear (:122) posts clearmessage only for a bound id Patterns posted.\n- Ack (:136) forwards sw:<id>.\n- Receipt and frame handlers mark the message seen and journal it.\n- Block appends speakerFrom, speakerAck and speakerAckBy.\n- DeckSignature (:201-205) adds the frame's MessageId and MessageAck.\n- StatusJson (:269) appends speakerShown; FollowJson appends messageId, messageAck and messageAckBy."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Model/ShowState.cs",
+    "change": "91.1: StagewatchLinkConfig.KeyFor. 91.2: StageMessage appends Via, SwMessageId, SwAck, SwAckBy (:845-868). 92.1: DeviceProfile.ShowBusNode appended."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/WindowAddresses.cs, WebPassBook.cs, WebPassMigration.cs (new)",
+    "change": "89.2: private rule; NewId (12 base32 from bytes handed in, RandomNumberGenerator in production); Kept/TryKept/PublicForm/IsHeld/RedactText; immutable book with reuse by lookup, Resolve, Merge, \u226464; show rewrite over WebUrl, layers, SavedUrls and looks' JSON."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/Twin.cs; src/Patterns.App/Services/TwinService.Main.cs and standby side",
+    "change": "89.2/89.3: TwinWord.Kept appended and parsed; KEPT sent on welcome and on WebPasses.Changed only with SendSecrets (:81-89); the standby merges the book into its own BaseDirectory."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/RemoteAdmin.cs",
+    "change": "89.2: NeverBundled gains the kept file with its reason (:94-99); Build (:110-136) runs WindowAddresses.RedactText over every text entry; the kept URLs join the secret values."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/WebAddress.cs; src/Patterns.Rendering/Patterns/MediaAndParticlePatterns.cs",
+    "change": "89.2: ShortName of a held address is its host; a held address with no page draws black."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/WebPasses.cs (new), WebFrameSource.cs, WebEngine.cs, WebVideoService.cs, VideoEngine.cs, WebActions.cs, LibraryItems.cs, ViewModels/MediaPage.cs, ViewModels/CueEditor.cs, AppServices load path",
+    "change": "89.3:\n- patterns.webpasses.json in SettingsStore.BaseDirectory (AtomicFile).\n- Secure at every entry point.\n- A load migration with one journal row.\n- NavigateCore resolves a held address; its failure log (:1402) and _status name the held one.\n- CurrentUrl returns the held or public form; the logs (:308, :995) do too.\n- WebVideoService resolves a held address before calling the tool.\n- VideoEngine.cs:331 names Origin.\n- Pages re-navigate on Changed."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Devices/OscService.cs",
+    "change": "89.3: _lastLine (:267, :272) holds WindowAddresses.RedactText(line)."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/RuntimeCheck.cs",
+    "change": "89.3: the WebView2 probe in --verify-runtime (closes OPEN L26)."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/ControlService.cs, src/Patterns.Core/Services/ControlProtocol.cs; tests/Patterns.App.Tests/RemoteTrustTests.cs, ShowBusAppTests.cs",
+    "change": "90.2: NONCE first and no unpaired STATE greeting or push; the test wire helpers pair first. 91.1: case STAGEWATCH beside NODES (:1319); three high-risk ShowActionKinds appended."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/ShowContext.cs",
+    "change": "90.3: cross-app's 15 rows appended; Parse keeps 256 commands, drops a command whose verb is over 512 characters, cuts words at 512 (:99). 91.2: the STAGE MESSAGE row's words (:162)."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/ShowActions.Content.cs, PlaylistService.cs, StingerService.cs; src/Patterns.Core/Services/PlaylistSequencer.cs",
+    "change": "91.3: hold and release of a playlist item's clock and a stinger's clip; STOP on a playlist item restarts and holds; STOP on a stinger's clip refused toward STINGER STOP; due schedule entries fire at release inside their window or are journalled."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Menus/EyeMenus.cs; Nodes page",
+    "change": "91.1: Stagewatch show-app entries (LINK id:<id>/OFF, FOLLOW ON|OFF, ACCEPT); a 'Bind the key to <name>' button on a plain addr: link. 92.1: 'Add as a device\u2026' for a heard PlayMap."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/ControlService.Stage.cs",
+    "change": "91.2: the page draws speakerShown (falling back to pendingSpeaker) and acknowledges its id (:81-85)."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/DeviceProfiles.cs; src/Patterns.Devices/DeviceService.cs; src/Patterns.Core/Services/ShowBusNetwork.cs; StagewatchFollow.cs ShowBusView.Apps",
+    "change": "92.1:\n- ProfileSession.EncodeFact, virtual, defaulting to Encode.\n- ShowBusNodeSession: NONCE \u2192 HELLO \u2192 proof \u2192 SUBSCRIBE OFF \u2192 SUBSCRIBE CONTEXT; commands tagged @d<n>; STATE dropped; facts untagged and only PlayMap's fact keys.\n- SendFeedback (:769-790) and the OPEN 1 announce go through EncodeFact.\n- Contexts kept per device.\n- KindWords playmap\u2192PlayMap.\n- The PlayMap app is linked through its device."
+   },
+   {
+    "repo": "Patterns",
+    "file": "integrations/companion-module-patterns/src/{state.js,variables.js,feedbacks.js,actions.js}, test/lines.txt, test/fixtures/state.json",
+    "change": "89.1 stagewatch_stuck and its feedback; 90.1 stagewatch_key; 91.1 the actions stagewatch_link/follow/accept and variables stagewatch_follow/pending; 91.2 stage_speaker_from, stage_speaker_ack and the stage_speaker_ack_is feedback."
+   },
+   {
+    "repo": "Patterns",
+    "file": "docs/PLAN.md, docs/REVIEW.md, CHANGELOG.md, README.md, docs/REMOTE.md, docs/COMPANION.md, docs/SHOWBUS.md, docs/OPEN.md, docs/QUALIFICATION.md, .github/scripts/tag-rounds.sh",
+    "change": "Per round:\n- PLAN \u00a7107-\u00a7110.\n- REVIEW 89-92, with Walk lines.\n- CHANGELOG naming 'a handed-in critique'.\n- REMOTE and COMPANION fields and verbs.\n- SHOWBUS copy 1.3 (Round 90).\n- OPEN: L57/L58 added and closed, L26 closed, L36 and L40 amended, L59 added (89) and closed (90), L60 added (89), L48 closed (91), the assistant's reach recorded (91).\n- QUALIFICATION: \u00a722 walk rows for WebView2 and twin takeover, and a new \u00a728 (89).\n- The tag row for round 88 = bcdbf2829cea302078acee7887841389e00d5178."
+   },
+   {
+    "repo": "Mapper",
+    "file": "docs/round3/PLAN.md-quoting exception request (PM-X; papers to the owner)",
+    "change": "Quotes round 3 \u00a74 in full and asks leave for exactly PM-F1..F4's files. Says the fix-*-win branches were CI stability fixes and that EngineCore.Content.cs must land before W3. If declined, all four move to the integration pass and SHOWBUS-NODE warns against pasting window addresses."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Core/Media/PrivateAddress.cs (new); src/PlayMap.Core/Wire/VerbCatalog.cs",
+    "change": "PM-F1 (on the exception): the same private rule as Patterns; Redacted (:617-646) shows a private-address word as \u2039private address\u203a."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Engine/EngineCore.Content.cs; src/PlayMap.Engine/Host/MediaBackend.cs",
+    "change": "PM-F2 (on the exception, before W3): MEDIA IMPORT (:390-407) refuses Web, Embed and private addresses without echo and files https .m3u8/.mpd as Stream; FETCH (:447), LIST (:509, :528) and readiness (:378-383) say unplayable; the engine-start scrub of pass-bearing items, in one journalled edit. Integration notes: the catalogue row's words (VerbCatalog.cs:185) and FakeEngineLink.cs:697."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Engine/Host/NetworkHost.cs; src/PlayMap.Engine/Rendering/TimerView.cs",
+    "change": "PM-F3 (on the exception): StagewatchTimerJson (:318-341) appends blackout and watermark; TimerView.Read returns them; Draw is black under blackout with the watermark drawn last in every state. Integration notes: StateSnapshot.cs:85, :285-292 and StateExplainer.cs:263-275. G31 later (PM-P1)."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Net/Links/ContextFit.cs (new); src/PlayMap.Net/Links/StagewatchLink.cs; tests/PlayMap.Net.Tests/StagewatchLinkTests.cs",
+    "change": "PM-F4 (on the exception): ForPost fits by bytes only (recent to 200 characters, then command words, then green and grey items) and adds the context:trimmed item; PostContextAsync (:500-519) gives words when trimmed, not posted or answered 413; the fake answers 413 over 64 KiB."
+   },
+   {
+    "repo": "Mapper",
+    "file": "docs/SHOWBUS-NODE.md; docs/FLEET.md; docs/round2/CARRYOVER.md",
+    "change": "PM-F5, papers: :40 (Patterns' address goes on PlayMap's TrustedAddresses), :72-73 (proposed, not built), :37 and :49-50 (what is drawn), a 'do not paste a window address' line while PM-F2 waits; FLEET P1-P3; a CARRYOVER entry per fix."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Core/Model/TimecodeModel.cs; src/PlayMap.Engine/Timecode/PatternsChase.cs (new); VerbCatalog rows; EngineCore.Router.cs; a G35 contract test",
+    "change": "After round 3: G36 (the PATTERNS chase source and LINK PATTERNS SEND), and a contract test of Patterns' Show Bus node session against WireSession."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Engine/OpsParts.cs, Assistant/AssistantService.cs, EngineCore.Assistant.cs",
+    "change": "G13 after round 3, on the owner's decision 7 (cross-app unit 12)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/WebServer.cs",
+    "change": "SW-25: HttpRequest.ReadAsync (:1569-1613) marks an oversize non-deferred body; the caller (:319-321) drains it (\u22641 MiB, 10 s, as :955-960 does) and answers 413 JSON; deferred paths keep their caps (:1603-1608)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/Stagewatch.Rig/Program.cs; tests/e2e/rig.cjs; tests/e2e/stall.e2e.cjs (new); tests/e2e/message.e2e.cjs (new)",
+    "change": "SW-ST: a stdin 'stall <ms>' stops MarkAlive in Tick (:251-255). SW-RM: ExecuteWithReceiptAsync (:184-195) gives refs.messageId; Run (:198-221) handles message signals and ack; Frame (:258-290) sets MessageSignalId, MessageAck and MessageAckBy."
+   }
+  ],
+  "tests": [
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.Core.Tests/ShowBusTests.cs (:367-383 kept, :374 kept; new facts)",
+    "proves": "IsStuckBeat is true only for the real beat shape. A Live=false frame gives Idle time and 'stuck' words. A no-frame stuck sight is not Following. The relay round trip keeps Live=false. Peers, the brief, ShowAppCard (#B03030) and the Eye are red."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.App.Tests/ShowBusAppTests.cs (FakeStagewatch Stuck + ContextDelay; three new AvaloniaFacts)",
+    "proves": "With pongs still flowing:\n- a stuck beat turns the stage Idle, and STATE, /api/stage, the Eye and the Nodes card all say stuck;\n- three stuck beats log one line;\n- a context landing beside a stuck beat keeps the stage dark;\n- a Stagewatch stuck before its first frame leaves the desk's timer running and TIMER allowed;\n- the next frame brings the time back."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.App.Tests/ShowBus12AppTests.cs (:413 extended)",
+    "proves": "A timer node repaints Idle on the next relay without a seq change."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.Core.Tests/WindowAddressesTests.cs, WebPassBookTests.cs, WebPassMigrationTests.cs (new); Patterns.Rendering.Tests",
+    "proves": "The private-address table (including ?pin=4321 and ?view=). NewId gives 12 base32 characters from the bytes handed in. The id is not a function of the URL: two books give different ids, and no id equals a window of the URL's SHA-256. The same URL reuses its id; Merge; the 64-entry cap. The migration rewrites all four places. A held address with no page is all black."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.App.Tests/PrivateAddressFenceTests.cs (new), LibraryWebTests, WebAppTests, SupportBundleTests",
+    "proves": "Neither the pass nor '4321' appears in:\n- STATE, CONTEXT, EYE, the journal, the settings or show file, the recovery record;\n- the bundle, the twin payload with SendSecrets off, the module's lines;\n- OSC's status line after /patterns/web/open;\n- the log after a navigate failure or a native-player failure.\nWEB OPEN replies with the host only. A Round 88 file migrates with one row. Twin leg: with SendSecrets on, the standby resolves the real URL after TAKE OVER; with it off, the page draws black with words. The kept file is listed in NeverBundled."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.Core.Tests and App.Tests (Round 90)",
+    "proves": "The siblings' fences. RemoteTrustTests.Wire and the ShowBusAppTests helpers pair before reading STATE. Parse of PlayMap's busy golden keeps all 199 commands with their whole verbs (\u2264307 characters) and words (\u2264403). A 513-character verb drops its command; 600 characters of words keep 512."
+   },
+   {
+    "repo": "Patterns",
+    "where": "Core StagewatchLinkVerb/KeyGoesTo/BindAfterLine tests; App STAGEWATCH tests extending ShowBus12AppTests.cs:304; DeskMenuAppTests; module lines",
+    "proves": "A link repointed by a line sends no Authorization header to a target the key is not bound to. An unbound key turns to none after a line. Binding needs a 2xx to POST /api/peers/context with a key-shaped key. id: is distinct from a host. LINK, FOLLOW and ACCEPT move STATE. The approval-desk origin is refused. ACCEPT needs the right prefix. The menus carry the same lines."
+   },
+   {
+    "repo": "Patterns",
+    "where": "Core StageMessagePath/StageSpeakerChoice tests; App FakeStagewatch with /api/message, /api/clearmessage, /api/ack handlers (applied and accepted receipts)",
+    "proves": "With a node key: Requested, a post to /api/message/Wrap%20up/info/slow/ack with the key and an id, journal rows, speakerFrom and speakerAck updated, pendingSpeaker cleared on seen, speakerShown sw:41, and the ACK forwarded. An accepted receipt is journalled 'not yet applied' and binds on the frame. With no key, a cue step's message is Done and local with words. A 403 falls back locally. A stale link stays local. CLEAR leaves Stagewatch's own message alone. A second message supersedes the first. A message is not delayed by a slow /api/context. DeckSignature moves with messageAck. With FollowStage off, messages stay local."
+   },
+   {
+    "repo": "Patterns",
+    "where": "Core PlaylistSequencerTests; App VIDEO transport tests",
+    "proves": "A held item does not advance, and its start moves by the held span on release. A schedule entry due during a hold fires inside its window or is reported missed. PAUSE on a playlist item is Done with pausable and stoppable true. STOP on a stinger's clip is refused toward STINGER STOP. Existing STATE substrings are unchanged."
+   },
+   {
+    "repo": "Patterns",
+    "where": "Core DeviceProfilesTests (ShowBusNodeSession); App scripted PlayMap TCP wire",
+    "proves": "The session sends NONCE, HELLO, a proof over nonce+name, SUBSCRIBE OFF and SUBSCRIBE CONTEXT. STATE is dropped. Commands carry @d receipts. EncodeFact('BLACKOUT 1') goes untagged and 'OPEN 1' sends nothing. A wrong token stops sends. The fact-key copy equals Mapper's WIRE.md. A desk blackout reaches the wire untagged with no ERR. The context lights the Eye card."
+   },
+   {
+    "repo": "Patterns",
+    "where": "integrations/companion-module-patterns npm test",
+    "proves": "stagewatch_stuck, stagewatch_key, stagewatch_follow/pending, stage_speaker_from and stage_speaker_ack come from the fixtures. stage_pending is false once a via-Stagewatch message is seen. The new actions emit the lines in test/lines.txt."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Core.Tests (Redacted tests)",
+    "proves": "A /w/ address in MEDIA IMPORT, a SET \u2026 location with ?pin=4321 and a nested binding line are each shown as \u2039private address\u203a. A public URL is unchanged. The shared private table equals Patterns'."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Engine.Tests/Content/MediaImportTests.cs (new)",
+    "proves": "Page, embed and private imports are refused, add no item, and leave no token in the reply, either journal column, STATE events or the context's recent. https .m3u8 adds a Stream. An existing Web item reads ready:false, unplayable. FETCH's words. A project loaded with a pass-bearing item is scrubbed with one row, and the pass appears nowhere published."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Engine.Tests/Rendering/TimerViewTests.cs (new, through the BackendFixture leg); tests/PlayMap.Net.Tests/StagewatchLinkTests.cs",
+    "proves": "blackout and watermark are read and appended at the end of the timer object. In a 64x36 pixel check, the time region is black under blackout and the watermark region is not. The watermark shows with state unknown."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Net.Tests/Links/ContextFitTests.cs (new); StagewatchLinkTests with the fake's 413",
+    "proves": "The golden alone posts byte for byte. Golden plus 20 recent rows of 64 KiB fits \u226465,536 bytes, with all items and all 199 command verbs and risks kept in order and a context:trimmed item. Oversize items drop green first and keep reds and ambers. Reds alone over 64 KiB are not posted, and the words say so. A 413 gives words."
+   },
+   {
+    "repo": "Mapper",
+    "where": "StagewatchLinkTests (G31), PatternsChaseTests and LINK PATTERNS SEND (G36), ApprovalDeskWiringTests (G13), a ShowBusNode contract test against WireSession \u2014 all post round 3",
+    "proves": "TLS first, then a desk probe, and a 403 never read as a key problem. The chase re-anchors on seq. SEND passes Patterns' receipt and refuses AUTH. The desk sink. Patterns' device session pairs, subscribes, and its facts are taken untagged by the real PlayMap wire."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests (WebServer, real HttpClient on a real socket)",
+    "proves": "A 70,000-byte POST /api/peers/context is answered 413 with the JSON error, and the client reads it rather than a reset. The server keeps serving. 64 KiB is accepted. The upload path keeps its own cap. A declared 2 MiB body on another path is closed without draining."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/e2e/stall.e2e.cjs (rig, new)",
+    "proves": "After rig 'stall 5000', a /ws peer receives exactly {\"type\":\"beat\",\"live\":false}, repeated, and no frame until recovery. Pongs keep coming. The first message after recovery is a state frame."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/e2e/message.e2e.cjs (rig with --node-keys 1, new)",
+    "proves": "A node key's /api/message with X-Request-Id gets an applied receipt with refs.messageId. Frames carry that messageId with messageAck 'sent', then 'seen' with messageAckBy after /api/ack. A second message cancels the first signal. clearmessage clears."
+   }
+  ],
+  "units": [
+   {
+    "repo": "Patterns",
+    "title": "Round 89.1: a stuck Stagewatch shows no time in every reader (single-writer flag; pages, STATE, nodes, Eye, Nodes card, brief, module, log)",
+    "gaps": [
+     "G04"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 89.2: held addresses, Core \u2014 private rule, random kept ids, the book, the show rewrite, TwinWord.Kept, bundle redaction, ShortName, black for an unresolved page",
+    "gaps": [
+     "G09"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 89.3: held addresses, App \u2014 kept store in BaseDirectory, every entry point, OSC, native player, load migration, resolver, CurrentUrl and logs, STATE, twin carry under SendSecrets, WebView2 probe (L26), the fence test",
+    "gaps": [
+     "G09"
+    ],
+    "dependsOn": [
+     "Round 89.2"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 89 papers: PLAN \u00a7107, REVIEW, CHANGELOG, README, REMOTE, COMPANION, QUALIFICATION \u00a722/\u00a728, OPEN L57/L58/L59/L60/L26/L36/L40, tag row 88",
+    "gaps": [],
+    "dependsOn": [
+     "Round 89.1",
+     "Round 89.3"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-X: the exception request to the owner, quoting round 3 \u00a74 in full",
+    "gaps": [
+     "G47",
+     "G12",
+     "G25"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-F1: a private address is shown as a marker wherever a line rides (PrivateAddress, VerbCatalog.Redacted)",
+    "gaps": [
+     "G47"
+    ],
+    "dependsOn": [
+     "PM-X"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-F2 fix-media-page-import: pages, embeds and passes refused; kept passes scrubbed; honest LIST, readiness and FETCH; https HLS as Stream (before W3)",
+    "gaps": [
+     "G47"
+    ],
+    "dependsOn": [
+     "PM-F1"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-F3 fix-stagewatch-timer-air: blackout and watermark in STATE's timer and on the timer surface",
+    "gaps": [
+     "G12"
+    ],
+    "dependsOn": [
+     "PM-X"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-F4 fix-stagewatch-context-size: the posted context fits 64 KiB by bytes, says when trimmed, never fails silently",
+    "gaps": [
+     "G25"
+    ],
+    "dependsOn": [
+     "PM-X"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "PM-F5 fix-showbus-node-papers: SHOWBUS-NODE.md :37, :40, :49-50, :72-73 and FLEET.md P1-P3 corrected; a 'do not paste a window address' line",
+    "gaps": [
+     "G35"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-25: 413 for a request body over 64 KiB, drained and read by the sender; deferred paths exempt",
+    "gaps": [
+     "G25"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-ST: rig 'stall <ms>' and stall.e2e.cjs pinning the stuck-beat bytes",
+    "gaps": [
+     "G04"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "SW-RM: rig message signals, receipts with refs.messageId, frames with messageId/messageAck/messageAckBy, ack; message.e2e.cjs",
+    "gaps": [
+     "G21"
+    ],
+    "dependsOn": [
+     "peers-not-screens SW-6 (--node-keys)"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 90.1: the node link and its verdict (peers-not-screens PT-1)",
+    "gaps": [],
+    "dependsOn": [
+     "Stagewatch peers-not-screens SW-3"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 90.2: reads follow pairing \u2014 NONCE first, no unpaired STATE greeting or push; the test wire helpers pair first",
+    "gaps": [
+     "G09"
+    ],
+    "dependsOn": [
+     "Stagewatch SHOWBUS 1.3 master final"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 90.3: the context's 15 appended rows; the reader keeps 256 commands with verbs and words to 512; the brief lists 32",
+    "gaps": [
+     "G03",
+     "G33",
+     "G35"
+    ],
+    "dependsOn": [
+     "Stagewatch cross-app-proposals unit 1"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 90 papers incl. SHOWBUS copy 1.3, OPEN L59 closed, QUALIFICATION \u00a726",
+    "gaps": [],
+    "dependsOn": [
+     "Round 90.1",
+     "Round 90.2",
+     "Round 90.3"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 91.1: STAGEWATCH LINK/FOLLOW/ACCEPT and STATUS; KeyFor and its bind rules; menus; module",
+    "gaps": [
+     "G34"
+    ],
+    "dependsOn": [
+     "Round 90.1"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 91.2: the speaker's message through Stagewatch when the link can carry it, on this desk with words when not; receipt stages, ACK, speakerShown, speaker lane, module",
+    "gaps": [
+     "G21"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 91.3: hold a playlist item or a stinger's clip; video.pausable and video.stoppable",
+    "gaps": [
+     "G48"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 91 papers (OPEN L48 closed; the assistant's reach recorded)",
+    "gaps": [],
+    "dependsOn": [
+     "Round 91.1",
+     "Round 91.2",
+     "Round 91.3"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 92.1: Show Bus node devices (HELLO, proof, SUBSCRIBE OFF/CONTEXT, untagged facts); PlayMap's context on the Eye, Nodes page and brief; kind words; the Video band; Add as a device",
+    "gaps": [
+     "G35"
+    ],
+    "dependsOn": [
+     "Round 90.3"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 92.2-92.4: windows-for-peers PT-W2/PT-W3 (grants on top of held addresses)",
+    "gaps": [],
+    "dependsOn": [
+     "Round 89.3",
+     "Stagewatch windows-for-peers SW-W3"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 92 papers",
+    "gaps": [],
+    "dependsOn": [
+     "Round 92.1"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "Post round 3: typed Stagewatch address re-resolved, TLS first, desk probe, 403 words (with peers-not-screens PM-1)",
+    "gaps": [
+     "G31"
+    ],
+    "dependsOn": [
+     "round 3 integration pass"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "Post round 3: the timer's other fields, native windows, the desk's StateSnapshot and the assistant's StateExplainer (windows-for-peers PM-W2/W3)",
+    "gaps": [
+     "G12"
+    ],
+    "dependsOn": [
+     "PM-F3",
+     "round 3 integration pass"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "Post round 3: PlayMap's assistant on the approval desk (cross-app unit 12)",
+    "gaps": [
+     "G13"
+    ],
+    "dependsOn": [
+     "owner's decision 7"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "Post round 3: Patterns chase source, LINK PATTERNS SEND, and the Show Bus node contract test",
+    "gaps": [
+     "G36"
+    ],
+    "dependsOn": [
+     "round 3 integration pass"
+    ]
+   }
+  ],
+  "gapsClosed": [
+   "G04 \u2014 the stuck beat turns the held frame to no time in every Patterns reader. One writer per field means a context fetch cannot undo it. The Nodes card turns red. A Stagewatch stuck before any frame is said without stealing the desk's timer. Tested with the real bytes, which Stagewatch's rig e2e pins.",
+   "G09 \u2014 the pass is never a key, and the published id is random. No Patterns artefact carries the pass or anything derived from it: fence-tested, including OSC, the native player, navigate failures, the support bundle and the twin. A standby resolves kept pages when the twin carries secrets. The unpaired-STATE remainder closes in Round 90.2.",
+   "G47 \u2014 on the owner's exception: page, embed and private-address imports refused with words; a pass is a marker in every shown line; kept passes scrubbed; readiness, LIST and FETCH honest. If declined, the integration pass carries it.",
+   "G12 \u2014 air half on the exception (blackout, watermark). The rest is designed with native windows and its field order fixed; the desk and assistant readers are integration notes.",
+   "G25 \u2014 the post fits Stagewatch's 64 KiB by bytes alone and says when it trims. Stagewatch answers 413 after reading the body, so the sender sees the 413.",
+   "G21 \u2014 one speaker message on the page, latest wins. It goes through Stagewatch with its receipt stage and ACK when the link can carry it, and stays on this desk with words when it cannot. The deck sees the ACK.",
+   "G34 \u2014 the link set from the wire, the deck and the menus. The key stays desk-typed and goes only to the Stagewatch it is bound to, never to a target a wire line chose.",
+   "G48 \u2014 Patterns holds playlist items and stingers' clips and publishes pausable/stoppable for Stagewatch's link.",
+   "G03 \u2014 APPLY <proposal> listed at review (cross-app rows).",
+   "G33 \u2014 VIDEO STOP, staged verbs, TAKE/CUT and web actions advertised with risks; the reader keeps 512 characters.",
+   "G35 \u2014 PlayMap paired by proof, driven, following Patterns' blackout over the same link, and drawn on Patterns; Mapper's wrong papers corrected now."
+  ],
+  "gapsLeft": [
+   {
+    "id": "G31",
+    "why": "Designed. Its Mapper files are round-2 files that round 3 \u00a74 forbids editing, so it lands after the integration pass (or on the owner's word) together with peers-not-screens PM-1, which supplies the honest 'paired'."
+   },
+   {
+    "id": "G13",
+    "why": "Designed by cross-app-proposals (decision 14). It waits for the owner's answer to round 2 decision 7 and for files that belong to no round-3 package."
+   },
+   {
+    "id": "G36",
+    "why": "Designed minimal. It needs spine rows after round 3 and the owner's yes. Frame-accurate following needs Patterns to emit ANCHOR lines (video.anchor), which no unit builds."
+   },
+   {
+    "id": "G12 (rest and readers)",
+    "why": "Holding images, flash, urgency, next, show flags and time of day land with native windows after round 3. The desk's StateSnapshot and the assistant's StateExplainer are wave-owned files (App, Assistant), so they are integration-pass notes."
+   },
+   {
+    "id": "G47/G12/G25 (if the exception is declined)",
+    "why": "Round 3 \u00a74 forbids edits to round-2 files during the waves. Without the owner's leave, PM-F1..F4 wait for the integration pass, and only the papers warn against pasting a window address into PlayMap."
+   },
+   {
+    "id": "G34 (assistant-proposable line)",
+    "why": "Declined. Patterns' assistant proposes typed show content, and repointing a key-bearing link or the speaker's timer source is a trust decision. The brief names the verbs in words."
+   },
+   {
+    "id": "G21 (ACK under crew keys; urgency)",
+    "why": "A forwarded speaker ACK can be refused by Stagewatch's crew-key policy (WebServer.cs:1044-1056); Patterns shows the refusal. The crew channel stays local because a node key may run only message/clearmessage. Patterns' messages carry no urgency, so Stagewatch shows them at info."
+   },
+   {
+    "id": "G09 (transport and on-machine copies)",
+    "why": "Patterns' wire and twin remain plain TCP (OPEN L55, L36), and kept passes cross the twin under SendSecrets. Pre-migration copies in backups/ and the log stay on the machine (L40's class); the support bundle hides them."
+   }
+  ],
+  "risks": [
+   "Kept passes are plain per-machine JSON (OPEN L40's class), and with SendSecrets on they cross the twin link readable (L36's class). A show carried to another machine without the twin draws those pages black, with words.",
+   "A standby with SendSecrets off takes the show with kept pages black (OPEN L60, a \u00a722 walk row). A page kept on a standby while it held the show stays on the standby after hand-back.",
+   "The load migration rewrites addresses in show files and captured looks' JSON. A Round 88 build opening the show afterwards draws those pages black; backups keep the old addresses as the undo path.",
+   "WebView2 resolution of held addresses and the twin takeover are unproven off a real machine (OPEN L10, L26). Round 89 stays 'unwalked' until its \u00a722 rows are filled.",
+   "The STAGE MESSAGE route changes an operator habit. While following with a node key, the speaker sees the latest of Stagewatch's message and a desk-only one. Without a key, messages stay local with words, and nothing is refused.",
+   "KeyFor: an AUTO desk whose key is still unbound turns it to 'none' when a line repoints the link, which stops presenting the key until the operator binds it on the Nodes page. Safe, and said in the reply.",
+   "The playlist hold changes sequencer timing: a schedule entry held past its window is skipped and journalled, not played late.",
+   "The Mapper exception may be declined. A pasted window address then stays a stored pass on PlayMap until the integration pass. If it is granted, EngineCore.Content.cs must land before W3 or it conflicts with desk-map.",
+   "Trimming PlayMap's posted context reduces what Stagewatch's AI reads. Recent texts are cut to 200 first, as Stagewatch's reader already does; then command words, then green items. The context:trimmed item says how many.",
+   "PlayMap's timer surface now goes dark with Stagewatch's room-wide blackout, which may surprise an operator who drew it on a non-speaker surface. The source's words say why.",
+   "PlayMap's LGPL FFmpeg playing https HLS is unproven. Such a stream is filed as a Stream, and the papers say so.",
+   "Round 92 adds one device connection per PlayMap node, each sending one STATE greeting that is dropped. Bounded by the operator's device list.",
+   "The siblings' papers name other round numbers. \u00a79 of the design reconciles them, and the maintainer's numbering wins."
+  ],
+  "processNotes": "PATTERNS (Patterns/CLAUDE.md)\n\nOpening each round:\n- docs/field holds only its README, so the PLAN section says \"what the files said: none this round\".\n- Read docs/OPEN.md first.\n- The PLAN section's first lines name the requester and the evidence class: the maintainer's ask, answered from a handed-in critique (the cross-repo gap analysis and the critic's review of this design).\n\nEach unit:\n- One commit, subject 'Round NN.k: <what landed>', in the maintainer's name, reasoning in the body.\n- Validated with dotnet build Patterns.sln (one build at a time; the analyzers are fences and apply to tests, so the kept id uses RandomNumberGenerator, never System.Random) and the suites it touches.\n- All seven suites and the module's npm test green before the push.\n\nWire rules:\n- New STATE fields go at the end of their row. The bus.stagewatch tail order is stuck, key, follow, pending, windows. stage appends speakerFrom, speakerAck, speakerAckBy; video appends pausable, stoppable.\n- A loopback test sets ControlService.TrustLoopback=false and restores it in finally.\n- Round 90.2 names the test helpers it changes.\n\nPapers per round:\n- PLAN \u00a7107\u2013\u00a7110, each with \"what the round did not do\".\n- REVIEW with a 'Walk:' line.\n- CHANGELOG naming the evidence class.\n- README, REMOTE and COMPANION where the wire or module moved; SHOWBUS copy 1.3 in Round 90.\n- QUALIFICATION: Round 89 touches the WebView2 path and the twin's takeover, so it asks \u00a722 walks and a new \u00a728 and stays 'unwalked' until they are filled.\n- OPEN, round 89: adds and closes L57 and L58, closes L26, amends L36 and L40, adds L59 and L60.\n- OPEN, round 90: closes L59.\n- OPEN, round 91: closes L48 and records the assistant's reach.\n- The tag row for the round before (round 88's last commit is bcdbf2829cea302078acee7887841389e00d5178).\n\nClosing sentence per round:\n- 89: no new verb; the stall's two log lines and the migration's journal row.\n- 90: no verb an output shows.\n- 91: STAGEWATCH LINK's and STAGE MESSAGE's journal rows, the receipt's stage named.\n- 92: the DEVICE lines' receipts.\n\nMAPPER (Mapper/CLAUDE.md; docs/round3/PLAN.md \u00a72.2, \u00a74, \u00a75.7)\n- \u00a74 forbids every edit to a file its wave does not name: \"a folder not named for a wave keeps no owner in it, and nothing in that wave edits it\". \u00a75.7's spine lane is only for missing seams.\n- So PM-F1..F4 go only on the owner's explicit exception (PM-X), which quotes \u00a74 in full and says the fix-*-win branches were CI stability fixes.\n- EngineCore.Content.cs must land before W3; W1 is built and W3 has not begun.\n- PM-F5 is papers only.\n- No edits to Core/Bus/ShowContext.cs (the integration pass's), PlayMap.App or PlayMap.Assistant. Their changes go as integration notes: the catalogue row's words, FakeEngineLink, StateSnapshot, StateExplainer.\n- Commits use the 'Area: sentence' form (Core:, Engine:, Net:, Papers:). Papers go as notes for the integrator (\u00a75.4 item 7), with a docs/round2/CARRYOVER.md entry per fix.\n- A new verb (G36's, later) is a catalogue row. No STATE fixture changes: G12's fields sit inside links.stagewatch.timer, and main.json holds links.stagewatch as off.\n- The GL line holds: the timer's pixel test draws through its BackendFixture leg.\n- Both CI jobs green; the analyzers apply to tests; no skipped tests; no model identifiers.\n\nSTAGEWATCH (Stagewatch/CLAUDE.md)\n- tools/test.sh lanes build, unit, module, holo and e2e green; one build at a time.\n- The 413 path logs no body (secrets in no log).\n- The rig's stall and message signals are rig-only seams, not product routes. SW-RM waits for peers-not-screens SW-6's --node-keys.\n- REMOTE and WHATS_NEXT name the 413.\n- The proposed \u00a713 conformance line goes through spec-1-3's single owner of the master text.\n\nAGMESSAGE: untouched by this area."
+ },
+ "critique": {
+  "verdict": "needs-changes",
+  "issues": [
+   {
+    "severity": "high",
+    "issue": "G09: the kept id leaks the low-entropy secrets the design's own private rule names. The id is an unsalted, deterministic, 60-bit truncation of SHA-256 over the full normalised URL, and it is published in STATE web.url, residency keys, Eye ids, CONTEXT (which is also posted to Stagewatch) and the show file. The rule treats ?pin=, ?view=, ?code= and ?pass= as private, but Stagewatch's PIN is a short digit string (the rig's default is 4321) and its viewing code is free text an operator types. kept:// already publishes host and port, and the paths are guessable (/timer, /stage, /countdown). Anyone who reads the id can recover the PIN or code offline in milliseconds. The design even tests the id as deterministic.",
+    "evidence": "Design \u00a72 decision 4 and \u00a73.1 (KeptId = 12 base32 of SHA-256 over the normalised URL; private words include pin, view, code, pass); \u00a75 89.2 test 'KeptId deterministic'. Stagewatch/tools/Stagewatch.Rig/Program.cs:21 (default pin 4321); Stagewatch/src/Timer.App/SettingsDialog.xaml.cs:596 (ViewCode is free text); Stagewatch/src/Timer.Remote/WebServer.cs:1010-1029 (?view= code).",
+    "fix": "Make the kept id a random value from a CSPRNG (at least 60 bits), stored in the per-machine book, or an HMAC under a per-machine secret. Replace the 'deterministic' test with a fence that the id cannot be derived from the URL. Pasting the same URL twice can reuse an existing book entry by lookup, not by hash."
+   },
+   {
+    "severity": "high",
+    "issue": "G09: 'never twinned' breaks twin failover, and the risks never say so. The standby copies the whole show and takes it over (TAKE OVER, or on the main's silence). With kept:// addresses and no pass, every Stagewatch window or keyed page goes black on takeover. This holds for a standby on another machine and also for the same-machine standby the desk launches, which runs with its own --home and so its own BaseDirectory. The file location is also contradictory. 'Beside the exe' bypasses SettingsStore.BaseDirectory, breaks test isolation, and means two processes write one file with AtomicFile last-writer-wins. Putting it in BaseDirectory instead hides it from the standby. OPEN L36 shows the twin already carries device passwords and keys by default under TwinConfig.SendSecrets, so the design's line here is inconsistent with the existing choice.",
+    "evidence": "Patterns/src/Patterns.App/Services/TwinService.cs:11-20 (the standby takes the show); TwinLauncher.cs:18 (--home for the standby on this machine); Patterns/src/Patterns.Core/Services/SettingsStore.cs:44 (BaseDirectory = HomeOverride ?? portable dir); TwinService.Main.cs:81,89 (TwinSync.WireJson(..., SendSecrets)); docs/OPEN.md L36; design \u00a73.1 ('beside the exe, per machine \u2026 never bundled or twinned') and \u00a78 risks.",
+    "fix": "Carry the kept book over the key-proved twin link under TwinConfig.SendSecrets (L36's class, closed the same way later). Otherwise state plainly that a standby takes the show with those pages black, add an OPEN row and a \u00a722 walk row for it, and keep the file in SettingsStore.BaseDirectory. Add a twin takeover leg to PrivateAddressFenceTests."
+   },
+   {
+    "severity": "high",
+    "issue": "G21: routing STAGE MESSAGE to Stagewatch while following turns a working local path into refusals and wrong facts. (a) Following has needed no key since Round 87 and the Authorization header is optional, so a desk that follows with no key or a read key now refuses every STAGE MESSAGE. That includes cue steps ('Sent by a cue'), so cue stacks fail mid-show. The offered way out, STAGEWATCH FOLLOW OFF, also drops the timer. (b) The path is hard-coded /info/off, but Patterns' Message defaults to flash=true. (c) When Stagewatch is stuck or slow, it answers 200 {ok:true, stage:'accepted'} with no refs after 3 s. Receipt() returns only (Ok, MessageId, Error), so an accepted receipt is journalled 'on the speaker's screen'. (d) STAGE CLEAR posting clearmessage wipes the Stagewatch operator's own speaker message, not just the one Patterns sent.",
+    "evidence": "Patterns/src/Patterns.App/Services/ShowActions.Stage.cs:20-22 (cue-sent STAGE MESSAGE); StageService.cs:107 (Message(..., bool flash = true)); StagewatchLinkService.cs:263 (header only when a key exists); Stagewatch/src/Timer.Core/ShowState.cs:1203 (Accepted = ok:true, stage 'accepted'); Stagewatch/src/Timer.Remote/WebServer.cs:838-843 (200 for any ok receipt) and :846 (ReceiptWait 3 s); design \u00a73.1 Round 91.2.",
+    "fix": "When the link holds no node key, send the message locally and say so in the result and in STATE speakerFrom, rather than refusing a cue step. Carry the message's flash and urgency. Make Receipt return the stage, and journal 'accepted, not yet applied' when there are no refs. Send clearmessage only when the frame's messageId is the one Patterns posted; otherwise clear locally. Add tests for each case."
+   },
+   {
+    "severity": "medium",
+    "issue": "Stagewatch 413: the design sends '413 then close, the body unread'. Stagewatch's own code says why that fails: closing with unread data makes Windows reset the connection, and the client sees a network error instead of the answer. PlayMap's fit-or-413 words would then never arrive. Also: (1) as written ('a declared Content-Length over 65,536 \u2192 413') it would refuse holding-image uploads (25 MB) and slide scripts, which have their own larger caps on the deferred paths; (2) 'a chunked body that runs past 64 KiB is answered the same' is wrong, because HttpRequest has no Transfer-Encoding support at all.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:1533-1546 (SkipDeferredBodyAsync and its comment on resets); :1599-1606 (UploadPath and ScriptPath read deferred with their own caps); :1607-1609 (length > MaxBody returns null); no 'transfer-encoding' anywhere in Timer.Remote; design \u00a73.3.",
+    "fix": "Drain the declared body (bounded, with a timeout) before writing 413, as SkipDeferredBodyAsync does, and exempt the deferred paths. Drop the chunked claim. The unit test should use a real HttpClient on a real socket and assert the client reads the 413, not a reset."
+   },
+   {
+    "severity": "medium",
+    "issue": "The Stagewatch e2e contract for G21 cannot pass on the rig, and PT-91.2 lists no dependency. The rig's receipts carry no refs, its frames have no messageId or messageAck, 'ack' falls through to 'the rig doesn't simulate', and the '--node-key-file' option belongs to a sibling unit that does not exist yet.",
+    "evidence": "Stagewatch/tools/Stagewatch.Rig/Program.cs:191 (new CommandReceipt(id, true, 'applied', words, null, null)); :217 (ack not simulated); :271-290 (Frame() sets no MessageSignalId, MessageAck or MessageAckBy); RigOptions.Parse :24-44 (no key option); design \u00a75 ('e2e contract for 91.2 \u2026 with peers-not-screens' --node-key-file') and \u00a76 PT-91.2 with no dependency.",
+    "fix": "Add a Stagewatch rig unit: a message with /ack makes a signal and puts refs.messageId in the receipt, frames carry messageId, messageAck and messageAckBy, ack moves the signal, and node keys are accepted. Make PT-91.2's contract test depend on that unit and on peers-not-screens SW's key option."
+   },
+   {
+    "severity": "medium",
+    "issue": "G04: the stuck flag rides in _sight, but two threads read-modify-write _sight. ReceiveAsync writes the frame, and the beat task's FetchContextAsync writes '_sight = _sight with { Context }'. A context landing just after a stuck beat restores the Live frame. The stage then shows a frozen, counting time for up to 2 s, until the next stuck beat, and the 'stuck' log line repeats. That breaks the design's own 'one log line per transition'.",
+    "evidence": "Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:377 (beat task: _sight = _sight with { Context = context }), :529-535 (receive loop: _sight = _sight with { Frame = \u2026 }), :349 (FetchContextAsync runs on BeatAsync); Stagewatch WebServer.cs:1265-1270 (the stuck beat repeats every HeartbeatEvery).",
+    "fix": "Keep stuck in its own field (an Interlocked flag set by the receive loop alone and folded in by the Sight getter), or make the receive loop the only writer of the sight with the context posted to it. Add a test that interleaves a context landing with a stuck beat."
+   },
+   {
+    "severity": "medium",
+    "issue": "G04 'every reader' misses the Nodes page card, and the test change weakens coverage. ShowAppCard.Of colours a card by State alone, so a stuck but live Stagewatch stays teal and reads 'linked \u00b7 <headline>'. The design deletes the ShowBusTests.cs:374 assertion, but the live:false parse path it covers still exists, so it should stay. WithStuck() on a sight that has no frame yet creates a frame, which makes StageService.Following true: the desk's own TIMER verbs are then refused for a Stagewatch that never sent a frame. That is a behaviour change the design does not state.",
+    "evidence": "Patterns/src/Patterns.Core/Services/StagewatchFollow.cs:299-310 (ShowAppCard hue by State only); tests/Patterns.Core.Tests/ShowBusTests.cs:374; StageService.cs:61 (Following = Frame not null and State not Gone); design \u00a74.1 89.1 and \u00a75 89.1.",
+    "fix": "Add ShowAppCard (red hue, words 'its show is stuck') to 89.1 with a test. Keep the :374 assertion and add the beat assertions beside it. Either keep a no-frame stuck sight out of Following or state the refusal in the papers and test it."
+   },
+   {
+    "severity": "medium",
+    "issue": "G09 misses readers that still carry the pass. (1) WebFrameSource.cs:1402 logs the resolved URL on a navigate failure, which is the common case for a revoked window or an unreachable Stagewatch. (2) OSC '/patterns/web/open <address>' keeps the raw message and line in OscService._lastLine, which the Eye's OSC node and the Remote page show. (3) WebVideoService (the native player) takes the page's Target; given kept:// it fails, and the stream URL it resolves, often signed, becomes the Target. (4) Copies from before the migration stay in backups/ and in patterns.log and patterns.log.old, which are on the support bundle's file list.",
+    "evidence": "Patterns/src/Patterns.App/Services/WebFrameSource.cs:1402; src/Patterns.Core/Services/OscMap.cs:63; src/Patterns.Devices/OscService.cs:272 and :81; src/Patterns.App/Services/EyeService.cs:587; src/Patterns.App/Services/WebVideoService.cs:58-68, 81-93; src/Patterns.Core/Services/RemoteAdmin.cs:78; SettingsStore.cs:49 (backups).",
+    "fix": "Add these to 89.3: the log at :1402 names the held address; OscService shows the redacted line (a shared helper for private addresses); WebVideoService resolves a held address first, and its stream URL never reaches a published key or log; the migration scrubs or flags backups and rotates the log. Extend the fence test with an OSC WEB OPEN, a navigate failure and the native player."
+   },
+   {
+    "severity": "medium",
+    "issue": "Mapper: the round-3 ownership reading is wrong. The design cites \u00a74 'a folder not named for a wave keeps no owner in it' as licence, but the sentence goes on: 'and nothing in that wave edits it'. EngineCore.Content.cs's \u00a74 row names its hunks as 'none', so a fix branch has no owner's slot. G47 also touches four sites (import, FETCH, LIST at two places, readiness in MediaBackend), so it is not a hunk of \u226410 lines. The fix-*-win precedent was Windows CI fixes, not new STATE fields, refusals and a context fitter. \u00a75.7's spine lane is for a missing seam, not a behaviour change to Redacted. The desk's FakeEngineLink, in App and wave-owned, still files any http URL as Web, so the desk drifts from the engine.",
+    "evidence": "Mapper/docs/round3/PLAN.md:2124-2125 ('\u2026keeps no owner in it, and nothing in that wave edits it.'), :2180 (EngineCore.Content.cs hunks 'none'), :2346-2352 (\u00a75.7: 'A seam found missing mid-wave'); src/PlayMap.App/Link/FakeEngineLink.cs:697; git log merges of fix-win-batch*, fix-nodehost-win and fix-stagewatch-win; design decision 6.",
+    "fix": "Present PM-F1 to PM-F4 as an explicit request for the owner's exception, quoting \u00a74 in full, not as the rule's own allowance. Size the G47 hunk honestly or defer the engine half to the integration pass. List the FakeEngineLink drift and the MEDIA IMPORT catalogue row's '<path|url>' words as integration-pass notes."
+   },
+   {
+    "severity": "medium",
+    "issue": "G35 (Round 92): ShowBusNodeSession tags every encoded line @d<n>. DeviceService sends the show's facts (BLACKOUT 1, LIVE 0, LOOK \u2026, OPEN 1) to any device that hears the show, through the same Encode. PlayMap reads a tagged line as a verb, not a fact ('@a1 LIVE 0 is refused as an unknown verb'). So the facts turn into ERR replies, counted as the device's refusals, and PlayMap's following of Patterns' blackout through the device stops. Also, with no HELLO, PlayMap never registers the session in its client table, so PlayMap's STATE never lists the Patterns desk.",
+    "evidence": "Patterns/src/Patterns.Devices/DeviceService.cs:768-790 (SendFeedback \u2192 WriteTo for every HearsShow device); DeviceProfiles.cs:33-41 (Encode has no fact/command flag); Mapper/docs/WIRE.md \u00a7'A connection's life' item 6; Mapper/src/PlayMap.Net/Wire/WireSession.cs:150-154 (Register requires _saidHello).",
+    "fix": "Send facts untagged (a separate EncodeFact, or the session leaves known fact words untagged), or turn HearsShow off for this profile and say that blackout follows only through LINK PATTERNS. Decide whether to send HELLO after pairing (and whether to accept the STATE pushes), and test both."
+   },
+   {
+    "severity": "medium",
+    "issue": "G21 changes what an existing STATE field means, and no module change is listed for 91.2. pendingSpeaker becomes Stagewatch's message while following. That message stays on screen after the speaker's ACK, so the module's stage_pending feedback ('waiting for its ACK') and the stage_pending variable stay lit after the ACK, which is a false fact on the deck. DeckSignature is keyed on the local Pending id, so decks get no push when Stagewatch's message or ACK moves.",
+    "evidence": "Patterns/integrations/companion-module-patterns/src/feedbacks.js:227-232; src/state.js:308; Patterns/src/Patterns.App/Services/StageService.cs:201-205 (DeckSignature); design \u00a73.1 Round 91.2 and \u00a76 (module changes only in 89.1, 90.1, 91.1).",
+    "fix": "Keep pendingSpeaker meaning 'waiting for an ACK', or empty it once Stagewatch's messageAck is seen or done. Add the module's speaker_ack variable and fix the feedback with a fixture. Fold Stagewatch's messageId and messageAck into DeckSignature."
+   },
+   {
+    "severity": "low",
+    "issue": "G25 governs what was not measured. The only measured wall is Stagewatch's 64 KiB body cap. Fitting to the item, link, recent, command and peer counts of a sibling's draft \u00a713 trims a context that Stagewatch would accept today. Patterns' and Stagewatch's doctrine is 'measured, then governed'.",
+    "evidence": "Stagewatch/src/Timer.Remote/WebServer.cs:457 (the only check: 1 byte to 64 KB); design decision 9 (128 items, 256 links, 20 recent \u2264 200 characters, \u2026, from spec-1-3).",
+    "fix": "Fit to 65,536 bytes only, trimming green items and command words first, and leave the per-count limits to the integration pass once 1.3 is adopted."
+   },
+   {
+    "severity": "low",
+    "issue": "G34 details. The \u22658-hex ACCEPT check adds nothing for a deck that echoes the stagewatch_pending variable it reads from STATE. FOLLOW is rated 'review', but FOLLOW OFF changes what the speaker sees, which is an air change. A 'heard id' such as a1b2c3d4 also parses as a hostname, so the precedence is undefined. A KeyFor 'addr:' binding stops presenting the key after a DHCP change, even when a hello names the node. 'Binds at its first authenticated 2xx' relies on FetchContextAsync returning true, but /api/context can answer 2xx without the key. And the design never decides whether Patterns' own assistant may propose these lines, which G34 asked for.",
+    "evidence": "Patterns/src/Patterns.Core/Services/StagewatchFollow.cs:174-192 (ParseAddress accepts a bare host); StagewatchLinkService.cs:370-375 (true when a key is set and the reply is 2xx); design \u00a73.1 Round 91.1 and decision 11.",
+    "fix": "Rate FOLLOW high. Drop the prefix rule, or say it is a typing check only. Give the id form an 'id:' prefix. Bind KeyFor to the node id whenever a hello names the address. Bind only on a 2xx to POST /api/peers/context, which needs node scope. State the assistant's reach."
+   },
+   {
+    "severity": "low",
+    "issue": "The design contradicts itself on how many characters of a command's words Patterns' context reader keeps: 200 in decision 13 and \u00a73.1, all of them in the summary and the Round 90 test. PlayMap's busy golden has a verb of 307 characters and words of up to 403, so the test 'keeps all 199 commands and their words' fails under a 200-character cap.",
+    "evidence": "design decision 13 ('200 characters of words'), \u00a73.1 Round 90 ('words kept to 200'), \u00a75 Round 90 ('keeps all 199 commands and their words'); measured on Mapper/tests/PlayMap.Engine.Tests/Fleet/Golden/context-busy.json: max verb 307, max words 403.",
+    "fix": "Pick one cap (512 matches the verb rule) and write the test to it."
+   },
+   {
+    "severity": "low",
+    "issue": "Round 90.2, adopted here from spec-1-3, breaks existing Patterns tests that the design does not name. RemoteTrustTests' Wire helper asserts that the first line is 'STATE {'. Its tests run with a token and TrustLoopback=false, so under the new rule the first line is NONCE.",
+    "evidence": "Patterns/tests/Patterns.App.Tests/RemoteTrustTests.cs:71-78 (Assert.StartsWith(\"STATE {\", greet)); RemoteTrustTests.cs and ShowBusAppTests.cs set TrustLoopback=false with a token.",
+    "fix": "List the test changes in 90.2 (the helper pairs first, or expects NONCE before STATE on a token desk) so the unit is not discovered red."
+   },
+   {
+    "severity": "low",
+    "issue": "G47 still leaves the pass in place in three ways. Web items already in a project keep it in their location and in their name (the name is the whole URL when none is given), so MEDIA LIST, STATE and the context's names still publish it, because Redacted covers only lines. The catalogue row still offers '<path|url>' to the assistant and MCP. And https HLS reads 'ready', because readiness marks every Stream decodable, but no test proves the shipped LGPL FFmpeg plays https HLS.",
+    "evidence": "Mapper/src/PlayMap.Engine/EngineCore.Content.cs:393 (name = location); Host/MediaBackend.cs:381-382 (Stream: Decodable true); design \u00a75 G47 tests (kind only).",
+    "fix": "Rename a pass-bearing Web item at load to its host plus '\u2039private address\u203a' and clear its location, with one journal row. Correct the catalogue row's words in the integration notes. Leave the HLS readiness to a probe, or say it is unproven."
+   },
+   {
+    "severity": "low",
+    "issue": "G21 latency: posting the speaker's message 'from the beat task's gate' queues it behind the context read and post and the approval queue. Those run one after another with a 4 s HttpClient timeout each, so a message can take seconds to send. The standing brief says it should be instant.",
+    "evidence": "Patterns/src/Patterns.App/Services/StagewatchLinkService.cs:313 (HttpClient Timeout 4 s), :342-350 (context, then approvals, in one loop); design \u00a74.3 91.2.",
+    "fix": "Send speaker messages on their own task through the link's HttpClient (it is thread-safe), latest wins per channel, with the receipt posted back to the UI thread."
+   }
+  ],
+  "missing": [
+   "G04: the Nodes page card (ShowAppCard.Of) and a race-free stuck flag; the existing ShowBusTests.cs:374 assertion kept, not deleted",
+   "G09: the twin standby (same machine with --home, or another machine) taking the show over with kept:// pages; carrying the book under TwinConfig.SendSecrets, or an explicit OPEN and walk row",
+   "G09: the kept id must be random or keyed, not a bare SHA-256 of the URL (PIN and viewing-code brute force)",
+   "G09 readers: the WebFrameSource.cs:1402 navigate-failure log, OscService._lastLine shown in the Eye and on the Remote page, WebVideoService (native player) resolution, pre-migration copies in backups/ and patterns.log(.old) in the support bundle",
+   "G21 chain: Companion module (stage_pending feedback and variable semantics, speaker ACK variables, fixtures), DeckSignature, handling of an 'accepted' receipt, keeping the cue's flash and urgency, a clearmessage scoped to Patterns' own message, a local fallback when the link holds no node key",
+   "Stagewatch rig: message ids, ack simulation, refs.messageId in receipts and node keys, needed for the 91.2 e2e contract (no unit owns them)",
+   "Stagewatch 413: drain before answering, exempt the upload and script paths; drop the chunked claim",
+   "G35: show facts (BLACKOUT, LIVE, LOOK, OPEN) must not be @d-tagged on the Show Bus node profile; PlayMap client-table registration without HELLO",
+   "G47: the desk's FakeEngineLink drift, the MEDIA IMPORT catalogue row words for the assistant and MCP, and scrubbing Web items already holding a pass",
+   "G12: the desk's StateSnapshot and the assistant's StateExplainer readers named in G12's statement (not in gapsLeft)",
+   "G34: whether Patterns' own assistant may propose STAGEWATCH lines (G34 asked for an assistant-proposable line)",
+   "Mapper: an explicit request for the owner's exception quoting round-3 \u00a74 in full ('nothing in that wave edits it'), not reading it as allowance"
+  ]
+ }
+}

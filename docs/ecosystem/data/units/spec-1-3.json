@@ -1,0 +1,662 @@
+{
+ "area": "spec-1-3",
+ "revised": {
+  "area": "spec-1-3",
+  "summary": "Show Bus 1.3, revised after review. The full design is at /home/user/Stagewatch/docs/ecosystem/spec-1-3.md. The first draft is kept at <scratch>/spec13-rev/spec-1-3.v1.md, and \u00a711 of the design answers every review item.\n\nThe 1.3 master now:\n- names PlayMap: the `playmap` kind, its caps and a \u00a78 row;\n- defines `proto` as the revision whose message shapes a node speaks, with each node's \u00a78 row listing what it does not keep yet;\n- gives one table of numbers. Senders stay at or under each number and readers accept at least it. Context is 64 KiB, 200 items and 400 links (Patterns already writes 200), and a reader that keeps commands keeps at least 256. When a context is too big, the sender trims it in a fixed order;\n- says where a hello goes. A node sends it from a socket bound to the address its doors listen on. Nobody relies on the extra copy sent to 127.0.0.1, because on a shared port only one listener receives it (measured again here). A node bound to loopback only sends no hello;\n- says how a peer is heard. One id is one peer, with every address it was heard from, and the link keeps dialling the same address while it is still heard. One id heard from two running copies of an app is shown amber and never merged;\n- states the rule that show state is read only after pairing, and lists each node's exceptions;\n- counts a certificate's whole span (825 days) and replaces one already issued that is longer, once;\n- adds \u00a712.1-12.3: what a window is, view passes (window addresses, viewing codes, crew links), and the window link as it already works. Grants are written by the windows-for-peers area.\n\nEvery copy carries the same body, held by a hash. Each tree's test stops accidental edits to its own copy; only the cross-tree interop lane finds a copy that is older than the master.\n\nWhat the operator gains:\n- Stagewatch's hello never names a door the network cannot open, and goes silent when Remote is set to this PC.\n- A hello that fails is shown on the desk. A failure lights amber only when every target fails.\n- A peer's address stops flipping every second.\n- An app copied to a second machine with the same id is named amber instead of silently merged.\n- PlayMap is named everywhere.\n- Existing certificates are replaced once, so iPads keep trusting them.\n- Wrong window addresses no longer lock out the PIN, and a correct key no longer resets the window-address count.\n- How apps on one laptop with no network find each other is measured on Windows (lab line LB-1) before the contract promises it. Until then a typed 127.0.0.1 address works.\n\nWhat each app gains:\n- **Stagewatch:** a pure, tested hello builder that reads the settings snapshot; per-target send counts; a hello listener that keeps every address per id and detects id conflicts; certificate life rules; separate view-pass lockouts; NODES.md rebuilt from the code and held by a test; a probe for LB-1.\n- **Patterns:** one Round 90 brings the 825-day certificate, the 1.3 hello and hearing rules, and the copy. If its maintainer agrees (ADR-016), it also brings state shown only after pairing. That includes the Companion module pairing before it reads and pairing state kept per connection, so changing the token stops the pushes.\n- **AGMessage:** the 825-day span and the one renewal; a hello sent from HOST; peer lookup that keeps working on one laptop; 32 caps; a spec test.\n- **PlayMap:** room for more caps, its \u00a75 proposals answered, a copy and a test once round 3 allows. Whether its TCP wire should read only after pairing is put to its owner as a question.",
+  "decisions": [
+   {
+    "decision": "One owner edits the master, and every area that changes it hands over its words: playout-links, cross-app-proposals, peers-not-screens, windows-for-peers, agmessage, ecosystem-lane and patterns-playmap-side. This area writes \u00a71 rule 4, rule 5's view-pass class, \u00a72, \u00a74, \u00a76 sizes, trimming and posting, \u00a77.2, \u00a78's table and exemptions, \u00a79, \u00a710, \u00a712.1-12.3, \u00a713 and the copy rule.",
+    "why": "One hash per revision. Seven areas name master words (design/windows-for-peers.md:553-573, design/agmessage.md:472-475, design/ecosystem-lane.md:591-597, design/patterns-playmap-side.md:494-504).",
+    "alternatives": "Each area edits its own sections. Rejected because of the copy fence and merge noise."
+   },
+   {
+    "decision": "PlayMap joins as kind `playmap` with every cap it sends, plus a \u00a78 row. Its seven \u00a75 proposals are answered one by one: kind and caps adopted; the device link and third-party contexts are Patterns' Round 92; the destination is not contract; the finder belongs to playout-links; `video.anchor` is reserved; commands follow \u00a76's rule.",
+    "why": "A word enters the contract when a node sends it and its meaning is fixed."
+   },
+   {
+    "decision": "`proto` is the revision whose shapes a node speaks: 1 = 1.1, 2 = 1.2, 3 = 1.3, and it only grows. What a node does not keep yet is in its \u00a78 row with what ends it. Readers never refuse a hello because of its proto and never make a safety decision on it. A node that shows nothing before pairing is recognised by `NONCE` as its first line and by the \u00a77.2 refusal words.",
+    "why": "Every node sends 1 today and only PlayMap compares it (PeerTable.cs:134). The first draft's 'keeps 1.3 in full' would have been false on the day every node first sent 3.",
+    "alternatives": "'Keeps 1.3 in full' (the first draft); caps only."
+   },
+   {
+    "decision": "Limits are sender maxima that every reader accepts. Hello: at most 1200 B sent, at least 2048 B read; 32 caps of [a-z0-9.-]{1,24}; t [a-z0-9_-]{1,16}; id [A-Za-z0-9_-]{6,40}; inst 8 hex; name and host at most 64 characters, read whole; at most 8 ports; 128 peers. Context: 64 KiB counted in UTF-8 bytes; 200 items; 400 links (each end at most 120 characters); 20 recent; 256 commands; 32 peers. A reader keeps a verb (up to 512) whole or drops it, and keeps at least 200 characters of words. A reader that keeps commands keeps at least 256; a view of them may show fewer, saying how many it left out. Over 64 KiB a sender trims in a fixed order: recent lines, then links, then commands other than panic, air and transport, then grey and green items. It never trims reds, ambers or panic, air and transport commands, and adds one grey item, context:trimmed.",
+    "why": "Measured: Patterns writes 200 items (ShowContext.cs:68,180). PlayMap's busy context is 38,142 B compact and about 47.5 KB at 256 commands. PlayMap's owner set at least 256 where a reader caps (Mapper/docs/round3/PLAN.md:2594-2610). The byte limit binds before the per-field limits do.",
+    "alternatives": "One shared number for senders and readers, which breaks the strictest reader on the day a node grows. The first draft's 128 items, which would have made Patterns non-conforming."
+   },
+   {
+    "decision": "Where a hello goes:\n- A networked node broadcasts it from a socket bound to its doors' address.\n- It may also send a copy to 127.0.0.1, which no reader relies on.\n- A node bound to loopback only sends no hello.\n- `ports` names only doors every receiver can open.\n- The carrier for apps on one machine with no network is lab line LB-1 (Windows 11: 127.0.0.1, 127.255.255.255 and loopback multicast, with the network up and off). 1.4 names it.",
+    "why": "Measured here and in ecosystem-lane: a unicast to a shared port reaches exactly one listener, and a 127.0.0.1-bound socket (PlayMap's, HelloService.cs:124-125) takes all of them. A broadcast fails with ENETUNREACH when only loopback is up. AGMessage's any-bound socket sends a loopback copy that its LAN-bound HOST cannot answer (server.js:44,1003-1005; nodes.js:91,95).",
+    "alternatives": "Loopback-only hellos (the first draft): one app of several finds the node, at random. 127.255.255.255 now: unmeasured on Windows and missed by 127.0.0.1-bound listeners."
+   },
+   {
+    "decision": "One id is one peer.\n- A reader keeps every address it heard in the last 6 s and keeps dialling the address in use while it is still heard. An address change alone raises no event.\n- A peer on this machine may be dialled at 127.0.0.1 first, falling back to the heard address. Host-name equality alone is not enough.\n- Typed-address lookups match any heard address or the host.\n- Every node sends `inst`. Alternating inst values A, B, A within 6 s (or two hosts, for a node with no inst) mark the id as a conflict: amber, never merged, no new link, cleared after 60 s.",
+    "why": "Stops the per-beat address flip whichever listener got the copy. Keeps AGMessage's find, pin key and desk detection (nodes.js:108-113,247-252,413-416). Makes a cloned install visible. A second address alone would wrongly flag a node with two network interfaces.",
+    "alternatives": "Prefer loopback (the first draft): nondeterministic, and wrong for AGMessage's LAN HOST. Flag any second address: false alarms on a node with two interfaces."
+   },
+   {
+    "decision": "Reads after pairing is the contract rule (\u00a71 rule 4 built around each node's public view; \u00a77.2 for line wires). Each node reaches it by its own decision, and \u00a78 lists exemptions with what ends them.\n- Patterns Round 90.2 happens only if its maintainer agrees (ADR-016, reversing PLAN \u00a7103.7), in one of two scopes. Scope A holds back the STATE greeting, the pushes and STATE/STATUS/CONTEXT/SUBSCRIBE until pairing, while named queries stay open. Scope B holds back every query.\n- Prerequisites: the module pairs before it reads; WirePeer keeps the pairing and every push re-checks it; an inventory of the desk's own cross-machine asks; six test files rewritten; the Super Check Remote row; a log line.\n- It waits for playout-links' PlayoutLink, which shows a token-less link amber.\n- PlayMap's TCP read is a question to its owner (decision 17), not a unit.",
+    "why": "Every claim was verified. The module asks NAV before NONCE (main.js:150-164). NodesService and ServiceKernel ask without pairing (NodesService.cs:149-227; ServiceKernel.cs:97-101). `presented` is a local variable (ControlService.cs:369) and Broadcast pushes to everyone (:763-774). The tests assert today's order (ShowBusAppTests.cs:71-82; RemoteTrustTests.cs:132-150). Stagewatch's current link with no token reports green (PatternsLink.cs:202,210,291-295).",
+    "alternatives": "A permanent open-read tier (PLAN \u00a7103.7's stance). It stays open to the Patterns maintainer through the ADR."
+   },
+   {
+    "decision": "A certificate's whole span, NotBefore to NotAfter, is at most 825 days. NotBefore is at most 24 h back, and NotAfter is computed from NotBefore. At start-up a node makes a new certificate when fewer than 30 days remain or when its current span is over 825 days. Each tree's papers announce the one CERTIFICATE CHANGED that pinned peers will see.",
+    "why": "Fixing only the code would leave Patterns' 1,826-day certificates in place for five years (ShowBusTls.cs:83,106). Stagewatch's are 826 days (NodeCertificate.cs:66) and AGMessage's 825 days plus 1 h (tls.js:78-79).",
+    "alternatives": "Key-continuity rollover, left for 1.4. Fixing only new certificates, which leaves the iPad problem in place."
+   },
+   {
+    "decision": "Windows: this area writes \u00a712.1-12.3 and rule 5's view-pass class. View passes are counted apart from credentials: a correct PIN or key never clears the view-pass count.\n- windows-for-peers writes \u00a712.4 onwards (grants, the black end, held forms, placement claims, the operator-frame windows block), rule 5's carrier exemption (its D0) and the caps pages and window-draw.\n- Dropped: leases, windows.lend, web.show, window.join, Authorization: Window, and units S5/S7/S8 of the first draft.\n- Asked of windows-for-peers: grants only from doors that authenticate the operator (never OSC or an unauthenticated Companion TCP); D4's loopback dial falls back to the heard address and never relies on host name alone; the `windows` cap lands in S2's builder.",
+    "why": "Two verbs with two security postures in one contract. windows-for-peers already sends the whole grants list each time a link opens, which reconciles them. One lockout table that a correct key clears (WebServer.cs:35,625-642,1083) is a deterministic flaw. OSC has no PIN (OscServer.cs:7-14; AppSettings.cs:270).",
+    "alternatives": "Keep leases (the first draft): contradicts windows-for-peers on every point."
+   },
+   {
+    "decision": "Copies are held by a hash plus \u00a713's machine-read block.\n- The body is defined exactly: UTF-8 with no BOM, CRLF turned to LF, exactly one final LF.\n- Each tree's test catches accidental edits and checks every \u00a713 number that tree implements. Stale copies are caught only by tools/showbus-copies.sh in G44's interop lane, and the header says so.\n- A node may send caps declared in its own node page's showbus-node block.\n- \u00a79 says 'The language model'. PlayMap gets a copy.",
+    "why": "Each CI checks out only its own tree, and PlayMap cannot edit its bus files during round 3 (Mapper/docs/round3/PLAN.md:2122-2125).",
+    "alternatives": "Fetching the master in CI, or a git submodule."
+   },
+   {
+    "decision": "NODES.md is rewritten from Stagewatch's code and held by a test that its hello example is what the builder makes. The 9700 Find stays until Patterns L47 is walked.",
+    "why": "G41: NODES.md has been stale since 2.11.1."
+   },
+   {
+    "decision": "AGMessage keeps its `proposals` cap and its 1-second ping; its papers say 'every second'.",
+    "why": "No reader branches on the cap name, and renaming it costs a test change (tls.test.js:82)."
+   },
+   {
+    "decision": "`presenting` stays in the hello, named as the one show fact a hello carries: a Slides agent's boolean that other agents' windows show.",
+    "why": "Rule 4 and the field table must agree. SlidesAgentWindow.xaml.cs:113 is its only reader.",
+    "alternatives": "Drop it, which loses the agent window's only source."
+   }
+  ],
+  "wire": "HELLO (UDP 9928, every 2 s, no authentication, no secret)\n\nExample:\n{\"t\":\"main\",\"v\":1,\"proto\":3,\"id\":\"3f9c2a1b7d0e\",\"inst\":\"a41f09c2\",\"name\":\"Hall A\",\"host\":\"FOH-PC\",\"ports\":{\"http\":9924,\"https\":9924,\"ws\":9924},\"caps\":[\"timer\",\"cues\",\"messages\",\"context\",\"receipts\",\"clock\",\"screens\",\"windows\",\"aux\",\"slides-in\",\"copilot\",\"approvals\",\"mcp\"],\"clock\":1760101234567,\"tls\":\"sha256:<64hex>\"}\n\nFields:\n- v: 1.\n- proto: 3, the revision whose shapes the node speaks.\n- t: [a-z0-9_-]{1,16}. Kinds: main (Stagewatch), agent (Stagewatch Slides), patterns, playmap (PlayMap), messenger (AGMessage).\n- id: [A-Za-z0-9_-]{6,40}.\n- inst (new for Stagewatch and AGMessage; Patterns and PlayMap already send it): 8 lowercase hex, new at each process start.\n- name and host: at most 64 characters each.\n- ports: at most 8, from {http, https, ws, wire, osc, companion, sync}.\n- caps: at most 32, each [a-z0-9.-]{1,24}.\n- tls: sha256:<64 lowercase hex>.\n- presenting: Slides agent only.\n- Size: at most 1200 B sent; readers accept at least 2048 B, keep at least 32 caps and keep names whole.\n\nSending:\n- Sent from a socket bound to the address the node's doors listen on.\n- A networked node sends to 255.255.255.255:9928, plus an optional copy to 127.0.0.1:9928; each send has its own try.\n- A node bound to loopback only sends nothing.\n- `ports` lists only doors every receiver can open. Stagewatch names companion and osc only when they are bound to the network.\n\nHearing:\n- At most 128 peers, forgotten after 60 s.\n- Per id, every address heard in the last 6 s is kept. The dial address is sticky while it is still heard.\n- A same-machine peer may be dialled at 127.0.0.1 first, falling back to the heard address.\n- An address change alone raises no event.\n- Conflict: inst A, then B, then A within 6 s (or two hosts, for a node with no inst). The peer shows amber, both hosts and addresses are named, no new link is dialled, and the mark clears after 60 s.\n\nCaps vocabulary (\u00a713):\n- main: timer, cues, messages, context, receipts, clock, screens, windows, aux, slides-in, copilot, approvals, mcp.\n- agent: slides.\n- patterns: video, video.clock, video.transport, video.seek, video.end, state, eye, context, receipts, clock, pages.\n- playmap: the same video and state set as patterns, plus mcp, playlist, media, mapping, scan, show, window-draw.\n- messenger: messages, action-prompts, documents, ai, context, receipts, proposals.\n- Reserved: video.anchor.\n- A node may also send caps declared in its node page's showbus-node block.\n\nCONTEXT (\u00a76)\nLimits:\n- At most 64 KiB, counted in UTF-8 bytes.\n- items \u2264 200; links \u2264 400 (each end \u2264 120 characters); recent \u2264 20; commands \u2264 256; peers \u2264 32.\n- headline \u2264 200; item id / kind / label / state \u2264 60 / 30 / 80 / 160; recent line \u2264 200; verb \u2264 512; words \u2264 512.\n\nReaders:\n- A reader keeps a verb whole or drops it and counts the drop, and keeps at least 200 characters of words.\n- A reader that keeps commands keeps at least 256. A view of them shows panic, air and transport rows first and says how many it left out.\n\nTrimming, when a context is over 64 KiB, in this order:\n1. the oldest recent lines;\n2. grey links, then the other links;\n3. commands other than panic, air and transport, from the end;\n4. grey items, then green items.\nReds, ambers and the panic, air and transport commands are never trimmed. The sender then adds:\n{\"id\":\"context:trimmed\",\"kind\":\"health\",\"label\":\"Context\",\"light\":\"grey\",\"state\":\"left out: 12 recent, 40 links, 30 commands, 5 items\"}\n\nPosting: POST /api/peers/context on change, at least every 10 s while linked, at most once a second. The desk keeps a context 30 s and answers a too-large context with 413 and its size (that 413 is cross-app-proposals SW-1).\n\nREADS AFTER PAIRING (\u00a77.2: line wires Patterns 9697 and PlayMap 9941, on a token node, from a connection the node does not trust)\n- The first line is `NONCE <32 hex>`. Nothing of the show is sent before pairing.\n- Answered before pairing: HELLO, NONCE, AUTH-PROOF, PING, HELP, VERBS, plus the node's \u00a78-named open queries. Under Patterns' scope A these are NAV, MENU, CUE LIST, ARCADE \u2026 and ASSISTANT \u2026.\n- Anything else gets `ERR [@id] not paired \u2014 this node shows its state only to a paired connection`.\n- `AUTH-PROOF <hex>` (HMAC-SHA256(token, nonce + hello name)) gets `OK [@id] paired`. `STATE {json}` then follows at once and on every change, and stops when the token changes.\n- An open node (no token) greets with STATE as in 1.2.\n- A reader sends its reads only after `OK paired` / `OK open`. With no token it shows amber \"not paired \u2014 <node> shows its state only to a paired link; its pairing token goes in <where>\" and sends only PING.\n- HTTP and WS are unchanged: anything beyond the public view needs a key, token or PIN.\n\nCERTIFICATES (\u00a710)\n- ECDSA P-256 with SHA-256.\n- NotAfter \u2212 NotBefore \u2264 825 days; NotBefore no earlier than creation \u2212 24 h.\n- A new certificate is made at start-up when fewer than 30 days remain or the span is over 825 days. Peers see CERTIFICATE CHANGED once.\n- hello `tls` and ports.https are unchanged.\n\nWINDOWS (\u00a712.1-12.3 here; \u00a712.4 onwards belongs to windows-for-peers)\n- Address /w/<token>: 26 characters of abcdefghijkmnpqrstuvwxyz23456789; at most 64 windows per node.\n- View passes (window addresses, viewing codes, crew links) are counted per device apart from PINs and keys. 5 wrong in a minute lock out view passes only, and a correct PIN or key never clears that count.\n- The address is listed only to the PIN or a control key.\n- The window link is as built in 2.17:\n  - /ws?win=<token>[&detail=1];\n  - server to window: {\"type\":\"window\",id,name,content,hold,holdText,holdImage,onLoss,fadeMs,rev}, {\"type\":\"identify\",name,id}, {\"type\":\"reload\"}, {\"type\":\"window\",\"revoked\":true};\n  - window to server: {\"type\":\"shown\",rev,content,hold,ms,error}.\n- Rule 5's carrier exemption and the grants messages are windows-for-peers' words (its D0, a maintainer's call).\n\n\u00a713 BLOCK (in the hashed body, machine-read)\n- Lines of the form `key value\u2026`, for example: hello.bytes 1200, hello.read.bytes 2048, hello.caps 32, hello.name.chars 64, hello.inst.chars 8, peers.max 128, peer.conflict.clear.ms 60000, context.bytes 65536, context.items 200, context.links 400, context.link.end.chars 120, context.commands 256, context.verb.chars 512, context.words.read.chars 200, cert.days 825, cert.renew.days 30, window.token.chars 26, view.wrong.per.minute 5, window.grants 4.\n- Plus the kind, port, cap and reserved rows.\n\nSTAGEWATCH\n- Context item `bus:hello` (kind health, amber) appears when every hello target has failed for 3 beats: \"this Stagewatch's hello can't go out: <words> \u2014 other apps can't find it\". A failed broadcast alone is not amber.\n- Show network line:\n  - \"Said on the network as <name> (<id>)\";\n  - \"Said on this PC only \u2014 no network: <words>\";\n  - \"Not said: <words>\";\n  - \"Not said \u2014 Remote is set to this PC; other apps reach it at 127.0.0.1:<port>\".\n- Peer rows in conflict are amber.\n- Rig: new flags `--bus <listen port>` and `--bus-to <host:port>`.\n- No new verb, endpoint, Companion action or frame field.\n\nPATTERNS (Round 90.2, if the maintainer agrees)\n- The Companion module sends NAV, MENU and RECORD only after OK paired. AUTH-PROOF goes through ask.\n- With no token and a NONCE heard, the module's status reads \"pairing token needed \u2014 this desk shows its state only to a paired connection\".\n- One log line per connection when an unpaired read is refused.\n- Super Check's Remote row reads \"reads follow pairing on the wire\".\n\nCOPY HEADER\n\"*<App>'s copy of the Show Bus contract, 1.3 (body sha256 <64 hex>). The master is Stagewatch's docs/SHOWBUS.md; where they differ, the master wins. How <App> implements it: <its page>.*\"\nThe body runs from `## 1. Rules every node follows` to the end: UTF-8 with no BOM, LF line ends, exactly one final LF.",
+  "changes": [
+   {
+    "repo": "Stagewatch",
+    "file": "docs/SHOWBUS.md",
+    "change": "1.3 master:\n- the title names PlayMap; the header explains what the copy fence catches;\n- \u00a71 rule 4 (public view, `presenting` named), rule 5 (the view-pass class plus windows-for-peers' carrier words);\n- \u00a72 rewritten: sending socket, broadcast plus optional loopback copy, silent on loopback, field table with inst and presenting, limits, hearing, one id one peer, conflict;\n- \u00a74 counters; \u00a76 sizes, trimming, posting;\n- \u00a77.2 with a transcript;\n- \u00a78 table with public-view and not-kept-yet columns;\n- \u00a79 'The language model'; \u00a710 span and renewal;\n- \u00a712.1-12.3 (plus windows-for-peers' \u00a712.4 onwards); \u00a713 block;\n- every sibling area's words."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/ShowBusHello.cs (new)",
+    "change": "Pure builder: Main(nodeId, inst, name, machine, HelloDoors, mcp, clock) returns (Hello?, HelloScope{None, Network}). Scope None when WebBindAll is off. Ports list only network-bound doors. Proto 3; inst; windows and mcp caps; names cut to 64. Also Targets(scope, port), CapShape and NewInst."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/RemoteSlides.cs",
+    "change": "SlidesBeacon:\n- takes Func<(Hello?, HelloScope)>, a listen port and a targets override;\n- sends to each target in its own try, with Sent/Failed counts, the last failure's words and a Status (Said, ThisPcOnly, NotSaid, Silent);\n- Hello gains Inst at the end;\n- reader: 32 caps of CapShape (was Take(16), :190), names cut at 64 (was 60, :220), per-id addresses, sticky Dial, conflict from inst or host;\n- the Proto comment (:117) is corrected."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/SlidesAgent.cs",
+    "change": "The agent hello carries Proto 3 and an inst (:72)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Slides.cs",
+    "change": "The hello is built by ShowBusHello.Main from _store.Snapshot and the servers' running ports and binds, not live Settings (:21-48). The scope is passed to the beacon. Exposes the Status line."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.ShowBus.cs",
+    "change": "Amber bus:hello when every target fails for 3 beats; conflict rows amber with both hosts; the kind label from ShowBusKinds.Label (:100)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowBusKinds.cs (new)",
+    "change": "Label(kind) from \u00a713's kind rows (playmap \u2192 PlayMap)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/ShowContext.cs",
+    "change": "Stagewatch's own context stays within \u00a76: at most 200 items, the byte-trimming order, a context:trimmed item with counts. Reds, ambers and panic, air and transport commands are never trimmed."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/CertificateLife.cs (new) and src/Timer.App/NodeCertificate.cs",
+    "change": "Span 825 days; backdate 1 day; Window(now) returns (NotBefore, NotBefore + Span). NeedsRenewal is true when fewer than 30 days remain or the span is over 825 days. NodeCertificate.cs:34 and :66 use it."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/WebServer.cs",
+    "change": "A second table, _passFailures, counts view passes (window addresses, viewing codes, crew links); LockedOut and CountFailure (:625-636) use it. Authorize's success (:1083) clears only the credentials table."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/Stagewatch.Rig/Program.cs",
+    "change": "--bus <listen port> and --bus-to <host:port>: the hello is built from the rig's servers and --bind, and sent to the override target."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/BusCarrierProbe/ (new console)",
+    "change": "LB-1: binds sockets (any and 127.0.0.1, ReuseAddress) on one port, sends to 127.0.0.1, 127.255.255.255, 255.255.255.255 and 239.255.99.28 on loopback, and prints who heard what. Run on the maintainer's Windows PC with the network up and off."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/showbus-copies.sh (new)",
+    "change": "Header and body hashes for each tree; diff against the master; exit 1 on a mismatch; 'not run' for an absent tree. Used by ecosystem-lane's S7.2 row."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "docs/NODES.md",
+    "change": "Rewritten from the code (builder hello example held by a test; scope; hearing, sticky dial and conflict; Find on 9928 plus 9700 until L47; public versus keyed reads; the links as built; AGMessage; PlayMap; pointer to \u00a713)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "docs/ECOSYSTEM.md, docs/REMOTE.md, docs/FEATURES.md, docs/WHATS_NEXT.md",
+    "change": "ECOSYSTEM names PlayMap and 1.3. REMOTE 2.18 covers the hello, hearing and conflict, the two lockout counts, and the certificate span with its one renewal. FEATURES gets the Show network hello line. WHATS_NEXT gets LB-1, rollover, ?pin= and 9923 as not scheduled."
+   },
+   {
+    "repo": "Patterns",
+    "file": "docs/ADR.md",
+    "change": "ADR-016, 'The wire shows its state only to a paired connection', reversing PLAN \u00a7103.7 with scope A or B. The maintainer's call, written before any code."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.App/Services/WirePeer.cs, src/Patterns.App/Services/ControlService.cs, src/Patterns.Core/Services/ControlProtocol.cs",
+    "change": "Round 90.2:\n- WirePeer holds Presented and Loopback;\n- on a token desk an untrusted connection gets NONCE first and no greeting (:356-363), and STATE after OK paired;\n- Broadcast (:763-774) re-checks each peer's pairing against the current token at every push;\n- OpenBeforePairing beside IsQuery (:1454) covers the open set plus scope A's named queries;\n- the refusal words, and one log line per connection for a refused unpaired read."
+   },
+   {
+    "repo": "Patterns",
+    "file": "integrations/companion-module-patterns/src/main.js",
+    "change": "AUTH-PROOF goes through ask, and NAV, RECORD ON and reads are asked after OK paired / OK open (:150-164, :196-206). With no token and a NONCE heard, the status words. trustProblem (:373) tells 'no token configured' from 'wrong token'."
+   },
+   {
+    "repo": "Patterns",
+    "file": "tests (ShowBusAppTests.cs:71-82, RemoteTrustTests.cs:132-150, NavAppTests, ShowBus12AppTests)",
+    "change": "The Wire helpers read NONCE first and STATE after pairing on a distrusted token desk. The STATUS-unpaired assertion is inverted. The other files that set TrustLoopback = false are checked."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/ShowBusTls.cs",
+    "change": "Round 90.5: Life is 825 days counted as the whole span, CreateSelfSigned(utcNow.AddDays(-1), utcNow.AddDays(-1) + Life) (:84,103). NeedsRenewal is also true when the span is over Life (:106). Comment :77."
+   },
+   {
+    "repo": "Patterns",
+    "file": "src/Patterns.Core/Services/ShowBus.cs, src/Patterns.Core/Services/ShowBusNetwork.cs",
+    "change": "Round 90.5: Proto 3 (:43); the reader keeps 128 peers, every address per id, a sticky dial and the conflict mark (:106-113). KindWords for playmap belongs to patterns-playmap-side 92.1."
+   },
+   {
+    "repo": "Patterns",
+    "file": "docs/SHOWBUS.md, tests/Patterns.Core.Tests/ShowBusSpecTests.cs, papers",
+    "change": "Round 90.4: the 1.3 copy and its spec test.\n- Papers: PLAN \u00a7108, REVIEW, CHANGELOG, README, REMOTE (Trust and Show Bus), COMPANION.\n- OPEN: L59 closes with 90.2; L47, L50, L55 and L56 stay.\n- Super Check's Remote row words; the tag row for Round 89."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/lib/tls.js",
+    "change": "to = from + days (:78-79). loadOrCreate also renews when validTo \u2212 validFrom is over 825 days (:124). Comment :12-15."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "app/lib/nodes.js, app/server.js",
+    "change": "Hello and reader:\n- proto 3 and inst (:72-75);\n- 32 caps of [a-z0-9.-]{1,24}, names and hosts read at 64 (:44-47); 128 peers;\n- per-id addresses, sticky dial and conflict; no onChange for an address change alone (:86-89); find matches any heard address or the host (:108-113);\n- when HOST is one LAN address, the hello goes from a socket bound to HOST and no loopback copy is sent (:91-96; server.js:1004-1005);\n- the header says a ping every second (:5, :9)."
+   },
+   {
+    "repo": "AGMessage",
+    "file": "docs/SHOWBUS.md, app/test/showbus.test.js (new), app/package.json, docs/NODES.md, CHANGELOG.md",
+    "change": "The 1.3 copy (drops 'five years' at :168); the spec test added to scripts.test; NODES says 1.3, a ping every second, 825 days in all and the one renewal; a 0.4.1 entry shared with the other areas."
+   },
+   {
+    "repo": "Mapper",
+    "file": "docs/SHOWBUS.md (new), docs/SHOWBUS-NODE.md",
+    "change": "The 1.3 copy. The node page says it implements 1.3 (:3) and gets a reader note (:21). \u00a75 is rewritten as 'answered in 1.3', item by item. The reader summary no longer says the contract bounds only recent."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Core/Bus/ShowBus.cs, src/PlayMap.Net/Bus/PeerTable.cs",
+    "change": "ShowBus.cs: the reader keeps 32 caps (:167); comment :127 corrected; Proto 3 in PlayMapHello.\nPeerTable.cs (:53-74): 128 peers; per-id addresses with a sticky dial; an address change alone is not Changed; the conflict mark from inst.\nNo hello-sender change: PlayMap is already silent on loopback (:84) and sends from a socket bound to its bind (:131-132)."
+   },
+   {
+    "repo": "Mapper",
+    "file": "src/PlayMap.Net/Wire/WireSession.cs (only if the owner says yes)",
+    "change": "M2: on a token node the TCP wire is _strict, like the /ws channel (:228-233), and HELLO subscribes to STATE only once paired."
+   }
+  ],
+  "tests": [
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/ShowBusSpecTests.cs (new, run from Program.cs)",
+    "proves": "Hash and block:\n- the master body (no BOM, LF, one final LF) hashes to the pinned BodySha256 and the header's value; a failure prints the new hash;\n- \u00a713 parses, and ShowBusKinds.Label equals every kind row.\nHello builder:\n- the worst-case hello is \u22641200 B, with caps in the main rows or NODES.md's showbus-node block, ports in the port rows, proto 3 and an 8-hex inst;\n- the agent's caps are in the agent rows.\nReader and windows:\n- SlidesBeacon keeps 32 caps and 64-character names, reads 2048 B and keeps 128 peers;\n- the window token, alphabet and Max match the block; CertificateLife.Span is 825;\n- NODES.md's hello example equals the builder's output.\nFrom S8 on, PeerContexts holds the reader rows that other units own."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/ShowBusTests.cs",
+    "proves": "Builder:\n- Targets per scope; no hello when WebBindAll is off;\n- companion and osc are absent when bound to loopback.\nHearing tables on injected time:\n- loopback and LAN datagrams alternating for 20 s keep one Dial address and raise one peer;\n- inst A, B, A within 6 s is a Conflict; A then only B (a restart) is not; one inst from two addresses is one peer;\n- the mark clears after 60 s.\nLive check (G27's missing test):\n- a beacon listening on P with targets [127.0.0.1:Q], where only the test binds Q, is heard within 3 s with proto 3, inst and windows;\n- a throwing target does not stop the next, and Status reads ThisPcOnly when only the broadcast fails."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests (CertificateLife, ShowContext, WebServer live tests)",
+    "proves": "CertificateLife:\n- NotAfter \u2212 NotBefore = 825 days for any now;\n- renewal at 29 days left and not at 31;\n- 826-day and 1,826-day certificates with 800 days left are renewed.\nShowContext:\n- 64 windows, 8 links, 30 departments and 20 long recent lines give \u2264200 items and \u226464 KiB;\n- trimming follows the \u00a76 order, context:trimmed carries the counts, and no red or amber item is left out.\nWebServer:\n- five wrong window addresses lock out window addresses but not the PIN;\n- a correct key does not clear the window count;\n- five wrong PINs still lock out PINs."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/e2e/bus.e2e.cjs (new)",
+    "proves": "With `--bind all --bus 19929 --bus-to 127.0.0.1:19928`, a dgram socket that alone binds 19928 hears t main, proto 3, inst, the windows cap, ports.http equal to the rig's port, and \u22641200 B within 3 s. With `--bind local` it hears nothing for 5 s."
+   },
+   {
+    "repo": "Patterns",
+    "where": "tests/Patterns.Core.Tests/ShowBus12Tests.cs:26 and new ShowBusSpecTests.cs",
+    "proves": "- The certificate span is exactly 825 days, and NeedsRenewal is true for a 1,826-day certificate.\n- The copy's hash matches; Capabilities are in the patterns cap rows.\n- Parse keeps 32 caps; the peer table keeps 128 and follows the address and conflict tables."
+   },
+   {
+    "repo": "Patterns",
+    "where": "App suite (headless) RemoteTrustTests, ShowBusAppTests; TrustLoopback = false in try/finally",
+    "proves": "On a token desk:\n- the greeting is NONCE with no STATE;\n- STATE, STATUS and CONTEXT unpaired are refused with the words, and nothing is pushed to that connection;\n- STATE comes after OK paired, and pushes stop after NEW TOKEN.\nAn open desk and a trusted loopback are unchanged. Under scope A, NAV still answers unpaired."
+   },
+   {
+    "repo": "Patterns",
+    "where": "integrations/companion-module-patterns test/ (npm test)",
+    "proves": "A token desk that sends NONCE first still fills the Navigator, because NAV is asked after OK paired. No token on a token desk shows the status words, not the wrong-token BadConfig words."
+   },
+   {
+    "repo": "AGMessage",
+    "where": "app/test/showbus.test.js (new), app/test/tls.test.js",
+    "proves": "Spec and hello:\n- the copy's hash matches; CAPS are in the messenger rows;\n- hello() is \u22641200 B with a 64-character name, proto 3 and inst.\nReader:\n- parseHello keeps 32 caps and 64-character names and reads 2048 B; 128 peers;\n- an address flip raises no onChange, and find matches either address; the conflict table.\nSending:\n- with HOST a LAN address, the injected send uses a socket bound to HOST and never 127.0.0.1.\nCertificates:\n- validTo \u2212 validFrom \u2264 825 days, and an 826-day certificate is renewed."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Core.Tests/ShowBusSpecTests.cs (new); PlayMap.Net.Tests PeerTable; EyeContextTests.cs:97 and WireAndBusTests.cs:313 updated",
+    "proves": "- The copy's hash matches.\n- PlayMapHello is \u22641200 B, with caps and ports in the vocabulary.\n- Parse keeps 32 caps.\n- SHOWBUS-NODE.md's \u00a71 JSON is what PlayMapHello builds.\n- PeerTable: an address flip is not Changed; the sticky dial, the conflict mark and the 128-peer bound hold."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tools/showbus-copies.sh in ecosystem-lane's interop lane (row S7.2)",
+    "proves": "All four trees' bodies hash the same as the master; the lane reports 'not run' where a tree is absent."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "Lab line LB-1: tools/BusCarrierProbe on the maintainer's Windows 11 PC (not a suite test)",
+    "proves": "Which of 127.0.0.1, 127.255.255.255, 255.255.255.255 and loopback multicast reach every listener sharing a port (any-bound and 127.0.0.1-bound), with the network up and every adapter off. The record goes into WHATS_NEXT and decides 1.4's carrier."
+   }
+  ],
+  "units": [
+   {
+    "repo": "Stagewatch",
+    "title": "S1 Show Bus 1.3 draft: master text with every sibling's words and the three words asked of windows-for-peers; ShowBusSpecTests (hash, block parses, kinds); ShowBusKinds",
+    "gaps": [
+     "G38",
+     "G40",
+     "G22",
+     "G39",
+     "G45",
+     "G42"
+    ],
+    "dependsOn": [
+     "the sibling areas' master words agreed"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "S2 Hello 1.3: ShowBusHello from the snapshot, silent on loopback, per-target sends with Status, doors receivers can open, proto 3, inst, windows cap; reader 32 caps and 64-character names, per-id addresses, sticky dial, conflict; Show network line, bus:hello, conflict rows; rig --bus/--bus-to; bus.e2e.cjs",
+    "gaps": [
+     "G27",
+     "G40"
+    ],
+    "dependsOn": [
+     "S1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "S3 Stagewatch's own context within \u00a76: \u2264200 items, the byte-trimming order, context:trimmed",
+    "gaps": [
+     "G40"
+    ],
+    "dependsOn": [
+     "S1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "S4 Certificates: 825 days in all, an over-long one replaced once (CertificateLife, NodeCertificate)",
+    "gaps": [
+     "G39"
+    ],
+    "dependsOn": [
+     "S1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "S5 View passes counted apart from PINs and keys; a correct credential never clears them (WebServer)",
+    "gaps": [
+     "G22"
+    ],
+    "dependsOn": [
+     "S1"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "S6 LB-1 probe (tools/BusCarrierProbe) and its WHATS_NEXT row; the Windows run is the maintainer's",
+    "gaps": [
+     "G27"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "S7 Papers: NODES.md from the code with its test, ECOSYSTEM, REMOTE 2.18, FEATURES, WHATS_NEXT",
+    "gaps": [
+     "G41",
+     "G38"
+    ],
+    "dependsOn": [
+     "S2",
+     "S3",
+     "S4",
+     "S5"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "S8 Show Bus 1.3 final: header marked final, BodySha256 pinned, other units' reader rows asserted, tools/showbus-copies.sh",
+    "gaps": [
+     "G38",
+     "G39",
+     "G40",
+     "G41",
+     "G42"
+    ],
+    "dependsOn": [
+     "S1",
+     "S2",
+     "S3",
+     "S4",
+     "S5",
+     "S7",
+     "cross-app-proposals SW-1 and SW-7",
+     "windows-for-peers SW-W1 and SW-W7 words",
+     "playout-links \u00a72.6 words",
+     "agmessage \u00a711 words"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 90.2: reads follow pairing (scope A or B) with ADR-016; WirePeer pairing re-checked per push; the module pairs before it reads; tests rewritten; Super Check Remote row; log line",
+    "gaps": [
+     "G45"
+    ],
+    "dependsOn": [
+     "S1",
+     "the Patterns maintainer's yes (ADR-016)",
+     "playout-links PlayoutLink in a Stagewatch release"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 90.5 (before the papers): certificate 825 days in all and the one renewal; hello proto 3, 128 peers, per-id addresses, sticky dial, conflict",
+    "gaps": [
+     "G39",
+     "G40"
+    ],
+    "dependsOn": [
+     "S8"
+    ]
+   },
+   {
+    "repo": "Patterns",
+    "title": "Round 90.4: the round's papers with the 1.3 copy and ShowBusSpecTests",
+    "gaps": [
+     "G38",
+     "G40"
+    ],
+    "dependsOn": [
+     "S8",
+     "Round 90.2",
+     "Round 90.5"
+    ]
+   },
+   {
+    "repo": "AGMessage",
+    "title": "A1 (0.4.1): 825 days in all and the one renewal; the 1.3 copy and showbus.test.js; proto 3, inst, 32 caps, 64-character names, 128 peers; hello sent from HOST; per-id addresses, sticky dial, conflict, find on any address; NODES ping wording",
+    "gaps": [
+     "G39",
+     "G40",
+     "G42"
+    ],
+    "dependsOn": [
+     "S8"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "M1 The 1.3 copy, SHOWBUS-NODE.md answers, ShowBusSpecTests; reader 32 caps and 128 peers; proto 3; the peer table's address rule and conflict",
+    "gaps": [
+     "G38",
+     "G40"
+    ],
+    "dependsOn": [
+     "S8",
+     "round 3 closed or the owner's leave"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "M2 (only if PlayMap's owner answers yes to the question against decision 17): the TCP wire reads after pairing on a token node",
+    "gaps": [
+     "G45"
+    ],
+    "dependsOn": [
+     "M1",
+     "Patterns Round 92 Lines devices pair by proof (G35)"
+    ]
+   }
+  ],
+  "gapsClosed": [
+   "G38: the playmap kind, its caps, a \u00a78 row, and ECOSYSTEM naming PlayMap and 1.3; the copies follow through S8, Patterns 90.4, A1 and M1",
+   "G40: proto as the revision of shapes spoken; kind, port and caps tables taken from what nodes send; \u00a74's frame and discontinuity counters; the \u00a713 numbers, with items 200 and links 400 matching Patterns' writer; every reader raised to 32 caps and 64-character names",
+   "G27: no hello when Stagewatch is bound to loopback; per-target sends that are counted and shown; ports list only doors receivers can open; the hello built from the snapshot; a live test on a port only the test binds (the same-machine carrier with no network is left to LB-1)",
+   "G39: the 825-day span rule with Stagewatch's 826-day, Patterns' 1,826-day and AGMessage's 825-day-plus-1-hour certificates fixed, and certificates already issued replaced once; \u00a79 wording so every copy is byte-equal",
+   "G41: NODES.md rewritten from the code and held by a test against the hello builder",
+   "G42: the caps vocabulary as sent (approvals, proposals and the rest); pings every 1-2 s; AGMessage's papers corrected",
+   "G22 (this area's part): \u00a712.1-12.3 and the view-pass class in rule 5, the windows cap, and view passes counted apart from credentials. The operator-frame windows block and the Companion feedbacks close with windows-for-peers SW-W4 and SW-W6",
+   "G45 (as contract): \u00a71 rule 4 and \u00a77.2 with each node's exemption and what ends it in \u00a78; Patterns' code follows in Round 90.2 if its maintainer agrees"
+  ],
+  "gapsLeft": [
+   {
+    "id": "G27 (same-machine carrier)",
+    "why": "A unicast to 127.0.0.1 on the shared port reaches one listener (measured). 127.255.255.255 and loopback multicast work on Linux but miss 127.0.0.1-bound listeners and are unmeasured on Windows. LB-1 runs on the maintainer's PC and 1.4 names the carrier. Until then a Wi-Fi-off laptop needs typed addresses."
+   },
+   {
+    "id": "G39 (rollover)",
+    "why": "Key-continuity rollover, which would let peers move their pin without CERTIFICATE CHANGED, is a new pinning rule in four trees; recorded for 1.4. The one-time renewal of over-long certificates means pinned peers see CERTIFICATE CHANGED once."
+   },
+   {
+    "id": "G45 (Patterns)",
+    "why": "Reversing PLAN \u00a7103.7 is the Patterns maintainer's call (ADR-016). Under scope A, NAV, MENU, CUE LIST, ARCADE \u2026 and ASSISTANT \u2026 stay open and are named in \u00a78 until the desk's own cross-machine asks pair by proof."
+   },
+   {
+    "id": "G45 (PlayMap)",
+    "why": "PlayMap's owner decided (decision 17) that Patterns reads its context over the TCP wire 'as today'. Closing that read is put to the owner as a question. M2 lands only on a yes, and only after Patterns' Lines devices pair by proof (G35)."
+   },
+   {
+    "id": "G45 (Stagewatch)",
+    "why": "`?pin=` keys in browser addresses and Companion TCP 9923 without authentication when bound to the network are listed in \u00a78 as not scheduled; both are Stagewatch's maintainer's calls."
+   },
+   {
+    "id": "G10/G11/G24/G46",
+    "why": "The peer-holding side of windows: grants, PlayMap drawing windows, the Eye's cross-node chain, peer pages. Owned by windows-for-peers, whose \u00a712.4 onwards and rule 5 carrier words this area carries into the master."
+   },
+   {
+    "id": "G18",
+    "why": "AGMessage dropping unknown kinds belongs to the agmessage area; it is named in AGMessage's \u00a78 row."
+   },
+   {
+    "id": "G25",
+    "why": "PlayMap's posted-context budget and Stagewatch's 413 belong to cross-app-proposals SW-1 and patterns-playmap-side; \u00a76 states the limit and the trimming order."
+   },
+   {
+    "id": "Patterns L55",
+    "why": "STARTTLS on the line wires is unchanged; reads after pairing do not encrypt them."
+   },
+   {
+    "id": "Unpaired ASSISTANT ASK/MODERATE on Patterns",
+    "why": "Found during the Round 90.2 inventory: an unpaired LAN connection can make the desk call its model today (ControlProtocol.cs:1249). Named for the Patterns maintainer, not decided here."
+   }
+  ],
+  "risks": [
+   "Reads after pairing blinds token-less readers. Mitigation: \u00a77.2's amber words; Patterns 90.2 waits for playout-links' PlayoutLink; the module is fixed in the same unit; ADR-016 and REMOTE's Trust paragraph explain it. An older Companion module against a 90.2 desk loses its Navigator until it is updated.",
+   "Patterns' own cross-machine asks (arcade nodes, a node's moderation ask to its desk) break under scope B. Scope A keeps them open and named in \u00a78 until they pair.",
+   "Each upgraded Stagewatch, Patterns and AGMessage makes every pinned peer accept a new certificate once. Release notes must say so, and a show-day upgrade is the operator's call.",
+   "The hash fence makes every master edit a change in four trees, and per-tree CI cannot see a stale copy. Mitigation: 1.3 is frozen once (S8), the interop lane runs showbus-copies.sh, and node-declared caps keep a small feature from waiting on four releases.",
+   "Same-machine discovery with no network stays unsolved until LB-1 and 1.4. The loopback copy still reaches one listener at random, and nothing relies on it.",
+   "An id conflict blocks new links to both machines until the operator fixes one. That is the fail-safe; the amber row names both hosts and addresses.",
+   "Separate view-pass and credential counts give 5 + 5 tries a minute where today 5 are shared. View passes are 130 random bits, so the count protects against noise, not guessing.",
+   "Several areas edit the same files: ShowContext.cs, MainViewModel.ShowBus.cs, WebServer.cs and SHOWBUS.md are shared with playout-links, peers-not-screens, cross-app-proposals and windows-for-peers. Each lands in its unit's order, and the master has one owner.",
+   "S8 (final) waits for four sibling areas' units. If one slips, 1.3 stays a draft and the copies wait."
+  ],
+  "processNotes": "Stagewatch (CLAUDE.md):\n- Build and test: one dotnet build at a time; tools/test.sh lanes build, unit, module and e2e.\n- Banned symbols stay out of src/: the pure builders take time, ports and inst as inputs, and Environment.TickCount is banned.\n- New record and frame fields go at the end.\n- This area adds no ShowCommandKind or verb.\n- The Show network line and the conflict rows are WPF changes, named for the Windows job's smoke and a look on the maintainer's PC.\n- LB-1's Windows run is the PC's work, named and left for it.\n- No model identifiers (hence \u00a79's wording).\n- Papers: REMOTE 2.18, NODES, ECOSYSTEM, FEATURES, WHATS_NEXT. REMOTE says which lockout count each wrong attempt feeds, so the doctrine line ('wrong PINs, keys, viewing codes and window addresses lock a device out') still holds.\n\nPatterns (CLAUDE.md):\n- The units fold into Round 90 as patterns-playmap-side numbers it: 90.2 reads follow pairing, 90.5 certificate and hello, 90.4 papers with the copy. The maintainer's numbering wins.\n- The round opens with the newest docs/field/round-NN/ ('what the files said') and docs/OPEN.md.\n- Requester and evidence class: the maintainer's list, a handed-in critique (this gap analysis and its review), and the contract docs/SHOWBUS.md 1.3.\n- 90.2 is a maintainer's decision recorded as ADR-016 before any code.\n- One commit per unit, 'Round 90.k: \u2026'. All seven suites and the module's npm tests green.\n- Loopback tests set ControlService.TrustLoopback = false in try/finally.\n- STATE's JSON shape is unchanged; only when it is sent changes.\n- Papers:\n  - PLAN \u00a7108, with what the round did not do;\n  - REVIEW with 'Walk: unwalked';\n  - CHANGELOG with the evidence class; the README ledger;\n  - REMOTE Trust and Show Bus sections; COMPANION for the module's pairing order;\n  - OPEN: L59 closes with 90.2; L47, L50, L55 and L56 stay;\n  - the tag row for Round 89.\n- The closing sentence names the rig: the output is the refused unpaired read, read beside its log line and Super Check's Remote row.\n\nPlayMap (Mapper CLAUDE.md, docs/round3/PLAN.md \u00a74, \u00a75.6-5.7):\n- docs/SHOWBUS-NODE.md, Core/Bus, Net/Bus and Net/Wire have no round-3 owner ('nothing in that wave edits it', :2122-2125). M1 therefore lands after round 3 closes or with the owner's leave.\n- M2 is a question for the \u00a79 call log against decision 17, not a commitment.\n- No new verb or STATE block, so no catalogue row or fixture.\n- Analyzers apply to tests: no DateTime.Now, no System.Random.\n- No model identifiers.\n\nAGMessage (no agent brief):\n- One 0.4.1 CHANGELOG entry with the test count, shared with peers-not-screens and windows-for-peers.\n- showbus.test.js is added to package.json's scripts.test.\n- docs/NODES.md says 1.3.\n\nAll areas: no area other than spec-1-3 edits Stagewatch/docs/SHOWBUS.md. Sibling words enter through S1 and S8."
+ },
+ "critique": {
+  "verdict": "needs-changes",
+  "issues": [
+   {
+    "severity": "high",
+    "issue": "The loopback hello reaches only one app. Decision 5 (loopback-only scope), decision 6 (loopback-first hearing), \u00a72 'Where a hello goes' and the G27 fix all assume a datagram sent to 127.0.0.1:9928 reaches every app on the laptop. It does not. When several sockets share a port through SO_REUSEADDR or SO_REUSEPORT, a unicast datagram is delivered to exactly one of them. So on a Wi-Fi-off show laptop, a loopback-only Stagewatch is found by at most one app, and possibly only by its own listener. Loopback-first hearing becomes nondeterministic for the same reason. The planned tests stand on the same flaw. In bus.e2e.cjs the rig's own SlidesBeacon binds the port the e2e listens on, so which socket hears the hello is a race. The G27 live test fails the same way if its target port is also the beacon's listen port.",
+    "evidence": "Measured in the scratchpad.\n- Python, three SO_REUSEADDR sockets on 0.0.0.0:29928, five unicasts to 127.0.0.1: one socket received all five, the other two none; a 255.255.255.255 and a 127.255.255.255 send reached all three (critique-spec13/udp.py).\n- .NET 10 UdpClient with ReuseAddress, three sockets: one received all six loopback unicasts, the others none; a broadcast reached all three (critique-spec13/udpnet/u.cs).\n- The sibling design ecosystem-lane.md:199-213 measured the same thing and flagged it to spec-1-3 at :1171-1174.\n- SlidesBeacon binds its receiver to the port it is given (RemoteSlides.cs:150), and its timer sends to that same port.\n- The Windows documentation calls unicast delivery to a shared port indeterminate.",
+    "fix": "Keep \u00a72 from naming 127.0.0.1 as the carrier until a Windows lab line measures it. Candidates are 127.255.255.255 (reaches every any-bound listener on Linux, but not a 127.0.0.1-bound one) or multicast on the loopback interface with IP_MULTICAST_LOOP. Until then, write loopback-only scope as 'may stay silent', which is today's behaviour. In tests, send to a port that only the test socket binds: the targets override must differ from the beacon's listen port, and bus.e2e must not share 19928 with the rig's listener."
+   },
+   {
+    "severity": "high",
+    "issue": "\u00a712 contradicts the sibling area that owns the window lessee side, and the two cannot both land. spec-1-3 designs `window lend` with these properties:\n- the window's own address is handed out;\n- leases may travel over plain links (accepted as a risk);\n- a node joins as a window with `Authorization: Window`;\n- caps `windows.lend`, `web.show` and `window.join`;\n- a private `{type:lease}` report carries placement.\n\nwindows-for-peers designs the same \u00a712 differently on every point:\n- `window grant` instead of lend;\n- an address per grant, so withdrawing one app does not cut the TV on the main address;\n- `how:\"draw\"` explicitly replaces the Authorization header;\n- a page address travels only over TLS or loopback;\n- tombstones for withdrawn addresses;\n- placement through \u00a76 link ends, with a private placed message rejected.\n\nThe operator would get two verbs, two cap sets and two security postures. Decision 1's ownership table names three siblings, but not windows-for-peers.",
+    "evidence": "- windows-for-peers.md:118-160 covers decisions 1-9: grant, per-grant addresses, draw replacing G11's header, TLS-or-loopback, tombstones, link-end placement.\n- windows-for-peers.md:322-327 claims \u00a71 rule 5 and \u00a712; :773 is its SW-W7 papers unit, which edits SHOWBUS.\n- spec-1-3.md:11-16 is the ownership table without windows-for-peers; :402-423 is \u00a712.4-12.6.",
+    "fix": "Bring windows-for-peers' \u00a712 words into this area's single master edit. This area keeps only the view-pass class (\u00a71 rule 5), \u00a712.1-12.3, the operator-frame windows block (\u00a712.5) and the caps that area agrees. Drop S7 and S8, \u00a712.4, \u00a712.6 and the reserved `web.show`/`window.join` from this design: they are G10/G11, which belong to windows-for-peers."
+   },
+   {
+    "severity": "high",
+    "issue": "Unit P2 (reads only after pairing) breaks Patterns' own Companion module even when the module has the right token. On connect the module sends HELLO and then immediately `ask('NAV')`, before the NONCE arrives and before it can send AUTH-PROOF. It asks NAV only once per connection. Under P2 that NAV is answered `ERR not paired \u2026`, so the Navigator gets no rails or pages for the whole connection. trustProblem matches that line and puts the module into BadConfig with words saying the token is missing, although it is configured. This disproves decision 7's premise that every reader that matters already pairs first, and P2's module change, which only adds status words, does not fix it.",
+    "evidence": "- Patterns/integrations/companion-module-patterns/src/main.js:150-164: HELLO, then NAV at connect, with the token answered only later by authenticate().\n- main.js:196-206: authenticate() sets `authed` before `OK paired` arrives.\n- main.js:215-224: an ERR line goes through trustProblem and sets BadConfig.\n- main.js:275-287: ask() sends no request id, so the ERR is a bare `ERR not paired` that the regex at :373 matches.\n- IsQuery treats NAV and MENU as reads (ControlProtocol.cs:1454).",
+    "fix": "P2 must change the module so that NAV, MENU and every other read go out after `OK paired`, or are re-asked when it arrives. Add a module node test where a token desk sends NONCE first and the Navigator still fills. Make trustProblem tell apart 'no token configured' from 'asked before pairing'."
+   },
+   {
+    "severity": "high",
+    "issue": "Unit P2 breaks Patterns' own readers that talk to other machines, and its existing tests, which assert the opposite on purpose. The design says 'STATE's shape is unchanged \u2026 tests keep working' and only adds tests.\n- Every fresh desk has a token.\n- The desk's NodesService asks arcade nodes `ARCADE STATUS/GAMES/SCORES` over their wire without pairing.\n- A node asks the desk `ASSISTANT MODERATE` without pairing. Both are queries today, so P2 refuses both.\n- RemoteTrustTests asserts that reading never needs the token.\n- The Wire helpers in ShowBusAppTests and RemoteTrustTests assert `STATE {` as the first line, then NONCE, with TrustLoopback=false and a token set; P2 turns that order around.\n- NEW TOKEN must now cut reads, not just verbs. But the token a connection presented is a local variable in the connection handler, and Broadcast pushes to every WirePeer, so 'Broadcast skips unpaired peers' needs that pairing state moved onto WirePeer and checked again at each push.\n- P2 reverses a documented maintainer decision (PLAN \u00a7103.7, REMOTE Trust) without an ADR entry.",
+    "evidence": "- Patterns/tests/Patterns.App.Tests/ShowBusAppTests.cs:241-247 (paired from first run) and :71-82 (greeting STATE then NONCE).\n- RemoteTrustTests.cs:132-150: `Assert.StartsWith(\"OK {\", \u2026)  // reading never needs the token`.\n- NodesService.cs:120-160 (unpaired asks); ServiceKernel.cs:97 (`ASSISTANT MODERATE` sent to a desk); ControlProtocol.cs:1249 and :1454 (queries).\n- ControlService.cs:367 (`presented` is a local); :763-774 (Broadcast pushes to every peer).\n- docs/PLAN.md:11648-11654; docs/REMOTE.md:38-41.",
+    "fix": "Before P2:\n- Inventory Patterns' wire clients that cross machines. Make them pair, or name each one as an exemption.\n- List the tests to rewrite: the greeting order in the Wire helpers and the RemoteTrustTests :132 case inverted.\n- Store each connection's pairing on WirePeer and re-check it on every push, so NEW TOKEN stops STATE.\n- Write an ADR entry and present P2 as a maintainer's call, not a settled unit."
+   },
+   {
+    "severity": "high",
+    "issue": "The design's risk note says loopback-first hearing never picks loopback for a peer that does not listen there, because 'such a peer sends no loopback hello'. That is false for AGMessage. Its HTTP listens on HOST, which can be a single LAN address. Its UDP socket is bound to any address and sends to both 255.255.255.255 and 127.0.0.1 whenever it announces, and it announces whenever HOST is not loopback. So the loopback copy arrives from 127.0.0.1. A loopback-first reader then dials 127.0.0.1:<port> and is refused for as long as it keeps hearing that copy.",
+    "evidence": "- AGMessage/app/server.js:44 and :1245 (listen on HOST); :1003-1005 (announce = HOST is not loopback).\n- nodes.js:91 (socket bound to any address) and :95 (`for (const to of ['255.255.255.255','127.0.0.1'])`).\n- By contrast, Patterns' hello socket is bound to its bind address (BeaconService.cs:96-97 and :311-324), and PlayMap's sender binds `bind ?? Any` (HelloService.cs:136-137), so neither has this problem.",
+    "fix": "Make it a contract rule: a node sends the loopback copy only when its doors listen on loopback (bound to any address or to loopback), or sends it from a socket bound to its bind address. A1 implements this in AGMessage and tests it with a LAN HOST."
+   },
+   {
+    "severity": "medium",
+    "issue": "Loopback-first hearing breaks AGMessage's lookup of its Stagewatch peer, its TLS pin and its approval-desk detection on a single laptop. find() matches a peer only when its address equals the operator's typed host, or when its host name matches. With loopback-first, a same-machine Stagewatch is stored at 127.0.0.1, so an operator who typed the laptop's LAN IP no longer matches. The pin key then falls back from `node:<id>` to `url:<host>:<port>`, which pins again under a new key. The hello's `tls` no longer upgrades the link, and checkDesk loses the `approvals` cap.",
+    "evidence": "AGMessage/app/lib/nodes.js:108-113 (find: `p.address === host`), :247-252 (_resolve: nodeKey and wantTls taken from the found peer), :413-416 (checkDesk reads `peer.caps`).",
+    "fix": "Keep every address heard for an id, each with its age, and match find against any of them. Keep the choice of which address to dial separate from the peer's identity. Test with an operator-typed LAN IP while the hello arrives on loopback."
+   },
+   {
+    "severity": "medium",
+    "issue": "'One id is one peer; an address change alone is not a change' removes the only signal that two machines claim the same id. Ids are unauthenticated, and the id files travel with settings when a show laptop is imaged or a folder is copied. Today the flip-flop at least raises Changed or onChange; the design suppresses it and silently merges the two machines.",
+    "evidence": "- Patterns keeps its id in a patterns.node-id file (ShowBusNetwork.cs:191-203); Stagewatch in Settings.NodeId; AGMessage in settings.nodeId (server.js:82).\n- PlayMap raises Changed on an address change (PeerTable.cs:63-65); AGMessage calls onChange when the address differs (nodes.js:89).",
+    "fix": "Add to \u00a72: an id heard from two different non-loopback addresses within the stale window is a conflict, shown amber ('two machines say they are <id>'), never merged. Stagewatch, Patterns, PlayMap and AGMessage each test it."
+   },
+   {
+    "severity": "medium",
+    "issue": "Leases are not reconciled, and the shared lockout turns one stale lessee into a lockout of every app on the laptop. An end message is pushed only on a live link, and the link sends only 'lend again on open'. A lessee that was offline when the window was revoked or deleted keeps dialling the dead /w/ address. Wrong window addresses count in the same per-IP table as wrong PINs, keys and viewing codes. With loopback-first every same-laptop app is 127.0.0.1, so five 404s a minute lock out AGMessage's key, Patterns' link and the operator's local PIN. Separately, a successful key from that IP clears the counter, which weakens the 'five wrong tries a minute' guarantee \u00a712.2 promises.",
+    "evidence": "- Stagewatch/src/Timer.Remote/WebServer.cs:35 (one `_authFailures` table), :625-642 (window lockout and counting), :873-886 (PIN), :1076-1084 (keys; `TryRemove` on success).\n- windows-for-peers.md:150-152 (decision 8: tombstones, from this measured cause).",
+    "fix": "On link open, send the lessee its complete set of current leases, and have it drop any it holds that are not in the set. Tombstone withdrawn addresses so a guess there does not count. Keep separate lockout counters for window addresses and for credentials. Test that a revoke while the lessee is offline ends the lease on its next link."
+   },
+   {
+    "severity": "medium",
+    "issue": "`window lend` is an escalation path in four ways.\n- The parser accepts `all` as the window, so `window lend all X` hands over every window's address in one line, and the refusal list does not cover it.\n- OSC is unauthenticated and, once switched on, binds to every interface by default. Companion TCP has no authentication when it is bound to the network. So anyone who can send UDP could hand passes to any key-verified node, turning a node-scope key, which today never sees a path, into a holder of window passes.\n- ShowContext.Commands publishes the verb to peers' AIs, so a peer can propose lending a window to itself.\n- Lending by name is ambiguous when two nodes share a name.",
+    "evidence": "- ShowState.cs:931-941 (`who` may be `all`); OscServer.cs:7-14 (shared grammar, no PIN); AppSettings.cs:270 (OscBindAll defaults to true).\n- WebServer.cs:679 (a path only for the PIN or a control key); ShowContext.cs:41-43 (the window rows peers read).",
+    "fix": "Refuse `all` and ambiguous names. Accept lend and unlend only from the desk, the PIN or a control key, and refuse them on OSC and Companion TCP. Do not list lend in ShowContext.Commands, or refuse a proposal from node X that lends to X. The approval card says 'hands lobby's address to <node>'."
+   },
+   {
+    "severity": "medium",
+    "issue": "The meaning given to `proto` contradicts itself. proto 3 is defined as 'keeps 1.3 in full', yet the design's own \u00a78 exemptions and unit order mean no node that sends 3 keeps 1.3 in full:\n- Stagewatch sends 3 from S2, while `?pin=` and an unauthenticated Companion port 9923 remain, and no unit adds the '2.18 warns' that \u00a78 promises.\n- PlayMap sends 3 from M1, but keeps \u00a77.2 only after M2.\n- Patterns enforces \u00a77.2 in P2 while still sending proto 1 until P3.\n- AGMessage still drops unknown kinds (G18), so its \u00a78 row's 'none' is wrong.\n\nThe justification that a reader can tell 'shows nothing before pairing on purpose' from 'broken' therefore cannot work.",
+    "evidence": "- spec-1-3.md:145-151 (decision 3), :361-364 (\u00a78 exemptions), :712-730 (unit order).\n- AGMessage/app/lib/nodes.js:33 and :38 (KINDS drops playmap).",
+    "fix": "Define proto 3 as 'speaks 1.3's shapes; its \u00a78 row lists what it does not keep yet'. A reader recognises a token node by the `NONCE` first line and the refusal words, not by proto. Add the 2.18 `?pin=` warning as a Stagewatch unit, or remove it from the \u00a78 text."
+   },
+   {
+    "severity": "medium",
+    "issue": "The \u00a76 numbers disagree with the sibling design and with the PlayMap owner's recorded decisions.\n- cross-app-proposals caps `words` at 200 on the sender; spec-1-3 says 512 on the sender and at least 200 kept by a reader. PlayMap's busy context has 13 commands whose `words` exceed 200.\n- \u00a76 lets a reader that feeds a prompt keep fewer commands than 256. The owner's decision 18 says that where a reader caps, the cap is at least 256. The design claims to adopt that item.\n- \u00a75.6 item 7 and decision 17 keep PlayMap's reader bounds as its own and keep Patterns reading PlayMap's context over the wire 'as today'. M2 and its \u00a78 end condition commit PlayMap's owner to closing that read.",
+    "evidence": "- cross-app-proposals.md:116-118 and :340.\n- Mapper/docs/round3/PLAN.md:2594-2610 (decisions 17 and 18) and :2333-2340 (\u00a75.6 item 7).\n- Measured from Mapper/tests/PlayMap.Engine.Tests/Fleet/Golden/context-busy.json: 199 commands, 32,958 bytes of commands, longest verb 307, longest words 403, 13 commands with words over 200.",
+    "fix": "Agree one set of numbers with cross-app-proposals. In \u00a76, a reader that caps commands keeps at least 256. Put M2 and PlayMap's exemption to the PlayMap owner as a question for the round-3 \u00a79 call log, not as a dated commitment."
+   },
+   {
+    "severity": "medium",
+    "issue": "The size limits cannot all be met at once, and only items have a trimming rule. With every field at its maximum, 256 commands of up to 512+512 characters alone are several times 64 KiB. \u00a76 says how to trim items (`context:trimmed`) but not commands, links or bytes. Stagewatch rejects a whole context over 64 KB, so a large post is lost entirely rather than shortened. PlayMap's busy context is already 43.6 KB with 199 commands, about 165 bytes each; at 215 to 256 commands it reaches roughly 46-53 KB before any extra items.",
+    "evidence": "- Stagewatch/src/Timer.Core/ShowBus.cs:62 (`json.Length is 0 or > MaxBytes` rejects the whole post).\n- Measured from the golden file: 43,640 bytes, of which commands are 32,958.",
+    "fix": "Give \u00a76 a byte-trimming order (recent lines, then links, then commands other than air and panic, then grey items), with a count of what was left out. Measure PlayMap's context after round 3 against 64 KiB before fixing the number."
+   },
+   {
+    "severity": "medium",
+    "issue": "Stagewatch's own reader would still break \u00a76 when S9 declares 1.3 final, and the per-tree tests do not check most numbers.\n- Stagewatch's reader cuts `verb` to 80 characters and keeps 64 commands; \u00a76 says a reader never cuts a verb. The command change belongs to another area's unit, and S9 does not wait for it.\n- Stagewatch and AGMessage cut hello names and hosts at 60 characters, below the 64 senders may use.\n- Patterns keeps 64 commands.\n- Patterns, PlayMap and AGMessage have no 128-peer bound, although \u00a72 states one.\n- No tree checks its own context against the sender maxima.",
+    "evidence": "- Stagewatch ShowBus.cs:97-102 (`Take(64)`, verb cut by `Str(c[\"verb\"], 80)`); RemoteSlides.cs:196 and :220 (`Cap` at 60).\n- AGMessage nodes.js:44 (name and host sliced to 60); Patterns ShowContext.cs:99.\n- No peer bound in Patterns ShowBusNetwork.cs:111, PlayMap PeerTable.cs:53-74 or AGMessage nodes.js:86-88.",
+    "fix": "Each tree's ShowBusSpec test checks every \u00a713 number that tree implements: commands, verb length, name length, peers.max and the context sender limits. Either S9 waits for the sibling units, or \u00a713 marks per node what is 'not yet'. A1, P3 and M1 add the 128-peer bound."
+   },
+   {
+    "severity": "medium",
+    "issue": "Fixing the certificate code does not fix certificates already issued. Every node renews only when NotAfter comes within 30 days. So Patterns' existing 1,826-day certificates stay for about five years, and the iPad problem P1 targets remains on every existing install. The design says the contract 'should leave no room to find out on show day' and then leaves this room open.",
+    "evidence": "- Patterns/src/Patterns.Core/Services/ShowBusTls.cs:83 (Life of 5 \u00d7 365 days) and :106 (NeedsRenewal looks at NotAfter only).\n- Stagewatch/src/Timer.App/NodeCertificate.cs:34 (renewal by NotAfter only).",
+    "fix": "Also renew at start when NotAfter \u2212 NotBefore is more than cert.days. Peers see one CERTIFICATE CHANGED, which each tree's papers announce. Test that an old 1,826-day certificate is replaced."
+   },
+   {
+    "severity": "medium",
+    "issue": "The hash fence is oversold as 'a copy that cannot drift'.\n- Each tree's test compares its copy only with the constant pinned in that tree.\n- Each CI checks out only its own repository. A master revision leaves the copies stale while every tree stays green; only tools/showbus-copies.sh on a bench sees it.\n- The vocabulary check makes a cap that one tree adds fail that tree's build until the master and three copies change. PlayMap cannot even edit its bus files during round 3, so a small feature in one tree waits on four release processes.\n- Line endings are normalised, but a BOM or a missing final newline would still change the hash.",
+    "evidence": "- Each repository's CLAUDE.md describes CI on its own tree only.\n- Mapper/docs/round3/PLAN.md:2122-2125 ('nothing in that wave edits it').\n- spec-1-3.md:216-227.",
+    "fix": "Say it plainly: the per-tree test stops accidental edits, and only the interop lane catches stale copies. Let a node send caps of its own, declared on its node page, without failing the vocabulary check. Define the body bytes exactly: strip any BOM and end with exactly one LF."
+   },
+   {
+    "severity": "medium",
+    "issue": "P2 and M2 have consequences in Stagewatch and in Patterns' wider surfaces that no unit covers.\n- Stagewatch's PatternsLink with no token reports green 'connected' at once. Because an empty token counts as 'proof sent', it sends `@ctx CONTEXT` every 5 s. After P2 the link is green but receives nothing, with an ERR every 5 s. That breaks Stagewatch's 'observed state over sent state'. No S unit implements \u00a77.2's amber words on a reader.\n- Patterns' doctrines: the health lights must say what pairing does not cover, Super Check's Remote row must change, and the closing check must be a journal row, a log line or a Super Check row. The design names the wire's refusal line instead.",
+    "evidence": "- Stagewatch/src/Timer.Integrations/PatternsLink.cs:202 (`_proofSent = _token.Length == 0`), :210 (reports Ok 'connected'), :291-295 (`@ctx CONTEXT` every 5 s).\n- Patterns/CLAUDE.md: the standing brief's closing sentence and the doctrine 'the health lights say what pairing does not cover'.\n- Patterns/docs/REMOTE.md:30 (Super Check's Remote row).",
+    "fix": "Before P2 lands, add a Stagewatch unit or a stated dependency on playout-links: a link that heard NONCE and has no token shows amber with the \u00a77.2 words and sends nothing more. P2's papers name the Super Check row and add a journal or log line for an unpaired read that is refused."
+   },
+   {
+    "severity": "low",
+    "issue": "\u00a712 contradicts itself and Stagewatch's own doctrine. \u00a712.3 says a node link never carries a window address, while \u00a712.4 sends the lease `url` on that very link. Stagewatch's doctrine says window addresses ride in no frame.",
+    "evidence": "- spec-1-3.md:400 against :404-408.\n- Stagewatch/CLAUDE.md doctrine: 'the PIN, keys and window addresses ride in no log line, no journal row and no frame'.",
+    "fix": "If leases survive the reconciliation with windows-for-peers, name the lease message as the one point-to-point carrier: never a published frame, never journaled. Add a fence test that the address appears in no published frame."
+   },
+   {
+    "severity": "low",
+    "issue": "Over-building: S7 and \u00a712.6 (a node joining as a window with an `Authorization: Window` header, reserved cap `window.join`) have no consumer. The window link carries Stagewatch page paths, which a native node cannot draw, PlayMap has no browser engine, and the existing `?win=` parameter already works for any WebSocket client.",
+    "evidence": "- ScreenWindows.cs:20 (content is a page path such as `/clock?h=12`).\n- WebServer.cs:1145-1150 (`?win=` is the window link's pass).\n- windows-for-peers.md:132-137 ('PlayMap has no browser'; `how:\"draw\"` replaces the header).",
+    "fix": "Drop S7, \u00a712.6 and `window.join`."
+   },
+   {
+    "severity": "low",
+    "issue": "The new `bus:hello` amber item would light permanently on the design's own commonest rig. With 'Allow other devices' on but Wi-Fi off, the scope is Network: the broadcast fails with ENETUNREACH every beat while the loopback copy goes out. The item would say 'other apps can't find it', which is not true.",
+    "evidence": "- ecosystem-lane.md:203 (255.255.255.255 gives ENETUNREACH when only loopback is up).\n- spec-1-3.md:575-578 (the 3-beat amber rule).",
+    "fix": "Count failures per target. Light amber only when every target fails, with words that fit the scope ('only this PC hears it')."
+   },
+   {
+    "severity": "low",
+    "issue": "Window lease text overflows its item, and lessee text reaches prompts. With up to 4 lessees, words like 'lent to Patterns FOH: Screen 2 \u2014 Foyer, on air' exceed the 160-character item state. The lessee's own `on.label` is copied into Stagewatch's context, which AIs read, so a peer's text enters a prompt.",
+    "evidence": "spec-1-3.md:416-419 (\u00a712.5 state words) and :466 (`context.item.state.chars 160`).",
+    "fix": "Summarise more than one lessee ('lent to 2 apps') and list them in the operator frame. Cap and clean `on.label` the way other peer strings are cleaned."
+   },
+   {
+    "severity": "low",
+    "issue": "Rule 4 is restated, but every Stagewatch hello still carries `presenting`. For a Slides agent that is show state, which rule 4 says discovery never carries.",
+    "evidence": "RemoteSlides.cs:112 (`presenting` field); SlidesAgent.cs:72 (`d is { Slide: > 0 }`).",
+    "fix": "Either name `presenting` in the \u00a72 field table as an allowed exception, or drop it from the hello and leave it to the slide feed."
+   },
+   {
+    "severity": "low",
+    "issue": "Decision 1 says one owner edits the master, but more sibling designs plan master edits or Patterns rounds than its table lists:\n- agmessage.md wants \u00a711's `GET /api/proposals/<id>` shape stated.\n- windows-for-peers' SW-W7 edits \u00a71.5, \u00a72, \u00a76 and \u00a712.\n- patterns-playmap-side's unit 90.4 lands the Patterns 1.3 copy in Round 90, which windows-for-peers also uses.\nP1-P3 as 'Round NN' would collide with that round.",
+    "evidence": "- agmessage.md:472; windows-for-peers.md:773.\n- patterns-playmap-side.md:502; windows-for-peers.md:392-486 (Patterns Round 90).",
+    "fix": "Extend the ownership table to every area that edits the master. Fold P1-P3 into the Patterns round the other areas already plan, as numbered units, so there is one round and one copy commit."
+   }
+  ],
+  "missing": [
+   "A Windows lab line that measures how a same-machine hello can reach every app sharing UDP 9928 (127.0.0.1, 127.255.255.255, loopback multicast) before \u00a72 names a carrier, plus e2e and live tests that never share their listen port with a beacon.",
+   "Detecting two machines with the same id (a cloned install, or a spoofed hello): shown amber instead of merged.",
+   "Lease reconciliation: the full set of leases sent each time the link opens, tombstones for withdrawn addresses, and lockout counters kept separately for window addresses and for PINs and keys.",
+   "An inventory for P2 of Patterns' own wire clients that cross machines (NodesService ARCADE asks, ASSISTANT MODERATE), and the module asking NAV and MENU only after `OK paired`.",
+   "Pairing state stored on Patterns' WirePeer, so that NEW TOKEN also stops STATE pushes.",
+   "Stagewatch's PatternsLink showing a blind, token-less link amber (\u00a77.2), sequenced before Patterns P2 and PlayMap M2.",
+   "Renewal at start when a certificate's span is more than 825 days, in all three apps, so existing certificates get fixed.",
+   "A 128-peer bound in the hello readers of Patterns, PlayMap and AGMessage; and readers keeping names of 64 characters (Stagewatch and AGMessage cut at 60).",
+   "A contract rule that a loopback hello copy is sent only by a node whose doors listen on loopback (AGMessage when HOST is a LAN address).",
+   "A byte-trimming order in \u00a76 for commands, links and recent lines, and a measurement of PlayMap's round-3 context against 64 KiB.",
+   "A Stagewatch unit for the '2.18 warns on ?pin= keys' that the \u00a78 exemption promises.",
+   "A Patterns ADR entry reversing PLAN \u00a7103.7, and a question to the PlayMap owner about M2 against decisions 17 and 18.",
+   "Restricting the transports that may lend a window (OSC and Companion TCP refused, `all` refused), plus the wording on the approval card.",
+   "Reconciliation with windows-for-peers on \u00a712, and with cross-app-proposals on the `words` limit, before S1 pins a hash."
+  ]
+ }
+}

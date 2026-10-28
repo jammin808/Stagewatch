@@ -1,0 +1,705 @@
+{
+ "area": "playout-links",
+ "revised": {
+  "area": "playout-links",
+  "summary": "Stagewatch gets a list of playout links instead of its single Patterns link, so it can run several PlayMap nodes and Patterns desks at once. Find lists PlayMap as well as Patterns. Each link follows its peer's clip for the VT countdown and drives its transport. It also cues PlayMap playlist items or Patterns cues from the running order: GO when the item starts, and an opt-in standby when it loads. Every command's receipt and journal row now say what the peer really did: applied, refused in the peer's own words, accepted, unconfirmed, or not sent. Each command that reached the socket leaves exactly one journal row.\n\nSecurity changes after review:\n- Lines that drive another node's air (`playout`, and the existing `patterns`) are refused from another machine over OSC or Companion TCP, which carry no PIN, unless the operator lists that address.\n- A line from an AI is always a proposal. When the target node collects Show Bus approvals, the proposal is sent to that node, which runs it under its own rules with the proposer's name.\n- The pairing token never leaves this PC in clear, and there is no clear-token tick.\n- PlayMap links use pinned TLS and never fall back to plain once a node is pinned.\n- HTTP triggers send a secret only to loopback or to a pinned HTTPS server. They do not follow redirects, and no running-order text can change where the secret goes.\n\nShow-safety changes after review:\n- A PlayMap standby shows the item's first frame on the air, so standby is off by default and says so. It is only sent to an idle playlist.\n- A Patterns standby moves the Patterns operator's own standby, so it is opt-in. At start, Stagewatch sends only `CUE GO <id>` and lets Patterns' fence decide. It never sends a second GO when Patterns asks for one.\n- A timed GO across several nodes holds its untimed members until T \u2212 rtt/2. It sends one GO to a sync group's leader and reports late starts honestly.\n- Only the link feeding the VT can move the running order, once per item.\n- Settings keep the old Patterns keys for one release, so rolling back keeps the Patterns link.\n\nCode changes: PlayMap and Patterns need none. PlayMap gets a docs fix and a fence test after round 3. The Show Bus wording goes through the spec-1-3 area's single master edit and its copy units.\n\nReview: 20 issues; 18 accepted, 1 accepted with a corrected mechanism (`GuardOf` is the timecode-chase guard, not a sync-follower refusal), and 1 partly rejected (the existing 9700 Find stays until spec-1-3 retires it). The answers are in \u00a7R of /home/user/Stagewatch/docs/ecosystem/playout-links.md.",
+  "decisions": [
+   {
+    "decision": "Replace the single Patterns link with a list of playout links (IntegrationSettings.PlayoutLinks, at most 8). Names are [a-z0-9-]{1,24}, never an action word and never another integration's context slug. A schema 1\u21922 migration turns the 2.17 settings into link `patterns`. For one release the legacy patterns* keys are still written as a mirror of that link. Load rule: if playoutLinks is absent, rebuild it from the legacy keys; if the legacy keys differ from the mirror, they win for link `patterns`. Links, the verb, running-order cues and the module's actions are all gated by FeatureGate.AllowsPlayout (Production), and the refusal names the tier.",
+    "why": "Patterns and any number of PlayMap nodes can run together. Today, pointing the only link at PlayMap means giving up Patterns (AppSettings.cs:145-152; MainViewModel.Integrations.cs:40-42). The ids link:patterns and clock:patterns survive (MainViewModel.ShowBus.cs:55-66). Rolling back to 2.17 keeps the Patterns link (SettingsStore.cs:169-177 has no upgraders yet). The licence gate matches today's (MainViewModel.Integrations.cs:41,106).",
+    "alternatives": "A second fixed PlayMap link: rejected, because it caps the show at one PlayMap. Stopping the legacy keys at once: rejected because of rollback. Keeping the links in a separate file so they survive a rollback: rejected as more model surface than the gain."
+   },
+   {
+    "decision": "One PlayoutLink class. The peer's kind is observed: the hello gives it at Find, and STATE confirms it (top-level t:'playmap' means PlayMap; no t means Patterns). A kind profile decides the verbs, local refusals, AT support and TLS. While the kind is unknown, go and cue are refused with words.",
+    "why": "Mapper StateWriter.cs:77 writes t=playmap and Patterns' STATE has no t. PlayMap speaks Patterns' grammar on purpose (Mapper/docs/SHOWBUS-NODE.md:36), so the only differences are capabilities.",
+    "alternatives": "A kind the operator must set: kept only as an override, 'auto' by default."
+   },
+   {
+    "decision": "Pairing asks for the nonce and fails closed.\n- After HELLO the link sends `@pn NONCE`; this replaces the @hi PING probe.\n- `OK @pn` \u2192 prove on that nonce.\n- A greeting NONCE or an `OK @pn` marks the connection as Show Bus 1.1, and plain AUTH is never sent on it.\n- A refused NONCE on a 1.1 connection \u2192 prove on the greeting nonce.\n- An older desk gets plain AUTH only when the socket's remote address is loopback. Off this PC, nothing is sent and the link says 'update Patterns'. There is no clear-token tick.\n- No answer within 5 s \u2192 plain AUTH on loopback; otherwise drop and redial with words.\n- After 'wrong token', stop proving until the token setting changes.\n- CONTEXT, WHOAMI, INDEX and CUE LIST are sent only after pairing.\n- Redial backoff: 0.5 s doubling to 5 s, with jitter.",
+    "why": "Both peers answer NONCE at any time with the request id and replace the nonce (Patterns ControlService.cs:413-418; Mapper WireSession.cs:259-262). Today's 1.5 s timer sends AUTH to any host and ignores a late NONCE (PatternsLink.cs:279-284,311). With these rules the existing ShowBusTests fake (greeting NONCE, ERR to NONCE; ShowBusTests.cs:239-263) passes unchanged. The Program.cs fake (Program.cs:1283-1318) only needs to answer an unknown verb with ERR, as a real pre-1.1 desk does. The backoff is Show Bus \u00a74 (SHOWBUS.md:78-79), which spec-1-3 hands to this unit.",
+    "alternatives": "An operator tick allowing the token in clear to an old desk: dropped after review (fail closed; Patterns has had proofs since round 87). Waiting for the NONCE answer forever: rejected (no bound)."
+   },
+   {
+    "decision": "PlayMap links use TLS when PlayMap offers it, with no downgrade.\n- When the hello has ports.https and tls, the link dials wss://<addr>:<https>/ws with subprotocol playmap.lines.v1.\n- The certificate is pinned per node id with TlsPins. A changed certificate gives CERTIFICATE CHANGED until the operator trusts it.\n- Once a node id is pinned, its link dials wss only. A hello without TLS turns the link amber; it never falls back to plain TCP.\n- 429 at the upgrade: red, 'locked out for a minute'. Close 4401: red, wrong token.\n- Patterns stays proof-paired plain TCP, and its link item says so.",
+    "why": "PlayMap serves the same line session over TLS (Mapper/docs/wire/companion.md:7-23; HelloService.cs:95-113). The hello is unauthenticated, so the pin is the trust (SHOWBUS \u00a710). TlsPins and the SlidesAgent pattern exist already (Approvals.cs:240-276; SlidesAgent.cs:186-230). Patterns' wire has no TLS (L55).",
+    "alternatives": "Falling back to TCP when no TLS hello is heard: rejected because it can be downgraded. STARTTLS on 9697/9941: not built on any peer."
+   },
+   {
+    "decision": "Receipts complete from the peer's answer, and every attempt leaves one journal row.\n- Each send returns a ticket.\n- At most 32 tickets are in flight per link. The 33rd command is refused as not sent, and no ticket is ever evicted.\n- Only the link thread or send loop writes the socket.\n- At a drop, unwritten tickets complete as 'not sent' and written ones as 'unconfirmed'.\n- 30 s of silence \u2192 unconfirmed.\n- A pre-1.1 desk carries no ids, so its ticket completes at once as 'sent, no receipt'.\n- OK \u2192 applied; PlayMap stage accepted \u2192 accepted; Patterns CUE GO Done \u2192 applied, Requested \u2192 accepted; Confirm \u2192 accepted with 'a person's second GO', and no second GO is ever sent; ERR \u2192 refused with the peer's words.\n- The 3 s HTTP budget is unchanged. On WS and Companion, a later answer arrives as one follow-up with \"final\":true, once, within 30 s.\n- The journal (JournalKind.Playout) gets exactly one row per command that reached the socket, written when its ticket completes.\n- PlayMap's applied OK carries no words, so the effect is Stagewatch's own: 'PlayMap Stage left took PLAYLIST GO \u2026'. The effect is then looked for in STATE: 'seen' or amber 'not seen'.",
+    "why": "Today the receipt says accepted and the journal says done on send (MainViewModel.Patterns.cs:64-66,86-88; MainViewModel.Receipts.cs:38). The pending map evicts entries silently and old desks get no ids (PatternsLink.cs:165-171,224-226). Show Bus \u00a74 forbids queueing across a drop (SHOWBUS.md:79-80). PlayMap's OK has no payload on success (CommandRunner.cs:96-115; Endpoints.cs:22).",
+    "alternatives": "A receipts endpoint to poll: more surface for little gain. Evicting the oldest ticket: rejected, because it leaves an attempt with no outcome."
+   },
+   {
+    "decision": "Refuse locally only on the peer's own published facts.\n- Patterns pause/stop: video.pausable and video.stoppable win when present. When absent, role playlist or stinger is refused in Patterns' words.\n- PlayMap is never refused by role.\n- A GO or CUE on a sync-group playlist of a node whose STATE sync.role is follower is refused, naming the leader.\n- WHOAMI's `may` greys menus and turns the link amber, but does not refuse locally; PlayMap's ERR is the refusal.",
+    "why": "Patterns refuses these (ShowActions.Content.cs:481-505) and publishes role but no version (CommandRouter.cs:228-260). patterns-playmap-side Round 91 adds pausable/stoppable along with L48, so the field's presence marks a newer Patterns. PlayMap pauses playlist items (VerbCatalog.cs:155-161). A follower takes its leader's anchors (EngineCore.Sync.cs:46-80,193-197; PlaybackLanes.cs:173-178), so a GO sent there is overwritten. A WHOAMI read can be stale by up to 5 s.",
+    "alternatives": "Relying only on the peer's ERR: kept as the backstop. A version check: impossible, because Patterns' STATE carries no version."
+   },
+   {
+    "decision": "Keep the 256 KiB line cap. An over-long STATE keeps its first 256 KiB and is read forward-only for t, id, seq, at, video, playlists, sync, project.index and cuestack. If sync or project.index is cut off, together/AT and INDEX refresh are turned off for that link and it says so. The link shows amber with the STATE size.",
+    "why": "The whole PlayMap STATE is about 76 KB: main.json is 13,240 bytes and the 30 non-card fixtures total 75,861 bytes, with the round-3 sections still {}. video is at byte 769 and playlists come right after air. sync (2,891) and project (3,930) come after outputs, media and stage (StateWriter.cs:73-214). Today an over-long line is dropped into a counter nothing reads (PatternsLink.cs:40,274,88-89).",
+    "alternatives": "Raising the cap: no measured cause. A PlayMap video topic: Mapper code outside round 3's ownership."
+   },
+   {
+    "decision": "Timed GO by measured offset.\n- Pick one instant T = now + lead (300 ms, 100\u20132000).\n- A PlayMap member with a sample \u226410 s old and rtt \u2264 lead gets AT T + offset, using the lowest-rtt sample among the fresh ones.\n- A member without such a sample but with an rtt (Patterns, or a stale PlayMap clock) is held on its link and sent at T \u2212 rtt/2. A drop cancels it as 'not sent'.\n- If any member has no rtt at all, every member is sent untimed and the receipt says so.\n- Members of one PlayMap sync group collapse to a single GO to the leader.\n- The result is read from playlists[<id>]. Since PlayMap's position comes from the anchor, the journal says 'scheduled for T (\u00b1 rtt/2)', and 'started late by X' only when the AT was clamped.",
+    "why": "PlayMap's PONG and AT read one wall clock (EngineHost.cs:121; EngineCore.Router.cs:253-276), and a past AT is clamped (:268-271). `video` is only the focused lane (StateWriter.cs:263-270), while playlists[] has state, item and positionMs (:323-384). The estimator keeps no sample times today (Resilience.cs:244-274). Pings go every 2 s, so 8 samples span 16 s.",
+    "alternatives": "PlayMap converting AT by its own Stagewatch offset: needs Mapper code. Mixing timed and untimed members unaligned: rejected, because it guarantees about lead-ms of skew."
+   },
+   {
+    "decision": "The running order cues playout by id. RundownItem.Playout holds up to 4 cues: link, list, item, label, standby, together. standby is off by default.\n- On load, with standby on: PlayMap PLAYLIST CUE only when the playlist is observed idle or ended in STATE \u22643 s old. The option is labelled 'shows its first frame on air'. For Patterns, CUE STANDBY, labelled 'moves the Patterns desk's own standby'.\n- On start: PlayMap PLAYLIST GO with AT when together. For Patterns, CUE GO <id> only, so Patterns' fence decides. STANDBY and GO are never sent together.\n- The manual `playout cue` has the same idle guard.\n- Ids come from INDEX and CUE LIST.\n- ShowFile.Sanitize checks the cues. An unknown link or id is amber advice, and the cue is skipped with a journal row.\n- Planner and executor live in PlayoutDirector (Timer.Integrations), shared by the desk and the rig.",
+    "why": "A cued PlayMap lane is on the air (EngineSources.cs:236-257), and Cue replaces even a playing lane (PlaybackLanes.cs:135-146). CUE STANDBY moves the stack's standby (ShowActions.Cues.cs:37-53), and GO fences on the seen standby (CueStackService.cs:174-198; REMOTE.md:196). The rig has its own item model (Stagewatch.Rig/Program.cs:184-234).",
+    "alternatives": "Standby on by default: rejected because it shows on air. Automatic STANDBY+GO for Patterns: rejected because it defeats the fence and hijacks the operator's standby. Hand-written trigger rules: no receipts, no guards."
+   },
+   {
+    "decision": "HTTP triggers authenticate only over a channel that keeps the secret.\n- Auth kinds: none, playmap, patterns, stagewatch, bearer.\n- A secret is attached only to a loopback host, or over https with a pinned certificate (pinned by the hello's node id at that host:port, else addr:<host>:<port>).\n- A rule with a secret over http to another machine cannot be saved, and is refused at fire.\n- With auth set, the scheme, host and port are fixed text; Expand runs only on the path and query.\n- The authenticated client never follows redirects.\n- Each rule sends a request id, and the reply's ok/stage/error|msg is read.\n- A secret in the query string draws a warning at save and an offer to move it into the profile. It is refused only on a rule that also has a profile, and never at fire for a rule that ran before.",
+    "why": "Today's HTTP trigger: Triggers.cs:27 (a default client that follows redirects), :86-92 (show text expands into the target), :131-139 (no header, any 2xx counts as OK). Patterns closed the same plain-HTTP token defect as L53 (Patterns/docs/OPEN.md:51). PlayMap and Patterns serve https on their HTTP ports. Stagewatch documents ?pin= (REMOTE.md:107).",
+    "alternatives": "Adding Stagewatch to PlayMap's trusted list: still possible, but it doesn't work for Patterns and doesn't read refusals. Refusing every query secret: rejected because it breaks existing shows."
+   },
+   {
+    "decision": "One verb on every transport: `playout [<link>] end|restart|play|pause|stop|seek|cue|go \u2026`, appended as ShowCommandKind.Playout. `patterns \u2026` is unchanged.\n- With no link named, clip transport goes to the only enabled link, else the VT link.\n- go and cue need a link name whenever more than one link is enabled.\n- Every playout action is risk High.",
+    "why": "The VT pick moves with whichever clip is running (MainViewModel.Patterns.cs:15-22), so a Companion key with no link name could hit different nodes over time. Classify cannot see the peer, and a PlayMap CUE shows on the air. Stagewatch's rule for new commands: an appended kind, parser verb, help line, risk and context rows.",
+    "alternatives": "A raw line passthrough: rejected (the link only sends lines it builds). Risk Review for cue: rejected after review."
+   },
+   {
+    "decision": "Who may drive another node's air.\n- playout and patterns lines over OSC or Companion TCP are accepted from loopback or from an address in Remote.PlayoutFrom (empty by default), and are otherwise refused with words.\n- HTTP, WS and MCP need the PIN or a key as today. With no PIN set, the same address rule applies.\n- A line from an AI is always a proposal, even when agents act directly. If the link's node collected \u00a711 approvals in the last 60 s, the proposal targets that node with the link's own line, so it runs there as Approved with the proposer's name. Otherwise it is a desk proposal that runs through the link once a person approves.",
+    "why": "OSC and Companion run any parsed verb with no credential (OscServer.cs:110-130; CompanionServer.cs:294-305,404-411; REMOTE.md:29-30; oscBindAll defaults to true, AppSettings.cs:271). Agents act directly when approval is off (MainViewModel.Copilot.cs:207-209; McpEndpoint.cs:133-149). PlayMap holds an assistant's line while armed (ShowPolicy.cs:203-210). Under \u00a711 the target pulls approved lines and runs them under its own checks (Approvals.cs:81-108,135).",
+    "alternatives": "A PIN on 9923: a larger change, left to spec-1-3. Refusing AI playout lines outright: rejected, because a proposal keeps the AI useful and a person decides."
+   },
+   {
+    "decision": "One VT, one move per item: a clip end moves the running order only if that link fed the VT at that moment, its nextOnEnd is on, and no clip end has already moved this item execution (ShowController.Execution).",
+    "why": "Each per-link watcher would otherwise call _show.Next(), and two clips ending close together would skip an item (MainViewModel.Patterns.cs:42-62; ShowController.cs:127,225).",
+    "alternatives": "One show-level next-on-end setting: equivalent, but the migrated per-link flag is kept."
+   },
+   {
+    "decision": "Every reader, named.\n- Context items link:<name> and clock:<name> are built from link names only, and the integration loop skips playout links.\n- The frame's playout row gains `link` and `node` at its end.\n- /api/config and the Companion config line gain playoutLinks.\n- The copilot's facts gain each link's kind, pairing, whether it can take AT, and its playlist/item ids or cue ids (\u2264 50 each).\n- Retiring a removed link reuses the existing supervisor: the view model reconciles the old name with a 'False' signature.",
+    "why": "Ids derived from IntegrationStatus names would change with the labels (MainViewModel.ShowBus.cs:55-61; Integrations.cs:101-116). PlayMap reads Stagewatch's playout row (Mapper StagewatchTimer.cs:81) and must be able to tell its own clip. Reconcile already retires a running name whose signature turns false (Supervisor.cs:41-61).",
+    "alternatives": "A new supervisor Retire API: unnecessary."
+   },
+   {
+    "decision": "The Show Bus spec is edited once: this area supplies the words for \u00a72 (kind playmap), \u00a73 (the final follow-up receipt) and \u00a78 (PlayMap row) to spec-1-3's single master edit for Show Bus 1.3. The Patterns, AGMessage and PlayMap copies follow through spec-1-3's units S9, P3, A1 and M1.",
+    "why": "SHOWBUS.md:3-6 makes Stagewatch's file the master with copies elsewhere. spec-1-3 owns the master edit and the copy hash rule (design/spec-1-3.md:8-16, decision 10).",
+    "alternatives": "Editing the master and the copies here: rejected, because four areas editing one file would chase a moving hash."
+   },
+   {
+    "decision": "Review items partly rejected or corrected.\n(a) The 9700 Find is not removed here. It is existing code (PatternsLink.cs:420-445), and spec-1-3 decision 11 keeps it until Patterns' L47 walk row (Patterns/docs/OPEN.md:37). This design adds no 9700 code.\n(b) The claim that 'followers are guarded, so a GO is refused' is wrong: GuardOf is the timecode-chase guard (PlaybackLanes.cs:302-316; EngineCore.Timecode.cs:208), and PlayMap accepts a GO on a follower. The fix still holds, because the leader's next anchor overwrites that GO: send one GO to the leader and refuse locally on a follower.",
+    "why": "Each item was checked against the code. The sibling area owns the 9700 retirement. The sync behaviour comes from EngineCore.Sync.cs:46-80,193-197.",
+    "alternatives": "Removing 9700 now: it would contradict spec-1-3 and drop discovery of desks whose 9928 hello has never been walked on a real network."
+   }
+  ],
+  "wire": "STAGEWATCH GRAMMAR (HTTP /api/<verb>/<args\u2026> with X-Request-Id; WS {\"cmd\",\"args\",\"id\"}; OSC /stagewatch/playout; Companion TCP \"@id PLAYOUT \u2026\"; MCP run_command)\n  playout [<link>] end [<1-3600>]        -> VIDEO END n\n  playout [<link>] restart               -> VIDEO RESTART\n  playout [<link>] play|pause|stop       -> VIDEO PLAY|PAUSE|STOP (never bare STOP)\n  playout [<link>] seek <s|m:ss|h:mm:ss> -> VIDEO SEEK <seconds>\n  playout [<link>] cue <playlist> <item> -> PlayMap PLAYLIST CUE <pl> <item> (only to an idle or ended playlist)\n  playout [<link>] cue <cue>             -> Patterns CUE STANDBY <cue>\n  playout [<link>] go <playlist> [<item>] [together] -> PlayMap PLAYLIST GO <pl> <item> [AT <peer unix ms>]; with no item: PLAYLIST GO <pl> EXPECT <observed next id>\n  playout [<link>] go <cue>              -> Patterns CUE GO <cue id> (Patterns' standby fence decides; never STANDBY+GO)\n  patterns end|restart|play|pause|stop|seek \u2026   (unchanged; link `patterns`, else the only link)\nTargets: with no link named, end/restart/play/pause/stop/seek go to the only enabled link, else the link feeding the VT. go and cue go to the only enabled link, else they are refused (\"two playout links \u2014 name one: \u2026\"). go and cue are refused while the link's kind is unknown.\nLink names: [a-z0-9-]{1,24}. Never an action word, never a reserved integration slug (powerpoint, presenter-pcs, vmix, speech, time-server, ltc, ltc-in, cue-lights, triggers, rooms, the assistant's).\nRisk: High for every playout action (Copilot.Classify and ShowContext.Commands).\nErrors: parse \"playout takes end, restart, play, pause, stop, seek, cue or go\". Execution: \"no playout link called x \u2014 links: \u2026\"; \"Stage left's kind is not known yet \u2014 no STATE heard\"; \"not cued \u2014 Show is playing on Stage left; GO will play it\"; \"Stage right's Show follows sync group main (leader \u2026) \u2014 GO its leader\"; \"playout links need Stagewatch Production\".\nAUTH: HTTP/WS need the PIN or a control key; MCP needs the PIN or an MCP key; a node key may not run playout. OSC and Companion TCP: playout and patterns lines are accepted from loopback or from an address in remote.playoutFrom (\u2264 16), else refused \"playout from another machine over OSC/Companion TCP needs its address in Settings \u2192 Remote \u2192 May drive playout (these carry no PIN)\". The same address rule applies to HTTP/WS/MCP when no PIN is set. AI origin (MCP run_command, or a \u00a711 proposal aimed at Stagewatch): always a proposal. If the link's node collected approvals in the last 60 s, the proposal goes to POST /api/proposals-equivalent internal SubmitLocal with from {t:\"agent\",id:\"mcp\",name:\"AI agent (MCP)\"}, target {t:<kind>,id:<node id>} and the link's own line (e.g. \"PLAYLIST GO pl1a2b3c4 it9f8e7d6\"), with risk from the target's context commands.\n\nRECEIPTS (Show Bus \u00a73)\nHTTP 200 {\"type\":\"receipt\",\"id\":\"a1\",\"ok\":true,\"stage\":\"applied\",\"effect\":\"PlayMap Stage left took PLAYLIST GO Show \u00b7 Intro\",\"error\":null,\"refs\":{\"peerRequest\":17}}\nHTTP 409 {\"type\":\"receipt\",\"id\":\"a1\",\"ok\":false,\"stage\":\"applied\",\"effect\":\"\",\"error\":\"PlayMap Stage left refused PLAYLIST GO: Show has no item #9\",\"refs\":{\"peerRequest\":17}}\nHTTP 409 local refusal: error \"Patterns: 'x' is a playlist item \u2014 its own clock keeps running, so it is not paused (patterns end, restart or seek move it)\"; nothing is sent.\nHTTP 409 error \"not sent \u2014 the link to Stage left dropped\" | \"32 commands are waiting on Stage left's answers \u2014 not sent\".\nHTTP 200 stage \"accepted\", effect \"sent to PlayMap Stage left \u2014 waiting for its answer\", refs.peerRequest, when no answer comes within 3 s.\nHTTP 200 stage \"accepted\", effect \"Patterns asks for a second GO within 4 s \u2014 a person's\" (from outcome Confirm; Stagewatch never sends the second GO).\nHTTP 200 stage \"accepted\", effect \"sent \u2014 this desk gives no receipts (older than Show Bus 1.1)\".\nWS follow-up, at most once within 30 s, only after an accepted receipt that waits on a peer: {\"type\":\"receipt\",\"id\":\"a1\",\u2026,\"final\":true}. \"final\" is a new last field, written only on follow-ups. When nothing comes back: effect \"unconfirmed \u2014 no answer in 30 s\" or \"unconfirmed \u2014 the link dropped before it answered\".\nCompanion: \"OK @c1 accepted sent to \u2026\", then \"OK @c1 applied \u2026\" or \"ERROR @c1 PlayMap Stage left refused \u2026\".\nPeer answer mapping:\n- OK @id \u2192 applied.\n- OK @id {\"stage\":\"accepted\"} (PlayMap) \u2192 accepted.\n- Patterns {\"outcome\":\"Done\"} \u2192 applied; \"Requested\" \u2192 accepted; \"Confirm\" \u2192 accepted with the person's-second-GO words.\n- ERR @id words \u2192 refused.\nBounds: at most 32 tickets in flight per link, none evicted. The queue is emptied at a drop (\"not sent\").\n\nSTAGEWATCH \u2192 PEER (line wire per link: TCP to Patterns 9697 / PlayMap 9941, or wss://<addr>:<https>/ws with subprotocol playmap.lines.v1 for PlayMap with tls or a pinned node id)\n  HELLO Stagewatch   (PlayMap answers OK)\n  @pn NONCE \u2192 OK @pn <hex> | ERR \u2026 (pre-1.1 desk) | no answer in 5 s (fail closed: loopback \u2192 plain AUTH; otherwise drop and redial with words)\n  @pa AUTH-PROOF <lowercase hex HMAC-SHA256(token upper-cased without dashes/spaces, nonce+\"Stagewatch\")> \u2192 OK @pa paired | OK @pa open \u2014 \u2026 | ERR @pa wrong token (no more proofs until the token setting changes)\n  The proof uses the answered nonce. After a greeting NONCE or an OK @pn, plain AUTH is never sent on that connection. A refused NONCE on a 1.1 connection proves on the greeting nonce.\n  AUTH <token> \u2014 only to a pre-1.1 desk, only when the socket's remote address is loopback.\n  PING <unix ms> \u2192 OK PONG t1 t2 t3 (every 2 s)\n  After pairing: @ctx CONTEXT (every 5 s); @wh WHOAMI (PlayMap, every 5 s and when show.armed moves); @ix INDEX (PlayMap, when project.index moves); @cl CUE LIST (Patterns, when cuestack.listRev moves)\n  @s<n> VIDEO END <s>|VIDEO RESTART|VIDEO PLAY|VIDEO PAUSE|VIDEO STOP|VIDEO SEEK <s>\n  @s<n> PLAYLIST CUE <pl-id> <item-id>\n  @s<n> PLAYLIST GO <pl-id> <item-id> [AT <T_local + offset_ms>]   (for an untimed member of a together set: written at T \u2212 rtt/2)\n  @s<n> CUE STANDBY <cue-id> (manual, or on load when opted in)\n  @s<n> CUE GO <cue-id>\n  Redial backoff 0.5 s doubling to 5 s, with jitter.\n  Over wss: no Origin, Host = the address, one text frame per line, inbound frames capped at 256 KiB, the greeting STATE after OK paired. 429 at the upgrade = locked out (red). Close 4401 = wrong proofs (red). A pinned node id is never dialled plain.\n  Read from the peer, forward-only:\n  - STATE: t, id, seq, at;\n    video{file,role,tag,key,positionMs,lengthMs,paused,rate,seq,pausable?,stoppable?};\n    playlists[{id,name,state,item{id,label},positionMs,syncGroup,next{id}}];\n    sync{role,leader}; project.index;\n    cuestack{armed,hold,listRev,standby{id,requireConfirm}}.\n    Over 256 KiB, only the prefix is read.\n  - WHOAMI: paired, role, armed, may.\n\nSETTINGS JSON (schema 2)\nintegrations.playoutLinks[{name,enabled,kind:auto|patterns|playmap,host,port,token:<DPAPI b64>,node,transport:auto|tcp|wss,followVt,nextOnEnd}], integrations.playoutLeadMs (300, range 100\u20132000). The legacy patterns, patternsHost, patternsPort, patternsToken and patternsNextOnEnd keys are still written for one release as a mirror of link `patterns`; legacy keys that differ from the mirror win. remote.playoutFrom: [address\u2026].\nRUNDOWN ITEM: playout:[{link,list,item,label,standby:false,together}] (\u2264 4). ShowFile.Sanitize: ids [A-Za-z0-9_-]{1,64}; label \u2264 80 characters with no control characters.\nTRIGGER: auth:{kind:none|playmap|patterns|stagewatch|bearer, secret:<DPAPI b64>}.\n  playmap \u2192 X-PlayMap-Token + X-Request-Id: tr<rule>-<n>\n  patterns \u2192 X-Patterns-Token + X-Patterns-Client: Stagewatch, body \"@tr<rule>-<n> <line>\"\n  stagewatch \u2192 X-Stagewatch-Pin + X-Request-Id\n  bearer \u2192 Authorization: Bearer\n  The secret is sent only to a loopback host, or over https to a pinned certificate (node:<id> from the hello at that host:port, else addr:<host>:<port>). Secret + http to another machine is refused at save and at fire. With auth set, there are no placeholders in scheme/host/port, and redirects are not followed. The outcome is read from the reply JSON's ok/stage/error|msg. A query with pin|token|key|secret gets a warning at save, is refused only together with an auth profile, and is never refused at fire for an existing rule.\n\nCONTEXT (\u00a76): items link:<name> (kind playout, label \"<Kind> <peer name>\", state: pairing, transport, VT, role/armed) and clock:<name> (kind health, CLOCKS APART). Both are built from link names; the IntegrationStatus loop skips playout links.\n- Amber: not paired; an older desk off this PC; no NONCE answer; STATE over the cap; a different node id at the address; a pinned node with no TLS hello; WHOAMI read-only; a cue the peer doesn't list or a link this PC lacks; 'not seen in its STATE'.\n- Red: unreachable, wrong token, locked out (429), CERTIFICATE CHANGED.\n- Commands rows: playout <link> go \u2026, cue \u2026, pause|play|stop|end|restart|seek, all high.\n- Recent: one row per completed command, plus 'seen', 'scheduled for T (\u00b1 rtt/2)' and 'started late by X ms' rows.\nFRAME: playout gains `link` (the link name) and `node` (the peer's node id), last.\n/api/config and the Companion config line: playoutLinks:[{name,kind,label}], last.\nCOPILOT FACTS: per link: name, kind, label, paired, timed, and playlists{id,name,items[{id,label}]} or cues{id,number,name}, \u2264 50 each.\nPROPOSAL DESK (internal): ProposalDesk.CollectedRecently(nodeId, now) and SubmitLocal(from, target, line, reason, risk).\nSHOWBUS words handed to spec-1-3's master edit: \u00a72 kind playmap; \u00a73 final follow-up receipt; \u00a78 PlayMap row. No hello cap is added.",
+  "changes": [
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/AppSettings.cs",
+    "change": "Add PlayoutLinkSettings, IntegrationSettings.PlayoutLinks and PlayoutLeadMs. Keep the legacy patterns* properties, written as a mirror of link `patterns`. Add RemoteSettings.PlayoutFrom and TriggerRule.Auth (TriggerAuth{Kind,SecretProtected}). Set CurrentSchemaVersion = 2."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/SettingsStore.cs",
+    "change": "In Migrate: the 1\u21922 upgrader and the mirror-merge rule (no playoutLinks \u2192 rebuild from legacy; legacy differs from the mirror \u2192 legacy wins for `patterns`). Sanitise links: \u2264 8, names valid, unique, not reserved or action words; ports; kinds. Sanitise PlayoutFrom: \u2264 16 parsed addresses. Save writes the mirror."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/Rundown.cs",
+    "change": "Add PlayoutCue {Link, List, Item, Label, Standby=false, Together} and RundownItem.Playout (\u2264 4, JSON 'playout'), copied in Clone()."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowFile.cs",
+    "change": "Sanitize checks playout cues: at most 4, link names by the rule, id shapes, labels \u2264 80 with no control characters."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/ShowState.cs",
+    "change": "Append ShowCommandKind.Playout after Window. Add PlayoutArgs : ShowArgs, the parser verb 'playout' and the help line. Add CommandReceipt.Final (a Task, not serialised); ToJson writes \"final\":true last, only on follow-ups. PlayoutView gains Link and Node."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/SnapshotJson.cs",
+    "change": "The frame's playout row gains link and node last; the config gains playoutLinks last."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/Journal.cs",
+    "change": "Append JournalKind.Playout."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/Resilience.cs",
+    "change": "ClockOffsetEstimator keeps each sample's time. Best(maxAge) returns the offset, rtt and age of the lowest-rtt sample among those within maxAge."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/PlayoutGate.cs (new)",
+    "change": "Pure rule: may this sender drive playout (transport, sender address, credentialed, PlayoutFrom) \u2192 null or the refusal words."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Core/Approvals.cs",
+    "change": "ProposalDesk.CollectedRecently(nodeId, now) (the last Collect per target) and SubmitLocal(from, target, line, reason, risk) for re-targeted AI lines. This seam is shared with cross-app-proposals."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/PatternsLink.cs \u2192 PlayoutLink.cs, PlayoutWire.cs, PlayoutStateReader.cs, PlayoutTransport.cs, PlayoutTicket.cs",
+    "change": "Generalise the link:\n- TCP and WSS transports; TLS pinned per node id, never plain once pinned; 429/4401 words.\n- Asked NONCE with the fail-closed pairing rules; requests after pairing; 0.5\u20135 s backoff with jitter.\n- Tickets with PeerAnswer: in-flight \u2264 32 with no eviction; queue emptied at a drop as 'not sent'; 30 s unconfirmed; an id-less old desk completes at once.\n- Kind profiles and local refusals (pausable/stoppable, else role, for Patterns; sync follower for PlayMap).\n- A prefix-capable forward-only STATE reader and oversize reporting.\n- WHOAMI, CONTEXT, INDEX and CUE LIST caches.\n- A hello finder accepting t:playmap via ports.wire/wire, ports.https and tls.\nThe existing 9700 Find code is unchanged."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/PlayoutLinks.cs (new)",
+    "change": "The set of links: target rules (transport \u2192 the only link or the VT link; go/cue \u2192 the only link or a named one), the VT pick (link order, then vMix), sync-group collapse to the leader, and Find over the live hello table."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/PlayoutDirector.cs (new)",
+    "change": "The shared executor for Patterns and Playout commands, used by the desk and the rig:\n- local refusals, tickets, one journal row per command at completion, observation in STATE ('seen' / 'not seen');\n- the cue planner (load, start, end of turn; opt-in standby with the idle guard; Patterns CUE GO only);\n- timed GO (AT by offset, untimed members held to T \u2212 rtt/2, the all-untimed fallback, 'scheduled for' / 'started late' rows);\n- next-on-end at most once per item execution, and only from the VT link;\n- the AI re-target helper."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/PlayoutReceipts.cs (new)",
+    "change": "Completes a CommandReceipt from a ticket within the remaining deadline (applied, refused, accepted, unconfirmed, not sent, no receipt) and builds the late Final receipt."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/Triggers.cs",
+    "change": "- Auth profiles and headers (playmap, patterns, stagewatch, bearer).\n- Secrets go only to loopback or to pinned https: a second HttpClient on a SocketsHttpHandler with AllowAutoRedirect=false and a pin check.\n- When auth is set, Expand runs only on the path and query.\n- Request ids (header, or the '@id' body prefix for Patterns), reply JSON parsing, an Outcome event.\n- Query-secret warning rules.\n- The secret resolver and pins are injected, so DPAPI stays in the app."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Integrations/Copilot.cs",
+    "change": "Classify Playout as High for every action."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/ShowContext.cs",
+    "change": "Commands rows for playout (all high), and PlayoutItems(links), which builds link:<name> and clock:<name> from link names."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Show/AiContext.cs",
+    "change": "CopilotFacts.Playout: per-link name, kind, label, paired, timed, and playlists/items or cues, \u2264 50 each."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/OscServer.cs",
+    "change": "Dispatch(msg, sender) passes the packet's remote address. Playout and Patterns commands go through PlayoutGate and are refused with words through CommandRejected."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Companion/CompanionServer.cs",
+    "change": "PlayoutGate (with the client's remote address) in HandleWithReceipt and in Handle's shared-grammar branch. After an 'accepted' receipt with Final, a second line: 'OK @id applied \u2026' or 'ERROR @id \u2026'."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/WebServer.cs",
+    "change": "The PlayoutGate address rule applies when no PIN is set. SendReceiptAsync sends the follow-up when Final is set. /api/config gains playoutLinks at its end. ReceiptWait stays 3 s."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.Remote/McpEndpoint.cs",
+    "change": "run_command with a playout or patterns line always goes to ProposeFromAgent(\u2026, mustPropose: true)."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Patterns.cs \u2192 MainViewModel.Playout.cs",
+    "change": "Thin glue from the show thread to PlayoutDirector; PickPlayout over links; the Last 10 s button names the VT link."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Receipts.cs",
+    "change": "ReceiptNotes.Peer (a ticket) replaces HandedOn. ExecuteWithReceiptAsync awaits it within the same timeout through PlayoutReceipts and attaches Final."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Copilot.cs",
+    "change": "ProposeFromAgent never returns null for a playout or patterns line. It re-targets to the link's node through ProposalDesk.SubmitLocal when that node collected approvals in the last 60 s; otherwise it makes a desk proposal journalled 'approved by <who> for <proposer>'."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Integrations.cs",
+    "change": "Reconcile 'playout:<name>' per link under FeatureGate.AllowsPlayout. Names gone since the last pass are reconciled with a 'False' signature, so the existing supervisor retires them. IntegrationStatus lists each link for Settings."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.ShowBus.cs",
+    "change": "The IntegrationStatus loop skips playout links, which come from PlayoutItems instead. Add 'playmap' => 'PlayMap' in the kind switch. Contexts from every link merge into peer summaries, advice and AI facts, deduplicated by node id."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/ViewModels/MainViewModel.Host.cs",
+    "change": "ItemLoaded and ItemStarted call PlayoutDirector; the turn-end flush is posted to the dispatcher."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/SettingsDialog.xaml(.cs)",
+    "change": "Playout links list: Find (Patterns and PlayMap), Add, Edit, Remove, Trust new certificate. Remote \u2192 May drive playout (addresses). Trigger auth fields (PasswordBox) with the save-time rules and the query-secret warning. (PC work.)"
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/RundownEditor.xaml(.cs)",
+    "change": "Per-item playout cues with link, playlist and item pickers from the link's INDEX or CUE LIST. The standby option is labelled per kind ('shows its first frame on air' / 'moves the Patterns desk's own standby'). Together. (PC work.)"
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "src/Timer.App/MainWindow.xaml(.cs), Help/HelpContent.cs",
+    "change": "VT chip right-click (play, pause, stop, restart, last 10 s, seek), greyed with the local refusal's or WHOAMI's words. Running-order row right-click 'Cue playout now' and 'GO playout now'. Help says what each standby does, and that Stagewatch never sends a second GO. (PC work.)"
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tools/Stagewatch.Rig/Program.cs",
+    "change": "--playout name=host:port[,kind], with the token from STAGEWATCH_RIG_PLAYOUT_TOKEN. --cue item=link:list:item[:standby][:together]. Item() calls PlayoutDirector.ItemLoaded/ItemStarted, and receipts go through PlayoutReceipts."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "companion-module/src/actions.ts, variables.ts, state.ts, test/",
+    "change": "Actions playout_go, playout_cue and playout_transport with a link dropdown from the config's playoutLinks; variable vt_link; the gate's refusal is logged; tests of the lines."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tests/Stagewatch.Tests/PlayoutTests.cs (new); Program.cs, ShowBusTests.cs",
+    "change": "New suite. The PatternsLink tests move to the new type names with their assertions unchanged. The Program.cs fake desk answers an unknown verb with ERR, as a real pre-1.1 desk does. The ShowBusTests fake is unchanged."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "tests/e2e/fakepeers.cjs, tests/e2e/playout.e2e.cjs (new)",
+    "change": "Fake PlayMap and Patterns line peers (fakepeers.cjs is shared with cross-app-proposals) and the e2e workflows. The real-app rows are ecosystem-lane's S4.1\u2013S4.4 and S6.3, which use --playout."
+   },
+   {
+    "repo": "Stagewatch",
+    "file": "docs/REMOTE.md, docs/FEATURES.md, docs/WHATS_NEXT.md, docs/NODES.md, docs/COMPANION.md, README.md",
+    "change": "- The playout verb and links; May drive playout (and the change for `patterns` over OSC/Companion from another machine).\n- Receipts with the final follow-up; triggers' auth and the TLS rule.\n- A 2.18 section with what it did not do and the rollback note.\n- NODES \u00a75: the link as rebuilt (spec-1-3 owns the rest of NODES).\n- SHOWBUS.md words go to spec-1-3's S1."
+   },
+   {
+    "repo": "Mapper",
+    "file": "docs/SHOWBUS-NODE.md",
+    "change": "\u00a72 Stagewatch rows: Find lists PlayMap; the link pairs by proof, over /ws with TLS when served, never plain once pinned; triggers need X-PlayMap-Token over https or a trusted address. \u00a75 item 5 marked done. Lands after round 3's integration pass."
+   },
+   {
+    "repo": "Mapper",
+    "file": "tests/PlayMap.Net.Tests (StagewatchSessionTests, new)",
+    "change": "Fence: a HELLO Stagewatch greeting STATE for a stress project keeps video and playlists within the first 16 KiB and records the whole STATE's size; PONG t3 and AT read one wall clock. Lands after round 3's integration pass."
+   }
+  ],
+  "tests": [
+   {
+    "repo": "Stagewatch",
+    "where": "tests/Stagewatch.Tests/PlayoutTests.cs: finder",
+    "proves": "t:playmap (top-level wire and ports.wire) and t:patterns hellos are found with kind, id, wire, https and tls; t:main is not (G01)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: pairing against fake 1.1 PlayMap and Patterns on loopback",
+    "proves": "@pn NONCE is asked and the proof uses the answered nonce. The token appears in no line. A greeting NONCE delayed 3 s changes nothing. CONTEXT, WHOAMI and INDEX are sent only after OK paired (G08)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: pairing rules with an injected address classifier",
+    "proves": "- The ShowBusTests-style fake (greeting NONCE, ERR to NONCE) pairs on the greeting nonce and never sees an AUTH line.\n- An older desk at a 'remote' address gets no AUTH, and the link says why; on loopback it gets AUTH.\n- No NONCE answer in 5 s off this PC \u2192 redial with words, no AUTH.\n- After 'ERR wrong token', no second proof until the token changes (G08)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: tickets",
+    "proves": "- OK, ERR, OK stage accepted, Patterns Confirm, 30 s of silence, a drop with one line written and one queued, a 33rd send, and an id-less old desk map to: applied, refused, accepted, accepted with no second GO written, unconfirmed, unconfirmed plus 'not sent', refused not sent, and accepted with no receipts.\n- Each written command gets exactly one journal row; unsent ones get none.\n- PlayoutReceipts sets ok, stage, error, refs.peerRequest and Final (G07)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: peer facts",
+    "proves": "- Patterns role=playlist: pause/stop refused locally with words, no bytes written.\n- Patterns pausable:true: sent.\n- PlayMap t=playmap with role=playlist: VIDEO PAUSE sent.\n- PlayMap follower with syncGroup: GO refused naming the leader.\n- WHOAMI may without the verb: still sent; the link is amber (G48, G28)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: oversize STATE",
+    "proves": "- A 300 KB STATE with video first still feeds the VT; oversize = 1; the link is amber with the size.\n- With sync past 256 KiB, together is refused for that link with words.\n- With video past 256 KiB, there is no VT (G26)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: clock and AT on a manual clock",
+    "proves": "- With a fake +5000 ms PONG, 'go \u2026 together' sends AT = T_local + 5000 \u00b1 rtt.\n- The best sample is chosen among those \u226410 s old.\n- A Patterns member is written at T \u2212 rtt/2; a member with no rtt makes the whole set untimed, with words.\n- Two links of one sync group send one GO to the leader.\n- at \u2212 positionMs 140 ms past T_peer \u2192 'started late by 140 ms'; within rtt/2 + 20 ms \u2192 'scheduled for' (G28)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: planner in PlayoutDirector",
+    "proves": "- Load and start in one turn send only GO.\n- With standby off, load sends nothing. With standby on and an idle playlist, CUE is sent at turn end; with a playing playlist, no CUE, with words.\n- A Patterns cue sends CUE GO <id> only, never STANDBY+GO. ERR 'standby moved' reaches the receipt and the journal.\n- An unknown link gives advice and a journal row for the skip (G29)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: grammar, targets, risk",
+    "proves": "- The playout forms parse; unknown actions are refused; 'patterns pause' still parses to ShowCommandKind.Patterns.\n- Every playout action is High.\n- With two links, transport goes to the VT link and go is refused 'name one'.\n- go/cue are refused while the kind is unknown (G01)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: gate and AI routing",
+    "proves": "- The PlayoutGate table: OSC/Companion \u00d7 loopback/LAN/listed, and HTTP with and without a PIN.\n- An OSC /stagewatch/playout from an injected LAN sender is refused, and the fake peer hears nothing.\n- MCP run_command playout with agents acting directly becomes a proposal. It is re-targeted to the node (target id, the PlayMap line, risk from its commands) when that node collected approvals."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: settings and show files",
+    "proves": "- A 2.17 file becomes link `patterns` with the same host, port, token and next-on-end, and saving writes the mirror.\n- Legacy keys that differ from the mirror win; a file with no playoutLinks is rebuilt.\n- Reserved and action-word names are refused.\n- ShowFile.Sanitize drops a fifth cue, a bad id and a long label (G01)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: next on end",
+    "proves": "Two links ending 100 ms apart in one item execution cause one Next(). A link not feeding the VT never moves the running order."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: context and readers",
+    "proves": "link:<name> and clock:<name> are built from link names; a link named like an integration is refused; the kind label is PlayMap; the frame's playout.link/node and the config's playoutLinks are last; the AI facts are bounded (G01)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: HTTP triggers against loopback fake HTTP and HTTPS servers",
+    "proves": "- Headers and the request id are sent.\n- PlayMap 409 \u2192 refused with its error; Patterns 200 ok:false \u2192 failed; stage accepted \u2192 accepted.\n- A secret rule to http://<LAN> is refused at save and at fire.\n- A 302 is not followed; a host placeholder is refused.\n- First use pins the certificate, and a different certificate is refused.\n- An existing ?pin= rule still fires, with a warning.\n- The secret appears in no status, journal or log line (G30)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: in-process TLS WebSocket server (self-signed P-256)",
+    "proves": "- First use pins the hello's fingerprint; a different certificate gives CERTIFICATE CHANGED and nothing is sent.\n- A pinned node whose hello loses tls is never dialled plain, and the link is amber.\n- 429 at the upgrade shows red words.\n- Without the subprotocol the connection is refused (G08)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "PlayoutTests: Bench.OnWindows(\"trigger secret protected at rest\")",
+    "proves": "A DPAPI round trip of a trigger secret (Windows only; named, not counted, elsewhere)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "tests/e2e/playout.e2e.cjs with fakepeers.cjs against the rig",
+    "proves": "- Over HTTP, WS and Companion, PlayMap's and Patterns' answers reach receipts: applied with 'took' words, refused with the peer's words, accepted then final.\n- patterns pause on a playlist item is a 409, and the fake hears nothing.\n- Context shows both links and the journal rows.\n- In the running order, next with standby off sends GO only; with standby on, CUE then GO; with together, AT. A Patterns cue sends CUE GO <id> only.\n- No fake ever sees the token (G01, G07, G08, G28, G29, G48)."
+   },
+   {
+    "repo": "Stagewatch",
+    "where": "companion-module test/",
+    "proves": "The playout_* actions send the documented lines; vt_link follows frames; a gate refusal is logged."
+   },
+   {
+    "repo": "Mapper",
+    "where": "tests/PlayMap.Net.Tests StagewatchSessionTests (new)",
+    "proves": "The HELLO Stagewatch greeting STATE keeps video and playlists within 16 KiB for a stress project, and its total size is recorded. PONG t3 and AT read one ShowWallClock (G26 and G28 assumptions held)."
+   }
+  ],
+  "units": [
+   {
+    "repo": "Stagewatch",
+    "title": "Playout model and grammar: settings v2 with migration and legacy mirror, PlayoutCue and ShowFile.Sanitize, ShowCommandKind.Playout (parser, help, High risk, context rows), JournalKind.Playout, ClockOffsetEstimator sample times, reserved names, licence words",
+    "gaps": [
+     "G01",
+     "G29"
+    ],
+    "dependsOn": []
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "Who may drive playout: PlayoutGate, Remote.PlayoutFrom, OSC/Companion/HTTP gates for playout and patterns",
+    "gaps": [
+     "G01"
+    ],
+    "dependsOn": [
+     "Playout model and grammar"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "Wire primitives: PlayoutWire (proof, quoting, hello finder accepting playmap) and PlayoutStateReader (forward-only, prefix-capable)",
+    "gaps": [
+     "G01",
+     "G26"
+    ],
+    "dependsOn": [
+     "Playout model and grammar"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "PlayoutLink over TCP: fail-closed asked-NONCE pairing, jittered backoff, bounded tickets with drop rules, kind profiles, local refusals (pausable/role, sync follower), WHOAMI/CONTEXT/INDEX/CUE LIST after pairing, oversize; old tests moved, Program.cs fake's ERR line",
+    "gaps": [
+     "G08",
+     "G07",
+     "G48",
+     "G26"
+    ],
+    "dependsOn": [
+     "Wire primitives"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "The link set, PlayoutDirector and receipts: executor, journal on completion, STATE observation, next-on-end once per execution, WS/Companion final, context per link, frame link/node, config, AI facts, AI re-target via ProposalDesk, licence gate; rig --playout; e2e",
+    "gaps": [
+     "G01",
+     "G07",
+     "G48"
+    ],
+    "dependsOn": [
+     "PlayoutLink over TCP",
+     "Who may drive playout"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "PlayMap over TLS: WSS with pins, no downgrade once pinned, 429/4401 words, Trust new certificate",
+    "gaps": [
+     "G08"
+    ],
+    "dependsOn": [
+     "The link set, PlayoutDirector and receipts"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "Running-order cues and timed GO: planner, opt-in standby with the idle guard, Patterns CUE GO only, hold-until for untimed members, sync-group leader, 'scheduled for' / 'started late' rows; rig --cue; e2e",
+    "gaps": [
+     "G29",
+     "G28"
+    ],
+    "dependsOn": [
+     "The link set, PlayoutDirector and receipts"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "HTTP trigger auth: profiles, loopback-or-pinned-https, no redirects, fixed authority, request ids, reply parsing, query-secret warning",
+    "gaps": [
+     "G30"
+    ],
+    "dependsOn": [
+     "Playout model and grammar"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "The desk (PC work): Settings playout links, May drive playout, trigger auth; RundownEditor cues with per-kind standby words; VT chip and running-order right-click menus; Help",
+    "gaps": [
+     "G01",
+     "G29",
+     "G30"
+    ],
+    "dependsOn": [
+     "Running-order cues and timed GO",
+     "HTTP trigger auth",
+     "PlayMap over TLS"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "Companion module: playout actions, vt_link, tests",
+    "gaps": [
+     "G01",
+     "G29"
+    ],
+    "dependsOn": [
+     "The link set, PlayoutDirector and receipts"
+    ]
+   },
+   {
+    "repo": "Stagewatch",
+    "title": "Papers: REMOTE, COMPANION, FEATURES, WHATS_NEXT 2.18 (what it did not do, rollback, the OSC/Companion change), NODES \u00a75, README; the SHOWBUS words handed to spec-1-3's S1",
+    "gaps": [
+     "G01",
+     "G07",
+     "G08",
+     "G26",
+     "G28",
+     "G29",
+     "G30",
+     "G48"
+    ],
+    "dependsOn": [
+     "The desk (PC work)",
+     "Companion module"
+    ]
+   },
+   {
+    "repo": "Mapper",
+    "title": "SHOWBUS-NODE.md Stagewatch rows and trigger requirement; STATE size and one-clock fence test (after round 3's integration pass)",
+    "gaps": [
+     "G30",
+     "G26",
+     "G28"
+    ],
+    "dependsOn": []
+   }
+  ],
+  "gapsClosed": [
+   "G01",
+   "G07",
+   "G29",
+   "G30 (Stagewatch side; PlayMap's doc in the Mapper unit)",
+   "G08 (no token in clear off this PC, ever; proofs on the asked nonce; PlayMap over pinned TLS with no downgrade)",
+   "G26 (Stagewatch side: an oversize STATE is read in part and shown; PlayMap's fence in the Mapper unit)",
+   "G28 (Stagewatch side: timed GO by measured offset, untimed members held to T \u2212 rtt/2, one GO per sync group, late starts reported)",
+   "G48 (refused up front in Patterns' words until Patterns publishes pausable/stoppable, which then decide; receipts carry Patterns' ERR)"
+  ],
+  "gapsLeft": [
+   {
+    "id": "G08",
+    "why": "Patterns' wire (9697) has no TLS. STARTTLS there is Patterns' own work (OPEN L55, low). Until then the Patterns link stays proof-paired plain TCP, and its context item says so."
+   },
+   {
+    "id": "G48",
+    "why": "The cure, a pause that also holds a playlist item's or stinger's clock, is Patterns' L48. patterns-playmap-side designs it for Patterns Round 91, together with video.pausable/stoppable. Stagewatch can only refuse and explain."
+   },
+   {
+    "id": "G28",
+    "why": "PlayMap-side items are not built: publishing links.stagewatch.clock, using its own offset for AT, and a Stagewatch-fed timecode source (Mapper ROADMAP R3.7). These are Mapper code outside round 3's ownership and are not needed for a timed GO. Seeing the picture actually reach PlayMap's outputs waits on PlayMap's round-3 observer (observe.json is still {})."
+   },
+   {
+    "id": "G26",
+    "why": "The Mapper fence test and the SHOWBUS-NODE.md rows (also for G30) can land only after round 3's integration pass, because no round-3 package owns src/PlayMap.Net/Links or that doc. Until then the Stagewatch side alone makes an oversize STATE survivable and visible."
+   }
+  ],
+  "risks": [
+   "Rewriting PatternsLink into PlayoutLink could regress the Patterns VT countdown. Mitigation: the old fake-desk tests move first with unchanged assertions. The ShowBusTests fake is unchanged; the Program.cs fake gains one ERR line so it behaves like a real pre-1.1 desk. link:patterns and clock:patterns keep their ids.",
+   "A pre-1.1 Patterns desk on another PC no longer pairs (fail closed). Intended; the link says 'update Patterns'.",
+   "patterns and playout lines from another machine over OSC or Companion TCP are refused until that address is listed. An existing OSC setup that drives Patterns from a lighting desk stops on upgrade; the OSC status line and WHATS_NEXT say why.",
+   "Rolling back to 2.17 keeps link `patterns` through the mirror but drops other links, because 2.17 discards unknown keys when it saves. Said in WHATS_NEXT.",
+   "A follow-up receipt with the same id on WS or Companion may surprise a client that resolves on the first one. It is marked \"final\":true, sent at most once within 30 s, and documented in Show Bus \u00a73 through spec-1-3.",
+   "Timed GO assumes PlayMap reads PONG and AT from one wall clock (true at Mapper EngineHost.cs:121), and the Mapper fence holds it. If that breaks, 'started late' journal rows show it.",
+   "The prefix reader relies on PlayMap writing video and playlists early. Mapper's rule (new keys at the end) protects it; if it fails, the link turns amber rather than failing silently.",
+   "Wrong proofs over /ws count toward PlayMap's per-address lockout. The link stops proving after one 'wrong token', and a 429 is shown red.",
+   "AI re-targeting relies on the node collecting approvals. A node that stops collecting leaves its proposal 'undelivered' after 60 s, and the desk shows it.",
+   "Holding untimed members until T \u2212 rtt/2 depends on the rtt estimate. A congested LAN widens the error; the journal row says '\u00b1 rtt/2'.",
+   "The WPF parts (Settings, RundownEditor, menus, Help) can only be built and walked on the maintainer's PC. A cloud session builds everything else and names this work as left for the PC.",
+   "SlidesAgent chooses https from the hello in the same downgradeable way (SlidesAgent.cs:186-199). It is not changed here and is named in 'what this design does not do'.",
+   "Shared seams with sibling areas: ProposalDesk additions and fakepeers.cjs (cross-app-proposals); MainViewModel.ShowBus.cs (peers-not-screens, spec-1-3); Show Bus words (spec-1-3). Whichever unit lands second must merge, not overwrite."
+  ],
+  "processNotes": "Stagewatch (CLAUDE.md):\n- Each new command is a ShowCommandKind appended at the end, with a parser verb, a help line, a Copilot.Classify risk (High here) and ShowContext.Commands rows.\n- New frame, receipt and config fields go at the end of their objects, because tests match substrings: playout.link, playout.node, final, playoutLinks.\n- Comments state invariants; no model or tool identifiers in anything pushed.\n- BannedSymbols.txt: no Thread.Sleep, Environment.TickCount, GC.Collect or unbounded Task.Wait in src/. The link waits on its cancellation handle, new code reads time through TimeProvider (manual clock in tests), and jitter comes from RandomNumberGenerator.\n- Culture-invariant parsing and formatting; one dotnet build at a time.\n- Windows-only checks (DPAPI, WPF) go through Bench.OnWindows and are never counted as passed elsewhere.\n- tools/test.sh lanes build, unit, module, holo and e2e must be green. Real-app interop is the ecosystem-lane area's lane (S4.1\u2013S4.4, S6.3), fed by this area's --playout.\n- Secrets (link tokens, trigger secrets, the PIN) are DPAPI-protected at rest and never appear in a log line, journal row, frame, context or status.\n- WPF work (Settings, RundownEditor, menus, Help; the UI smoke via tools/smoke.ps1) is PC work: built and walked on the maintainer's Windows PC, named and left by a cloud session.\n- Papers: REMOTE.md, COMPANION.md, FEATURES.md, WHATS_NEXT.md (a 2.18 section with what it did not do, the rollback note and the OSC/Companion change), NODES.md \u00a75, README. SHOWBUS.md changes go only through spec-1-3's single master edit.\n- .sh files stay LF; docs/BUILD.md is not touched.\n\nMapper (CLAUDE.md, docs/round3/PLAN.md):\n- No code change.\n- Neither docs/SHOWBUS-NODE.md nor a test beside src/PlayMap.Net/Links has a round-3 owner, and \u00a74 says a folder not named for a wave is not edited in it. So the Mapper unit lands after round 3's integration pass, or its doc rows reach the integrator as a papers note (\u00a75.4 item 7, \u00a75.6 item 3).\n- The fence passes on both CI jobs (Linux, Windows) with the analyzers on, and asserts fields and sizes, not timings.\n- Comments state invariants; no tool identifiers.\n\nPatterns (CLAUDE.md): no code in this area. Two related items are other areas' Patterns rounds, each run under the full round process:\n- spec-1-3's P3 round: the Show Bus 1.3 copy of SHOWBUS.md.\n- patterns-playmap-side's Round 91: L48 with video.pausable/stoppable appended at the end of the video row.\nThe round process for each: PLAN \u00a7NN, REVIEW, CHANGELOG naming the evidence class, OPEN rows closed or added, REMOTE.md rows, 'Round NN.k' commits with the maintainer's authorship, all seven suites plus the module tests green, and the tag-table row. No walk is needed (no platform path).\n\nAGMessage: untouched here; its SHOWBUS.md copy is spec-1-3's A1.\n\nThe full revised design, including \u00a7R (each review issue with its verdict and evidence), is at /home/user/Stagewatch/docs/ecosystem/playout-links.md."
+ },
+ "critique": {
+  "verdict": "needs-changes",
+  "issues": [
+   {
+    "severity": "high",
+    "issue": "The design says `Auth is unchanged: the PIN or a control key`. That is false for two transports. OSC and Companion TCP run the shared grammar with no authentication at all. A new `playout` verb therefore turns Stagewatch into an unauthenticated relay into PlayMap's and Patterns' proof-paired sessions. Any host on the LAN could send PLAYLIST GO / PLAYLIST CUE / CUE GO (with AT) that PlayMap and Patterns would themselves refuse without a token. This is a confused deputy: a peer acting as Stagewatch.",
+    "evidence": "Stagewatch/src/Timer.Remote/OscServer.cs:107-130 (Dispatch \u2192 ShowCommandParser.TryParse \u2192 _control.Execute, no auth check). AppSettings.cs:269-271 (oscBindAll defaults to true). CompanionServer.cs:40-44 (bindAll) and :293-300 (any shared verb runs). docs/REMOTE.md:29-30 lists OSC and Companion TCP auth as \"none\". PlayMap requires a token, proof or trusted address before transport: Mapper WireSession.cs:76-86 and ShowPolicy.cs:31 (an unpaired session is Observer).",
+    "fix": "Refuse `playout` (and, for consistency, `patterns`) on OSC and on Companion TCP from non-loopback senders. Allow it only through an explicit per-transport allow list or a key. Say this in REMOTE.md, COMPANION.md and the context `commands` rows. Add a test showing that OSC `/stagewatch/playout x go \u2026` from the LAN is refused and the fake peer hears nothing."
+   },
+   {
+    "severity": "high",
+    "issue": "HTTP trigger auth sends X-PlayMap-Token or X-Patterns-Token over plain http://, and the design's own example target is http://10.0.0.12:9940. That puts the pairing token in clear on the LAN, which contradicts the design's G08 aim. Patterns treated exactly this as a defect (L53) and closed it with TLS. Two more ways the secret can leak: the target URL is expanded with {TITLE} and {DETAIL}, so running-order text can steer where the secret goes; and HttpClient follows redirects, which keeps custom headers.",
+    "evidence": "Triggers.cs:129-135 (`var url = Expand(r.Target, ctx)`, default HttpClient). Patterns/docs/OPEN.md:51 (L53: \"the token rode as the X-Patterns-Token header over plain HTTP\", closed in 88.3/88.4 by TLS). Patterns/docs/REMOTE.md:602-604 (HTTPS on the same control port). Mapper hello carries ports.https and tls (HelloService.cs:109-113).",
+    "fix": "Attach a secret only to loopback, or to https:// pinned with TlsPins by the target's hello node id (the same rule as the link). Forbid placeholders in scheme, host and port when auth is set. Set AllowAutoRedirect=false on the authenticated client. Refuse to save a rule that sends a secret to plain http on a non-loopback host."
+   },
+   {
+    "severity": "high",
+    "issue": "PlayMap standby is not air-safe, so the claim that `standby never cuts the air` is wrong. A cued item is on the air: PLAYLIST CUE on an idle playlist puts that item's held first frame on its outputs. On a playing playlist it replaces the lane unconditionally, which cuts the picture. The planner sends CUE when an item loads, which can be minutes before GO. The manual `playout cue` verb has no observed-playing guard, yet its risk is Review, which the copilot pre-ticks.",
+    "evidence": "Mapper/src/PlayMap.Engine/Rendering/EngineSources.cs:247-257 (\"\u2026or the frame's own instant while the item is cued and has not started\"; Item() returns null only for idle lanes, :240). PlaybackLanes.cs:135-146 (Cue overwrites `_lanes[list.Id]` with no playing check). Copilot.cs:16-19 (Review = ticked by default; High = changes what the audience sees). Design \u00a71.9 and \u00a72.1.",
+    "fix": "Make PlayMap standby opt-in per cue, labelled \"shows its first frame on air at load\", and off by default. Apply the observed-playing guard to the manual `playout cue` as well, refusing with words. Classify `playout cue` as High (Classify cannot see the peer kind), or make it kind-aware."
+   },
+   {
+    "severity": "medium",
+    "issue": "The existing link tests cannot move with their assertions unchanged, and the pairing rule has a hole. (1) The ShowBusTests fake answers `ERR @pn unknown word` to NONCE. Under the design that means 'old desk', so on loopback plain AUTH is sent, which breaks the assertion that the token never crosses the wire. (2) The Program.cs fake never answers `@pn NONCE`. Under 'never time it' the link waits forever, so `HELLO then AUTH` fails. (3) A peer that has already sent a greeting NONCE is 1.1 by definition and must never be sent plain AUTH. The design treats that NONCE only as a hint.",
+    "evidence": "tests/Stagewatch.Tests/ShowBusTests.cs:241-263 (greeting NONCE, then `ERR {id}unknown word` for anything else; asserts no `AUTH ` line). Program.cs:1283-1318 (the reader answers only lines starting with PING; asserts `AUTH s3cret`). PatternsLink.cs:279-284 (today's timer fallback that this replaces).",
+    "fix": "Rule: after a greeting NONCE, never plain AUTH. If the NONCE verb is refused, prove on the greeting nonce. If NONCE gets no answer within a bounded wait, fail closed with words rather than wait forever. Update the fakes to implement the NONCE verb, and say in the papers that the tests changed."
+   },
+   {
+    "severity": "medium",
+    "issue": "An AI can escalate its privileges through the link. With AgentsNeedApproval off, MCP agents act directly. A `playout \u2026 go` from an agent then reaches PlayMap as Stagewatch's Remote role. PlayMap's own policy would hold an assistant's transport line for a person while armed. Peer proposals approved through \u00a711 also lose their proposer identity on PlayMap.",
+    "evidence": "Stagewatch MainViewModel.Copilot.cs:207-209 (returns null, so the command runs directly, when !AgentsNeedApproval). McpEndpoint.cs:142-149. Mapper ShowPolicy.cs:203-210 (Assistant \u2192 Propose while armed). Mapper/docs/SHOWBUS-NODE.md \u00a72 (approvals already reach PlayMap and run under its own checks).",
+    "fix": "Always propose `playout` lines that come from an AI or a peer, even when agents act directly. Better: route them as \u00a711 proposals targeted at the PlayMap node, so they run as role Approved with the proposer's name."
+   },
+   {
+    "severity": "medium",
+    "issue": "The outbound queue and journal-on-answer can turn attempts into silent facts. Show Bus \u00a74 says nothing is queued while a link is down, but lines still in the outbound queue at a drop would be reported 'accepted/unconfirmed' instead of 'not sent'. The existing pending map evicts entries above 64 silently, so their tickets never complete. Pre-1.1 desks get no request ids, so no answer can ever be matched. In all three cases a command leaves no journal row at all, which is worse than today's journal-on-send.",
+    "evidence": "SHOWBUS.md \u00a74 (\"never queues commands while a link is down: a command to a dead link fails at once\"). PatternsLink.cs:165-171 (ids only when _bus11; eviction at :169). PatternsLink.cs:224-226 (drop completes only pending entries).",
+    "fix": "Clear the queue on disconnect and complete its tickets as refused \"not sent \u2014 the link dropped\". Complete evicted tickets as 'unconfirmed'. Journal 'sent, no answer' after the deadline, including for id-less old desks. Test each case."
+   },
+   {
+    "severity": "medium",
+    "issue": "The timed GO is weaker than claimed. (a) A stale clock or a Patterns peer means some links are sent untimed while others get AT T+offset. That guarantees roughly lead-ms (300 ms) between nodes, worse than all untimed. (b) It ignores PlayMap's own sync groups: followers are guarded, so a GO sent to one is refused, and leader time already gives frame-accurate sync. (c) Taking the best of 8 samples and then requiring it to be \u226410 s old is often stale, because 8 pings at 2 s span 16 s.",
+    "evidence": "Mapper PlaybackLanes.cs:138,152 (GuardOf) and :174 (sync-group followers adopt the leader). StateWriter.cs:361-364 (playlists[].syncGroup). Stagewatch Resilience.cs:244-274 (window 8, no sample time stored). PatternsLink.cs:43 (PING every 2 s).",
+    "fix": "When a 'together' set contains an untimed member, hold its send locally until T \u2212 rtt/2, or send every member untimed. Send one GO to the leader of a PlayMap sync group. Choose the best sample among those that are \u226410 s old."
+   },
+   {
+    "severity": "medium",
+    "issue": "The 'observed start' is not an observation. PlayMap's positionMs comes from the transport anchor, so `at \u2212 positionMs` simply echoes the AT instant; it only catches a late, clamped start. `video` is the focused playlist only, so the GO'd playlist may not be in it. The 'started 4 ms off' wording ignores the offset's \u00b1rtt/2 error.",
+    "evidence": "Mapper StateWriter.cs:262-270 (video = Focused lane) and :350-351 (positionMs = PositionAt(now) \u2212 InNs, anchor maths). EngineCore.Router.cs:265-270 (AT is clamped with Math.Max(0, delta)). Mapper fixtures observe.json and showing.json are still `{}` placeholders (README).",
+    "fix": "Read playlists[<id>] rather than video. Report 'scheduled for T (\u00b1rtt/2)' and 'started late by X' only when clamped. Name the real observed start as waiting on PlayMap's round-3 observer, in what the round did not do."
+   },
+   {
+    "severity": "medium",
+    "issue": "With no link named, a high-risk command's target comes from moving state, which is not fail-closed. 'Else the VT link' depends on which clip is running, so the same Companion `playout go \u2026` key can hit different nodes over time. The argument grammar (`cue <pl> <item>` vs `cue <cue>`) also depends on a kind that is unknown until the first STATE arrives.",
+    "evidence": "MainViewModel.Patterns.cs:15-22 (PickPlayout prefers whichever source is running). Design \u00a71.11 and \u00a71.2 (kind observed from STATE).",
+    "fix": "Fall back to the VT link only for clip transport (end, restart, play, pause, stop, seek). Require a link name for go and cue whenever more than one link is enabled. Refuse while the link's kind is unknown."
+   },
+   {
+    "severity": "medium",
+    "issue": "Patterns standby interferes with the Patterns operator. `CUE STANDBY` moves the Patterns caller's own standby, so the next GO from their desk fires the cue Stagewatch chose. STANDBY followed by GO <id> deliberately defeats the stale-standby fence. Mapping the 'Confirm' outcome to 'accepted' leaves a 4 s window open for anyone's GO.",
+    "evidence": "Patterns ShowActions.Cues.cs:37-53 (StandbyMove and Standby on the caller's stack). CueStackService.cs:180-198 (GoGate fence on seenStandbyId; Confirm). CommandRouter.cs:149-155 (outcome Confirm, Done, Requested).",
+    "fix": "Make Patterns standby on item load opt-in per cue. Show a distinct receipt for Confirm (\"Patterns asks for a second GO within 4 s \u2014 a person's\") and never send a second GO automatically. Say in Help that Stagewatch moves the caller's standby."
+   },
+   {
+    "severity": "medium",
+    "issue": "With one clip-end watcher per link and per-link nextOnEnd, two clips ending close together can call `_show.Next()` twice and skip an item.",
+    "evidence": "MainViewModel.Patterns.cs:42-62 (WatchClipEnd calls _show.Next() when PatternsNextOnEnd and the live item is a video).",
+    "fix": "Only the link feeding the VT countdown may move the running order, and at most once per item execution (ShowController.Execution)."
+   },
+   {
+    "severity": "medium",
+    "issue": "The settings migration breaks rollback. Old patterns* keys are no longer written, so going back to 2.17 after 2.18 saves loses the Patterns link. Show files are also an input boundary for RundownItem.Playout, but ShowFile.Sanitize is not in the change list.",
+    "evidence": "AppSettings.cs:11 (CurrentSchemaVersion = 1) and :146-152. SettingsStore.cs:169-177 (no real upgraders yet). ShowFile.cs:99-122 (Sanitize covers each item field and is the place for playout cues).",
+    "fix": "Keep writing the legacy keys, mirroring the link named `patterns`, for one release. Sanitise playout cues in ShowFile.Sanitize: at most 4, valid link names, id shapes, labels capped. Unknown links become amber advice."
+   },
+   {
+    "severity": "medium",
+    "issue": "Refusing trigger URLs whose query contains token, key, pin or secret will break existing shows when they upgrade. Stagewatch's own HTTP API documents `?pin=`, so multi-room triggers to another Stagewatch are legitimate, and `key` is a common harmless parameter name.",
+    "evidence": "Stagewatch/docs/REMOTE.md:107 (\"with the PIN as `?pin=` or an X-Stagewatch-Pin header\").",
+    "fix": "Warn when saving and offer to move the secret into the auth profile. Refuse only for new rules, or for rules that also carry an auth profile. Never refuse at fire time a rule that worked before."
+   },
+   {
+    "severity": "medium",
+    "issue": "SHOWBUS.md is the master copy, and Patterns and AGMessage each keep a copy. Adding a \u00a73 'final' follow-up receipt and the \u00a72/\u00a78 PlayMap rows makes those copies drift. Updating Patterns' copy is a Patterns round with its papers, which contradicts the design's 'Patterns: none'. A new receipt shape is also a contract change, which raises whether the spec version must bump.",
+    "evidence": "Stagewatch/docs/SHOWBUS.md:3-6 (\"A copy of this file lives in each repository; this one is the master\"). Patterns/docs/SHOWBUS.md and AGMessage/docs/SHOWBUS.md exist. Patterns/CLAUDE.md (a round's papers).",
+    "fix": "Land the spec edits through the spec-1-3 area as one owner, with the version decided there. List the Patterns and AGMessage copy updates as their own units: for Patterns, a round with PLAN, REVIEW, CHANGELOG and OPEN, and no walk needed."
+   },
+   {
+    "severity": "low",
+    "issue": "The choice between TLS and plain TCP comes from an unauthenticated UDP hello, so it can be downgraded. Someone who suppresses or spoofs the hello moves a PlayMap link from pinned wss to plain TCP 9941.",
+    "evidence": "SHOWBUS.md \u00a710 (\"The hello is unauthenticated, so the pin \u2014 not the hello \u2014 is the trust\"). Design \u00a71.4 (transport auto).",
+    "fix": "Once a node id has a pin, its link uses wss only, and a missing TLS hello is shown amber rather than silently falling back to TCP."
+   },
+   {
+    "severity": "low",
+    "issue": "Context ids can collide, or change. Link names are not reserved against existing `link:` ids such as vmix, triggers, rooms, ltc, cue-lights or time-server. LinkItems also builds ids from IntegrationStatus names, so per-link rows named by label would produce link:patterns-foh, not link:patterns.",
+    "evidence": "MainViewModel.ShowBus.cs:55-61 (`\"link:\" + name.ToLowerInvariant().Replace(' ', '-')`). MainViewModel.Integrations.cs:101-116 (integration names).",
+    "fix": "Reserve the existing integration names. Build playout items from the link name only, and exclude them from the IntegrationStatus-derived loop."
+   },
+   {
+    "severity": "low",
+    "issue": "The licensing chain is missing. The Patterns link is gated by FeatureGate.AllowsPlayout (Production) today, but the design names no gate for the playout verb, the links, running-order cues or trigger auth.",
+    "evidence": "MainViewModel.Integrations.cs:41 and :106.",
+    "fix": "Gate the links and the verb as playout is gated now, with a refusal naming the tier, and keep it in step with the Companion module's actions."
+   },
+   {
+    "severity": "low",
+    "issue": "Over-building on legacy paths: the 'allow the token in clear to this old desk' tick, and a 3 s listen on beacon 9700. SHOWBUS \u00a72 says the older beacons are not used for discovery between apps. The local G48 refusal duplicates Patterns' rule and will go stale if L48 lands without `video.pausable`.",
+    "evidence": "SHOWBUS.md \u00a72 (\"The older beacons (Patterns 9700 \u2026) \u2026 are not used for discovery between apps\"). PatternsLink.cs:421-446. Patterns ShowActions.Content.cs:481-505.",
+    "fix": "Drop the clear-token tick (fail closed: 'update Patterns') and the 9700 listen. Tie the local G48 refusal to the Patterns version that STATE reports, or rely on the peer's ERR, which receipts now carry."
+   },
+   {
+    "severity": "low",
+    "issue": "Several claims are inaccurate. PlayMap's applied OK carries no words, so 'applied with the peer's words' and the example 'Intro plays' are Stagewatch's words, and a timed GO is not playing yet. The measured STATE size understates: the full STATE is main.json plus module sections (about 76 KB of non-card fixtures, with round-3 placeholders still empty).",
+    "evidence": "Mapper CommandRunner.cs:98-106 (Ok(requestId, reply.Payload)). Endpoints.cs:24 (Success(effect) leaves Payload null). EngineCore.Transport.cs:218 (Success(effect: words)). The Mapper/tests/fixtures/state non-card *.json files total 75,861 bytes.",
+    "fix": "Word applied receipts as 'PlayMap took PLAYLIST GO \u2026 (AT \u2026)'. Base the cap rationale on the full STATE, which Mapper's fence test should measure."
+   },
+   {
+    "severity": "low",
+    "issue": "Gaps in the implementation plan. IntegrationSupervisor has no API to retire a name that is no longer reconciled. The rig has no item-loaded or item-started model, so the running-order e2e exercises rig code, not the desk's executor in MainViewModel.Playout.cs (WPF, never run on Linux).",
+    "evidence": "Supervisor.cs:41-61 (Reconcile only). Stagewatch.Rig/Program.cs:226-234 (Item() sets _item; there is no ShowController). MainViewModel.Receipts.cs:21-39.",
+    "fix": "Add a supervisor method that retires names not reconciled in a pass, or keep the previous set in the view model. Move the playout executor (receipt, journal on answer, planner hooks) into a shared Timer.Show or Integrations class used by both the desk and the rig."
+   }
+  ],
+  "missing": [
+   "Gating the `playout` and `patterns` verbs on unauthenticated transports (OSC, LAN Companion TCP), with tests showing a LAN sender is refused and the peer hears nothing",
+   "Routing AI and peer-origin playout lines through \u00a711 approvals to the target node (role Approved, proposer identity) instead of Stagewatch's Remote session",
+   "PlayMap sync groups: detect playlists[].syncGroup and GO the leader once; follower GOs are guarded and refused",
+   "ShowFile.Sanitize for RundownItem.Playout, and behaviour when a cue names a link that does not exist on this PC",
+   "Licensing (FeatureGate.AllowsPlayout) for links, the verb, running-order cues and the Companion actions",
+   "Show Bus spec copies in Patterns and AGMessage, and the version question, owned with the spec-1-3 area",
+   "A settings rollback path (legacy patterns* keys kept written for one release)",
+   "Journal rows for 'sent, no answer' (silence, eviction, id-less pre-1.1 desks) and 'not sent' for queued lines at a drop",
+   "A no-downgrade rule once a PlayMap node id is pinned",
+   "AiContext facts the copilot needs to form valid playout lines (link names, playlist and item ids, cue ids, and which links can take AT)",
+   "Echo identity in the frame (the playout node id), so PlayMap and Patterns, which read Stagewatch's playout row (Mapper StagewatchTimer.cs:81), can tell when it is their own clip",
+   "Mapping PlayMap's 429 at the /ws upgrade (address locked out) and RemoteViewOnly refusals to clear link words",
+   "A desk-side and Help warning that a Patterns standby moves the Patterns caller's own standby"
+  ]
+ }
+}
