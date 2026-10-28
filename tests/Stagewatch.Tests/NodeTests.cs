@@ -640,6 +640,8 @@ static class NodeTests
               "kinds: Patterns' key speaks for its own node");
         var typo = desk.Submit("{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\"},\"target\":{\"t\":\"Patterns\",\"id\":\"pat1\"},\"line\":\"EYE FOCUS screen 2\"}", keyA, LowRisk, T0).Proposal!;
         var asMain = desk.Submit("{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\"},\"target\":{\"t\":\"main\",\"id\":\"pat1\"},\"line\":\"EYE RESET\"}", keyA, LowRisk, T0).Proposal!;
+        // pat1 asks for its approved lines, so it is collecting when they are approved (§11's last collect).
+        Check(desk.Collect("pat1", keyP, T0).Items is { Count: 0 }, "kinds: pat1's key asks, and nothing is approved for it yet");
         desk.Approve(typo.Id, "operator", T0);
         desk.Approve(asMain.Id, "operator", T0);
         var got = desk.Collect("pat1", keyP, T0.AddSeconds(1));
@@ -652,9 +654,13 @@ static class NodeTests
         // A key whose first use is a collect binds the id alone; its own context then names the kind.
         var keyQ = NodeCredential.Key("kQ");
         var poison = desk.Submit("{\"from\":{\"t\":\"messenger\",\"id\":\"ag9\"},\"target\":{\"t\":\"main\",\"id\":\"pm1\"},\"line\":\"note x\"}", NodeCredential.Operator, LowRisk, T0).Proposal!;
-        desk.Approve(poison.Id, "operator", T0);
-        Check(desk.Collect("pm1", keyQ, T0).Items is [{ Line: "note x" }] && nodes.NodeOf("kQ") == ("", "pm1"),
+        Check(desk.Approve(poison.Id, "operator", T0) is (null, { } quiet) && quiet.Contains("since this desk started", StringComparison.Ordinal)
+              && desk.Get(poison.Id) is { State: SharedProposalState.Pending },
+              "kinds: a proposal for a node that has never asked for its approved lines is not approved, and stays pending");
+        Check(desk.Collect("pm1", keyQ, T0).Items is { Count: 0 } && nodes.NodeOf("kQ") == ("", "pm1"),
               "kinds: a key that first collects binds the id alone, not the kind the operator's proposal wrote");
+        desk.Approve(poison.Id, "operator", T0);
+        Check(desk.Collect("pm1", keyQ, T0).Items is [{ Line: "note x" }], "kinds: approved once it asked, its key collects it");
         Check(peers.Accept(Context("playmap", "pm1"), "10.0.0.9", T0.AddSeconds(1), "desk01", keyQ) is (200, null, NodeProof.Key) && nodes.NodeOf("kQ") == ("playmap", "pm1"),
               "kinds: its own context is taken and fills the kind");
     }
@@ -903,6 +909,7 @@ static class NodeTests
         var id = desk.All()[0].Id;
         Check(desk.Result(id, true, "early", NodeCredential.Key("kZ"), T0) == $"proposal {id} is pending" && nodes.NodeOf("kZ") is null,
               "desk: a result that can't be taken yet binds no key");
+        Check(desk.Collect("pat1", keyP, T0).Items is { Count: 0 }, "desk: the node's own key asks before anything is approved for it");
         desk.Approve(id, "operator", T0);
         Check(desk.Collect("pat1", NodeCredential.Operator, T0).Error == "patterns pat1 speaks with its own key"
               && desk.Collect("pat1", keyA, T0).Error == "patterns pat1 speaks with its own key" && nodes.NodeOf("kA") is null,

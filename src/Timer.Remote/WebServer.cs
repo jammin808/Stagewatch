@@ -774,23 +774,23 @@ public sealed class WebServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// The shared approval queue (Show Bus §11). POST /api/proposals (a node, MCP or control key, or the PIN);
-    /// GET /api/proposals/&lt;id&gt; and ?from=&lt;node&gt; (read); GET ?target=&lt;node&gt;&amp;state=approved collects what was
-    /// approved for a node (its node key, or control/PIN); POST /api/proposals/&lt;id&gt;/result reports what it did. A
-    /// proposal's from and a collect's target are read and spoken for before the desk is called (a 400 when there is no
-    /// node to speak for, a 403 when the credential may not, each with words, nothing queued or claimed), and a node key's
-    /// request the desk took binds it (<see cref="BindTaken"/>); a result's node is the proposal's target, which only the
-    /// desk knows, so the desk speaks for it.
+    /// The shared approval queue (Show Bus §11). POST /api/proposals (a node or control key, or the PIN; an MCP key posts no
+    /// proposal here, 403 in §11's words, since an AI on this desk's MCP endpoint proposes through /mcp as the desk's own);
+    /// GET /api/proposals/&lt;id&gt; (an id, or p&lt;n&gt; of this desk's run) and ?from=&lt;node&gt; (read); GET
+    /// ?target=&lt;node&gt;&amp;state=approved collects what was approved for a node (its node key, or control/PIN), which the desk
+    /// records as that node's last collect; POST /api/proposals/&lt;id&gt;/result reports what it did. A proposal's from and a
+    /// collect's target are read and spoken for before the desk is called (a 400 when there is no node to speak for, a 403 when the
+    /// credential may not, each with words, nothing queued or claimed), and a node key's request the desk took binds it
+    /// (<see cref="BindTaken"/>); a result's node is the proposal's target, which only the desk knows, so the desk speaks for it.
     /// </summary>
     private async Task HandleProposalsAsync(Stream stream, HttpRequest req, IPAddress remote, string? rest, CancellationToken ct)
     {
         async Task Reply((int Status, string Json) r) => await WriteAsync(stream, r.Status, "application/json", Encoding.UTF8.GetBytes(r.Json), ct, cors: true, extra: RateHeaders(req));
         Denied? Proposer()
         {
-            var supplied = PinFrom(req);
-            if (ApiKeys.LooksLikeKey(supplied) && ApiKeys.Find(_control.ApiKeys, supplied) is { Scope: ApiKeyScope.Mcp })
-                return Authorize(req, remote, ApiKeyScope.Mcp);
-            return Authorize(req, remote, ApiKeyScope.Node);
+            var denied = Authorize(req, remote, ApiKeyScope.Node);
+            return denied is { Status: 403 } && ApiKeys.Find(_control.ApiKeys, PinFrom(req)) is { Scope: ApiKeyScope.Mcp }
+                ? denied with { Error = ProposalDesk.McpPostsNone } : denied;
         }
         if (string.IsNullOrEmpty(rest))
         {

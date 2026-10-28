@@ -8,14 +8,16 @@ namespace Stagewatch.App.ViewModels;
 // The shared approval queue (Show Bus §11): this Stagewatch is the desk. Other apps' AI proposals land in the same
 // Copilot list as Stagewatch's own; the operator approves or discards each once; the target app collects what was
 // approved for it, runs it through its own command path and reports back. Network calls (any thread) go to the
-// thread-safe ProposalDesk; the list and the journal follow on the show thread.
+// thread-safe ProposalDesk; the list and the journal follow on the show thread. The desk refuses a line rather than cut it,
+// names no window's address in one (its windows' tokens are read as each line comes), and approves a line for another app
+// only while that app collects.
 public sealed partial class MainViewModel
 {
     private ProposalDesk? _deskStore;
     private ProposalDesk Desk => LazyInitializer.EnsureInitialized(ref _deskStore, () =>
     {
         // Network threads may race to the first proposal: exactly one desk is published, and only it is ever used.
-        var d = new ProposalDesk(() => _store.Snapshot.NodeId, _nodes);
+        var d = new ProposalDesk(() => _store.Snapshot.NodeId, _nodes) { WindowTokens = () => ControlledWindows.Select(w => w.Token) };
         d.Changed += p => _ui.BeginInvoke(() => OnSharedProposal(p));
         return d;
     });
@@ -28,12 +30,15 @@ public sealed partial class MainViewModel
     /// </summary>
     public (int Status, string Json) SubmitProposal(string body, NodeCredential credential)
     {
-        var (p, error, forbidden) = Desk.Submit(body, credential, RiskFor, DateTime.UtcNow, NeverProposed);
-        return p is null ? (forbidden ? 403 : 400, Json(new { ok = false, error })) : (201, Json(new { ok = true, id = p.Id, state = p.StateName, risk = p.Risk }));
+        var (p, error, forbidden) = Desk.Submit(body, credential, RateFor, DateTime.UtcNow, NeverProposed);
+        // §11's answer first; this desk appends the form that rated the line and that row's words (none for its own lines).
+        return p is null ? (forbidden ? 403 : 400, Json(new { ok = false, error }))
+            : (201, Json(new { ok = true, id = p.Id, state = p.StateName, risk = p.Risk, form = p.Form, formWords = p.FormWords }));
     }
 
+    /// <summary>One proposal by its id (or p&lt;n&gt; of this run); an id of an earlier run is 404 in words that say the desk restarted.</summary>
     public (int Status, string Json) GetProposal(string id)
-        => Desk.Get(id) is { } p ? (200, Json(p.ToJson())) : (404, Json(new { ok = false, error = "no such proposal" }));
+        => Desk.Get(id) is { } p ? (200, Json(p.ToJson())) : (404, Json(new { ok = false, error = Desk.Unknown(id) }));
 
     public (int Status, string Json) ProposalsFrom(string nodeId)
         => (200, Json(new { proposals = (nodeId.Length > 0 ? Desk.From(nodeId) : Desk.All()).Select(p => p.ToJson()) }));
@@ -69,20 +74,22 @@ public sealed partial class MainViewModel
         => _peerContexts.Accept(json, address, DateTime.UtcNow, _store.Snapshot.NodeId, credential);
 
     /// <summary>
-    /// How risky a line is for its target: the desk's own rules for itself, the most specific whole form of the target's verified table
-    /// otherwise, of the target's kind. Unknown is high, and so is a target whose context proves nothing now. A playout link's peer's
-    /// context, pulled over this desk's own link to the address the operator set, comes first while it proves something — while no key
-    /// speaks for that id — as on the Show network's row (<see cref="PeerContexts.Chosen"/>).
+    /// How a line rates for its target: by the desk's own rules for itself (a line it parses, with no form of a table), by the most
+    /// specific whole form of the target's verified table otherwise, of the target's kind — the verdict that says whether the line fills
+    /// a secret placeholder, which the desk refuses. Unknown is high, and so is a target whose context proves nothing now. A playout
+    /// link's peer's context, pulled over this desk's own link to the address the operator set, comes first while it proves something —
+    /// while no key speaks for that id — as on the Show network's row (<see cref="PeerContexts.Chosen"/>).
     /// </summary>
-    private string RiskFor(NodeRef target, string line)
+    private RiskVerdict RateFor(NodeRef target, string line)
     {
         if (target.Id == _store.Snapshot.NodeId)
         {
             var tokens = McpTokens(line);
-            if (tokens.Count == 0 || !ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out _)) return "high";
-            return Copilot.Classify(cmd) switch { CopilotRisk.Low => "low", CopilotRisk.Review => "review", _ => "high" };
+            if (tokens.Count == 0 || !ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out _)) return RiskVerdict.Unlisted;
+            var risk = Copilot.Classify(cmd) switch { CopilotRisk.Low => "low", CopilotRisk.Review => "review", _ => "high" };
+            return new RiskVerdict(risk, null, "", true, false);
         }
-        return _peerContexts.RiskFor(target, line, DateTime.UtcNow, LinkedContext(target));
+        return _peerContexts.VerdictFor(target, line, DateTime.UtcNow, LinkedContext(target));
     }
 
     private static List<string> McpTokens(string line) => Stagewatch.Remote.McpEndpoint.Tokenize(line);
@@ -91,27 +98,45 @@ public sealed partial class MainViewModel
     private string? NeverProposed(NodeRef target, string line)
         => target.Id == _store.Snapshot.NodeId ? PlayoutGate.NeverProposed(McpTokens(line)) : null;
 
-    /// <summary>Show thread: mirror a shared proposal into the Copilot list (new, decided, done…).</summary>
+    /// <summary>
+    /// Show thread: mirror a shared proposal into the Copilot list (new, decided, done…). A proposal joins the list when first seen
+    /// pending, and a person's line from this desk (§11, born approved by a role) when first seen approved — as sent, waiting for its
+    /// app — so its done, failed or undelivered reaches the list, the status line and the journal as any approved line's does.
+    /// </summary>
     private void OnSharedProposal(SharedProposal p)
     {
         var item = Proposals.FirstOrDefault(x => x.SharedId == p.Id);
         if (item is null)
         {
-            if (p.State != SharedProposalState.Pending) return;
+            var sent = p.State == SharedProposalState.Approved && !p.TargetIsDesk && p.From.Id == _store.Snapshot.NodeId;
+            if (p.State != SharedProposalState.Pending && !sent) return;
             var target = p.TargetIsDesk ? "this Stagewatch" : (p.Target.Name.Length > 0 ? p.Target.Name : p.Target.Kind);
             item = new CopilotProposal
             {
-                Source = $"{(p.From.Name.Length > 0 ? p.From.Name : p.From.Kind)} → {target}",
+                Source = sent ? $"{p.DecidedBy} → {target}" : $"{(p.From.Name.Length > 0 ? p.From.Name : p.From.Kind)} → {target}",
                 Request = p.Reason.Length > 0 ? p.Reason : p.Line,
                 SharedId = p.Id,
             };
             var risk = p.Risk switch { "low" => CopilotRisk.Low, "review" => CopilotRisk.Review, _ => CopilotRisk.High };
-            item.Steps.Add(new CopilotStepItem(new CopilotStep(p.Line, p.Reason, risk)));
+            var first = new CopilotStepItem(new CopilotStep(p.Line, p.Reason, risk));
+            item.Steps.Add(first);
+            var row = _show.RundownActive ? _show.CurrentItem : -1;
+            if (sent)
+            {
+                first.Result = "approved — waiting for " + target;
+                item.Reply = $"{target} runs this itself and reports back here.";
+                item.State = ProposalState.Done;
+                Proposals.Insert(0, item);
+                _journal.Add(DateTime.UtcNow, JournalKind.Note, row, $"Sent ({item.Source}): {p.Line}");
+                StatusLine = $"{item.Source}: \"{p.Line}\" sent — {target} runs it and reports back";
+                UpdatePendingCount();
+                return;
+            }
             item.Reply = p.TargetIsDesk ? "" : $"{target} runs this itself once you approve, and reports back here.";
             item.State = ProposalState.Pending;
             item.RaisePending();
             Proposals.Insert(0, item);
-            _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, $"{item.Source} proposed: {p.Line}");
+            _journal.Add(DateTime.UtcNow, JournalKind.Note, row, $"{item.Source} proposed: {p.Line}");
             StatusLine = $"{item.Source} proposes \"{p.Line}\" — see Copilot";
             UpdatePendingCount();
             return;
@@ -139,10 +164,22 @@ public sealed partial class MainViewModel
         UpdatePendingCount();
     }
 
-    /// <summary>The operator approved a shared proposal (show thread).</summary>
+    /// <summary>
+    /// The operator approved a shared proposal (show thread). One the desk refuses — its target app has not asked for approved lines
+    /// lately, so it would not collect it — stays pending: the Copilot and the status line say why, and the journal keeps the refusal.
+    /// </summary>
     private void ApproveShared(CopilotProposal p)
     {
-        if (p.SharedId is not { } id || Desk.Approve(id, "operator", DateTime.UtcNow) is not { } sp) return;
+        if (p.SharedId is not { } id) return;
+        var (sp, refused) = Desk.Approve(id, "operator", DateTime.UtcNow);
+        if (sp is null)
+        {
+            CopilotStatus = "Not approved: " + refused;
+            StatusLine = $"{p.Source}: not approved — {refused}";
+            _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1,
+                $"Not approved ({p.Source}): {Desk.Get(id)?.Line ?? id} — {refused}");
+            return;
+        }
         var step = p.Steps.FirstOrDefault();
         _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, $"Approved ({p.Source}): {sp.Line}");
         if (!sp.TargetIsDesk)

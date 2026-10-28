@@ -484,7 +484,7 @@ The contract between Stagewatch, Patterns, AGMessage and the micro-apps is `docs
 |---|---|
 | **HTTPS** | The web port (9924) also speaks TLS with this install's own certificate (self-signed ECDSA P-256, 825 days, renewed automatically; key protected for this Windows user). A connection that starts with a TLS handshake is HTTPS/WSS, anything else plain HTTP — existing screens keep working. `GET /tls` shows the fingerprint and how to trust the certificate on Windows, macOS, iPhone/iPad and Android; `GET /tls.cer` downloads it. The hello carries `"tls":"sha256:…"` and `ports.https`. **Require HTTPS** (Settings → Remote) sends plain HTTP from other devices to `https://` and refuses plain WebSockets; this PC and the certificate pages stay reachable. |
 | **Pinning** | Apps connecting to each other trust a certificate by its fingerprint, pinned on the first authenticated success; a different one later is refused ("CERTIFICATE CHANGED") until the operator accepts it. Stagewatch Slides on presenter PCs does this (pins in `%APPDATA%\Stagewatch\slides-pins.json`; "Trust new certificate" after a reinstall). |
-| **Approval queue** | Stagewatch is the show's approval desk (hello cap `approvals`). `POST /api/proposals` (node, MCP or control key, or the PIN) `{"from":{t,id,name},"target":{t,id},"line","reason"}` → `{"id":"p1","state":"pending"}`. The proposal appears in Copilot beside Stagewatch's own, with the target's own risk for that verb (unknown = high). Approve or discard once. Aimed at Stagewatch, it runs here with a receipt; aimed at another app, that app collects it — `GET /api/proposals?target=<its id>&state=approved` with its node key — runs it through its own checks and reports `POST /api/proposals/<id>/result {"ok","words"}`. `GET /api/proposals/<id>` (read) → state (`pending`, `approved`, `rejected`, `done`, `failed`, `undelivered` after 60 s uncollected), `ok`, `words`, who decided. A node key is bound to the node it first spoke for; one app's key can't collect another's. Everything is in the show log. |
+| **Approval queue** | Stagewatch is the show's approval desk (hello cap `approvals`). `POST /api/proposals` (a node or control key, or the PIN; an MCP key posts none — 2.21) `{"from":{t,id,name},"target":{t,id},"line","reason"}` → `{"id":"p1-k3m9","state":"pending"}`. The proposal appears in Copilot beside Stagewatch's own, with the target's own risk for that verb (unknown = high). Approve or discard once. Aimed at Stagewatch, it runs here with a receipt; aimed at another app, that app collects it — `GET /api/proposals?target=<its id>&state=approved` with its node key — runs it through its own checks and reports `POST /api/proposals/<id>/result {"ok","words"}`. `GET /api/proposals/<id>` (read) → state (`pending`, `approved`, `rejected`, `done`, `failed`, `undelivered` after 60 s uncollected), `ok`, `words`, who decided. A node key is bound to the node it first spoke for; one app's key can't collect another's. Everything is in the show log. |
 
 ### How the desk rates another app's line (2.21)
 
@@ -506,6 +506,43 @@ proposal is rated before the approval desk's lock is taken. So a line that only 
 context Stagewatch keeps §14's numbers: 200 items, 256 commands (each verb whole up to 512 characters, a longer or malformed
 one dropped and counted), words up to 512 and 400 links; the Show network row says what it did not keep, and names a context
 posted too big to read (refused `413` before it is read) on the row of the node its key is bound to, or by its address.
+
+### The desk's rules (2.21)
+
+Show Bus §11 as the desk keeps it from 2.21 (`ProposalDesk`, `LineFence`):
+
+- **Ids are unique across the desk's runs:** `p<n>-<run>`, the run four base-32 characters drawn when Stagewatch starts
+  (`p17-k3m9`); `p17` alone names this run's. An id of an earlier run is `404` on `GET /api/proposals/<id>` and `409` on its
+  result, in words that say the desk restarted since ("no such proposal — this desk has restarted since p17-k3m9 was made (it runs
+  as q7zx now)"), so a target that remembers what it ran never takes a new `p1` for an old one.
+- **A line is refused, never cut** (`400`, nothing queued, no key bound): over 2048 characters ("a line is at most 2048 characters
+  — it is refused, never cut"); a control character ("a line holds no control characters"); an invisible format character — a
+  direction override or isolate, a zero-width space, a word joiner, a byte-order mark, a soft hyphen, tag characters — which makes
+  the line a person reads differ from the line that runs ("a line holds no invisible format characters (a direction override, a
+  zero-width space) — what a person reads is what runs"; the zero-width joiner and non-joiner, which emoji and several scripts
+  need, pass); half of a surrogate pair, sent raw or as a JSON escape ("a line holds no half of a surrogate pair"); a key — 13.5.1's
+  shape under any prefix, or any word that opens with `swk_`, `ptk_`, `pmk_` or `agn_` ("a key rides in no line"); a window's
+  address — `/w/` and a window's token, or a token one of this desk's windows holds now ("a window's address rides in no line"); or
+  a secret placeholder (`<token>`, `<key>`, `<password>`, `<passcode>`, `<secret>`, or a row's `"secret": n`) filled with anything
+  but `‹secret›` ("a secret rides in no line — type it on PlayMap Hall itself") — of the target's verified table, or of any table
+  held for its id that proves nothing now, which may refuse a line but never lowers its risk. A proposer that keeps a secret sends
+  `‹secret›` and runs its own record. The free words beside a line — a reason, a node's name — keep none of these characters: they
+  are left out, not refused. 2.20 cut a line at 400 characters and dropped its control characters.
+- **The desk's own `from` is refused** (`403`): kind `main` or `mcp`, or the desk's own id — an AI on this desk proposes through
+  `/mcp`, as the desk. An MCP key posts no proposal: `403` "an mcp key posts no proposal here — an AI on this desk proposes through
+  /mcp, as the desk's own". A target `{"t":"main"}`, or the desk's own id under any kind, is this desk (the proposal names it
+  `main`). A `peer` or `desk` line proposed to this desk is refused: those are a person's.
+- **A target raises its own risk, never lowers it:** a proposal whose `from` and `target` are one node, posted with the key bound
+  to it, is rated the higher of its table's risk and the `risk` it states.
+- **The desk watches collection.** Each target's last `GET /api/proposals?target=<id>&state=approved` is recorded. A proposal for
+  a target that has not asked in 15 s (§14 `proposal.collect.ms`) is not approved: it stays pending, and Copilot, the status line
+  and the show log say why ("PlayMap Hall has not asked this desk for approved lines in 40 s — it would not collect this").
+- **The answers append** after §11's fields: the `201` gives `form` (the table's form that rated the line, or `null`) and
+  `formWords` (that row's words); a proposal ends `…,"words":…,"collected":<Unix ms or null>,"form":…`.
+- **A person's line** to another app — born approved, from this desk, `decidedBy` one of §11's role words (`operator`, `deck`,
+  `wire`, `trigger`), only a line the app's verified table lists, only while the app collects — is the desk's rule from 2.21; it
+  joins Copilot as sent, and its done, failed or undelivered reaches Copilot, the status line and the show log as any approved
+  line's does. The verbs that send one (`peer <app> <line>`, `desk approve|reject`) come with 2.21's grammar.
 
 ## 2.17: windows — addresses Stagewatch controls
 
@@ -860,8 +897,11 @@ its rate, which has its own count per key (600 requests a minute, 429 with `Retr
   200 characters, a label 80, a state 160 and a recent line 200, each cut with "…"; an item's id keeps 60 and its kind 30, cut with
   no mark. No cut splits a character in two. An item light that is not one of §6's is sent grey. The context's name is the hello's,
   by the same rule.
-- **Commands, panic, air and transport first:** `blackout`; `window hold`, `show` and `revoke`; `start / pause`; `next`;
-  `patterns end 10`; `signal go all`; `signal go <dept> <cue>`. The rest follow by what an operator needs most.
+- **Commands, panic, air and transport first:** `blackout`; `window hold`, `show` and `revoke`; `start | pause`; `next`;
+  `patterns end [<seconds>]`; `signal go all`; `signal go <dept> <cue>`. The rest follow by what an operator needs most. Each verb
+  is §6's notation (2.21): every form of it, written out, is a line this desk's parser takes, at a risk no lower than its own, so
+  `message <phrase> [info|warn|crit [off|slow|fast [ack]]]` takes a message of one word or in double quotes, and its urgency
+  before its flash, as the parser reads it.
 - **Trimming.** A context over a count or 64 KiB is trimmed, each step only until it fits, in §6's order: the oldest recent lines;
   grey links, then the other links; commands that are not panic, air or transport, from the end; grey items, then green. Only if it
   still does not fit: amber states, then red ones, cut to 40 characters (Stagewatch's own length; §6 leaves it to the sender); then

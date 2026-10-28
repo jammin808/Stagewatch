@@ -81,11 +81,14 @@ public static class ShowContext
     public const string TrimmedId = "context:trimmed";
 
     /// <summary>
-    /// The verbs a peer or an AI may propose, with their risk (high is never pre-ticked by any assistant). <c>Air</c> marks §6's panic,
-    /// air and transport commands, listed first and left out last: what blacks out every screen, what puts a page on a screen at once,
-    /// and what starts, pauses or moves the show or Patterns' clip — a department's GO among them, the call that moves a called show.
-    /// The rest follow by what an operator needs most on a failing night, a standby before messages, time and notes, because trimming
-    /// leaves commands out from the end of the list.
+    /// The verbs a peer or an AI may propose, with their risk (high is never pre-ticked by any assistant), each in Show Bus §6's notation,
+    /// so a reader rates a line by its whole form: every form of every row — a word or a quoted phrase in each value, each optional part
+    /// taken or left out, each alternative — is a line this desk's own parser takes, at a risk no lower than the desk's own rating of
+    /// it. A value the parser reads as one word is one in the notation too, but a form's last, and an option the parser reads only
+    /// after another nests in it. <c>Air</c> marks §6's panic, air and transport commands, listed first and left out last: what blacks
+    /// out every screen, what puts a page on a screen at once, and what starts, pauses or moves the show or Patterns' clip — a
+    /// department's GO among them, the call that moves a called show. The rest follow by what an operator needs most on a failing night,
+    /// a standby before messages, time and notes, because trimming leaves commands out from the end of the list.
     /// </summary>
     public static readonly IReadOnlyList<(string Verb, string Risk, string Words, bool Air)> Commands = new[]
     {
@@ -93,13 +96,13 @@ public static class ShowContext
         ("window hold <window>", "high", "Put a window on its holding page", true),
         ("window show <window> <page>", "high", "Put a page on a controlled browser window (the audience sees it at once)", true),
         ("window revoke <window>", "high", "Give a window a new address (the screen on the old one goes dark)", true),
-        ("start / pause", "high", "Start or pause the timer", true),
+        ("start | pause", "high", "Start or pause the timer", true),
         ("next", "high", "Go to the next item", true),
-        ("patterns end 10", "high", "Jump Patterns' clip to its last 10 seconds", true),
+        ("patterns end [<seconds>]", "high", "Jump Patterns' clip to its last seconds (10 unless said)", true),
         ("signal go all", "high", "GO every department standing by", true),
         ("signal go <dept> <cue>", "high", "GO one department", true),
         ("signal standby <dept> <cue>", "review", "Stand a department by", false),
-        ("message <text> warning", "review", "Put a message on the speaker's screen", false),
+        ("message <phrase> [info|warn|crit [off|slow|fast [ack]]]", "review", "Put a message on the speaker's screen: one word, or words in double quotes (info and steady unless said; ack asks the speaker for Got it)", false),
         ("nudge <seconds>", "review", "Add or take time from the live item", false),
         ("delay <seconds>", "review", "Announce a delay before the next item", false),
         ("trim <item> <seconds>", "review", "Lengthen or shorten a coming item", false),

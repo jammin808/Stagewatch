@@ -210,10 +210,6 @@ static class ShowBusSpecTests
     static readonly (string Row, string Unit, string Today, Func<Numbers, bool> Differs)[] NotKeptYet =
     [
         ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
-        ("proposal.line.chars", "SW21.2", $"ProposalDesk takes a line of {ProposalDesk.MaxLine} characters and cuts a longer one, which can run another command",
-            n => ProposalDesk.MaxLine < n.Of("proposal.line.chars")),
-        ("proposal.collect.ms", "SW21.2", "the desk sends and approves for a target whatever its last collect",
-            _ => typeof(ProposalDesk).GetMethods().All(m => !m.Name.Contains("Collected", StringComparison.Ordinal))),
         ("receipt.final.ms", "SW22.1c", "its receipts carry no `final`, `repeat`, `lateMs` or `frame`", _ => ReceiptTailAsToday()),
         ("window.grants", "SW22.3", "it grants no window, so no grant's address travels", _ => GrantsAsToday()),
     ];
@@ -237,16 +233,6 @@ static class ShowBusSpecTests
                   && Source("src/Timer.Remote/WebServer.cs") is { } server && !server.Contains("snonce", StringComparison.Ordinal)),
         ("13.6.9's mark on a key seen in clear", "SW22.1b", "it takes a key sent in clear from another machine as it takes any other, and marks nothing",
             SeenInClearAsToday),
-        ("its proposal ids", "SW21.2", "they restart with each desk run, `p<n>`, so a target pairs an id with `created`", ProposalIdsAsToday),
-        ("a `from` of kind `main` or `mcp`", "SW21.2", "the desk takes one from the network unless it names the desk's own id",
-            () => Proposed("{\"from\":{\"t\":\"main\",\"id\":\"b2c3d4e5f6a7\",\"name\":\"Hall B\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", "low") is not null),
-        ("a proposal sent with an `mcp` key", "SW21.2", "the desk queues one for a node no key is bound to, proved by nothing", McpProposalAsToday),
-        ("§11's line refusals", "SW21.2", "the desk takes a line that holds a key, a window's address or a filled secret placeholder, and drops its control characters",
-            () => Proposed("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"main\"},\"line\":\"note swk_abcdefghijkmnpqrstuvwxyz23456789\"}", "low") is not null),
-        ("a target's raise of its own proposal's risk", "SW21.2", "the desk takes a proposal's risk from the target's table alone",
-            () => Proposed("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\"},\"line\":\"CUE GO\",\"risk\":\"high\"}", "low") is { Risk: "low" }),
-        ("its commands rows in §6's notation", "SW21.2", "it lists `start / pause` and `patterns end 10`",
-            () => ShowContext.Commands.Any(c => c.Verb == "start / pause") && ShowContext.Commands.Any(c => c.Verb == "patterns end 10")),
         ("a line a person sends to another app", "SW21.4", "it has no `peer` or `desk` verb",
             () => !Enum.GetNames<ShowCommandKind>().Any(k => k is "Peer" or "Desk")),
         ("verified peers' `recent` in its report", "SW21.7", "its report holds its own journal alone",
@@ -1666,6 +1652,12 @@ static class ShowBusSpecTests
         // §11 and §12.
         Keeps((long)ProposalDesk.CollectWithin.TotalMilliseconds == n.Of("proposal.undelivered.ms") && (long)ProposalDesk.ResultWithin.TotalMilliseconds == n.Of("proposal.result.ms"),
             "its queue marks a proposal undelivered after that long uncollected, or that long with no result", "proposal.undelivered.ms", "proposal.result.ms");
+        var longest = "note " + new string('x', (int)Math.Max(0, n.Of("proposal.line.chars") - 5));
+        Keeps(ProposalDesk.MaxLine == n.Of("proposal.line.chars") && Proposed(ProposalJson(longest), "low") is { } whole && whole.Line == longest
+              && Proposed(ProposalJson(longest + "x"), "low") is null,
+            "its desk takes a line that long whole and refuses a longer one, never cutting it", "proposal.line.chars");
+        Keeps((long)ProposalDesk.CollectFresh.TotalMilliseconds == n.Of("proposal.collect.ms") && CollectsFor(n.Of("proposal.collect.ms")),
+            "its desk counts a target collecting that long after its last collect, and not a second after, approving nothing for it then", "proposal.collect.ms");
         var tokens = Enumerable.Range(0, 64).Select(_ => ScreenWindows.NewToken()).ToList();
         var symbols = n.Values.GetValueOrDefault("window.token.alphabet", "");
         Keeps(ScreenWindows.TokenLength == n.Of("window.token.chars") && ScreenWindows.Max == n.Of("window.max")
@@ -1921,16 +1913,14 @@ static class ShowBusSpecTests
            && Source("src/Timer.Remote/WebServer.cs") is { } server && !Regex.IsMatch(server, "(?i)seen ?in ?clear|InClear");
 
     /// <summary>
-    /// Whether the desk still takes a proposal an mcp key sends: WebServer lets an mcp key post one, reads it as a credential that proves
-    /// nothing, and the desk queues a proposal proved by nothing for a node no key is bound to.
+    /// Whether an mcp key posts no proposal (§11): WebServer no longer lets an mcp key post one, and answers it 403 in ProposalDesk's
+    /// words for it.
     /// </summary>
-    static bool McpProposalAsToday()
+    static bool McpProposalRefused()
     {
         var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
-        return server.Contains("return Authorize(req, remote, ApiKeyScope.Mcp);", StringComparison.Ordinal)
-               && Regex.IsMatch(Method(server, "private NodeCredential CredentialOf(") ?? "", @"_ => NodeCredential\.None")
-               && Proposed("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", "low",
-                   NodeCredential.None) is not null;
+        return !server.Contains("return Authorize(req, remote, ApiKeyScope.Mcp);", StringComparison.Ordinal)
+               && Regex.IsMatch(Method(server, "private async Task HandleProposalsAsync(") ?? "", @"ApiKeyScope\.Mcp \}\s*\?\s*denied with \{ Error = ProposalDesk\.McpPostsNone \}");
     }
 
     /// <summary>A check that names the rows it holds Stagewatch's code to (<see cref="TodaysCode"/>'s own).</summary>
@@ -2242,7 +2232,7 @@ static class ShowBusSpecTests
         // §6's order of commands: panic, air and transport first.
         var airFirst = ShowContext.Commands.TakeWhile(c => c.Air).Select(c => c.Verb).ToList();
         Check(Flat(s6).Contains("A sender lists its panic, air and transport commands first.", StringComparison.Ordinal)
-              && ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air) && new[] { "blackout", "next", "start / pause" }.All(airFirst.Contains),
+              && ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air) && new[] { "blackout", "next", "start | pause" }.All(airFirst.Contains),
             "showbus spec: Stagewatch keeps §6's order of commands: its panic, air and transport commands first (" + string.Join(", ", airFirst) + ")");
 
         // What of §6's rules Stagewatch does not keep yet: each entry holds exactly while its code still does what it says.
@@ -2805,6 +2795,17 @@ static class ShowBusSpecTests
               && Peer(Many("commands", "{\"verb\":\"go\",\"risk\":\"low\"}", 65))?.Commands.Count == 65 && typeof(PeerContexts.Entry).GetProperty("Links") is not null,
             "showbus spec: Stagewatch keeps what §8's row names it a reader of contexts without: §14's numbers, read whole, and its risk by whole forms, "
             + "so a line no whole form takes is high");
+        // Kept since SW21.2, its words in the frozen row still standing: as the desk, every rule the row names "ends with the desk's rules".
+        Check(notKept.Contains("as the desk: `proposal.line.chars` (today ProposalDesk takes a line of 400 characters and cuts a longer one, which can run another command); "
+                  + "`proposal.collect.ms` (today the desk sends and approves for a target whatever its last collect); its proposal ids (today they restart with each "
+                  + "desk run, `p<n>`, so a target pairs an id with `created`); a `from` of kind `main` or `mcp` (today the desk takes one from the network unless it "
+                  + "names the desk's own id); a proposal sent with an `mcp` key (today the desk queues one for a node no key is bound to, proved by nothing); §11's line "
+                  + "refusals (today the desk takes a line that holds a key, a window's address or a filled secret placeholder, and drops its control characters); a "
+                  + "target's raise of its own proposal's risk (today the desk takes a proposal's risk from the target's table alone); its commands rows in §6's notation "
+                  + "(today it lists `start / pause` and `patterns end 10`) — ends with the desk's rules", StringComparison.Ordinal)
+              && ProposalDesk.MaxLine == n.Of("proposal.line.chars") && DeskRulesKept(),
+            "showbus spec: Stagewatch keeps what §8's row names it as the desk without: lines refused not cut, ids under the desk's run, its own from and an mcp key's "
+            + "proposal refused, a target's raise of its own risk, its last collect, and its commands rows in §6's notation");
         foreach (var (what, unit, today, differs) in WordsNotKeptYet)
         {
             Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),
@@ -2965,9 +2966,48 @@ static class ShowBusSpecTests
                && measured >= 0 && decoded > measured;
     }
 
-    /// <summary>Whether ProposalDesk's ids still restart with each desk: a new desk's first proposal is p1.</summary>
-    static bool ProposalIdsAsToday()
-        => Proposed("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", "low") is { Id: "p1" };
+    /// <summary>A proposal from Patterns FOH of <paramref name="line"/>, to <paramref name="targetKind"/> (this desk, unless named) with that id.</summary>
+    static string ProposalJson(string line, string targetKind = "main", string targetId = "", string? risk = null, string fromKind = "patterns", string fromId = "9f8e7d6c")
+        => JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["from"] = new { t = fromKind, id = fromId, name = "FOH" },
+            ["target"] = new { t = targetKind, id = targetId },
+            ["line"] = line,
+            ["risk"] = risk,
+        });
+
+    /// <summary>
+    /// Whether a desk counts a target collecting <paramref name="ms"/> after its last collect and not a second later, and then neither
+    /// approves a line for it nor leaves the proposal anything but pending.
+    /// </summary>
+    static bool CollectsFor(long ms)
+    {
+        var desk = new ProposalDesk(() => "abc123abc123", new NodeBindings());
+        var p = desk.Submit(ProposalJson("CUE GO", "patterns", "9f8e7d6c"), NodeCredential.Operator, (_, _) => "high", Tonight).Proposal;
+        desk.Collect("9f8e7d6c", NodeCredential.Operator, Tonight);
+        return p is not null && desk.NotCollecting(p.Target, Tonight.AddMilliseconds(ms)) is null
+               && desk.Approve(p.Id, "operator", Tonight.AddMilliseconds(ms + 1000)) is (null, { }) && desk.Get(p.Id) is { State: SharedProposalState.Pending };
+    }
+
+    /// <summary>
+    /// What §8's Stagewatch row names the desk without, kept since SW21.2: a line refused, never cut, for a key, a window's address, a
+    /// filled secret or a control character; ids under the desk's run; a from of the desk's own refused; an mcp key's proposal refused; a
+    /// target's raise of its own risk under its key; and its own commands rows in §6's notation. DeskRulesTests holds each rule whole.
+    /// </summary>
+    static bool DeskRulesKept()
+    {
+        var secret = VerbTable.Compile([new PeerCommand("LINK STAGEWATCH <host> [<key>]", "review")]);
+        var filled = new ProposalDesk(() => "abc123abc123", new NodeBindings()).Submit(ProposalJson("LINK STAGEWATCH h hunter2", "playmap", "pm5e6f7a"),
+            NodeCredential.Operator, (_, l) => secret.Rate(l), Tonight);
+        return Proposed(ProposalJson("note hi"), "low") is { Id: var id } && Regex.IsMatch(id, "^p1-[" + ProposalDesk.RunAlphabet + "]{4}$")
+               && Proposed(ProposalJson("note hi", fromKind: "main", fromId: "b2c3d4e5f6a7"), "low") is null && Proposed(ProposalJson("note hi", fromKind: "mcp", fromId: "mcp"), "low") is null
+               && McpProposalRefused()
+               && Proposed(ProposalJson("note swk_abcdefghijkmnpqrstuvwxyz23456789"), "low") is null && Proposed(ProposalJson("note a\tb"), "low") is null
+               && Proposed(ProposalJson("note see http://10.0.0.6:9924/w/" + ScreenWindows.NewToken()), "low") is null && filled is (null, { }, false)
+               && Proposed(ProposalJson("CUE GO", "patterns", "9f8e7d6c", "high"), "low", NodeCredential.Key("k1")) is { Risk: "high" }
+               && ShowContext.Commands.All(c => VerbSyntax.Forms(c.Verb).Count > 0 && !c.Verb.Contains(" / ", StringComparison.Ordinal))
+               && ShowContext.Commands.Any(c => c.Verb == "patterns end [<seconds>]");
+    }
 
     /// <summary>
     /// What a new desk makes of <paramref name="json"/>, proposed with <paramref name="credential"/> (the operator's when none is given),

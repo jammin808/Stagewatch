@@ -190,9 +190,13 @@ Rules (game netcode, on purpose):
   comes first, as on its Show network row, else posted with the app's own node key (or the operator's credential while no key
   speaks for its id); any other line, a carried line no form takes, or any line for an unverified table, is high (REMOTE.md,
   "How the desk rates another app's line"). A context posted too big to read is named on the Show network.
-- **Proposals.** Stagewatch keeps the show's approval queue (cap `approvals`, Show Bus §11): `POST /api/proposals`; another app
-  collects what was approved for it with `GET /api/proposals?target=<its id>&state=approved` and its node key, and reports
-  `POST /api/proposals/<id>/result`. REMOTE.md's 2.16 section has the shapes.
+- **Proposals.** Stagewatch keeps the show's approval queue (cap `approvals`, Show Bus §11): `POST /api/proposals` with a node or
+  control key, or the PIN (an MCP key posts none); another app collects what was approved for it with `GET /api/proposals?target=<its
+  id>&state=approved` and its node key, and reports `POST /api/proposals/<id>/result`. Ids carry the desk's run (`p17-k3m9`), so a
+  restarted desk's `p1` is never an earlier one; a line is refused, never cut — over 2048 characters, or holding a control character,
+  a key, a window's address or a filled secret — and a proposal's own `risk` can only raise its rating, from the target itself under
+  its key. The desk records each app's last collect and approves nothing for an app that has not asked in 15 s. REMOTE.md's 2.16
+  section has the shapes, and its 2.21 section the desk's rules.
 - **MCP:** `POST /mcp` (JSON-RPC; the PIN or an MCP key). By default an AI agent's `run_command` becomes a proposal the operator
   approves: the person stays in the loop.
 - **Screens, windows and show apps.** A *screen* is any browser showing Stagewatch: `GET /api/screens` (PIN) lists them, and `screen
@@ -512,7 +516,7 @@ From Stagewatch's side; PlayMap's own `docs/SHOWBUS-NODE.md` is its reference.
 
 Each number the page names, as Stagewatch's code has it. A name that is a §14 row has §14's value: Stagewatch keeps that row. The
 `find.`, `slides.`, `cid.`, `http.`, `ws.`, `show.`, `pin.`, `key.`, `read.`, `ack.`, `signal.`, `patterns.` and `playout.` rows,
-and `hello.failed.beats`, are Stagewatch's own.
+and `hello.failed.beats`, `proposal.run.chars` and `proposal.collectors`, are Stagewatch's own.
 
 | number | value | what it is |
 |---|---|---|
@@ -566,6 +570,10 @@ and `hello.failed.beats`, are Stagewatch's own.
 | `read.context.verb.chars` | 512 | the longest verb it keeps, whole; a longer or malformed one is dropped and counted |
 | `read.context.words.chars` | 512 | a kept command's words are kept to this |
 | `read.context.links` | 400 | the links it keeps of one, its first whose ends and kind §6 allows; the rest are counted |
+| `proposal.line.chars` | 2048 | the longest line on the approval desk, a proposal's or a person's; a longer one is refused, never cut |
+| `proposal.collect.ms` | 15000 | an app that has not asked for its approved lines this long is not collecting: the desk approves and sends it nothing |
+| `proposal.run.chars` | 4 | the base-32 characters of the desk's run, drawn as it starts, that end every proposal id (`p17-k3m9`) |
+| `proposal.collectors` | 256 | the most apps whose last collect the desk keeps; past it the longest silent is forgotten |
 | `cert.days` | 825 | its certificate's whole span, NotBefore to NotAfter |
 | `cert.renew.days` | 30 | fewer days than this left, and a new certificate is made |
 | `playout.links` | 8 | the most playout links Stagewatch keeps |

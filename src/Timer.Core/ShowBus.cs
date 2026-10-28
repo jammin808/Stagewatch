@@ -252,11 +252,17 @@ public sealed class PeerContexts
     /// How a line rates for the node <paramref name="target"/> names (Show Bus §11), by the whole forms of a verified table of that
     /// node's kind alone: the context <see cref="Chosen"/> takes for it — <paramref name="pulled"/>, a context this Stagewatch pulled
     /// over its own link to the node's address, first while it proves something — when it proves something now. Without one the line
-    /// is high and unlisted, so an unverified context, or one of another kind, never lowers a risk.
+    /// is high and unlisted, so an unverified context, or one of another kind, never lowers a risk; but a line that fills a secret
+    /// placeholder of any table held for that id — pulled or posted, of any kind, proved or not — is still a secret (fail closed: a
+    /// table no proof stands behind may refuse a line, never let one through).
     /// </summary>
     public RiskVerdict VerdictFor(NodeRef target, string line, DateTime nowUtc, Entry? pulled = null)
-        => Chosen(target.Id, pulled is null ? null : new HeldContext(pulled, NodeProof.None, Pulled: true), nowUtc, target.Kind) is { Proof: not NodeProof.None } chosen
-            ? chosen.Entry.Verbs.Rate(line) : RiskVerdict.Unlisted;
+    {
+        if (Chosen(target.Id, pulled is null ? null : new HeldContext(pulled, NodeProof.None, Pulled: true), nowUtc, target.Kind) is { Proof: not NodeProof.None } chosen)
+            return chosen.Entry.Verbs.Rate(line);
+        var unproved = new[] { pulled is { } p && p.Id == target.Id ? p : null, Find(target.Id, nowUtc) };
+        return unproved.Any(e => e is not null && e.Verbs.Rate(line).Secret) ? RiskVerdict.Unlisted with { Secret = true } : RiskVerdict.Unlisted;
+    }
 
     public IReadOnlyList<Entry> All(DateTime nowUtc)
     {

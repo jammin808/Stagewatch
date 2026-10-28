@@ -60,7 +60,9 @@ static class ShowBusTests
             var (p, error, forbidden) = Desk.Submit(body, Seen(credential), (_, line) => line.StartsWith("note") ? "low" : "high", DateTime.UtcNow);
             return p is null ? (forbidden ? 403 : 400, JsonSerializer.Serialize(new { ok = false, error })) : (201, JsonSerializer.Serialize(new { ok = true, id = p.Id, state = p.StateName }));
         }
-        public (int Status, string Json) GetProposal(string id) => Desk.Get(id) is { } p ? (200, JsonSerializer.Serialize(p.ToJson())) : (404, "{}");
+        // As the desk answers: an id of this run, whole or p<n>, or 404 in the desk's words (an earlier run's id says the desk restarted).
+        public (int Status, string Json) GetProposal(string id)
+            => Desk.Get(id) is { } p ? (200, JsonSerializer.Serialize(p.ToJson())) : (404, JsonSerializer.Serialize(new { ok = false, error = Desk.Unknown(id) }));
         public (int Status, string Json) CollectApproved(string targetId, NodeCredential credential)
         {
             var (items, error) = Desk.Collect(targetId, Seen(credential), DateTime.UtcNow);
@@ -386,8 +388,8 @@ static class ShowBusTests
 
         // §6's order of commands.
         Check(ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air)
-              && new[] { "blackout", "next", "start / pause", "signal go all", "signal go <dept> <cue>" }.All(v => ShowContext.Commands.Any(c => c.Verb == v && c.Air)),
-            "context: its panic, air and transport commands come first, blackout, next, start / pause and a department's GO among them ("
+              && new[] { "blackout", "next", "start | pause", "signal go all", "signal go <dept> <cue>" }.All(v => ShowContext.Commands.Any(c => c.Verb == v && c.Air)),
+            "context: its panic, air and transport commands come first, blackout, next, start | pause and a department's GO among them ("
             + string.Join(", ", ShowContext.Commands.TakeWhile(c => c.Air).Select(c => c.Verb)) + ")");
 
         // Within its sizes, whole.
@@ -666,7 +668,8 @@ static class ShowBusTests
         Check(desk.Get(c.Id) is { State: SharedProposalState.Undelivered } && c.Risk == "high", "desk: approved but never collected becomes undelivered");
         var (d, _, _) = desk.Submit("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\"},\"line\":\"EYE RESET\"}", keyP, Risk, t0);
         desk.Reject(d!.Id, "operator", t0);
-        Check(desk.Get(d.Id)!.State == SharedProposalState.Rejected && desk.Approve(d.Id, "x", t0) is null && desk.From("pat1").Count == 3, "desk: a rejected proposal stays rejected");
+        Check(desk.Get(d.Id)!.State == SharedProposalState.Rejected && desk.Approve(d.Id, "x", t0) == (null, $"{d.Id} is rejected") && desk.From("pat1").Count == 3,
+              "desk: a rejected proposal stays rejected, and approving it says so");
 
         // Certificate pins: first use, trusted, changed.
         var pins = new TlsPins();
@@ -1002,12 +1005,21 @@ static class ShowBusTests
         var (pinFromCode, pinFrom) = await Call(HttpMethod.Post, "/api/proposals", "4321", proposal);
         Check(pinFromCode == HttpStatusCode.Forbidden && pinFrom.GetProperty("error").GetString() == "patterns pat1 speaks with its own key" && control.Desk.All().Count == 1,
               $"approvals: the PIN can't propose from a node that has its own key ({pinFromCode})");
-        var (mcpCode, _) = await Call(HttpMethod.Post, "/api/proposals", mcpSecret, "{\"from\":{\"t\":\"assistant\",\"id\":\"ai1\"},\"target\":{\"t\":\"main\"},\"line\":\"note from the agent\"}");
-        Check(mcpCode == HttpStatusCode.Created && control.LastCredential == NodeCredential.None,
-              $"approvals: an MCP key proposes, and proves no node (its from is only claimed) ({mcpCode})");
+        var asked0 = control.Credentials.Count;
+        var (mcpCode, mcp) = await Call(HttpMethod.Post, "/api/proposals", mcpSecret, "{\"from\":{\"t\":\"assistant\",\"id\":\"ai1\"},\"target\":{\"t\":\"main\"},\"line\":\"note from the agent\"}");
+        Check(mcpCode == HttpStatusCode.Forbidden && mcp.GetProperty("error").GetString() == ProposalDesk.McpPostsNone && control.Credentials.Count == asked0
+              && control.Desk.All().Count == 1,
+              $"approvals: an MCP key posts no proposal here (§11): 403 in its words, the desk never asked and nothing queued ({mcpCode})");
         var (opCode, _) = await Call(HttpMethod.Post, "/api/proposals", ctlSecret, "{\"from\":{\"t\":\"messenger\",\"id\":\"ag9\"},\"target\":{\"t\":\"main\"},\"line\":\"note from the deck\"}");
         Check(opCode == HttpStatusCode.Created && control.LastCredential == NodeCredential.Operator, $"approvals: a control key proposes as the operator ({opCode})");
-        control.Desk.Approve(id, "operator", DateTime.UtcNow);
+        var (refusedCode, refused) = await Call(HttpMethod.Post, $"/api/proposals/{id}/result", nodeSecret, "{\"ok\":true,\"words\":\"early\"}");
+        Check(control.Desk.Approve(id, "operator", DateTime.UtcNow) is (null, { } quiet) && quiet.StartsWith("patterns pat1 has not asked this desk for approved lines", StringComparison.Ordinal)
+              && refusedCode == HttpStatusCode.Conflict && refused.GetProperty("error").GetString() == $"proposal {id} is pending",
+              "approvals: a proposal is not approved for a target that has not asked for its approved lines (§11's last collect)");
+        var (firstAskCode, firstAsk) = await Call(HttpMethod.Get, "/api/proposals?target=pat1&state=approved", nodeSecret);
+        Check(firstAskCode == HttpStatusCode.OK && firstAsk.GetProperty("proposals").GetArrayLength() == 0 && control.Desk.LastCollect("pat1") is not null,
+              "approvals: the target's collect is recorded as its last");
+        Check(control.Desk.Approve(id, "operator", DateTime.UtcNow) is ({ State: SharedProposalState.Approved }, null), "approvals: once it asked, the operator approves");
         Check((await Call(HttpMethod.Get, "/api/proposals?target=pat1&state=approved", otherSecret)).Code == HttpStatusCode.Forbidden,
               "approvals: another app's key can't collect this node's approvals");
         var asked = control.Credentials.Count;
@@ -1029,6 +1041,16 @@ static class ShowBusTests
         var (_, final) = await Call(HttpMethod.Get, $"/api/proposals/{id}", readSecret);
         Check(rc == HttpStatusCode.OK && final.GetProperty("state").GetString() == "done" && final.GetProperty("result").GetString() == "focused screen 2",
               "approvals: the target reports back; anyone with read access sees the outcome");
+        var run = control.Desk.Run;
+        var other = run == "zzzz" ? "yyyy" : "zzzz";
+        var shortId = id[..id.IndexOf('-', StringComparison.Ordinal)];
+        var (shortCode, byShort) = await Call(HttpMethod.Get, $"/api/proposals/{shortId}", readSecret);
+        var (oldCode, old) = await Call(HttpMethod.Get, $"/api/proposals/{shortId}-{other}", readSecret);
+        var (oldResultCode, oldResult) = await Call(HttpMethod.Post, $"/api/proposals/{shortId}-{other}/result", nodeSecret, "{\"ok\":true,\"words\":\"again\"}");
+        Check(id.EndsWith("-" + run, StringComparison.Ordinal) && shortCode == HttpStatusCode.OK && byShort.GetProperty("id").GetString() == id
+              && oldCode == HttpStatusCode.NotFound && old.GetProperty("error").GetString() == $"no such proposal — this desk has restarted since {shortId}-{other} was made (it runs as {run} now)"
+              && oldResultCode == HttpStatusCode.Conflict && oldResult.GetProperty("error").GetString() == old.GetProperty("error").GetString(),
+              $"approvals: an id carries the desk's run ({id}); p<n> alone reads this run's, and an earlier run's id is 404 to read and 409 to report, in words that say the desk restarted");
     }
 
     /// <summary>An open Stagewatch (no PIN): a control key still proves the operator; nothing, or a PIN it doesn't ask for, proves nothing.</summary>
@@ -1064,7 +1086,11 @@ static class ShowBusTests
         Check((await Post("/api/peers/context", Ctx("pat4"), readSecret)).Code == HttpStatusCode.Forbidden && control.Peers.Find("pat4", DateTime.UtcNow) is null,
               "open: a read key still can't post a context");
         var proposal = await Post("/api/proposals", "{\"from\":{\"t\":\"assistant\",\"id\":\"ai1\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", mcpSecret);
-        Check(proposal.Code == HttpStatusCode.Created && control.LastCredential == NodeCredential.None, $"open: an MCP key's proposal proves no node ({proposal.Code})");
+        using (var refusal = JsonDocument.Parse(proposal.Body))
+            Check(proposal.Code == HttpStatusCode.Forbidden && refusal.RootElement.GetProperty("error").GetString() == ProposalDesk.McpPostsNone && control.Desk.All().Count == 0,
+                  $"open: an MCP key posts no proposal on an open Stagewatch either ({proposal.Code}, {proposal.Body})");
+        var bareProposal = await Post("/api/proposals", "{\"from\":{\"t\":\"assistant\",\"id\":\"ai1\"},\"target\":{\"t\":\"main\"},\"line\":\"note hi\"}", null);
+        Check(bareProposal.Code == HttpStatusCode.Created && control.LastCredential == NodeCredential.None, $"open: a proposal with no credential proves no node ({bareProposal.Code})");
     }
 
     /// <summary>

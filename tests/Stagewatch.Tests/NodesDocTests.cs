@@ -80,6 +80,11 @@ static class NodesDocTests
         ("read.context.verb.chars", () => Enumerable.Range(1, 1024).LastOrDefault(v => Heard(1, v) is { Commands.Count: 1, CommandsDropped: 0 }, -1)),
         ("read.context.words.chars", () => Heard(1, 1, 1000) is { Commands: [var said, ..] } ? said.Words.Length : -1),
         ("read.context.links", () => HeardLinks(1000)?.Links.Count ?? -1),
+        // The approval desk (Show Bus §11): a line refused past its length, ids under the desk's run, and who counts as collecting.
+        ("proposal.line.chars", () => ProposalDesk.MaxLine),
+        ("proposal.collect.ms", () => Ms(ProposalDesk.CollectFresh)),
+        ("proposal.run.chars", () => ProposalDesk.NewRun().Length),
+        ("proposal.collectors", () => ProposalDesk.MaxCollectors),
         ("cert.days", () => (long)CertificateLife.Span.TotalDays),
         ("cert.renew.days", () => CertificateLife.RenewDays),
         // The playout links: how many, and the director's look at a peer's STATE before and after a command.

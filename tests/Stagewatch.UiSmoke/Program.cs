@@ -389,7 +389,8 @@ public static class Program
             if (!okM) failures++;
 
             // The shared approval queue: another app's proposal lands in the Copilot list; approving it here lets that app
-            // collect it; one aimed at this Stagewatch runs here with a receipt.
+            // collect it — only once that app asks for its approved lines, until then it stays pending and the Copilot says why;
+            // one aimed at this Stagewatch runs here with a receipt.
             var forPatterns = vm.SubmitProposal("{\"from\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"target\":{\"t\":\"patterns\",\"id\":\"pat1\",\"name\":\"Patterns FOH\"},\"line\":\"EYE FOCUS screen 2\",\"reason\":\"Projector 1 is on the wrong mode\"}", NodeCredential.Key("keyP"));
             var forUs = vm.SubmitProposal("{\"from\":{\"t\":\"messenger\",\"id\":\"ag1\",\"name\":\"AGM\"},\"target\":{\"t\":\"main\"},\"line\":\"note From the board\",\"reason\":\"log it\"}", NodeCredential.Key("keyA"));
             Pump(300);
@@ -397,12 +398,16 @@ public static class Program
             var pUs = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("AGM"));
             var queued = forPatterns.Status == 201 && forUs.Status == 201 && pPat is { IsPending: true } && pUs is { IsPending: true } && pPat.Steps[0].Risk == Stagewatch.Integrations.CopilotRisk.High;
             vm.ApproveProposalCommand.Execute(pPat);
+            Pump(200);
+            var held = pPat is { IsPending: true } && vm.CopilotStatus.Contains("has not asked this desk for approved lines", StringComparison.Ordinal);
+            var firstAsk = vm.CollectApproved("pat1", NodeCredential.Key("keyP"));
+            vm.ApproveProposalCommand.Execute(pPat);
             vm.ApproveProposalCommand.Execute(pUs);
             Pump(300);
             var collected = vm.CollectApproved("pat1", NodeCredential.Key("keyP"));
             var stolen = vm.CollectApproved("pat1", NodeCredential.Key("keyA"));
-            var okD = queued && collected.Json.Contains("EYE FOCUS screen 2") && stolen.Status == 403 && pUs!.Steps[0].Result.StartsWith("done");
-            Console.WriteLine((okD ? "OK   " : "FAIL ") + $"approval desk: queued, approved, collected by its own app only; ours ran here ({forPatterns.Status}/{forUs.Status}, {pUs?.Steps[0].Result})");
+            var okD = queued && held && firstAsk.Status == 200 && collected.Json.Contains("EYE FOCUS screen 2") && stolen.Status == 403 && pUs!.Steps[0].Result.StartsWith("done");
+            Console.WriteLine((okD ? "OK   " : "FAIL ") + $"approval desk: queued, held until its app asks, approved, collected by its own app only; ours ran here ({forPatterns.Status}/{forUs.Status}, {pUs?.Steps[0].Result}, held {held})");
             if (!okD) failures++;
 
             Run(vm, "rundown Day 2");

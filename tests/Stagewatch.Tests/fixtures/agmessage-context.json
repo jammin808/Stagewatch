@@ -1,0 +1,59 @@
+{
+ "_source": "AGMessage app/lib/context.js at d0e39617 (the pin tools/interop/siblings.json holds): buildContext's answer for a node with no meeting open and its Stagewatch linked, copied whole, this key added first",
+ "v": 1,
+ "node": {
+  "t": "messenger",
+  "id": "77aa77aa",
+  "name": "AGMessage"
+ },
+ "at": 1761422400000,
+ "light": "green",
+ "headline": "no meeting open · Stagewatch linked",
+ "items": [
+  {
+   "id": "meetings",
+   "kind": "room",
+   "label": "Meetings",
+   "light": "grey",
+   "state": "no meeting open"
+  },
+  {
+   "id": "link:stagewatch",
+   "kind": "link",
+   "label": "Stagewatch (stage timer)",
+   "light": "green",
+   "state": "timer 12:30 · Keynote"
+  },
+  {
+   "id": "ai",
+   "kind": "assistant",
+   "label": "AI drafts",
+   "light": "grey",
+   "state": "off — everything else works offline"
+  },
+  {
+   "id": "tunnel",
+   "kind": "link",
+   "label": "Remote access (Cloudflare)",
+   "light": "grey",
+   "state": "off (venue network only)"
+  }
+ ],
+ "links": [
+  {
+   "from": "meetings",
+   "to": "link:stagewatch",
+   "kind": "sends",
+   "light": "green"
+  }
+ ],
+ "recent": [],
+ "commands": [
+  {
+   "verb": "notice <text>",
+   "risk": "review",
+   "words": "Show a notice to everyone in every open meeting"
+  }
+ ],
+ "peers": []
+}

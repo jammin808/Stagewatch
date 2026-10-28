@@ -1,0 +1,113 @@
+{
+ "_source": "The lines the other show apps document for this desk and for each other, each as its own tree writes it at the pushed commit tools/interop/siblings.json pins (AGMessage d0e39617, Patterns 5a8ad8f8; PlayMap's busy golden context at b083d74e), with the tables they rate by beside this file. lines: what each sends and the desk takes, by its own rules for a line to this desk (main) and by the target's verified table otherwise; from main is a person's line sent from this desk. refused: what the desk refuses and why. AGMessage 0.4.0's stage line (app/server.js at f0e0851, its stage:propose) is the one Show Bus 1.3's G05 found this desk's parser refuses.",
+ "lines": [
+  {
+   "from": "messenger",
+   "target": "main",
+   "line": "message \"Wrap up in two minutes\" warn off ack",
+   "source": "AGMessage app/lib/stagelines.js at d0e39617: lineFor('speaker', 'Wrap up in two minutes', 'warn')",
+   "kind": "Message",
+   "risk": "review"
+  },
+  {
+   "from": "messenger",
+   "target": "main",
+   "line": "signal message moderator \"Two minutes left\"",
+   "source": "AGMessage app/lib/stagelines.js at d0e39617: lineFor('moderator', 'Two minutes left')",
+   "kind": "Signal",
+   "risk": "review"
+  },
+  {
+   "from": "messenger",
+   "target": "main",
+   "line": "signal message \"Lighting\" \"Stand by for the walk-in\"",
+   "source": "AGMessage app/lib/stagelines.js at d0e39617: lineFor('dept:Lighting', 'Stand by for the walk-in')",
+   "kind": "Signal",
+   "risk": "review"
+  },
+  {
+   "from": "messenger",
+   "target": "main",
+   "line": "note \"From the board: start on time\"",
+   "source": "AGMessage app/lib/stagelines.js at d0e39617: lineFor('operator', 'From the board: start on time')",
+   "kind": "Note",
+   "risk": "low"
+  },
+  {
+   "from": "patterns",
+   "target": "patterns",
+   "line": "APPLY a3f9: Look \"Keynote blue\"",
+   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at 5a8ad8f8: DeskProposals.Line(\"a3f9\", \"Look\", \"Keynote blue\")",
+   "table": "patterns-context.json",
+   "risk": "review",
+   "form": "APPLY <proposal>"
+  },
+  {
+   "from": "main",
+   "target": "messenger",
+   "line": "notice Q&A in 2 minutes",
+   "source": "AGMessage app/lib/context.js at d0e39617: its one command, notice <text>, as a person sends it from this desk",
+   "table": "agmessage-context.json",
+   "risk": "review",
+   "form": "notice <text>"
+  },
+  {
+   "from": "playmap",
+   "target": "playmap",
+   "line": "LINK STAGEWATCH 10.0.0.6:9924 ‹secret›",
+   "source": "PlayMap's busy golden context at b083d74e: its LINK STAGEWATCH row, the key its node keeps sent as Show Bus §11's marker",
+   "table": "playmap-context-busy.json",
+   "risk": "review",
+   "form": "LINK STAGEWATCH <host[:port]>|\"\"|OFF [<key>]"
+  },
+  {
+   "from": "main",
+   "target": "playmap",
+   "line": "PLAYLIST CUE \"Main show\" #3",
+   "source": "PlayMap's busy golden context at b083d74e: its PLAYLIST CUE row, as a person sends it from this desk",
+   "table": "playmap-context-busy.json",
+   "risk": "review",
+   "form": "PLAYLIST CUE <playlist> <item>|#<n>"
+  }
+ ],
+ "refused": [
+  {
+   "from": "messenger",
+   "target": "main",
+   "line": "message \"Wrap up in two minutes\" warn ack",
+   "source": "AGMessage 0.4.0 app/server.js at f0e0851: stage:propose, the flash left out",
+   "error": "flash must be off|slow|fast"
+  },
+  {
+   "from": "playmap",
+   "target": "playmap",
+   "line": "LINK STAGEWATCH 10.0.0.6:9924 hunter2",
+   "source": "PlayMap's busy golden context at b083d74e: its LINK STAGEWATCH row with a key written in",
+   "table": "playmap-context-busy.json",
+   "error": "a secret rides in no line — type it on Test node itself"
+  },
+  {
+   "from": "playmap",
+   "target": "playmap",
+   "line": "LINK PATTERNS 10.0.0.5 ptk_3vq8xk2m9tz7w4hc6r5n2b8d7f4g9j3k",
+   "source": "PlayMap's busy golden context at b083d74e: its LINK PATTERNS row with an app key written in (13.5.1's example key)",
+   "table": "playmap-context-busy.json",
+   "error": "a key rides in no line"
+  },
+  {
+   "from": "patterns",
+   "target": "patterns",
+   "line": "APPLY a3f9: Look \"Keynote\tblue\"",
+   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at 5a8ad8f8: DeskProposals.Line(\"a3f9\", \"Look\", a look titled with a tab), which keeps the tab (it only shortens a title)",
+   "table": "patterns-context.json",
+   "error": "a line holds no control characters"
+  },
+  {
+   "from": "messenger",
+   "target": "main",
+   "line": "note \"From the board: \u202Estart on time\"",
+   "source": "AGMessage app/lib/stagelines.js at d0e39617: lineFor('operator', …) of words holding a right-to-left override, which its clean() keeps (it leaves out \\p{Cc} only)",
+   "error": "a line holds no invisible format characters (a direction override, a zero-width space) — what a person reads is what runs"
+  }
+ ]
+}

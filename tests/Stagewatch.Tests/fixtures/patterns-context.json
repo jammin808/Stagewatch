@@ -1,0 +1,179 @@
+{
+ "_source": "Patterns src/Patterns.Core/Services/ShowContext.cs at 5a8ad8f8 (the pin tools/interop/siblings.json holds): its 33 commands, each row verbatim and in its order, as its CONTEXT sends them; the rest is the least a context carries, this key added first",
+ "v": 1,
+ "node": {
+  "t": "patterns",
+  "id": "9f8e7d6c",
+  "name": "Patterns FOH"
+ },
+ "at": 1761422400000,
+ "light": "green",
+ "headline": "Programme: Keynote blue · 3 screens green",
+ "commands": [
+  {
+   "verb": "STATUS",
+   "risk": "low",
+   "words": "read the desk's state"
+  },
+  {
+   "verb": "EYE",
+   "risk": "low",
+   "words": "read the God's Eye: every thing, its light and its links"
+  },
+  {
+   "verb": "EYE FOCUS <thing>",
+   "risk": "low",
+   "words": "move the operator's Eye to a thing (the desk's view only)"
+  },
+  {
+   "verb": "STAGE MESSAGE <words>",
+   "risk": "review",
+   "words": "words to the speaker's display, with a receipt"
+  },
+  {
+   "verb": "STAGE CREW <words>",
+   "risk": "review",
+   "words": "words to the crew's display, with a receipt"
+  },
+  {
+   "verb": "VIDEO END <seconds>",
+   "risk": "high",
+   "words": "jump the clip on air to that long before its end"
+  },
+  {
+   "verb": "VIDEO PLAY",
+   "risk": "high",
+   "words": "play the clip on air"
+  },
+  {
+   "verb": "VIDEO PAUSE",
+   "risk": "high",
+   "words": "hold the clip on air"
+  },
+  {
+   "verb": "VIDEO SEEK <m:ss>",
+   "risk": "high",
+   "words": "move the clip on air to a point"
+  },
+  {
+   "verb": "VIDEO RESTART",
+   "risk": "high",
+   "words": "the clip on air from the top"
+  },
+  {
+   "verb": "LOOK <name>",
+   "risk": "high",
+   "words": "put a saved look on air"
+  },
+  {
+   "verb": "CUE GO",
+   "risk": "high",
+   "words": "fire the standby cue"
+  },
+  {
+   "verb": "BLACKOUT ON",
+   "risk": "high",
+   "words": "every screen to black"
+  },
+  {
+   "verb": "BLACKOUT OFF",
+   "risk": "high",
+   "words": "the pictures back"
+  },
+  {
+   "verb": "APPLY <proposal>",
+   "risk": "review",
+   "words": "one of this desk's own assistant proposals, by its id — only the one this desk proposed (any other is refused); it lands in the preview, never on air"
+  },
+  {
+   "verb": "VIDEO STOP",
+   "risk": "high",
+   "words": "the clip on air back to its top and held"
+  },
+  {
+   "verb": "EYE NEXT|PREV|RESET",
+   "risk": "low",
+   "words": "move the operator's Eye (the desk's view only)"
+  },
+  {
+   "verb": "EYE LENS <name>",
+   "risk": "low",
+   "words": "change the Eye's lens (the desk's view only)"
+  },
+  {
+   "verb": "CUE STANDBY NEXT|PREV|<cue>",
+   "risk": "review",
+   "words": "put a cue on standby — nothing changes on air"
+  },
+  {
+   "verb": "PVW LOOK|PRESET|PATTERN <name>",
+   "risk": "review",
+   "words": "stage a picture in the preview — nothing reaches the air until a TAKE"
+  },
+  {
+   "verb": "PVW PROGRAM|RESET",
+   "risk": "review",
+   "words": "the preview from the air, or the look's own picture back"
+  },
+  {
+   "verb": "SCREEN <n> TAKE|CUT",
+   "risk": "high",
+   "words": "one screen's preview to its air"
+  },
+  {
+   "verb": "SCREEN <n> PVW LOOK|PRESET|PATTERN <name>",
+   "risk": "review",
+   "words": "stage a picture on one screen's preview — nothing reaches its air until its TAKE"
+  },
+  {
+   "verb": "SCREEN <n> PVW PROGRAM|RESET",
+   "risk": "review",
+   "words": "one screen's preview from its air, or back"
+  },
+  {
+   "verb": "LIBRARY <name>",
+   "risk": "high",
+   "words": "a Library tile onto the editing target's preview; a brand kit's tile puts its colours on the show itself, on air while EDIT SAFE is closed"
+  },
+  {
+   "verb": "PVW LIBRARY <name>",
+   "risk": "high",
+   "words": "a Library tile onto the programme's preview; a brand kit's tile puts its colours on the show itself, on air while EDIT SAFE is closed"
+  },
+  {
+   "verb": "SCREEN <n> PVW LIBRARY <name>",
+   "risk": "high",
+   "words": "a Library tile onto one screen's preview; a brand kit's tile puts its colours on the show itself, on air while EDIT SAFE is closed"
+  },
+  {
+   "verb": "WEB NEXT|PREV|FIRST|LAST|PRESENT|EXIT [ON <page>]",
+   "risk": "high",
+   "words": "a slide action on the web page on air"
+  },
+  {
+   "verb": "WEB PLAY|PAUSE|MUTE|RESTART|FORWARD|REWIND [ON <page>]",
+   "risk": "high",
+   "words": "a player action on the web page on air"
+  },
+  {
+   "verb": "WEB BLACK|WHITE|CAPTIONS|FULLSCREEN [ON <page>]",
+   "risk": "high",
+   "words": "the web page on air to black or white, its captions, or full screen"
+  },
+  {
+   "verb": "WEB KEY <key name> [ON <page>]",
+   "risk": "high",
+   "words": "a key to the web page on air"
+  },
+  {
+   "verb": "WEB CLICK <x> <y> [ON <page>]",
+   "risk": "high",
+   "words": "a click at a point of the page on air, x and y in percent of the page"
+  },
+  {
+   "verb": "WEB RELOAD [<page>]",
+   "risk": "high",
+   "words": "reload the page on air"
+  }
+ ]
+}

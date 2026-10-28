@@ -475,6 +475,44 @@ running app on a network: two copies of one install for the conflict, an old cer
   fence; a context posted too big reaches the desk's Show network and the rig's view, not the context's peers rows or the AI's
   facts; the window placements that read the kept links are SW22.2's; and the desk's rows are compiled here, never seen: a
   walk-through of the Show network row is the maintainer's PC work, not run.
+  *Since then (SW21.2):* the desk keeps §11's rules (REMOTE.md, "The desk's rules"). Ids are `p<n>-<run>`, the run four base-32
+  characters drawn as Stagewatch starts, `p<n>` alone naming this run's; an earlier run's id is `404` on a read and `409` on a
+  result, in words that say the desk restarted. A line is refused, never cut: over 2048 characters, a control character, an
+  invisible format character (a direction override, a zero-width space, tag characters; the zero-width joiner and non-joiner pass),
+  half of a surrogate pair (raw, or as a JSON escape, which the reader would otherwise throw on), a key (13.5.1's shape under any
+  prefix, or a word `swk_`, `ptk_`, `pmk_` or `agn_` opens), a window's address or a token one of this desk's windows holds, or a
+  secret placeholder filled with anything but `‹secret›` — of the target's verified table, or of any table held for its id that
+  proves nothing, which refuses but never lowers a risk. A reason or a node's name keeps none of those characters, and a kind or id
+  holding one names no node. A `from` of kind `main` or `mcp`, or the desk's own id, is `403`; so is a proposal sent with an MCP key
+  ("an mcp key posts no proposal here", an upgrade note: a script that posted with an MCP key proposes through `/mcp`); a target
+  naming the desk's own id under any kind is the desk; a `peer` or `desk` line proposed to this desk is refused. A target raises the
+  risk of its own proposal under its bound key, never lowers it. The desk records each target's last collect and approves nothing
+  for one silent 15 s: the proposal stays pending, and Copilot, the status line and the show log say why. The `201` appends `form`
+  and `formWords`, a proposal `collected` and `form`. `ProposeApproved` makes a person's line (born approved, one of §11's four role
+  words in `decidedBy`, a listed line of a collecting target), which the desk's Copilot list shows as sent and follows to its
+  result, and `NextPending` names the oldest pending one. Stagewatch's own commands rows are §6's notation, each form a line its
+  parser takes at a risk no lower than its own: `start | pause`, `patterns end [<seconds>]` and
+  `message <phrase> [info|warn|crit [off|slow|fast [ack]]]` (a flash only after an urgency, an ack only after a flash, as the parser
+  reads them). The lines the other apps document parse and rate as they say (`tests/Stagewatch.Tests/fixtures/peer-lines.json`, with
+  Patterns' and AGMessage's contexts at the pins the interop lane holds): AGMessage's four stage lines are taken, its 0.4.0 line is
+  refused by the parser and so rates high, Patterns' `APPLY` and AGMessage's `notice` rate review. Left: the verbs that send a
+  person's line or decide one (`peer`, `desk`) and the journal row that names who sent it from where are SW21.4's, the rig hosts no
+  desk until then, and the context's `peers[].collects` and the operator frame's desk block are SW21.5's; the desk's Approve is not
+  greyed for a target that is not collecting — it is refused, in words, when pressed — until SW21.6 (PC work); an AI's playout line
+  still goes to the desk, not to the peer's own approvals; the copilot still cuts its own steps at 400 characters (release B), and
+  `operator (copilot)` as a person's line's decider waits for it, since §11 names four role words; the desk's mirror of a person's
+  line is compiled here and moves into SW21.3's `DeskService`, where its tests come; and the Copilot's words for a refused approval
+  are compiled here, never seen: a walk-through is the maintainer's PC work, not run.
+  *Asks of the other apps (SW21.2).* **Patterns** (Round 94 or after): its `APPLY` line keeps a look's title as typed, only
+  shortened (`DeskProposals.Line`, at the pin `5a8ad8f8`), so a title holding a control character or an invisible format character
+  is now refused `400` where 2.20 dropped the characters; and at the pin a refused proposal stays unsent and is posted again each
+  cycle before the collect step, so Patterns stops collecting, and this desk then refuses every approval for it as not collecting,
+  until Patterns restarts. The ask: leave those characters out of an `APPLY` title (the zero-width joiner and non-joiner may stay),
+  and settle a proposal the desk refuses with `400` — say it and drop it — so the collect still runs. `fixtures/peer-lines.json`
+  names the case (an `APPLY` title with a tab). **AGMessage** (its next unit): `stagelines.js` says this desk keeps 400 characters
+  of a line (`LINE_MAX`); from 2.21 a line is up to 2048, refused rather than cut, so its limit may rise; and its `clean()` leaves
+  out `\p{Cc}` only, so words holding an invisible format character (a right-to-left override) are refused `400`, which it shows its
+  sender — the ask is to leave those out too, joiners kept (`fixtures/peer-lines.json` names it).
 - **A non-English show fills its context sooner.** The context is written with the default JSON encoder, which writes each
   character outside ASCII as a six-byte escape, so such a show reaches 64 KiB with about a third of an English show's text. A
   relaxed encoder waits for every reader's parser to be measured with it.
