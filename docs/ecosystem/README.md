@@ -58,8 +58,9 @@ owner says so, tree by tree.
 
 ### AGMessage
 
-Untouched on the working branch. Its 0.5.0 lives on its own session's branch; AG-1 was handed over (`agmessage-handoff.md`);
-Train 9 (AG-2…) waits for that session's work.
+Nothing of this plan's is on the working branch, which was never pushed. The other session's work (0.5.0, 0.5.1) is merged
+into `main` (`89104d8`); AG-1 was handed over (`agmessage-handoff.md`). On resume, start the working branch from `main`, read
+what 0.5.x landed against `agmessage-handoff.md`, then plan Train 9 (AG-2…) on it.
 
 ## Resuming in a fresh container
 
