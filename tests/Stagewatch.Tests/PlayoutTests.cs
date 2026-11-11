@@ -456,8 +456,9 @@ static class PlayoutTests
     /// </summary>
     static void Trust(Action<bool, string> Check)
     {
-        Check(Enum.GetValues<ShowCommandKind>()[^1] == ShowCommandKind.PlayoutTrust && (int)ShowCommandKind.PlayoutTrust == (int)ShowCommandKind.Playout + 1,
-              "playout trust: ShowCommandKind.PlayoutTrust appended after Playout");
+        Check((int)ShowCommandKind.PlayoutTrust == (int)ShowCommandKind.Playout + 1 && (int)ShowCommandKind.Peer == (int)ShowCommandKind.PlayoutTrust + 1
+              && Enum.GetValues<ShowCommandKind>()[^1] == ShowCommandKind.Desk && (int)ShowCommandKind.Desk == (int)ShowCommandKind.Peer + 1,
+              "playout trust: ShowCommandKind.PlayoutTrust appended after Playout, and the desk's Peer and Desk after it — no kind before them moved");
         Check(Parse("playout stage-left trust 03E9 b152", out _) is { Kind: ShowCommandKind.PlayoutTrust } t
               && t.Get<PlayoutTrustArgs>() == new PlayoutTrustArgs("stage-left", "03e9b152")
               && Parse("playout stage-left trust sha256:" + new string('a', 64), out _)?.Get<PlayoutTrustArgs>() is { Hex.Length: 64 },

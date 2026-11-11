@@ -717,9 +717,14 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     /// <summary>An operator action from a menu, through the one command grammar (and offered to Companion's recorder).</summary>
     public void RunOperatorLine(string line)
     {
-        RecordUi(line);
-        RunCommandLine(line);
+        // A line for another app, or a decision on a proposal, is never offered to a deck's recorder: a recorded button would send
+        // it again with nobody reading it, and a deck does not send these.
+        if (!IsPersonLine(line)) RecordUi(line);
+        RunCommandLine(line, DeskOrigin.Operator);
     }
+
+    private static bool IsPersonLine(string line)
+        => ShowCommandParser.Tokens(line) is [var verb, ..] && ProposalDesk.PersonVerbs.Contains(verb.Trim(), StringComparer.OrdinalIgnoreCase);
 
     public void SetMessage(string text, MessageUrgency urgency, FlashRate flash) => SetMessage(text, urgency, flash, 0);
 
@@ -861,6 +866,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             // Trusting a certificate is a person's choice on this desk, beside its fingerprint (TrustPlayoutCertificate): a line of it,
             // from any door or this desk's own triggers, is refused here as at every door.
             case ShowCommandKind.PlayoutTrust: Refuse(PlayoutRules.TrustLineWords); break;
+            // A person's line to another app, and a person's decision on a proposal: the desk's, by whoever the door named.
+            case ShowCommandKind.Peer or ShowCommandKind.Desk: DeskCommand(c); break;
             case ShowCommandKind.Loop: _show.SetLoop((int)c.Number); break;
             case ShowCommandKind.Ltc:
             {

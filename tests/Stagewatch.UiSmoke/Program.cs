@@ -540,7 +540,7 @@ public static class Program
                         Expect(InStep(speakOn: false, revokeOn: false), $"settings: nothing selected — both off, the buttons and the right-click alike ({State()})");
                         list.SelectedItem = nodeRow;
                         Save(w, "settings-remote-keys");
-                        Expect(((TextBox)w.FindName("PlayoutFromBox")).Text == "10.0.0.40", "settings: May drive playout shows the listed addresses, one a line");
+                        Expect(((TextBox)w.FindName("PlayoutFromBox")).Text == "10.0.0.40", "settings: May drive other show apps shows the listed addresses, one a line");
 
                         // Integrations → Playout links: the list, and its buttons and right-click menu enabled together by one rule.
                         tabs.SelectedItem = tabs.Items.OfType<TabItem>().FirstOrDefault(t => t.Header as string == "Integrations");

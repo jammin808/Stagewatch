@@ -661,7 +661,7 @@ public sealed class WebServer : IAsyncDisposable
                 // The operator's styling for browser screens. CSS only: the page CSP still blocks scripts and other sites.
                 await WriteAsync(stream, 200, "text/css; charset=utf-8", Encoding.UTF8.GetBytes(_control.CustomCss), ct); return;
             case "/api/help":
-                await WriteAsync(stream, 200, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(ShowCommandParser.Help + "\n"), ct, cors: true); return;
+                await WriteAsync(stream, 200, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(ShowCommandParser.PersonHelp + "\n"), ct, cors: true); return;
             case "/api/deptnotes":
             {
                 // One department's notes on every item: its crew link (or the PIN) reads them.
@@ -1062,6 +1062,17 @@ public sealed class WebServer : IAsyncDisposable
             .Select(Uri.UnescapeDataString).ToList();
         if (segments.Count == 0) { await WriteJsonError(stream, 404, "missing command", ct); return; }
         var verb = segments[0];
+        // Each path segment is one argument, unescaped once after the path is split: a line sent as one segment arrives whole,
+        // its own slashes and quote marks included.
+        var args = segments.Skip(1).ToList();
+        if (args.Count == 0) args = ArgsFromQuery(req.Query);
+        // POST /api/peer: the app and the line as a JSON body, for a line too long or too awkward for a path. Read before any
+        // credential is asked for, as every route's shape is; it is two strings, and nothing of it is run or kept here.
+        if (segments.Count == 1 && req.Method == "POST" && verb.Equals("peer", StringComparison.OrdinalIgnoreCase))
+        {
+            if (PeerBody(req.Body) is not { } body) { await WriteJsonError(stream, 400, PeerBodyTakes, ct); return; }
+            args = [body.App, body.Line];
+        }
 
         // Acknowledging a cue and asking a question need no PIN (speaker tablets, audience phones). A node key (another
         // show app) may put a message on the stage and nothing else.
@@ -1069,9 +1080,7 @@ public sealed class WebServer : IAsyncDisposable
         var proved = false;
         if (!ShowCommandParser.IsPublicVerb(verb))
         {
-            var probeArgs = segments.Skip(1).ToList();
-            if (probeArgs.Count == 0) probeArgs = ArgsFromQuery(req.Query);
-            var need = ShowCommandParser.TryParse(verb, probeArgs, out var probe, out _) && ApiKeys.NodeMayRun(probe.Kind)
+            var need = ShowCommandParser.TryParse(verb, args, out var probe, out _) && ApiKeys.NodeMayRun(probe.Kind)
                 ? ApiKeyScope.Node : ApiKeyScope.Control;
             if (Authorize(req, remote, need, out proved) is { } denied) { await WriteDenied(stream, denied, ct); return; }
             authorized = true;
@@ -1081,9 +1090,6 @@ public sealed class WebServer : IAsyncDisposable
             await WriteJsonError(stream, 429, "please wait a little before asking again", ct);
             return;
         }
-        var args = segments.Skip(1).ToList();
-        if (args.Count == 0) args = ArgsFromQuery(req.Query);
-
         if (!ShowCommandParser.TryParse(verb, args, out var cmd, out var error))
         {
             Reject(error);
@@ -1107,14 +1113,21 @@ public sealed class WebServer : IAsyncDisposable
             }
         }
         var requestId = CommandReceipt.CleanId(req.Headers.GetValueOrDefault("x-request-id"));
-        // Another node's air: with no PIN set and no key, only this PC or a listed address, never another site's page (a refusal runs
-        // nothing and sends nothing).
+        // Another node's air, and a person's line to another app or decision on a proposal: with no PIN set and no key, only this PC
+        // or a listed address, never another site's page (a refusal runs nothing and sends nothing).
         if (PlayoutGate.Check(cmd.Kind, CommandDoor.Http, WebSender(req, remote, proved), _control.PlayoutFrom) is { } gated)
         {
             Reject(gated);
             if (requestId is not null) await WriteAsync(stream, 403, "application/json", CommandReceipt.Refused(requestId, gated).ToJson(), ct);
             else await WriteJsonError(stream, 403, gated, ct);
             return;
+        }
+        if (PlayoutGate.Person(cmd.Kind))
+        {
+            // The door names the sender, never the line: a role for the proposal, and who and from where for the desk's journal.
+            cmd = cmd with { By = DeskOrigin.Wire(WireWho(PinFrom(req), null, remote, proved)) };
+            // A person's line is answered with what came of it, whether or not the request named itself: never a bare "ok".
+            requestId ??= PersonReceiptId(cmd.Kind);
         }
         // Show Bus receipts: with a request id the sender hears what happened, not just that it was sent.
         if (requestId is not null)
@@ -1125,6 +1138,44 @@ public sealed class WebServer : IAsyncDisposable
         }
         _control.Execute(cmd);
         await WriteAsync(stream, 200, "application/json", "{\"ok\":true}"u8.ToArray(), ct, extra: RateHeaders(req));
+    }
+
+    /// <summary>What POST /api/peer takes, said when its body is anything else.</summary>
+    public const string PeerBodyTakes = "POST /api/peer takes {\"app\":\"…\",\"line\":\"…\"}: two strings, in at most 16 KB of JSON";
+
+    /// <summary>The most bytes of a POST /api/peer body: a line is at most <see cref="LineFence.MaxChars"/> characters.</summary>
+    public const int MaxPeerBody = 16 * 1024;
+
+    /// <summary>POST /api/peer's body as its two strings, or null when it is not that: each key once, nothing guessed from another type.</summary>
+    private static (string App, string Line)? PeerBody(byte[] body)
+    {
+        if (body.Length is 0 or > MaxPeerBody) return null;
+        try
+        {
+            if (BusJson.Parse(Encoding.UTF8.GetString(body)) is not System.Text.Json.Nodes.JsonObject root) return null;
+            if (root["app"]?.GetValueKind() != JsonValueKind.String || root["line"]?.GetValueKind() != JsonValueKind.String) return null;
+            return (root["app"]!.GetValue<string>(), root["line"]!.GetValue<string>());
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The id of a person's line's receipt when its request named none: the verb.</summary>
+    private static string PersonReceiptId(ShowCommandKind kind) => kind == ShowCommandKind.Desk ? "desk" : "peer";
+
+    /// <summary>
+    /// Who sent a person's line and from where, for the desk's journal file alone: the key's name (never its secret) or that the PIN
+    /// came with it, and the address; with neither, that it is this PC or an address the operator listed, as the gate passed it.
+    /// </summary>
+    private string WireWho(string? supplied, string? keyId, IPAddress remote, bool proved)
+    {
+        var address = (remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote).ToString();
+        if (!proved) return IsThisPc(remote) ? "this PC, no PIN set" : "listed address " + address;
+        var key = keyId is not null ? _control.ApiKeys.FirstOrDefault(k => k.Id == keyId)
+            : ApiKeys.LooksLikeKey(supplied) ? ApiKeys.Find(_control.ApiKeys, supplied) : null;
+        return key is not null ? $"key '{key.Name}', {address}" : keyId is not null ? "a key, " + address : "PIN, " + address;
     }
 
     /// <summary>How long a receipt waits for the show thread before saying "accepted" (Show Bus §3).</summary>
@@ -1833,6 +1884,12 @@ public sealed class WebServer : IAsyncDisposable
             if (requestId is null) return Error(gated);
             _ = SendReceiptAsync(client, Task.FromResult(CommandReceipt.Refused(requestId, gated)));
             return null;
+        }
+        if (PlayoutGate.Person(cmd.Kind))
+        {
+            // As on HTTP: the door names the sender, and a person's line is always answered with what came of it.
+            cmd = cmd with { By = DeskOrigin.Wire(WireWho(null, link.KeyId, client.Remote, proved)) };
+            requestId ??= PersonReceiptId(cmd.Kind);
         }
         if (requestId is not null)
         {

@@ -189,10 +189,14 @@ public sealed class Copilot
                     var command = Str(s, "command", 400).Trim();
                     var why = Str(s, "why", 300);
                     if (command.Length == 0) continue;
+                    // A line to another app and a decision on a proposal are a person's: never a step, whatever the model says and
+                    // whether or not the line parses — dropped by its verb alone, before any words that quote a step.
+                    if (PersonStep(command) is { } person) { dropped.Add(person); continue; }
                     if (steps.Count >= MaxSteps) { dropped.Add(command + " (too many steps)"); continue; }
                     if (Check(command) is not { } cmd) dropped.Add(command);
                     // A line only a person on the desk may run (trusting a certificate) is never a step, whatever the model says.
                     else if (PlayoutGate.DeskOnly(cmd.Kind)) dropped.Add(command + " (" + PlayoutRules.TrustDeskOnly + ")");
+                    else if (PlayoutGate.Person(cmd.Kind)) dropped.Add(PersonDropped(cmd.Kind));
                     else steps.Add(new CopilotStep(command, why, Classify(cmd)));
                 }
             }
@@ -203,6 +207,12 @@ public sealed class Copilot
             return CopilotPlan.Failed("The copilot's answer couldn't be read — nothing was proposed.");
         }
     }
+
+    /// <summary>How a step that is a person's line is listed as dropped, or null for any other step: its verb and why, never its words.</summary>
+    private static string? PersonStep(string line)
+        => CloudAdvisor.Tokenize(line) is [var verb, ..] && PlayoutGate.PersonKind(verb) is { } kind ? PersonDropped(kind) : null;
+
+    private static string PersonDropped(ShowCommandKind kind) => kind.ToString().ToLowerInvariant() + " (" + PlayoutGate.PersonWords(kind) + ")";
 
     /// <summary>The command, if it is one Stagewatch understands.</summary>
     public static ShowCommand? Check(string line)

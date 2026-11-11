@@ -730,7 +730,7 @@ test('2.20 a press with a request id: the peer\'s answer, its final follow-up, a
 			if (line.endsWith('go pl1 it1')) return [`OK @${id} accepted PlayMap Stage left: starting Intro`, 'OK @zz9 applied not ours', `OK @${id} final applied PlayMap Stage left took PLAYLIST GO pl1 it1 (playing Intro)`]
 			if (line.endsWith('cue pl1 it2'))
 				return [`OK @${id} accepted sent to PlayMap Stage left — waiting for its answer`, `OK @${id} final accepted unconfirmed — PlayMap Stage left took it and gave no final answer in 30 s — it may have run; look at its state`]
-			if (line.endsWith('PATTERNS PAUSE')) return [`ERROR @${id} patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive playout (Companion TCP carries no PIN)`]
+			if (line.endsWith('PATTERNS PAUSE')) return [`ERROR @${id} patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive other show apps (Companion TCP carries no PIN)`]
 			if (line.endsWith('restart')) {
 				setTimeout(() => s.destroy(), 30) // the link drops before any answer
 				return []

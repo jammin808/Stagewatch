@@ -174,13 +174,39 @@ public sealed partial class MainViewModel
     private DeskRun RunApprovedHere(ShowCommand cmd, string id)
     {
         var sentAt = TimeProvider.System.GetTimestamp();
-        var (receipt, peer) = RunWithReceipt(cmd, id);
+        var (receipt, peer, _) = RunWithReceipt(cmd, id);
         if (peer is null) return new DeskRun(receipt.Ok, receipt.Ok ? receipt.Effect : receipt.Error ?? "refused");
         return new DeskRun(true, $"handed to {peer.Peer} — waiting for its answer", FinishedByPeerAsync(id, peer, sentAt));
     }
 
     private static async Task<(bool Done, string Words)> FinishedByPeerAsync(string id, PlayoutStep peer, long sentAt)
         => PlayoutReceipts.ProposalOutcome(await PlayoutReceipts.Settled(id, peer, TimeProvider.System, sentAt).ConfigureAwait(false));
+
+    /// <summary>
+    /// Show thread: a <c>peer</c> or <c>desk</c> line, as its door took it (<see cref="ShowCommand.By"/>): the service sends or
+    /// decides, and this only says what came of it. The proposal sent or decided rides in the receipt's refs by its whole id, a
+    /// refusal included; a line sent to another app is then waited for (<see cref="DeskReceipts"/>). The status line never quotes a
+    /// line its app does not list; the sender's receipt says which.
+    /// </summary>
+    private void DeskCommand(ShowCommand c)
+    {
+        var outcome = Desk.Run(c);
+        if (outcome.Proposal is { } p)
+        {
+            ReceiptRefId(DeskReceipts.Ref, p.Id);
+            // The list follows at once, and again (the same) when the service's own change arrives on this thread.
+            OnSharedProposal(p);
+        }
+        if (!outcome.Ok)
+        {
+            StatusLine = outcome.Shown;
+            ReceiptRefused(outcome.Words);
+            return;
+        }
+        // The service's words as they are: the receipt's effect is the status line, the same on every host of the desk.
+        StatusLine = outcome.Words;
+        if (c.Kind == ShowCommandKind.Peer && outcome.Proposal is { } sent) ReceiptAwait(sent.Id);
+    }
 
     private void DiscardShared(CopilotProposal p)
     {

@@ -34,6 +34,9 @@ public static class CommandRisk
             ShowCommandKind.Playout => LineRisk.High,
             // Trusting a certificate decides who may answer as a peer from then on: a person's, and refused from every line anyway.
             ShowCommandKind.PlayoutTrust => LineRisk.High,
+            // A line sent to another app runs on that app, born approved; a decision lets a proposal run. Each is a person's, and is
+            // refused from every line that is not one anyway.
+            ShowCommandKind.Peer or ShowCommandKind.Desk => LineRisk.High,
             ShowCommandKind.Screen when text.StartsWith("save", StringComparison.Ordinal) => LineRisk.Low,
             ShowCommandKind.Screen when text.StartsWith("name", StringComparison.Ordinal) => LineRisk.Low,
             // A window's name, its link-loss choice and its fade change nothing on screen now; everything else does.

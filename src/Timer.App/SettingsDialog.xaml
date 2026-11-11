@@ -361,7 +361,7 @@
                             <TextBox x:Name="OscFeedbackHost" Grid.Column="1" ToolTip="IP or host name. Blank = no feedback." />
                             <TextBox x:Name="OscFeedbackPort" Grid.Column="2" Width="80" Margin="8,0,0,0" ToolTip="UDP port" />
                         </Grid>
-                        <TextBlock Text="May drive playout" FontWeight="SemiBold" Margin="0,8,0,4" />
+                        <TextBlock Text="May drive other show apps" FontWeight="SemiBold" Margin="0,8,0,4" />
                         <TextBlock Opacity="0.6" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,6"
                                    Text="playout and patterns lines drive another node's air through this Stagewatch's links. Over OSC and Companion TCP — which carry no PIN — they are taken only from this PC and from the addresses listed here; over HTTP, a WebSocket or MCP, from anyone with the PIN or a control (MCP) key, and with no PIN set, from these addresses too. One IPv4 or IPv6 address a line, written out (no names, ranges, ports or loopback), up to 16. List only machines on a show network you trust: OSC's sender address can be forged." />
                         <TextBox x:Name="PlayoutFromBox" AcceptsReturn="True" Height="70" FontFamily="Consolas" VerticalScrollBarVisibility="Auto"

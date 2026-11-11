@@ -76,7 +76,7 @@ public sealed partial class MainViewModel
                                          + (_certificateNote is { } said ? " — " + said.Text : "")
             : "none — " + (_certificateProblem ?? "HTTPS is off"));
         Line("OSC", _osc is null ? "off" : $"listening on {_osc.Port}, {_osc.MessagesReceived} received, {_osc.MessagesRejected} rejected");
-        Line("May drive playout", "this PC" + (_playoutFrom.Count == 0 ? "" : ", " + string.Join(", ", _playoutFrom)) + "; over HTTP, WebSocket and MCP also the PIN or a key");
+        Line("May drive other show apps", "this PC" + (_playoutFrom.Count == 0 ? "" : ", " + string.Join(", ", _playoutFrom)) + "; playout over HTTP, WebSocket and MCP also with the PIN or a key; peer and desk over HTTP and WebSocket with the PIN or a control key, never MCP");
         Line("LAN addresses", string.Join(", ", LanAddresses()));
 
         Section("Audio");

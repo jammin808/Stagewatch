@@ -9,7 +9,7 @@ using Stagewatch.Core;
 using Stagewatch.Remote;
 
 /// <summary>
-/// Who may drive another node's air: <see cref="PlayoutGate"/>'s table, Settings → Remote → May drive playout as files keep it, and
+/// Who may drive another node's air: <see cref="PlayoutGate"/>'s table, Settings → Remote → May drive other show apps as files keep it, and
 /// the gate at every door a line comes in by — OSC, Companion TCP, HTTP, WebSocket and MCP — on real servers, a sender on another
 /// machine played from loopback by each server's local-address seam, and a page of another site or a rebound name on this PC by the
 /// headers a browser sends. A refused line never reaches the show thread, so no link carries it to a peer; fields and counts first,
@@ -157,13 +157,13 @@ static class PlayoutGateTests
                  })
             Check(PlayoutGate.NamesThisPc(host, port) == names, $"playout gate: Host \"{host}\" names this PC at {port}? {names} — {why}");
         Check(PlayoutGate.Words(ShowCommandKind.Playout, CommandDoor.Osc)
-              == "playout from another machine over OSC needs its address in Settings → Remote → May drive playout (OSC carries no PIN)",
+              == "playout from another machine over OSC needs its address in Settings → Remote → May drive other show apps (OSC carries no PIN)",
               "playout gate: OSC's words");
         Check(PlayoutGate.Words(ShowCommandKind.Patterns, CommandDoor.Companion)
-              == "patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive playout (Companion TCP carries no PIN)",
+              == "patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive other show apps (Companion TCP carries no PIN)",
               "playout gate: Companion TCP's words");
         Check(PlayoutGate.Words(ShowCommandKind.Playout, CommandDoor.Http)
-              == "playout from another machine over HTTP needs a control key while no PIN is set, or its address in Settings → Remote → May drive playout",
+              == "playout from another machine over HTTP needs a control key while no PIN is set, or its address in Settings → Remote → May drive other show apps",
               "playout gate: HTTP's words");
         Check(PlayoutGate.Words(ShowCommandKind.Playout, CommandDoor.Mcp).Contains("an MCP key while no PIN is set", StringComparison.Ordinal)
               && PlayoutGate.Words(ShowCommandKind.Playout, CommandDoor.WebSocket).Contains("over a WebSocket needs a control key", StringComparison.Ordinal),
@@ -195,9 +195,9 @@ static class PlayoutGateTests
         var kept = PlayoutGate.Sanitise([.. many.Take(3), "10.0.1.2", "stage-pc", null, .. many.Skip(3)], notes);
         Check(kept.Count == PlayoutGate.MaxFrom && PlayoutGate.MaxFrom == 16 && kept.SequenceEqual(many.Take(16)),
               "may drive playout: the first 16 addresses are kept in order, a repeat once");
-        Check(notes.Words.Count == 3 && notes.Words[0] == "May drive playout: \"stage-pc\" left out: " + PlayoutGate.AddressWords
-              && notes.Words[1] == "May drive playout: \"\" left out: " + PlayoutGate.AddressWords
-              && notes.Words[2] == "May drive playout keeps 16 addresses: 2 more left out",
+        Check(notes.Words.Count == 3 && notes.Words[0] == "May drive other show apps: \"stage-pc\" left out: " + PlayoutGate.AddressWords
+              && notes.Words[1] == "May drive other show apps: \"\" left out: " + PlayoutGate.AddressWords
+              && notes.Words[2] == "May drive other show apps keeps 16 addresses: 2 more left out",
               $"may drive playout: what a load leaves out is said, a repeat silently kept once ({string.Join(" | ", notes.Words)})");
         Check(PlayoutGate.Addresses(["10.0.0.40", "bad", "10.0.0.40"]) is [var one] && one.Equals(Lan), "may drive playout: the gate's copy holds the readable addresses once");
     }
@@ -210,7 +210,7 @@ static class PlayoutGateTests
             using (var store = new SettingsStore(file.Path))
             {
                 Check(store.Settings.Remote.PlayoutFrom.SequenceEqual(new[] { "10.0.0.40", "10.0.0.41" }), "may drive playout: a settings file keeps its addresses, readable and once");
-                Check(store.Notes.Contains("May drive playout: \"stage-pc.local\" left out: " + PlayoutGate.AddressWords), "may drive playout: a name left out is said at load");
+                Check(store.Notes.Contains("May drive other show apps: \"stage-pc.local\" left out: " + PlayoutGate.AddressWords), "may drive playout: a name left out is said at load");
                 store.SaveNow();
             }
             var remote = JsonNode.Parse(File.ReadAllText(file.Path))!["remote"]!.AsObject();
@@ -271,6 +271,14 @@ static class PlayoutGateTests
         var at = Count();
         await Send("/stagewatch/playout", "stage-left", "go", "show", "intro");
         Check(await Ran(ShowCommandKind.Playout, at), "osc gate: a listed address drives playout");
+        // A person's line (peer, desk) is not OSC's in this release, listed or not: refused in words, and the show thread never hears it.
+        await Send("/stagewatch/peer", "playmap", "UNDO");
+        await Send("/stagewatch/desk", "approve", "next");
+        await Send("/stagewatch/next");
+        Check(await Ran(ShowCommandKind.Next, at) && !Any(ShowCommandKind.Peer) && !Any(ShowCommandKind.Desk), "osc gate: peer and desk from a listed address never reach the show thread");
+        lock (rejected)
+            Check(rejected.Contains("OSC: " + PlayoutGate.PersonLater(ShowCommandKind.Peer, CommandDoor.Osc)) && rejected.Contains("OSC: " + PlayoutGate.PersonLater(ShowCommandKind.Desk, CommandDoor.Osc)),
+                  $"osc gate: peer and desk are refused in words that say where they are taken ({string.Join(" | ", rejected.Skip(3))})");
 
         // The default seam: a sender on this PC passes with nothing listed.
         var local = new FakeControl();
@@ -334,6 +342,14 @@ static class PlayoutGateTests
         bridge.From = [IPAddress.Loopback];
         await Say("@c3 patterns pause");
         Check(await Answer("OK @c3") == "OK @c3 accepted" && Any(ShowCommandKind.Patterns), "companion gate: a listed address drives patterns");
+        // A person's line (peer, desk) is not Companion TCP's in this release, listed or not.
+        await Say("@c4 peer playmap UNDO");
+        Check(await Answer("ERROR @c4 ") == "ERROR @c4 " + PlayoutGate.PersonLater(ShowCommandKind.Peer, CommandDoor.Companion),
+              "companion gate: a peer line from a listed address is refused under its id, in words that say where it is taken");
+        await Say("@c5 desk approve next");
+        Check(await Answer("ERROR @c5 ") == "ERROR @c5 " + PlayoutGate.PersonLater(ShowCommandKind.Desk, CommandDoor.Companion)
+              && !Any(ShowCommandKind.Peer) && !Any(ShowCommandKind.Desk),
+              "companion gate: a desk line is refused the same way, and neither reached the show thread");
     }
 
     static async Task Web(Action<bool, string> Check)

@@ -6,6 +6,8 @@
 // never did, the token among it. PlayMap pushes its STATE on HELLO before the pairing, as its 9941 does; push() says a line (a STATE
 // as either peer pushes one while its clip plays) on every paired connection. Loopback only; each listens on a port of its own and
 // closes with close().
+// FakeApp, below, is the other side of a show app: its node routes on a desk (its context posted, its approved lines collected, its
+// results reported), for the rig's approval desk.
 'use strict';
 const net = require('node:net');
 const crypto = require('node:crypto');
@@ -127,4 +129,84 @@ async function fakePatterns(options) {
   return new FakePeer({ kind: 'patterns', ...options }).listen();
 }
 
-module.exports = { fakePlayMap, fakePatterns, proof, legacyKey, ok, err };
+/**
+ * A show app on a desk's node routes (Show Bus §6, §11), as PlayMap, Patterns and AGMessage each are one: under its node key it
+ * posts its context — its verbs with their risks — every 5 s, asks for its approved lines every `poll` ms, runs each proposal once
+ * and reports what it did. It remembers every id it ran (its id memory), across the desk's restarts too: a new run's p1 is a new
+ * id, run, never skipped as the old run's p1. `run(line, proposal)` is the test's own answer ({ ok, words }); `ran` is every line it
+ * ran, in order, with its proposal's id and who decided it. silent() stops its asks (it still posts its context); close() ends it.
+ */
+class FakeApp {
+  constructor({ desk, key, kind, id, name, verbs, poll = 200, run = () => ({ ok: true, words: '' }) }) {
+    Object.assign(this, { desk, key, kind, id, name, verbs, poll, run });
+    this.ran = [];
+    this.seen = new Set();
+    this.collects = 0;
+    this.errors = [];
+    this.asking = true;
+    this.busy = false;
+  }
+
+  context() {
+    return {
+      v: 1, node: { t: this.kind, id: this.id, name: this.name }, light: 'green', headline: 'ready', items: [], recent: [],
+      commands: this.verbs.map(([verb, risk, words]) => ({ verb, risk, words: words || '' })),
+    };
+  }
+
+  async call(method, route, body) {
+    const headers = { Authorization: 'Bearer ' + this.key };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const res = await fetch(this.desk() + route, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch (e) { json = null; }
+    return { status: res.status, json, text };
+  }
+
+  async post() {
+    try {
+      const r = await this.call('POST', '/api/peers/context', this.context());
+      if (r.status !== 200) this.errors.push(`context ${r.status}: ${r.text}`);
+    } catch (e) { /* the desk is restarting: the next post reaches it */ }
+  }
+
+  async collect() {
+    if (!this.asking || this.busy) return;
+    this.busy = true;
+    try {
+      const r = await this.call('GET', `/api/proposals?target=${this.id}&state=approved`);
+      if (r.status !== 200) { this.errors.push(`collect ${r.status}: ${r.text}`); return; }
+      this.collects++;
+      for (const p of r.json.proposals) {
+        if (this.seen.has(p.id)) continue;
+        this.seen.add(p.id);
+        this.ran.push({ id: p.id, line: p.line, decidedBy: p.decidedBy, from: p.from });
+        const did = await this.run(p.line, p);
+        const said = await this.call('POST', `/api/proposals/${p.id}/result`, { ok: did.ok, words: did.words || '' });
+        if (said.status !== 200) this.errors.push(`result ${said.status}: ${said.text}`);
+      }
+    } catch (e) {
+      /* the desk is restarting: the next ask reaches it */
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async start() {
+    await this.post();
+    await this.collect();
+    this.posting = setInterval(() => this.post(), 5000);
+    this.polling = setInterval(() => this.collect(), this.poll);
+    return this;
+  }
+
+  silent() { this.asking = false; }
+
+  close() {
+    clearInterval(this.posting);
+    clearInterval(this.polling);
+  }
+}
+
+module.exports = { fakePlayMap, fakePatterns, FakeApp, proof, legacyKey, ok, err };

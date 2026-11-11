@@ -218,6 +218,37 @@ static class ShowBusSpecTests
     static bool In219(string unit) => unit.StartsWith("SW19.", StringComparison.Ordinal);
 
     /// <summary>
+    /// §11's person's line, kept: <c>peer &lt;app&gt; &lt;line&gt;</c> parses to a line passed on whole; the desk sends it only when a form
+    /// of the app's verified table takes it and the line rules hold, born approved from the desk itself, decided by one of §11's four
+    /// role words and no other.
+    /// </summary>
+    static bool PersonLineKept()
+    {
+        var nodes = new NodeBindings();
+        var contexts = new PeerContexts(nodes);
+        var now = new DateTime(2026, 10, 28, 19, 0, 0, DateTimeKind.Utc);
+        var heard = new[] { new HeardNode("playmap", "pm1", "PlayMap Hall", "10.0.0.9", 1) };
+        var desk = new DeskService(new DeskHost
+        {
+            Id = () => "desk01", Name = () => "Hall A", Nodes = nodes, Contexts = contexts, Now = () => now,
+            Network = () => ShowNetwork.Summaries(heard, contexts.Speaking([], now), Array.Empty<NodeLinkFact>(), "desk01", now),
+        });
+        var key = NodeCredential.Key("kM");
+        contexts.Accept("{\"v\":1,\"node\":{\"t\":\"playmap\",\"id\":\"pm1\",\"name\":\"PlayMap Hall\"},\"commands\":[{\"verb\":\"UNDO\",\"risk\":\"review\",\"words\":\"Undoes the last edit\"}]}",
+            "10.0.0.9", now, "desk01", key);
+        desk.CollectApproved("pm1", key);
+        ShowCommand Peer(string line, DeskOrigin? by)
+            => ShowCommandParser.TryParse("peer", ["playmap", line], out var cmd, out _) ? cmd with { By = by } : default;
+        var sent = desk.Run(Peer("UNDO", DeskOrigin.Wire()));
+        return sent is { Ok: true, Proposal: { State: SharedProposalState.Approved, DecidedBy: "wire", Line: "UNDO", From: { Kind: "main", Id: "desk01" } } }
+               && ProposalDesk.Roles.SequenceEqual(["operator", "deck", "wire", "trigger"])
+               && desk.Run(Peer("PANIC", DeskOrigin.Operator)) is { Ok: false, Proposal: null }
+               && desk.Run(Peer("UNDO\u0007", DeskOrigin.Operator)) is { Ok: false }
+               && desk.Run(Peer("UNDO", new DeskOrigin("FOH tablet"))) is { Ok: false, Proposal: null }
+               && desk.Run(Peer("UNDO", null)) is { Ok: false, Proposal: null };
+    }
+
+    /// <summary>
     /// What else of §1–§11 and §12 Stagewatch does not keep yet, past what a §14 row names: §8's Stagewatch row's words for it, the unit
     /// that ends it (each after 2.19, or "not scheduled"), what the code does today in the row's words, and a check that holds exactly
     /// while the code still does that. Once the code changes its check fails, and the entry leaves this table for a check of the words
@@ -233,8 +264,6 @@ static class ShowBusSpecTests
                   && Source("src/Timer.Remote/WebServer.cs") is { } server && !server.Contains("snonce", StringComparison.Ordinal)),
         ("13.6.9's mark on a key seen in clear", "SW22.1b", "it takes a key sent in clear from another machine as it takes any other, and marks nothing",
             SeenInClearAsToday),
-        ("a line a person sends to another app", "SW21.4", "it has no `peer` or `desk` verb",
-            () => !Enum.GetNames<ShowCommandKind>().Any(k => k is "Peer" or "Desk")),
         ("verified peers' `recent` in its report", "SW21.7", "its report holds its own journal alone",
             () => Source("src/Timer.Show/ShowReports.cs") is { } reports && !reports.Contains("Peer", StringComparison.Ordinal)),
         ("12.2's page rule for a page opened with a viewing code or a crew link", "not scheduled",
@@ -2809,6 +2838,10 @@ static class ShowBusSpecTests
               && ProposalDesk.MaxLine == n.Of("proposal.line.chars") && DeskRulesKept(),
             "showbus spec: Stagewatch keeps what §8's row names it as the desk without: lines refused not cut, ids under the desk's run, its own from and an mcp key's "
             + "proposal refused, a target's raise of its own risk, its last collect, and its commands rows in §6's notation");
+        // Kept since SW21.4, its words in the frozen row still standing: a person's line, born approved by a role (§11).
+        Check(notKept.Contains("a line a person sends to another app (today it has no `peer` or `desk` verb) —", StringComparison.Ordinal) && PersonLineKept(),
+            "showbus spec: Stagewatch keeps what §8's row names it without: a line a person sends to another app — `peer <app> <line>`, a form of that app's "
+            + "verified table under the line rules, born approved, decidedBy a role word");
         foreach (var (what, unit, today, differs) in WordsNotKeptYet)
         {
             Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),

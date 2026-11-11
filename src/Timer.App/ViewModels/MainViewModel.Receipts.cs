@@ -8,8 +8,9 @@ namespace Stagewatch.App.ViewModels;
 // sender hears what happened — applied (with the status line it produced), refused (and why), or only accepted when
 // the show thread didn't get to it in time. Whatever the command made (a message's signal id, a shared proposal's id) rides
 // along. A command handed to a playout link's peer is completed in that peer's own words (PlayoutReceipts), within the
-// same deadline. A receipted command that runs another inside itself (an approval of a line aimed at this desk) keeps its
-// own notes: the inner one's refusal, refs and peer are the inner one's alone (ReceiptStack).
+// same deadline; a line a person sent to another app, in what that app made of it (DeskReceipts). A receipted command that
+// runs another inside itself (an approval of a line aimed at this desk) keeps its own notes: the inner one's refusal, refs
+// and peer are the inner one's alone (ReceiptStack).
 public sealed partial class MainViewModel
 {
     // The receipts in flight on the show thread, innermost first, and whether a command from a wire is running — so only the
@@ -21,7 +22,7 @@ public sealed partial class MainViewModel
     {
         var time = TimeProvider.System;
         var sentAt = time.GetTimestamp();
-        (CommandReceipt Receipt, PlayoutStep? Peer) ran;
+        (CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited) ran;
         if (_ui.CheckAccess()) ran = RunWithReceipt(command, id);
         else
         {
@@ -32,6 +33,8 @@ public sealed partial class MainViewModel
         }
         // A peer's command: its answer within what is left of the deadline, and its one follow-up when that says accepted.
         if (ran.Peer is { } peer) return await PlayoutReceipts.Within(id, peer, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false);
+        // A line sent to another app: what that app made of it within what is left of the deadline, and its one follow-up after.
+        if (ran.Awaited is { } proposal) return await DeskReceipts.Within(id, Desk, proposal, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false);
         return ran.Receipt;
     }
 
@@ -39,15 +42,15 @@ public sealed partial class MainViewModel
     /// Show thread: run a command with notes of its own, and put back the notes (and the remote mark) it found when it ends — it may
     /// be running inside another receipted command, whose receipt is still to come.
     /// </summary>
-    private (CommandReceipt Receipt, PlayoutStep? Peer) RunWithReceipt(ShowCommand c, string id)
+    private (CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited) RunWithReceipt(ShowCommand c, string id)
     {
         var before = StatusLine;
         var notes = _receipts.Enter();
         try { ExecuteNow(c); }
-        catch (Exception ex) { return (CommandReceipt.Refused(id, ex.Message), null); }
+        catch (Exception ex) { return (CommandReceipt.Refused(id, ex.Message), null, null); }
         finally { _receipts.Leave(notes); }
-        if (notes.Error is null && notes.Peer is { } peer) return (CommandReceipt.Accepted(id), peer);
-        return (notes.Receipt(id, StatusLine != before ? StatusLine : ""), null);
+        if (notes.Error is null && notes.Peer is { } peer) return (CommandReceipt.Accepted(id), peer, null);
+        return (notes.Receipt(id, StatusLine != before ? StatusLine : ""), null, notes.Error is null ? notes.Awaited : null);
     }
 
     /// <summary>The action didn't happen: say why on the status line and in the sender's receipt.</summary>
@@ -65,6 +68,9 @@ public sealed partial class MainViewModel
 
     /// <summary>The command being receipted made something a sender can follow (a message's signal id).</summary>
     private void ReceiptRef(string name, long value) => _receipts.Ref(name, value);
+
+    /// <summary>The command being receipted sent a line to another app: its receipt waits for what that app makes of it.</summary>
+    private void ReceiptAwait(string proposalId) => _receipts.Await(proposalId);
 
     /// <summary>The command being receipted made something a sender follows by an id that is no number (a shared proposal's id).</summary>
     private void ReceiptRefId(string name, string id) => _receipts.RefId(name, id);

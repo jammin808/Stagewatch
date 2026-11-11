@@ -41,7 +41,7 @@ public sealed partial class MainViewModel
     private volatile string _viewCode = "";
     public string? ViewCode => _viewCode;
 
-    /// <summary>Settings → Remote → May drive playout, parsed whole for the servers' threads (the playout gate's list).</summary>
+    /// <summary>Settings → Remote → May drive other show apps, parsed whole for the servers' threads (the playout gate's list).</summary>
     private volatile IReadOnlyList<System.Net.IPAddress> _playoutFrom = Array.Empty<System.Net.IPAddress>();
     public IReadOnlyList<System.Net.IPAddress> PlayoutFrom => _playoutFrom;
     private volatile string _customCss = "";

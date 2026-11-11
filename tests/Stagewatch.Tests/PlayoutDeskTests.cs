@@ -5,7 +5,7 @@ using Stagewatch.Integrations;
 
 /// <summary>
 /// The desk's playout seams, pure, as the WPF desk calls them (its walk-through is the maintainer's PC work): Settings' links — a
-/// rename carrying its running-order cues, the lead's box, a found peer's name, a link's line — May drive playout as typed, an HTTP
+/// rename carrying its running-order cues, the lead's box, a found peer's name, a link's line — May drive other show apps as typed, an HTTP
 /// trigger's secret set and a PIN moved out of an address only where it would then be sent, the cue editor's choices, words and
 /// cues, the VT chip's entries greyed by the plan their press runs or the peer's WHOAMI, and a running-order row's cue and GO by
 /// hand through the planner. Fields first, words beside them.
@@ -130,9 +130,9 @@ static class PlayoutDeskTests
     {
         var (kept, notes) = PlayoutGate.Typed("10.0.0.40, 10.0.0.41;\n fe80::2\t10.0.0.40\r\n");
         Check(kept.SequenceEqual(new[] { "10.0.0.40", "10.0.0.41", "fe80::2" }) && notes.Count == 0,
-              "desk: May drive playout takes addresses by commas, semicolons, spaces and lines, a repeat once");
+              "desk: May drive other show apps takes addresses by commas, semicolons, spaces and lines, a repeat once");
         var (some, said) = PlayoutGate.Typed("10.0.0.40 stage-pc 127.0.0.1 10.0.0.0/24 010.0.0.1");
-        Check(some.SequenceEqual(new[] { "10.0.0.40" }) && said.Count == 4 && said.All(n => n.StartsWith("May drive playout: \"", StringComparison.Ordinal) && n.Contains(PlayoutGate.AddressWords, StringComparison.Ordinal)),
+        Check(some.SequenceEqual(new[] { "10.0.0.40" }) && said.Count == 4 && said.All(n => n.StartsWith("May drive other show apps: \"", StringComparison.Ordinal) && n.Contains(PlayoutGate.AddressWords, StringComparison.Ordinal)),
               "desk: a name, loopback, a range or an address .NET would widen is left out and said, never widened");
         var (over, overNotes) = PlayoutGate.Typed(string.Join(" ", Enumerable.Range(1, 20).Select(n => "10.0.1." + n.ToString(System.Globalization.CultureInfo.InvariantCulture))));
         Check(over.Count == PlayoutGate.MaxFrom && overNotes is [var more] && more.Contains("4 more left out", StringComparison.Ordinal),

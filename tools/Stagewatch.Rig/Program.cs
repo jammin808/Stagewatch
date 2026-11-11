@@ -14,7 +14,7 @@ using Stagewatch.Show;
 //   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321 | --pin-file FILE]
 //       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--node-keys N] [--exit-after SECONDS]
 //       [--bus PORT [--bus-to ADDRESS:PORT]] [--node-id ID] [--journal FILE|-] [--secrets-out FILE] [--exit-on-eof] [--tls FOLDER]
-//       [--playout NAME=HOST:PORT[,patterns|playmap]]… [--cue ITEM=LINK:LIST:ITEM[:standby][:together]]…
+//       [--playout NAME=HOST:PORT[,patterns|playmap]]… [--cue ITEM=LINK:LIST:ITEM[:standby][:together]]… [--desk-fresh SECONDS]
 // The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"node":…,
 // "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file","tls":"sha256:…"|null,
 // "playout":[{"name","kind","address"}]};
@@ -67,6 +67,12 @@ using Stagewatch.Show;
 // The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo, windows,
 // screen commands (browsers only, never a show app's node link), the contexts show apps post and, with --playout, the playout
 // links; any other command is refused with words (in its receipt and its log), never pretended.
+// The rig is an approval desk as the app is one (Show Bus §11), by the app's own service (DeskService): show apps propose, collect
+// and report on /api/proposals with their node keys; `peer <app> <line>` sends one line an app's verified verbs list, born
+// approved, and its receipt waits for what the app made of it; `desk approve|reject <id>|next` decides a proposal. Both are taken
+// over HTTP and a WebSocket by the app's sender gate (the PIN or a control key; with no PIN, this PC or a listed address — the
+// rig lists none). --desk-fresh SECONDS (0.2-600; the contract's 15 by default) is how long an app's last collect keeps it
+// collecting. The desk's rows reach --journal as the app journals them, who and from where in each row's via.
 // A message that asks for its acknowledgement (message <text> <urgency> <flash> ack) is the app's: a speaker signal on the
 // app's own board (SignalBoard, ids counting from 1), its receipt's refs.messageId naming it, frames carrying messageId,
 // messageAck ("sent", then "done" once acknowledged: a message signal completes on its first answer) and messageAckBy, and the
@@ -190,6 +196,9 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
     /// <summary>--secrets-out: the file every secret goes to instead of standard output, or null.</summary>
     public string? SecretsOut { get; init; }
 
+    /// <summary>--desk-fresh: how long an app's last collect keeps it collecting on the rig's desk; null for the contract's own.</summary>
+    public TimeSpan? DeskFresh { get; init; }
+
     /// <summary>--exit-on-eof: standard input reaching its end stops the rig as Ctrl+C does.</summary>
     public bool ExitOnEof { get; init; }
 
@@ -235,6 +244,9 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
                     "--journal" => o.Journal is null ? o with { Journal = File("--journal") } : throw new ArgumentException("--journal once"),
                     "--secrets-out" => o.SecretsOut is null ? o with { SecretsOut = File("--secrets-out") } : throw new ArgumentException("--secrets-out once"),
                     "--exit-on-eof" => o with { ExitOnEof = true },
+                    "--desk-fresh" => double.TryParse(Next(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var fresh) && fresh is >= 0.2 and <= 600
+                        ? o with { DeskFresh = TimeSpan.FromSeconds(fresh) }
+                        : throw new ArgumentException("--desk-fresh takes seconds, 0.2-600"),
                     "--tls" => o.Tls is null ? o with { Tls = Folder("--tls") } : throw new ArgumentException("--tls once"),
                     "--playout" => o.Playout.Count < PlayoutRules.Max && RigOptions.PlayoutLink(Next()) is var link && o.Playout.All(l => l.Name != link.Name)
                         ? o with { Playout = [.. o.Playout, link] }
@@ -380,6 +392,13 @@ sealed class Rig : ICompanionBridge, IDisposable
     private readonly PlayoutDirector _director;
     private PlayoutStep? _receiptPeer;
 
+    // The approval desk (Show Bus §11), the app's own service; and, only while a receipted command runs (owner thread), the ids it
+    // made for its refs, the proposal its receipt waits for, and the words its log says when they are not the sender's.
+    private readonly DeskService _desk;
+    private Dictionary<string, string>? _receiptRefIds;
+    private string? _receiptAwaited;
+    private string? _shownWords;
+
     // Screens: the names the operator gave them and the saved setups, immutable copies swapped whole on the owner thread.
     private volatile IReadOnlyDictionary<string, string> _screenNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private volatile IReadOnlyList<(string Name, string Path)> _presets = new[] { ("lobby", "/audience?holding=0") };
@@ -429,6 +448,24 @@ sealed class Rig : ICompanionBridge, IDisposable
         _peerContexts = new PeerContexts(_nodes);
         _windows = new WindowDirector(state.Windows, SaveWindows);
         _nodes.Bound += OnBound;   // raised on any thread; logged and saved on the owner thread
+        _desk = new DeskService(new DeskHost
+        {
+            Id = () => _nodeId,
+            Name = () => _o.Room,
+            Nodes = _nodes,
+            Contexts = _peerContexts,
+            Network = () => _network,
+            Linked = target => PlayoutLinks.PulledFor(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>(), target),
+            WindowTokens = () => _windows.Windows.Select(w => w.Token),
+            Fresh = o.DeskFresh ?? ProposalDesk.CollectFresh,
+            RunHere = RunApprovedHere,
+        });
+        // As the app: the desk's rows in the journal, who and from where in the entry's via; its words in the log, which name a role alone.
+        _desk.Journalled += row => Post(() =>
+        {
+            _journal?.Add(row.Entry(_item));
+            Log("desk: " + row.Words);
+        });
         if (_madeKeys is { Count: > 0 }) SaveState(state.Windows);
         Settings.Remote.Pin = o.Pin;
         Settings.Integrations.RoomName = o.Room;
@@ -817,39 +854,99 @@ sealed class Rig : ICompanionBridge, IDisposable
     public void Execute(ShowCommand command) => Post(() =>
     {
         var (ok, words) = Run(command);
-        Log((ok ? "ran " : "refused ") + command.Kind + ": " + words);
+        Log((ok ? "ran " : "refused ") + command.Kind + ": " + Shown(words));
     });
+
+    /// <summary>Owner thread: the words the log says of the command just run — the sender's, unless the command gave others for it.</summary>
+    private string Shown(string words)
+    {
+        var shown = _shownWords ?? words;
+        _shownWords = null;
+        return shown;
+    }
 
     public async Task<CommandReceipt> ExecuteWithReceiptAsync(ShowCommand command, string id, TimeSpan timeout)
     {
         var time = TimeProvider.System;
         var sentAt = time.GetTimestamp();
-        var done = new TaskCompletionSource<(CommandReceipt Receipt, PlayoutStep? Peer)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var done = new TaskCompletionSource<(CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited)>(TaskCreationOptions.RunContinuationsAsynchronously);
         Post(() =>
         {
-            // What the command makes (a message's signal) rides in its receipt's refs, as the app's receipts carry it; the
-            // refs exist only while a receipted command runs. A command handed to a playout link's peer is that peer's to answer.
-            var refs = _receiptRefs = new Dictionary<string, long>();
-            _receiptPeer = null;
-            (bool Ok, string Words) result;
-            PlayoutStep? peer;
-            try { result = Run(command); }
-            finally
-            {
-                _receiptRefs = null;
-                peer = _receiptPeer;
-                _receiptPeer = null;
-            }
-            var (ok, words) = result;
-            Log((ok ? "ran " : "refused ") + command.Kind + ": " + words);
-            done.TrySetResult(ok ? (new CommandReceipt(id, true, "applied", words, null, refs.Count > 0 ? refs : null), peer) : (CommandReceipt.Refused(id, words), null));
+            // What the command makes (a message's signal, a shared proposal) rides in its receipt's refs, as the app's receipts
+            // carry it, a refusal's included; the refs exist only while a receipted command runs. A command handed to a playout
+            // link's peer is that peer's to answer; a line sent to another app is waited for.
+            var ran = Receipted(() => Run(command));
+            var (ok, words) = ran.Result;
+            Log((ok ? "ran " : "refused ") + command.Kind + ": " + Shown(words));
+            var refs = ran.Refs.Count > 0 ? ran.Refs : null;
+            var ids = ran.RefIds.Count > 0 ? ran.RefIds : null;
+            done.TrySetResult(ok
+                ? (new CommandReceipt(id, true, "applied", words, null, refs, ids), ran.Peer, ran.Awaited)
+                : (CommandReceipt.Refused(id, words) with { Refs = refs, RefIds = ids }, null, null));
         });
         var first = await Task.WhenAny(done.Task, Task.Delay(timeout)).ConfigureAwait(false);
         if (first != done.Task) return CommandReceipt.Accepted(id);
-        var (receipt, handed) = await done.Task.ConfigureAwait(false);
+        var (receipt, handed, awaited) = await done.Task.ConfigureAwait(false);
         // As the app's: the peer's own answer within what is left of the deadline, and its one follow-up when that says accepted.
-        return handed is { } step ? await PlayoutReceipts.Within(id, step, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false) : receipt;
+        if (handed is { } step) return await PlayoutReceipts.Within(id, step, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false);
+        // A line sent to another app: what that app made of it within what is left of the deadline, and its one follow-up after.
+        if (awaited is { } proposal) return await DeskReceipts.Within(id, _desk, proposal, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false);
+        return receipt;
     }
+
+    /// <summary>
+    /// Owner thread: a command run with receipt notes of its own — what it made, the peer it was handed to, the proposal it waits
+    /// for — and the notes it found put back when it ends: it may run inside another receipted command (an approved line aimed
+    /// at this desk), whose notes are its own.
+    /// </summary>
+    private ((bool Ok, string Words) Result, Dictionary<string, long> Refs, Dictionary<string, string> RefIds, PlayoutStep? Peer, string? Awaited) Receipted(
+        Func<(bool Ok, string Words)> run)
+    {
+        var outer = (_receiptRefs, _receiptRefIds, _receiptPeer, _receiptAwaited);
+        var refs = _receiptRefs = new Dictionary<string, long>();
+        var ids = _receiptRefIds = new Dictionary<string, string>(StringComparer.Ordinal);
+        _receiptPeer = null;
+        _receiptAwaited = null;
+        try
+        {
+            var result = run();
+            return (result, refs, ids, result.Ok ? _receiptPeer : null, result.Ok ? _receiptAwaited : null);
+        }
+        finally
+        {
+            (_receiptRefs, _receiptRefIds, _receiptPeer, _receiptAwaited) = outer;
+        }
+    }
+
+    /// <summary>
+    /// Owner thread: a <c>peer</c> or <c>desk</c> line as its door took it — the service sends or decides, by whoever the door
+    /// named. The proposal sent or decided rides in the receipt's refs by its whole id; a line sent to another app is then waited
+    /// for. The log never quotes a line its app does not list; the sender's receipt says which.
+    /// </summary>
+    private (bool, string) DeskCommand(ShowCommand c)
+    {
+        var outcome = _desk.Run(c);
+        if (outcome.Proposal is { } p && _receiptRefIds is { } ids) ids[DeskReceipts.Ref] = p.Id;
+        if (outcome.Ok && c.Kind == ShowCommandKind.Peer && outcome.Proposal is { } sent) _receiptAwaited = sent.Id;
+        if (outcome.Shown != outcome.Words) _shownWords = outcome.Shown;
+        return (outcome.Ok, outcome.Words);
+    }
+
+    /// <summary>
+    /// DeskHost.RunHere (owner thread): an approved line aimed at the rig runs here with notes of its own, as the app runs one; a
+    /// line handed to a playout link's peer is finished by that peer's final answer, never a "done" it did not say.
+    /// </summary>
+    private DeskRun RunApprovedHere(ShowCommand cmd, string id)
+    {
+        var time = TimeProvider.System;
+        var sentAt = time.GetTimestamp();
+        var ran = Receipted(() => Run(cmd));
+        if (ran.Peer is not { } peer) return new DeskRun(ran.Result.Ok, ran.Result.Words);
+        return new DeskRun(true, $"handed to {peer.Peer} — waiting for its answer", FinishedByPeerAsync(id, peer, time, sentAt));
+    }
+
+    private static async Task<(bool Done, string Words)> FinishedByPeerAsync(string id, PlayoutStep peer, TimeProvider time, long sentAt)
+        => PlayoutReceipts.ProposalOutcome(await PlayoutReceipts.Settled(id, peer, time, sentAt).ConfigureAwait(false));
 
     /// <summary>Owner thread: one command, and what it did (or why not).</summary>
     private (bool Ok, string Words) Run(ShowCommand c)
@@ -877,9 +974,13 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.Patterns => Handed(_director.Patterns(c.Text ?? "end", (int)c.Number, _item, VtLink())),
             // A person's choice beside the fingerprint on the desk: never a line's, here as in the app.
             ShowCommandKind.PlayoutTrust => (false, PlayoutRules.TrustLineWords),
+            // A person's line to another app, and a person's decision on a proposal: the desk's, as in the app.
+            ShowCommandKind.Peer or ShowCommandKind.Desk => DeskCommand(c),
             _ => (false, $"the rig doesn't simulate {c.Kind.ToString().ToLowerInvariant()} (the app does)"),
         };
-        if (result.Ok) { CommandRecorded?.Invoke(c.Kind.ToString().ToLowerInvariant()); Tick(); }
+        // A person's line is never offered to a deck's recorder, as in the app.
+        if (result.Ok && !PlayoutGate.Person(c.Kind)) CommandRecorded?.Invoke(c.Kind.ToString().ToLowerInvariant());
+        if (result.Ok) Tick();
         return result;
 
         static (bool, string) Did(Action a, string words) { a(); return (true, words); }
@@ -988,7 +1089,12 @@ sealed class Rig : ICompanionBridge, IDisposable
         var frame = Frame();
         JournalEdges(frame);
         Snapshots.Publish(frame);
-        if (++_tick % 4 == 0 || _context is null) _context = Context();
+        if (++_tick % 4 == 0 || _context is null)
+        {
+            _context = Context();
+            // Once a second, as the app: approved lines no app collected or answered become undelivered.
+            _desk.Expire();
+        }
     }
 
     // ---------------------------------------------------------------- the journal (--journal), owner thread
@@ -1175,6 +1281,13 @@ sealed class Rig : ICompanionBridge, IDisposable
     public string? OwnNodeId => _nodeId;
     public IReadOnlyList<ApiKey> ApiKeys => _apiKeys;
     public NodeBindings Nodes => _nodes;
+
+    // The shared approval queue (Show Bus §11), any thread: the service answers, as in the app.
+    public (int Status, string Json) SubmitProposal(string body, NodeCredential credential) => _desk.SubmitProposal(body, credential);
+    public (int Status, string Json) GetProposal(string id) => _desk.GetProposal(id);
+    public (int Status, string Json) ProposalsFrom(string nodeId) => _desk.ProposalsFrom(nodeId);
+    public (int Status, string Json) CollectApproved(string targetId, NodeCredential credential) => _desk.CollectApproved(targetId, credential);
+    public (int Status, string Json) ProposalResult(string id, string body, NodeCredential credential) => _desk.ProposalResult(id, body, credential);
 
     /// <summary>A show app's context, taken only from a credential that may speak for its node, and held with that proof.</summary>
     public (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)

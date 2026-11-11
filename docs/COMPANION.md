@@ -7,7 +7,7 @@ Stagewatch ships a full Companion module in [`companion-module/`](../companion-m
 **From the package (operators):**
 1. In Companion, open **Modules → Import module package** and choose `stagewatch-<version>.tgz` (the installer puts it in the Stagewatch folder under `Companion`; builds write it to `companion-module/`).
 2. Add a **Stagewatch** connection and set the address (`127.0.0.1` on the same PC) and port 9923.
-3. In Stagewatch, check that **Settings → Companion → Enabled** is on. For a second PC, also turn on **Bind all interfaces**; its Patterns (and playout) buttons also need that PC's address in **Settings → Remote → May drive playout** (2.20; `remote.playoutFrom` in the settings file), since Companion TCP carries no PIN — until then each press is refused with those words in the module's log. List addresses only on a show network you trust: an address is all Companion TCP proves.
+3. In Stagewatch, check that **Settings → Companion → Enabled** is on. For a second PC, also turn on **Bind all interfaces**; its Patterns (and playout) buttons also need that PC's address in **Settings → Remote → May drive other show apps** (2.20; `remote.playoutFrom` in the settings file), since Companion TCP carries no PIN — until then each press is refused with those words in the module's log. List addresses only on a show network you trust: an address is all Companion TCP proves.
 
 **From source (developers):**
 ```pwsh
@@ -105,7 +105,7 @@ button is recording.
 | `AUX`, `SCREEN` | Extra timers and browser screens (2.8; see REMOTE.md). Module: *Extra timer* actions and keys, `aux_1`…`aux_3` variables, *Screens: send / identify*. From 2.18 screen commands reach browser screens only (below) |
 | `UNDO`, `REDO`, `ENDOFSHOW <HH:MM\|clear>`, `LOOP <off\|n\|forever>`, `SCREEN RELOAD\|DISCONNECT [screen]` | 2.10. Module: *Undo the last live edit*, *Redo*, *Running order: show ends at*, *Running order: loop*, *Screens: reload / disconnect* |
 | `WINDOW NEW\|SHOW\|CUE\|HOLD\|RELEASE\|IDENTIFY\|RELOAD\|LOSS\|FADE\|RENAME\|REVOKE\|DELETE …` | Windows Stagewatch controls (2.17; see REMOTE.md). Module: *Windows: show a page* (show or cue), *Windows: holding page* (on, toggle, words, image), *Windows: release*, *Windows: identify*; presets *holding page on every window (toggle)* and *identify all*. No window feedbacks yet: the module's frame doesn't carry windows |
-| `PLAYOUT [<link>] END [secs]\|RESTART\|PLAY\|PAUSE\|STOP\|SEEK <m:ss>`, `PLAYOUT <link> GO\|CUE …`, `PATTERNS …` | The clip on air, a PlayMap node's playlist items and a Patterns desk's cues over Stagewatch's playout links (2.20; see REMOTE.md), from this PC or an address in May drive playout. Module (2.20): *Playout: the clip on air*, *Playout: GO*, *Playout: cue* and the *Patterns* actions, each sent with a request id; `vt_link`, `vt_source` and `playout_answer`; the *Playout: The VT comes from…* feedback; the *Playout links* presets (below) |
+| `PLAYOUT [<link>] END [secs]\|RESTART\|PLAY\|PAUSE\|STOP\|SEEK <m:ss>`, `PLAYOUT <link> GO\|CUE …`, `PATTERNS …` | The clip on air, a PlayMap node's playlist items and a Patterns desk's cues over Stagewatch's playout links (2.20; see REMOTE.md), from this PC or an address in May drive other show apps. Module (2.20): *Playout: the clip on air*, *Playout: GO*, *Playout: cue* and the *Patterns* actions, each sent with a request id; `vt_link`, `vt_source` and `playout_answer`; the *Playout: The VT comes from…* feedback; the *Playout links* presets (below) |
 | `STATE`, `SUBSCRIBE [JSON]`, `UNSUBSCRIBE`, `PING`, `QUIT` | Session |
 
 **Screen commands reach browsers only (2.18).** `SCREEN IDENTIFY|RELOAD|DISCONNECT|GO` with no screen, or `all`, reach
@@ -143,7 +143,7 @@ item or cue with a space or a quote mark is quoted; one called `together`, last,
 Each of these lines, and each *Patterns* action's, is sent as `@c<n> <line>`, and what comes back is one line in the connection's
 log and in `$(stagewatch:playout_answer)`: `applied — PlayMap Stage left took …`, `accepted — …` then `final applied — …` (or
 `final accepted — unconfirmed …`, Stagewatch's own word when the node gave none), `refused — <why>` — the playout gate's words
-from a PC not in May drive playout among them — or, when the link drops before the answer, `no answer — the link to Stagewatch
+from a PC not in May drive other show apps among them — or, when the link drops before the answer, `no answer — the link to Stagewatch
 dropped first, so it may or may not have run`, and after an `accepted`, `accepted; the link to Stagewatch dropped before any final
 answer came`. An `accepted` whose words begin `unconfirmed` is settled (Stagewatch sends no follow-up to it), and a line sent more
 than 40 s ago is forgotten without a word, since no answer to it can still come. In the variable, an earlier press's late answer

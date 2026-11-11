@@ -285,6 +285,17 @@ public sealed class ProposalDesk
 
     private static bool IsShort(string id) => id.Length is > 1 and <= 11 && id[0] == 'p' && id.Skip(1).All(char.IsAsciiDigit);
 
+    /// <summary>
+    /// Whether a word is shaped as a proposal's id — <c>p17</c>, or whole, <c>p17-k3m9</c> — whatever run made it: what a grammar
+    /// takes as an id before the desk says whether it names one.
+    /// </summary>
+    public static bool LooksLikeId(string? id)
+    {
+        if (string.IsNullOrEmpty(id)) return false;
+        var dash = id.IndexOf('-');
+        return dash < 0 ? IsShort(id) : IsShort(id[..dash]) && ValidRun(id[(dash + 1)..]);
+    }
+
     /// <summary>The whole id an id names (<c>p17</c> → <c>p17-k3m9</c>), or null when it names no proposal held.</summary>
     public string? Resolve(string id) { lock (_lock) return Find(id)?.Id; }
 

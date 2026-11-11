@@ -169,13 +169,16 @@ behind schedule; negative = ahead), `/message` (s), `/blackout` (i), `/progress`
 
 ### Who may drive another app's air (2.20)
 
+*From 2.21 the same gate decides `peer` and `desk` lines over HTTP and a WebSocket ("A person's line to another app", below), and
+its list is named **May drive other show apps**.*
+
 A `playout` or `patterns` line goes on through Stagewatch's own paired link to a Patterns desk's or a PlayMap node's air,
 so Stagewatch never relays one for a sender that proved nothing. It runs when it comes:
 
 - from this PC: a loopback address, and over HTTP, a WebSocket or MCP also a `Host` that names this PC there (none,
   `localhost` or a loopback address, at Stagewatch's port);
 - over HTTP, a WebSocket or MCP, with the PIN Stagewatch asks for or a key (a control key; MCP an MCP key);
-- or from an address listed in **Settings → Remote → May drive playout** (one a line in its box; `remote.playoutFrom` in the
+- or from an address listed in **Settings → Remote → May drive other show apps** (one a line in its box; `remote.playoutFrom` in the
   settings file: at most 16, each one IPv4 or IPv6 address written out; names, ranges, ports and loopback addresses are left
   out at load, and said; the box refuses to save one it can't keep, and says which).
 
@@ -191,9 +194,9 @@ PC or a listed address, unless it carries the PIN or a key. So is a request over
 Anything else is refused before the show thread hears of it, so nothing reaches a peer, and the words name the door:
 
 ```
-playout from another machine over OSC needs its address in Settings → Remote → May drive playout (OSC carries no PIN)
-ERROR @c1 patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive playout (Companion TCP carries no PIN)
-403 {"ok":false,"error":"playout from another machine over HTTP needs a control key while no PIN is set, or its address in Settings → Remote → May drive playout"}
+playout from another machine over OSC needs its address in Settings → Remote → May drive other show apps (OSC carries no PIN)
+ERROR @c1 patterns from another machine over Companion TCP needs its address in Settings → Remote → May drive other show apps (Companion TCP carries no PIN)
+403 {"ok":false,"error":"playout from another machine over HTTP needs a control key while no PIN is set, or its address in Settings → Remote → May drive other show apps"}
 403 {"ok":false,"error":"patterns from another site's web page over HTTP needs a control key while no PIN is set"}
 ```
 
@@ -252,7 +255,7 @@ operator's **Copilot** window with the agent's `reason`, and the tool result say
 approval (proposal #12)"). The operator ticks and runs it, or discards it; both go in the show journal and the
 report's *AI suggestions and decisions*. Settings → Integrations can let agents act directly instead, except for
 `playout` and `patterns`: a line that drives another app's air is always a proposal (2.20), and with no PIN set it comes
-only from this PC, with an MCP key, or from an address in May drive playout (above). Where nobody approves (the headless
+only from this PC, with an MCP key, or from an address in May drive other show apps (above). Where nobody approves (the headless
 rig), such a line is refused, and the tool result is an error, never read as queued.
 
 ## Screens: what browsers are told (2.8)
@@ -544,9 +547,9 @@ Show Bus §11 as the desk keeps it from 2.21 (`ProposalDesk`, `LineFence`):
 - **A person's line** to another app — born approved, from this desk, `decidedBy` one of §11's role words (`operator`, `deck`,
   `wire`, `trigger`), only a line the app's verified table lists, only while the app collects — is the desk's rule from 2.21; it
   joins Copilot as sent, and its done, failed or undelivered reaches Copilot, the status line and the show log as any approved
-  line's does. The verbs that send one (`peer <app> <line>`, `desk approve|reject`) come with 2.21's grammar.
-- **A person decides, and the tick counts.** One service holds these rules (`DeskService`); the desk hosts it now, and the rig
-  — which still answers these routes "no approval desk here" — hosts it with 2.21's grammar. Approving another app's proposal in
+  line's does. The verbs that send one and decide one (`peer <app> <line>`, `desk approve|reject`) are below.
+- **A person decides, and the tick counts.** One service holds these rules (`DeskService`); the desk and the rig both host
+  it. Approving another app's proposal in
   Copilot honours its tick, as Stagewatch's own steps always have: unticked, nothing is approved ("Nothing was ticked — nothing
   ran") and it still waits. A high proposal is never ticked for the operator, so it is approved only once they tick it; 2.20
   approved it whatever the tick. A high proposal is approved only by its id and the word, never as "the next one". A proposal
@@ -564,12 +567,76 @@ Show Bus §11 as the desk keeps it from 2.21 (`ProposalDesk`, `LineFence`):
   a decision adds none. A refusal's row never quotes the line (`… does not list that line`: the sender is told which). The
   same refusal again — the same proposal or app, the same sender, the same reason — within a minute is counted, not written
   again, and one row says how many when the minute ends (`Not approved p18 (deck): refused the same way 14 more times`).
-- **A receipt's `refs` may hold an id beside its numbers** — from 2.21's `peer` and `desk` verbs; no receipt carries one yet.
+- **A receipt's `refs` may hold an id beside its numbers** — a `peer` or `desk` line's receipt carries one.
   What a command made is named by number (`messageId`, `peerRequest`) or, where the thing has no number, by its id as a string
   — a shared proposal's (`"refs":{"sharedProposal":"p17-k3m9"}`). A reader that sums or compares refs reads each by its name.
   Show Bus 1.3 §3 words `refs` as naming what was made "by number"; the string id is this Stagewatch's addition until those
   words are amended (asked of the spec with 2.21's papers). From 2.21 a refused receipt keeps the refs the command noted before
   it was refused (2.20 sent `{}`): what it had already made is still named.
+
+### A person's line to another app, and a person's decision (2.21)
+
+Two verbs act on other show apps with a person's authority. No AI is handed either: the grammar the copilot, the advisor and
+MCP read (`ShowCommandParser.Help`) leaves them out, `GET /api/help` (`PersonHelp`) lists them, neither is a row of this
+Stagewatch's own context, and both rate high.
+
+```
+peer <app> <line>                            send one line another show app lists, born approved by you
+desk approve <id> [high] | desk approve next
+desk reject <id>|next [<why…>]
+```
+
+- **`peer`** takes exactly two arguments: the app, and the line as **one** argument, passed on whole — no word of it is split,
+  joined or unescaped; white space at the line's two ends is dropped, and nothing inside it changes. More arguments are
+  refused ("peer takes an app and one line — quote the line as one argument"). `<app>` is a node id, a name one app has, or
+  `playmap`, `patterns`, `agmessage`/`messenger` when one app of that kind is heard; never this Stagewatch. A word there that
+  holds a key or a window's address names no app and is refused without being quoted back ("a key rides in no line"). The
+  desk's rules above decide the rest: only a line a form of the app's
+  **verified** table takes, no key, window address or filled secret, at most 2048 characters, and only while the app
+  collects. The line is born approved, from this desk, `decidedBy` the role `wire` (the key's name and the sender's address
+  are in the show log's `via` for that row, nowhere else).
+- **`desk approve <id>`** approves a waiting proposal by its id (`p17`, or whole, `p17-k3m9`); **`desk approve next`** the
+  oldest waiting. A high proposal is approved only by its id and the word: `desk approve p18-k3m9 high` — `next` never
+  approves one, and says the line to send. **`desk reject <id>|next [why]`** rejects; the reason (at most 400 characters)
+  goes to the show log, so one that holds a key or a window's address rejects nothing ("a key rides in no line") and the
+  proposal still waits. An approval for an app that is not collecting is refused and the proposal still waits.
+
+| Door | Shape |
+|---|---|
+| HTTP | `GET` or `POST /api/peer/<app>/<the line as one URL-encoded segment>`; `POST /api/peer` with `{"app":"pm-a1b2","line":"SET out1 name \"Left wall\""}` (two strings, at most 16 KB; anything else `400`); `/api/desk/approve/p17`, `/api/desk/approve/p18-k3m9/high`, `/api/desk/approve/next`, `/api/desk/reject/next/<why>` |
+| WebSocket | `{"cmd":"peer","args":["pm-a1b2","PLAYLIST CUE \"Main show\" #3"],"id":"a1"}`, `{"cmd":"desk","args":["approve","p18-k3m9","high"],"id":"a2"}` |
+| A Command trigger | `peer agmessage "notice Q&A in 2 minutes"` — sent as the role `trigger`. A typed line's quote marks are dropped as it is split into words, so a line that holds quote marks of its own is refused there, never sent on altered. A trigger never decides: `desk` from one is refused |
+| Companion TCP, OSC | not in this release: refused in words ("peer is sent over HTTP or a WebSocket (with the PIN or a control key) — Companion TCP does not take it in this release") |
+| MCP, the copilot, the advisor, a proposal | never: `run_command` answers `isError` ("a person sends a line to another app — not the copilot, an agent or a proposal", "a person approves — not a trigger, the copilot or an agent") for any line that opens with either verb, whether or not the rest parses, and never quotes the line back; a copilot plan drops such a step by its verb alone |
+
+**Who may send them** is the sender gate above ("Who may drive another app's air"), for these two lines: the PIN Stagewatch
+asks for, or a **control** key — never a node, read or MCP key (`403`). With no PIN set: this PC, or an address in
+**Settings → Remote → May drive other show apps** (the list 2.20 named "May drive playout"; `remote.playoutFrom` in the file,
+unchanged), never another site's page. Anyone else is `403`: "peer acts on another show app with a person's authority — from
+another machine over HTTP it needs a PIN set and given, a control key, or its address in Settings → Remote → May drive
+other show apps". `peer` turns that credential into a relay of *listed* lines onto the other apps: bounded by the listed-only
+rule and the line fence here, and by each app's own rules there.
+
+**The receipt** is always sent — with no `X-Request-Id` (or no `id` on a WebSocket) its id is the verb, `peer` or `desk`,
+never a bare `{"ok":true}` — and names the proposal in `refs.sharedProposal`, its whole id, a string, a refusal's included.
+A `peer` line's receipt is what its app made of it, waited for within the 3 s deadline:
+
+```
+200 {"type":"receipt","id":"a1","ok":true,"stage":"applied","effect":"PlayMap Hall ran PLAYLIST CUE show #3: cued Intro (p17)","error":null,"refs":{"sharedProposal":"p17-k3m9"}}
+409 {"type":"receipt","id":"a1","ok":false,"stage":"applied","effect":"","error":"PlayMap Hall refused PLAYLIST CUE show #9: Show has no item #9 (p17)","refs":{"sharedProposal":"p17-k3m9"}}
+200 {"type":"receipt","id":"a1","ok":true,"stage":"accepted","effect":"sent to PlayMap Hall as p17 — it has not collected it yet","error":null,"refs":{"sharedProposal":"p17-k3m9"}}
+200 {"type":"receipt","id":"a1","ok":true,"stage":"accepted","effect":"PlayMap Hall has p17 — waiting for its answer","error":null,"refs":{"sharedProposal":"p17-k3m9"}}
+200 {"type":"receipt","id":"a2","ok":true,"stage":"applied","effect":"approved p18 (AI agent (MCP) → PlayMap Hall: UNDO) — PlayMap Hall runs it and reports back","error":null,"refs":{"sharedProposal":"p18-k3m9"}}
+409 {"type":"receipt","id":"a3","ok":false,"stage":"applied","effect":"","error":"p18 is high — approve it by its id: desk approve p18-k3m9 high","refs":{"sharedProposal":"p18-k3m9"}}
+```
+
+An `accepted` receipt is followed on a WebSocket by its one `"final":true` receipt within 30 s of the send (`receipt.final.ms`,
+as a playout line's is): the app's result once it comes — applied, or refused — and with none by then, accepted still:
+`unconfirmed — PlayMap Hall has p17 — waiting for its answer; none came in 30 s — it may have run; its result is on the desk as
+p17` for a line its app collected, and for one never collected, that it has not been (it is undelivered after 60 s). HTTP
+answers once; `GET /api/proposals/<id>` says what came of it. A refusal — an unlisted line, an app that names none, an app not
+collecting — is `409`, in the desk's words, nothing queued. Other readers (the status line, the rig's log, the show log)
+never quote a line its app does not list: only the sender's receipt says which.
 
 ## 2.17: windows — addresses Stagewatch controls
 

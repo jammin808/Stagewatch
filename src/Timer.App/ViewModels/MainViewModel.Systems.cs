@@ -707,7 +707,7 @@ public sealed partial class MainViewModel
         if (!Gate(ReportAllowed("csv"), "The CSV report", FeatureTier.Pro)) return;
         if (WriteReport("csv", open: true) is { } p) StatusLine = "Report: " + p;
     }
-    [RelayCommand] private void ApplyAdvice(Advice a) { if (a.Command is { } cmd) { RecordUi(cmd); RunCommandLine(cmd); } }
+    [RelayCommand] private void ApplyAdvice(Advice a) { if (a.Command is { } cmd) { RecordUi(cmd); RunCommandLine(cmd, DeskOrigin.Advisor); } }
     [RelayCommand] private void DepartmentStandby(string dept) { RecordUi($"signal standby {Q(dept)}"); ExecuteNow(ShowCommand.Signal(SignalKind.Standby, dept, "", ackRequired: true)); }
     [RelayCommand] private void DepartmentGo(string dept) { RecordUi($"signal go {Q(dept)}"); ExecuteNow(ShowCommand.Signal(SignalKind.Go, dept, "", ackRequired: true)); }
     [RelayCommand] private void AllGo() { RecordUi("signal go all"); ExecuteNow(new ShowCommand(ShowCommandKind.SignalGoAll)); }
@@ -761,12 +761,14 @@ public sealed partial class MainViewModel
 
     partial void OnAckRequestedChanged(bool value) => _store.Update(s => s.Signals.AckByDefault = value);
 
-    /// <summary>Run a command line from a trigger, the assistant or the UI through the one grammar.</summary>
-    public void RunCommandLine(string line)
+    /// <summary>
+    /// Run a command line from a trigger, the assistant or the UI through the one grammar. <paramref name="by"/> names who is behind
+    /// it for the two lines that act with a person's authority (peer, desk); a line nobody is named for sends and decides nothing.
+    /// </summary>
+    public void RunCommandLine(string line, DeskOrigin? by = null)
     {
-        var tokens = CloudAdvisor.Tokenize(line);
-        if (tokens.Count == 0) return;
-        if (ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out var error)) Execute(cmd);
+        if (ShowCommandParser.Tokens(line).Count == 0) return;
+        if (ShowCommandParser.TryParseLine(line, out var cmd, out var error)) Execute(cmd with { By = by });
         else Refuse("Command rejected: " + error);
     }
 }

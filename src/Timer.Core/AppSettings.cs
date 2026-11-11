@@ -310,8 +310,9 @@ public sealed class RemoteSettings
     /// (the addresses are on the screens in the venue), never in a show file.</summary>
     [JsonPropertyName("windows")] public List<ScreenWindow> Windows { get; set; } = new();
     /// <summary>
-    /// Settings → Remote → May drive playout: the addresses (at most <see cref="PlayoutGate.MaxFrom"/>) whose <c>playout</c> and
-    /// <c>patterns</c> lines run without a credential (<see cref="PlayoutGate"/>). Empty by default: only this PC, the PIN or a key.
+    /// Settings → Remote → May drive other show apps: the addresses (at most <see cref="PlayoutGate.MaxFrom"/>) whose <c>playout</c> and
+    /// <c>patterns</c> lines, and over HTTP and a WebSocket whose <c>peer</c> and <c>desk</c> lines, run without a credential
+    /// (<see cref="PlayoutGate"/>). Empty by default: only this PC, the PIN or a key.
     /// They stay with this PC, never in a show file.
     /// </summary>
     [JsonPropertyName("playoutFrom")] public List<string> PlayoutFrom { get; set; } = new();

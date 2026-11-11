@@ -114,7 +114,12 @@ tools/test.sh help            # what each lane does, and the variables a person 
   `--pin-file <file>` takes the PIN from a file's first line (never with `--pin`); `--secrets-out <file>` writes the
   PIN, the windows' addresses and the keys' secrets to a file of the user's own, so standard output and error carry none
   (each start rewrites it with that start's secrets, as its ready line would, so a key made on an earlier start isn't in
-  it: read it after each start); `--exit-on-eof` stops it when its input ends. Lines on its standard input: `stall <ms>`
+  it: read it after each start); `--exit-on-eof` stops it when its input ends. The rig is an approval desk as the app is
+  (Show Bus §11, the app's own `DeskService`): show apps propose, collect and report on `/api/proposals` with their node
+  keys, and `peer <app> <line>` and `desk approve|reject <id>|next` run over HTTP and a WebSocket by the app's sender
+  gate; `--desk-fresh SECONDS` (0.2-600, the contract's 15 by default) is how long an app's last collect keeps it
+  collecting (`tests/e2e/desk.e2e.cjs` runs it at 2, against three show apps asking every 200 ms). Lines on its standard
+  input: `stall <ms>`
   stops its show thread that long, as a stuck show (`stalled`, then `running`); `auth` reads the lockout tables, each
   address in its open minute (`addresses` for wrong PINs, `viewPasses` for wrong window addresses, viewing codes and
   crew links, so a check that nothing is locked out reads both); `heard` reads its hello table, the hellos it hears with

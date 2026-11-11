@@ -2109,6 +2109,7 @@ NodeTests.Run(Check);
 VerbTableTests.Run(Check);
 DeskRulesTests.Run(Check);
 DeskTests.Run(Check);
+await DeskWireTests.Run(Check);
 await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);
 await BusCarrierProbeTests.Run(Check);
@@ -2178,7 +2179,7 @@ sealed class FakeBridge : Stagewatch.Companion.ICompanionBridge
     public TimerEngine Engine { get; } = new();
     public AppSettings Settings { get; } = new();
     public bool CompanionAllowed => Allowed;
-    /// <summary>The playout gate's list (Settings → Remote → May drive playout), as a test sets it.</summary>
+    /// <summary>The playout gate's list (Settings → Remote → May drive other show apps), as a test sets it.</summary>
     public volatile IReadOnlyList<IPAddress> From = Array.Empty<IPAddress>();
     public IReadOnlyList<IPAddress> PlayoutFrom => From;
     public void Execute(ShowCommand command) { lock (Commands) Commands.Add(command); }

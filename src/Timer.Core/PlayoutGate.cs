@@ -17,13 +17,16 @@ public enum CommandDoor { Osc, Companion, Http, WebSocket, Mcp }
 public readonly record struct CommandSender(IPAddress Address, bool ThisPc, bool Credentialed, bool OtherSite = false);
 
 /// <summary>
-/// Who may drive another node's air through this Stagewatch, pure. A <c>playout</c> or <c>patterns</c> line runs on a Patterns
+/// Who may act on another show app through this Stagewatch, pure. A <c>playout</c> or <c>patterns</c> line runs on a Patterns
 /// desk's or a PlayMap node's air over the link this Stagewatch paired, so it is never relayed for a sender that proved nothing:
 /// it comes from this PC, with a credential (the PIN this Stagewatch asks for, or a control or MCP key; only HTTP, WebSocket and
 /// MCP carry one, OSC and Companion TCP never), or from an address the operator listed (<see cref="RemoteSettings.PlayoutFrom"/>,
 /// at most <see cref="MaxFrom"/>). A browser page of another site proves nothing wherever its browser runs: without a credential it
-/// is refused even from this PC or a listed address. Anything else is refused in words naming the door, and nothing is sent. No
-/// other verb is this gate's. A listed address is trusted by its source address alone, which any machine on that network can forge
+/// is refused even from this PC or a listed address. Anything else is refused in words naming the door, and nothing is sent.
+/// A <c>peer</c> or <c>desk</c> line acts on another app with a person's authority (<see cref="Person"/>): over HTTP and a WebSocket
+/// it passes by the same rule — the PIN this Stagewatch asks for, or a control key; with no PIN set, this PC or a listed address,
+/// never another site's page — and never over MCP, whatever key comes with it (an agent is not a person); Companion TCP and OSC
+/// take neither in this release (<see cref="PersonLater"/>). No other verb is this gate's. A listed address is trusted by its source address alone, which any machine on that network can forge
 /// over OSC (UDP): the operator lists addresses only on a show network they trust.
 /// </summary>
 public static class PlayoutGate
@@ -32,10 +35,50 @@ public static class PlayoutGate
     public const int MaxFrom = 16;
 
     /// <summary>Where the operator lists them, as every refusal names it.</summary>
-    public const string SettingWords = "Settings → Remote → May drive playout";
+    public const string SettingWords = "Settings → Remote → " + SettingName;
+
+    /// <summary>The list's name, as Settings draws it and every note of it says it.</summary>
+    public const string SettingName = "May drive other show apps";
 
     /// <summary>A command that drives another node's air: the lines this gate decides by their sender.</summary>
     public static bool Drives(ShowCommandKind kind) => kind is ShowCommandKind.Playout or ShowCommandKind.Patterns;
+
+    /// <summary>
+    /// A command that acts on another show app with a person's authority — a line sent to it born approved, a decision on a proposal:
+    /// decided by its sender as a line that drives another node's air is, and never an agent's, the copilot's or a proposal's.
+    /// </summary>
+    public static bool Person(ShowCommandKind kind) => kind is ShowCommandKind.Peer or ShowCommandKind.Desk;
+
+    /// <summary>
+    /// The person's kind a line's first word names (<see cref="ProposalDesk.PersonVerbs"/>), whatever follows it and whether or not
+    /// the rest parses; else null. A door that hands no model these verbs asks this before it parses, so a mis-shaped line is
+    /// answered as a well-shaped one is — never with the verb's grammar, and never quoted.
+    /// </summary>
+    public static ShowCommandKind? PersonKind(string? verb)
+    {
+        foreach (var kind in new[] { ShowCommandKind.Peer, ShowCommandKind.Desk })
+            if (string.Equals(Verb(kind), verb?.Trim(), StringComparison.OrdinalIgnoreCase)) return kind;
+        return null;
+    }
+
+    /// <summary>Why a person's line (<see cref="Person"/>) is refused from what is not a person: an agent, the advisor, a copilot step, a proposal.</summary>
+    public static string PersonWords(ShowCommandKind kind) => kind == ShowCommandKind.Desk ? DeskOrigin.PersonDecides : DeskOrigin.PersonSends;
+
+    /// <summary>
+    /// Why a person's line is refused over Companion TCP and OSC, whoever sends it: neither carries a credential, and this release
+    /// takes peer and desk only where one can be asked for.
+    /// </summary>
+    public static string PersonLater(ShowCommandKind kind, CommandDoor door)
+        => $"{Verb(kind)} is sent over HTTP or a WebSocket (with the PIN or a control key) — {(door == CommandDoor.Osc ? "OSC" : "Companion TCP")} does not take it in this release";
+
+    /// <summary>The verb a refusal names a line by.</summary>
+    private static string Verb(ShowCommandKind kind) => kind switch
+    {
+        ShowCommandKind.Patterns => "patterns",
+        ShowCommandKind.Peer => "peer",
+        ShowCommandKind.Desk => "desk",
+        _ => "playout",
+    };
 
     /// <summary>
     /// A command no door takes from anyone, credential or not: trusting a playout link's certificate is a person's choice on this
@@ -72,7 +115,8 @@ public static class PlayoutGate
 
     /// <summary>
     /// Null when <paramref name="sender"/> may send a <paramref name="kind"/> line by <paramref name="door"/>; else why not. A desk-only
-    /// line (<see cref="DeskOnly"/>) never passes, whoever sends it; any other line that drives no other node's air always passes. A
+    /// line (<see cref="DeskOnly"/>) never passes, whoever sends it; any other line that neither drives another node's air nor acts
+    /// with a person's authority (<see cref="Person"/>) always passes. A person's line never passes over MCP, Companion TCP or OSC. A
     /// credential counts only on a door that carries one: OSC and Companion TCP pass
     /// only this PC and the listed addresses, whatever the server says. On a door that carries one, a page of another site passes
     /// only with it.
@@ -80,7 +124,12 @@ public static class PlayoutGate
     public static string? Check(ShowCommandKind kind, CommandDoor door, CommandSender sender, IReadOnlyList<IPAddress> from)
     {
         if (DeskOnly(kind)) return DeskOnlyWords(door);
-        if (!Drives(kind)) return null;
+        if (Person(kind))
+        {
+            if (door == CommandDoor.Mcp) return PersonWords(kind);
+            if (door is CommandDoor.Osc or CommandDoor.Companion) return PersonLater(kind, door);
+        }
+        else if (!Drives(kind)) return null;
         var carries = door is CommandDoor.Http or CommandDoor.WebSocket or CommandDoor.Mcp;
         if (sender.Credentialed && carries) return null;
         if (sender.OtherSite && carries) return OtherSiteWords(kind, door);
@@ -91,7 +140,7 @@ public static class PlayoutGate
     /// <summary>The refusal for a <paramref name="kind"/> line a browser page of another site sent by <paramref name="door"/>, with no credential.</summary>
     public static string OtherSiteWords(ShowCommandKind kind, CommandDoor door)
     {
-        var verb = kind == ShowCommandKind.Patterns ? "patterns" : "playout";
+        var verb = Verb(kind);
         return door switch
         {
             CommandDoor.Mcp => $"{verb} from another site's web page over MCP needs an MCP key while no PIN is set",
@@ -159,7 +208,10 @@ public static class PlayoutGate
     /// <summary>The refusal for a <paramref name="kind"/> line from an unlisted machine by <paramref name="door"/>.</summary>
     public static string Words(ShowCommandKind kind, CommandDoor door)
     {
-        var verb = kind == ShowCommandKind.Patterns ? "patterns" : "playout";
+        var verb = Verb(kind);
+        if (Person(kind))
+            return $"{verb} acts on another show app with a person's authority — from another machine over {(door == CommandDoor.WebSocket ? "a WebSocket" : "HTTP")} "
+                   + $"it needs a PIN set and given, a control key, or its address in {SettingWords}";
         return door switch
         {
             CommandDoor.Osc => $"{verb} from another machine over OSC needs its address in {SettingWords} (OSC carries no PIN)",
@@ -218,7 +270,7 @@ public static class PlayoutGate
         {
             if (Parse(raw) is not { } address)
             {
-                notes?.Add($"May drive playout: \"{LoadNotes.Shown(raw)}\" left out: {AddressWords}");
+                notes?.Add($"{SettingName}: \"{LoadNotes.Shown(raw)}\" left out: {AddressWords}");
                 continue;
             }
             var written = address.ToString();
@@ -227,7 +279,7 @@ public static class PlayoutGate
             kept.Add(written);
         }
         if (over > 0)
-            notes?.Add($"May drive playout keeps {MaxFrom.ToString(CultureInfo.InvariantCulture)} addresses: {over.ToString(CultureInfo.InvariantCulture)} more left out");
+            notes?.Add($"{SettingName} keeps {MaxFrom.ToString(CultureInfo.InvariantCulture)} addresses: {over.ToString(CultureInfo.InvariantCulture)} more left out");
         return kept;
     }
 

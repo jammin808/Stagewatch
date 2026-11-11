@@ -62,7 +62,7 @@ public sealed partial class MainViewModel
                 return new CueLightOutput(() => _hub.Latest, sinks.ToArray());
             });
         _supervisor.Reconcile("triggers", $"{pro && Settings.Triggers.Count > 0}", v => _triggers = v,
-            () => new TriggerRunner(() => _store.Snapshot.Triggers, line => _ui.BeginInvoke(() => RunCommandLine(line)), TriggerOptions()));   // its worker reads a snapshot
+            () => new TriggerRunner(() => _store.Snapshot.Triggers, line => _ui.BeginInvoke(() => RunCommandLine(line, DeskOrigin.Trigger())), TriggerOptions()));   // its worker reads a snapshot
         _supervisor.Reconcile("rooms", $"{i.Rooms && FeatureGate.AllowsMultiRoom(t)}|{i.RoomsPort}", v => _rooms = v,
             () => new RoomBeacon(i.RoomsPort, BeatFor));
         var key = i.AssistantCloud ? ProtectedKey.Unprotect(i.AssistantKeyProtected) : "";

@@ -143,7 +143,7 @@ export function UpdateActions(self: ModuleInstance): void {
 	}
 	const linkChoices = playoutLinkChoices(cfg.playoutLinks, 'None named: the only link, else the one feeding the VT')
 	const startLinkChoices = playoutLinkChoices(cfg.playoutLinks, 'None named: the only link')
-	const LINK_TIP = 'A playout link set up in Stagewatch (Settings → Integrations), or its name typed. From another PC the press also needs that PC\'s address in Stagewatch\'s Settings → Remote → May drive playout.'
+	const LINK_TIP = 'A playout link set up in Stagewatch (Settings → Integrations), or its name typed. From another PC the press also needs that PC\'s address in Stagewatch\'s Settings → Remote → May drive other show apps.'
 
 	const actions: CompanionActionDefinitions = {
 		// ---- transport

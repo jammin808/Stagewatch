@@ -8,7 +8,7 @@ using Stagewatch.Integrations;
 namespace Stagewatch.App;
 
 /// <summary>
-/// Settings' playout links (Integrations), its May drive playout list (Remote) and its HTTP triggers' secrets (Triggers). The links are
+/// Settings' playout links (Integrations), its May drive other show apps list (Remote) and its HTTP triggers' secrets (Triggers). The links are
 /// edited on a copy that Save writes whole, each change refused in words by the rules a settings file keeps (PlayoutRules.EditLink),
 /// never mended; a renamed link's running-order cues move with it at Save. The buttons and the list's right-click menu are enabled
 /// together, by one rule.

@@ -549,6 +549,34 @@ running app on a network: two copies of one install for the conflict, an old cer
   `Copilot.Classify` as a new command's risk is the maintainer's to change: the table is `CommandRisk.Of` now. Compiled here,
   never seen: Copilot's words for an unticked or refused approval and for a line handed to a playout peer, the show log's
   order when an approval runs a line here, and the UI smoke's new unticked check (the maintainer's PC).
+  *Since then (SW21.4):* the two verbs are on the wire (REMOTE.md, "A person's line to another app, and a person's decision").
+  `peer <app> <line>` and `desk approve|reject <id>|next` are `ShowCommandKind.Peer` and `.Desk`, appended; the line is one
+  argument, passed on whole, and a typed line whose own line holds quote marks is refused, never altered. No parser names a
+  sender: the door that took the line stamps who sent it (`ShowCommand.By`, a `DeskOrigin`, now in Core), and a line nobody is
+  named for sends and decides nothing. The sender gate (`PlayoutGate`) decides both over HTTP and a WebSocket by 2.20's rule —
+  the PIN or a control key; with no PIN, this PC or a listed address — refuses both over MCP whatever key comes, and over
+  Companion TCP and OSC in this release (release B's doors, SW22.8). Its list is renamed **May drive other show apps** in
+  Settings, Help, Diagnostics, the notes, the module's tips and the papers (the design wrote "May drive other show apps from";
+  the trailing word is left off so a refusal reads "its address in Settings → Remote → May drive other show apps"). The
+  receipt of a sent line waits for its app (`DeskReceipts`): applied or refused in the app's words within 3 s, else accepted
+  with one `final` follow-up within 30 s; every receipt names the proposal in `refs.sharedProposal`, a string. `GET /api/help`
+  serves the grammar people read (`PersonHelp`); the copilot, the advisor and MCP keep `Help`, which leaves both verbs out, and
+  each refuses a line of either. The rig hosts the desk (`--desk-fresh`), and `tests/e2e/desk.e2e.cjs` runs it against three
+  show apps on its node routes. A flood of *different* unlisted lines from one sender is one row and a count, since a refusal
+  never quotes the line. The words beside a line are held to its fence too: a key or a window's address where the app is
+  named, or in a rejection's reason, is refused unquoted ("a key rides in no line"), sends or rejects nothing, and is in no
+  log line and no journal row; a line that opens with either verb is refused by MCP and dropped from a copilot plan by its
+  verb alone, whether or not the rest parses, so no model is handed the verbs' grammar or its own line back. *What this did
+  not do:* the operator frame's `desk` block, config `peers`, the context's `collects` and
+  the producer page's panel are SW21.5's; the Show network row's menu, the send dialog and the greyed Approve are SW21.6's (PC
+  work) — until then a line is sent only over HTTP, a WebSocket or by a Command trigger's `peer` line (the app has nowhere to
+  type one, and no menu sends one yet); Companion TCP, OSC and the module's actions
+  are SW22.8's, the copilot's steps for other apps SW22.9's, MCP's `target` SW22.10's. Show Bus 1.3 §3 still words `refs` as
+  "by number": the string id is on the wire now, and the words are owed to the master with 2.21's papers. The brief's line
+  that names `Copilot.Classify` (and would name `PersonHelp`) is still the maintainer's to change. Compiled here, never seen:
+  the app's executors for both verbs (`DeskCommand`), an operator's `peer` or `desk` line kept from Companion's recorder (no
+  menu sends one yet), a trigger's `peer` line, the renamed Settings label and its help tip (the maintainer's PC; UiSmoke
+  compiles with the new name).
   *Asks of the other apps (SW21.2).* **Patterns** (Round 94 or after): its `APPLY` line keeps a look's title as typed, only
   shortened (`DeskProposals.Line`, at the pin `5a8ad8f8`), so a title holding a control character or an invisible format character
   is now refused `400` where 2.20 dropped the characters; and at the pin a refused proposal stays unsent and is posted again each

@@ -15,8 +15,8 @@ using Stagewatch.Show;
 /// </summary>
 static class DeskTests
 {
-    static readonly DateTime T0 = new(2026, 10, 28, 19, 0, 0, DateTimeKind.Utc);
-    const string DeskId = "desk01";
+    internal static readonly DateTime T0 = new(2026, 10, 28, 19, 0, 0, DateTimeKind.Utc);
+    internal const string DeskId = "desk01";
 
     public static void Run(Action<bool, string> Check)
     {
@@ -33,7 +33,7 @@ static class DeskTests
     }
 
     /// <summary>A desk on a clock a test moves, with a show network of the nodes a test says it hears and the contexts it posts.</summary>
-    sealed class Bench
+    internal sealed class Bench
     {
         public readonly NodeBindings Nodes = new();
         public readonly PeerContexts Peers;
@@ -63,8 +63,9 @@ static class DeskTests
                 Run = run,
                 RunHere = (cmd, id) => RunHere is { } run ? run(cmd, id) : new DeskRun(true, "ran"),
             });
-            Desk.Journalled += Rows.Add;
-            Desk.Changed += Changes.Add;
+            // A test that drives the desk from more than one thread (a web server's, an app's collects) reads the rows under their lock.
+            Desk.Journalled += row => { lock (Rows) Rows.Add(row); };
+            Desk.Changed += change => { lock (Changes) Changes.Add(change); };
         }
 
         public void Hear(string kind, string id, string name, double age = 1) => Heard.Add(new HeardNode(kind, id, name, "10.0.0.9", age));
@@ -89,7 +90,7 @@ static class DeskTests
         commands = verbs.Select(c => new { verb = c.Verb, risk = c.Risk, words = "what " + c.Verb.Split(' ')[0] + " does" }).ToArray(),
     });
 
-    static readonly (string, string)[] PlayMapVerbs =
+    internal static readonly (string, string)[] PlayMapVerbs =
     [
         ("PLAYLIST CUE <playlist> <item>|#<n>", "review"), ("UNDO", "review"), ("PANIC", "high"), ("STATUS", "low"),
         ("LINK STAGEWATCH <host[:port]>|\"\"|OFF [<key>]", "review"), ("MESSAGE <text>", "low"), ("BIND LEARN <target line>", "review"),
@@ -107,7 +108,7 @@ static class DeskTests
     }
 
     /// <summary>The usual room: PlayMap Hall (verified by its key), Patterns FOH (verified) and AGMessage (verified), all heard.</summary>
-    static Bench Room()
+    internal static Bench Room()
     {
         var b = new Bench();
         b.Hear("playmap", "pm1", "PlayMap Hall");

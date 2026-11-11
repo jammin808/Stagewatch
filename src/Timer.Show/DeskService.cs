@@ -5,41 +5,15 @@ using Stagewatch.Core;
 
 namespace Stagewatch.Show;
 
-/// <summary>
-/// Who sends a line to another app, or decides a proposal: a role word (<see cref="Role"/>) and, for the desk's journal file alone, who
-/// and from where (<see cref="Who"/>: a key's name, an address — never a secret), which no row's words and no proposal carry. A person's
-/// roles are §11's (<see cref="ProposalDesk.Roles"/>); the rest name what is never a person: an agent on MCP, the advisor, a copilot
-/// step, a proposal.
-/// </summary>
-public sealed record DeskOrigin(string Role, string Who = "")
-{
-    /// <summary>The operator at this desk.</summary>
-    public static readonly DeskOrigin Operator = new("operator");
-
-    /// <summary>An AI agent on MCP, the advisor, a copilot step and a proposal's own line: none is a person, so none sends or decides.</summary>
-    public static readonly DeskOrigin Mcp = new("mcp"), Advisor = new("advisor"), Copilot = new("copilot"), Proposal = new("proposal");
-
-    /// <summary>A person on HTTP or a WebSocket, with the PIN or a control key (<paramref name="who"/>: the key's name, the address).</summary>
-    public static DeskOrigin Wire(string who = "") => new("wire", who);
-
-    /// <summary>A person at a deck (Companion, OSC).</summary>
-    public static DeskOrigin Deck(string who = "") => new("deck", who);
-
-    /// <summary>A command trigger the operator set on this PC: it may send a line, never decide a proposal.</summary>
-    public static DeskOrigin Trigger(string who = "") => new("trigger", who);
-
-    /// <summary>A person may send a line to another app as this role.</summary>
-    public bool Sends => ProposalDesk.Roles.Contains(Role, StringComparer.Ordinal);
-
-    /// <summary>A person may approve or reject as this role: every sending role but a trigger, which no person is behind when it fires.</summary>
-    public bool Decides => Sends && Role != "trigger";
-
-    /// <summary>Who and from where as plain words ("key 'FOH tablet', 10.0.0.7"), or "": what a row keeps apart from its words (<see cref="DeskRow.Who"/>).</summary>
-    public string Named => LineFence.Shown(Who, 120);
-}
-
 /// <summary>What a send or a decision did: whether it happened, the words for the sender, and the proposal as it stands after (null when none was named or made).</summary>
-public sealed record DeskOutcome(bool Ok, string Words, SharedProposal? Proposal = null);
+public sealed record DeskOutcome(bool Ok, string Words, SharedProposal? Proposal = null)
+{
+    /// <summary>
+    /// The words for a reader that is not the sender (a status line, a log): <see cref="Words"/>, but for a line its app does not
+    /// list, which they never quote — such a line cannot be told from one that holds a secret.
+    /// </summary>
+    public string Shown { get; init; } = Words;
+}
 
 /// <summary>
 /// What an approved line aimed at this desk did when it ran here: applied or refused in words, or — handed to a playout link's peer —
@@ -133,10 +107,10 @@ public sealed class DeskService : IShowApprovals
     public const int MaxQuickVerbs = 6;
 
     /// <summary>Why a send from what is not a person is refused.</summary>
-    public const string PersonSends = "a person sends a line to another app — not the copilot, an agent or a proposal";
+    public const string PersonSends = DeskOrigin.PersonSends;
 
     /// <summary>Why a decision from what is not a person is refused.</summary>
-    public const string PersonDecides = "a person approves — not a trigger, the copilot or an agent";
+    public const string PersonDecides = DeskOrigin.PersonDecides;
 
     /// <summary>What approving with nothing ticked says: nothing was approved, and the proposal still waits.</summary>
     public const string NothingTicked = "Nothing was ticked — nothing ran";
@@ -260,10 +234,12 @@ public sealed class DeskService : IShowApprovals
     /// The app a word names, or why it names none: a node id; else a name only one app has, whatever its case; else a kind word —
     /// the kind as Show Bus writes it (<c>playmap</c>, <c>patterns</c>, <c>messenger</c>) or the app's name for it (<c>agmessage</c>)
     /// — when exactly one app of that kind is heard. A word that is one app's name and another app's kind names neither. Never this
-    /// desk, by any word.
+    /// desk, by any word. A word that holds a key or a window's address names nothing and is never quoted back.
     /// </summary>
     public (DeskApp? App, string? Error) Resolve(string word)
     {
+        // Its refusals quote the word, to the sender and to whoever reads a status line or a log: one that holds a key is never quoted.
+        if (Withheld(word ?? "") is { } withheld) return (null, withheld);
         word = LineFence.Shown(word ?? "", 80);
         if (word.Length == 0) return (null, "name the app: its node id, its name, or playmap, patterns or agmessage");
         if (word == _host.Id() || OwnWords.Contains(word, StringComparer.OrdinalIgnoreCase))
@@ -290,6 +266,23 @@ public sealed class DeskService : IShowApprovals
     }
 
     private static string Count(int n) => n == 2 ? "two" : n.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Why the free words of a person's line — the app's word, a rejection's reason — are neither quoted nor journalled, or null:
+    /// they hold a key or a window's address (<see cref="LineFence.Key"/>, <see cref="LineFence.Window"/>), as written or once the
+    /// characters nobody sees are left out, which is how such words are shown. The line's own rule, kept for the words beside it.
+    /// </summary>
+    private string? Withheld(string words)
+    {
+        if (words.Length == 0) return null;
+        var tokens = _host.WindowTokens?.Invoke()?.Where(t => t.Length > 0).ToList() ?? [];
+        foreach (var read in new[] { words, LineFence.Shown(words, words.Length) })
+        {
+            if (LineFence.HoldsKey(read)) return LineFence.Key;
+            if (LineFence.HoldsWindow(read) || tokens.Exists(t => read.Contains(t, StringComparison.Ordinal))) return LineFence.Window;
+        }
+        return null;
+    }
 
     /// <summary>
     /// Up to <see cref="MaxQuickVerbs"/> verbs of an app's verified table that a person fills by typing only their last words
@@ -355,7 +348,7 @@ public sealed class DeskService : IShowApprovals
             var head = $"Refused to send to {found.Name} ({by.Role})";
             var same = journalled ?? (Queue.NotCollecting(target, now) is { } quiet && quiet == refused ? "not collecting" : refused);
             Refusal(now, $"send|{found.Id}|{by.Role}|{by.Named}|{same}", head, $"{head}: {journalled ?? refused}", by.Named);
-            return new(false, refused!);
+            return new(false, refused!) { Shown = journalled ?? refused! };
         }
         Journal(now, $"Sent {Short(sent.Id)} to {found.Name} ({by.Role}): {sent.Line}", by.Named);
         return new(true, $"sent to {found.Name} as {Short(sent.Id)} — it collects it and reports back", sent);
@@ -377,8 +370,9 @@ public sealed class DeskService : IShowApprovals
     /// Refused with words, the proposal left as it is: a decider that is not a person; no such proposal, or one no longer waiting;
     /// an approval with nothing ticked; an approval of a high proposal without its id and <paramref name="high"/> — <c>next</c> never
     /// approves one, whatever comes with it, and its words name the id to say; and an approval for an app that has not asked for its
-    /// approved lines lately. An approved line aimed at this desk runs here at once through the host, and the outcome is that run's:
-    /// its refusal is this decision's. A refusal repeated is one journal row and a count.
+    /// approved lines lately; and a rejection whose reason holds a key or a window's address, which no journal row keeps. An approved
+    /// line aimed at this desk runs here at once through the host, and the outcome is that run's: its refusal is this decision's. A
+    /// refusal repeated is one journal row and a count.
     /// </summary>
     public DeskOutcome Decide(string idOrNext, bool approve, DeskOrigin by, bool high = false, string why = "", bool ticked = true)
     {
@@ -395,6 +389,12 @@ public sealed class DeskService : IShowApprovals
         if (p.State != SharedProposalState.Pending) return new(false, $"{Short(p.Id)} is {p.StateName}", p);
         if (!approve)
         {
+            // The reason is journalled: one that holds a key or a window's address rejects nothing, and its row leaves the reason out.
+            if (Withheld(why) is { } withheld)
+            {
+                Refused(now, p, NotRejected, by, withheld, withheld);
+                return new(false, withheld, p);
+            }
             if (Queue.Reject(p.Id, by.Role, now) is not { } rejected) return new(false, $"{Short(p.Id)} is no longer waiting", Queue.Get(p.Id));
             var because = LineFence.Shown(why, ProposalDesk.MaxReason);
             Journal(now, Decision(Rejected, p, by) + (because.Length > 0 ? " — " + because : ""), by.Named);
@@ -457,7 +457,64 @@ public sealed class DeskService : IShowApprovals
         Queue.Finished(id, done, words);
     }
 
+    // ------------------------------------------------------------------ the two verbs
+
+    /// <summary>
+    /// A <c>peer</c> or <c>desk</c> command as a door took it: the line sent (<see cref="Send"/>) or the proposal decided
+    /// (<see cref="Decide"/>), by whoever the door named (<see cref="ShowCommand.By"/>). A command that names nobody is nobody's:
+    /// refused as what is not a person is. The one executor every host of the desk runs these two kinds through.
+    /// </summary>
+    public DeskOutcome Run(ShowCommand c)
+    {
+        var by = c.By ?? DeskOrigin.Nobody;
+        switch (c.Kind)
+        {
+            case ShowCommandKind.Peer:
+                var peer = c.Get<PeerArgs>();
+                return Send(peer.App, peer.Line, by);
+            case ShowCommandKind.Desk:
+                var desk = c.Get<DeskArgs>();
+                return Decide(desk.Id, desk.Action == "approve", by, desk.High, desk.Why);
+            default:
+                return new(false, "not a line for the desk");
+        }
+    }
+
     // ------------------------------------------------------------------ what came of it
+
+    /// <summary>
+    /// What a proposal comes to, once nothing more will come (<see cref="DeskResult.Settled"/>): done, refused, undelivered or
+    /// rejected. Completed already for one that is settled; an id that names none is settled as unknown. One waiter a proposal,
+    /// held only while it is open, so no more than the queue holds.
+    /// </summary>
+    public Task<DeskResult> Settled(string id)
+    {
+        if (ResultOf(id) is not { } now) return Task.FromResult(new DeskResult(id, "unknown", false, Queue.Unknown(id), true));
+        if (now.Settled) return Task.FromResult(now);
+        TaskCompletionSource<DeskResult>? waiter;
+        lock (_waiters)
+        {
+            if (!_waiters.TryGetValue(now.Id, out waiter))
+                _waiters[now.Id] = waiter = new TaskCompletionSource<DeskResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+        // A result that landed between the read above and the waiter's place in the table found no waiter: read once more. The
+        // queue's lock is never taken while the table's is held (a change is raised under the queue's, and takes the table's).
+        if (ResultOf(now.Id) is { Settled: true } landed) Complete(landed);
+        return waiter.Task;
+    }
+
+    private readonly Dictionary<string, TaskCompletionSource<DeskResult>> _waiters = new(StringComparer.Ordinal);
+
+    private void Complete(DeskResult result)
+    {
+        if (!result.Settled) return;
+        TaskCompletionSource<DeskResult>? waiter;
+        lock (_waiters)
+        {
+            if (!_waiters.Remove(result.Id, out waiter)) return;
+        }
+        waiter.TrySetResult(result);
+    }
 
     /// <summary>Where a proposal stands, for whoever sent or approved it, in words that name its app; null for an id that names none.</summary>
     public DeskResult? ResultOf(string id)
@@ -507,6 +564,7 @@ public sealed class DeskService : IShowApprovals
 
     private void OnChanged(SharedProposal p)
     {
+        if (ResultOf(p.Id) is { } result) Complete(result);
         Changed?.Invoke(p);
         // Each row opens with the desk's own word and the proposal's number, never with a name a peer chose.
         switch (p.State)

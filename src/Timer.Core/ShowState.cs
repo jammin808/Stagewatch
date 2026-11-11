@@ -402,7 +402,17 @@ public enum ShowCommandKind
     /// A person trusts a playout link's certificate (<see cref="PlayoutTrustArgs"/>): Text = link \u0001 hex. A line of it is refused at
     /// every door and by every executor; only the desk's own entry beside the fingerprint trusts one (Show Bus 13.8.2–3).
     /// </summary>
-    PlayoutTrust
+    PlayoutTrust,
+    /// <summary>
+    /// A person sends one line to another show app (<see cref="PeerArgs"/>, Show Bus §11): Text = app \u0001 line, the line whole
+    /// and unaltered. Taken only from a person (<see cref="ShowCommand.By"/>), never from an agent, the copilot or a proposal.
+    /// </summary>
+    Peer,
+    /// <summary>
+    /// A person approves or rejects a proposal on this desk (<see cref="DeskArgs"/>): Text = action \u0001 id \u0001 why; Flag = the
+    /// word <c>high</c> came with an approval. Taken only from a person, and never from a trigger.
+    /// </summary>
+    Desk
 }
 
 /// <summary>
@@ -425,6 +435,13 @@ public readonly record struct ShowCommand(
     /// the older packed form for compatibility, but nothing should split it by hand.
     /// </summary>
     public ShowArgs? Args { get; init; }
+
+    /// <summary>
+    /// Who sent a line that acts with a person's authority (<see cref="ShowCommandKind.Peer"/>, <see cref="ShowCommandKind.Desk"/>),
+    /// as the door that took it judged them; null on a command whose door said nothing, which sends no line and decides no proposal.
+    /// No parser sets it: a line cannot name its own sender.
+    /// </summary>
+    public DeskOrigin? By { get; init; }
 
     /// <summary>This command's typed arguments (parsed from the packed text if it was built without them).</summary>
     public T Get<T>() where T : ShowArgs
@@ -466,6 +483,8 @@ public abstract record ShowArgs
             ShowCommandKind.Window => new WindowArgs(At(0), At(1), At(2)),
             ShowCommandKind.Playout => new PlayoutArgs(At(0), At(1), At(2), At(3), At(4) == "together"),
             ShowCommandKind.PlayoutTrust => new PlayoutTrustArgs(At(0), At(1)),
+            ShowCommandKind.Peer => new PeerArgs(At(0), At(1)),
+            ShowCommandKind.Desk => new DeskArgs(At(0), At(1), c.Flag, At(2)),
             _ => null,
         };
     }
@@ -473,6 +492,13 @@ public abstract record ShowArgs
 
 /// <summary>A cue to a target (a department, "speaker", "backstage") with its words.</summary>
 public sealed record SignalArgs(string Target, string Text) : ShowArgs;
+/// <summary>A person's line to another show app: the word that names the app (its id, its name, or its kind) and the line, whole.</summary>
+public sealed record PeerArgs(string App, string Line) : ShowArgs;
+/// <summary>
+/// A person's decision on a proposal: <c>approve</c> or <c>reject</c>; the proposal's id (whole, or p&lt;n&gt; of this run) or
+/// <c>next</c>; whether the word <c>high</c> came with an approval; and, with a rejection, why.
+/// </summary>
+public sealed record DeskArgs(string Action, string Id, bool High, string Why) : ShowArgs;
 /// <summary>An audience question and who asked.</summary>
 public sealed record QuestionArgs(string Text, string Name) : ShowArgs;
 /// <summary>A screen action ("go", "identify", "name", "save", "reload", "disconnect"), its argument, and which screens.</summary>
@@ -740,6 +766,26 @@ public static class ShowCommandParser
         "q <id|next|clear> [approve|star|live|answered|dismiss] | rehearse [on|off] | listen [on|off] | report [html|csv] | note <text>";
 
     /// <summary>
+    /// The grammar as a person reads it: <see cref="Help"/>, which every AI is handed, and the two verbs only a person sends —
+    /// a line to another show app, and a decision on a proposal. No model is handed these words.
+    /// </summary>
+    public const string PersonHelp = Help +
+        " | peer <app> <line> (one line another show app lists, quoted as one argument) | " +
+        "desk approve <id> [high] | desk approve next | desk reject <id|next> [why]";
+
+    /// <summary>Why a <c>peer</c> that is not an app and one line is refused.</summary>
+    public const string PeerTakes = "peer takes an app and one line — quote the line as one argument";
+
+    /// <summary>
+    /// Why a typed <c>peer</c> line whose own line holds quote marks is refused: a typed line's quote marks are dropped as it is split
+    /// into words, so that line would reach its app altered.
+    /// </summary>
+    public const string PeerQuotes = "a line with quote marks of its own is not typed after peer — it would reach its app altered; send it from the Send a line dialog or by POST /api/peer";
+
+    /// <summary>The most characters of a rejection's reason a <c>desk reject</c> carries.</summary>
+    public const int DeskWhyChars = 400;
+
+    /// <summary>
     /// A typed line as its verb and arguments: words split on white space, a "quoted phrase" one word with its quote marks left off.
     /// How every door that takes a whole line reads it (an agent's, the advisor's, a trigger's, a proposal aimed at this desk).
     /// </summary>
@@ -766,10 +812,44 @@ public static class ShowCommandParser
     public static bool TryParseLine(string line, out ShowCommand cmd, out string error)
     {
         var tokens = Tokens(line);
-        if (tokens.Count > 0) return TryParse(tokens[0], tokens.Skip(1).ToList(), out cmd, out error);
         cmd = default;
-        error = "an empty line";
-        return false;
+        if (tokens.Count == 0)
+        {
+            error = "an empty line";
+            return false;
+        }
+        // The quote marks of a typed line are dropped as it is split, so a peer line that holds quote marks of its own is refused
+        // here, never sent on altered.
+        if (tokens[0].Trim().Equals("peer", StringComparison.OrdinalIgnoreCase) && QuotesInsideWords(line))
+        {
+            error = PeerQuotes;
+            return false;
+        }
+        return TryParse(tokens[0], tokens.Skip(1).ToList(), out cmd, out error);
+    }
+
+    /// <summary>
+    /// Whether a typed line holds a quote mark that does not open a word or close one: inside a word, after a backslash's
+    /// closing mark, or never closed. <see cref="Tokens"/> drops every mark, so such a line's words are not the ones typed.
+    /// </summary>
+    public static bool QuotesInsideWords(string line)
+    {
+        var quoted = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            if (line[i] != '"') continue;
+            if (!quoted)
+            {
+                if (i > 0 && !char.IsWhiteSpace(line[i - 1])) return true;
+                quoted = true;
+            }
+            else
+            {
+                if (i + 1 < line.Length && !char.IsWhiteSpace(line[i + 1])) return true;
+                quoted = false;
+            }
+        }
+        return quoted;
     }
 
     public static bool TryParse(string verb, IReadOnlyList<string> args, out ShowCommand cmd, out string error)
@@ -1158,6 +1238,11 @@ public static class ShowCommandParser
                 case "playout":
                     return TryParsePlayout(args, out cmd);
 
+                case "peer":
+                    return TryParsePeer(args, out cmd, out error);
+                case "desk":
+                    return TryParseDesk(args, out cmd, out error);
+
                 case "undo":
                     cmd = new(ShowCommandKind.Undo, Number: 1); return true;
                 case "redo":
@@ -1236,6 +1321,77 @@ public static class ShowCommandParser
             error = $"{verb}: {ex.Message}";
             return false;
         }
+    }
+
+    /// <summary>
+    /// <c>peer &lt;app&gt; &lt;line&gt;</c>: exactly two arguments, the app's word and the line as one argument, passed on whole —
+    /// no word of it is split, joined, trimmed or unescaped here, so what its app runs is what was sent. A control character in
+    /// either is refused: the packed form would cut the line at one.
+    /// </summary>
+    private static bool TryParsePeer(IReadOnlyList<string> args, out ShowCommand cmd, out string error)
+    {
+        cmd = default;
+        error = "";
+        if (args.Count != 2 || args[0].Trim().Length == 0 || args[1].Trim().Length == 0)
+        {
+            error = PeerTakes;
+            return false;
+        }
+        if (args[0].Any(char.IsControl) || args[1].Any(char.IsControl))
+        {
+            error = LineFence.Control;
+            return false;
+        }
+        cmd = new ShowCommand(ShowCommandKind.Peer, Text: ShowArgs.Pack(args[0].Trim(), args[1]));
+        return true;
+    }
+
+    /// <summary>
+    /// <c>desk approve &lt;id&gt; [high]</c>, <c>desk approve next</c>, <c>desk reject &lt;id&gt;|next [&lt;why…&gt;]</c>. The id is
+    /// a proposal's (p17, or whole: p17-k3m9) or <c>next</c>, the oldest waiting. What <c>high</c> and <c>next</c> may approve is the
+    /// desk's rule, not the grammar's.
+    /// </summary>
+    private static bool TryParseDesk(IReadOnlyList<string> args, out ShowCommand cmd, out string error)
+    {
+        cmd = default;
+        error = "";
+        var words = args.Select(a => a.Trim()).Where(a => a.Length > 0).ToList();
+        var action = words.Count > 0 ? words[0].ToLowerInvariant() : "";
+        if (action is not ("approve" or "reject"))
+        {
+            error = "desk takes approve or reject";
+            return false;
+        }
+        var id = words.Count > 1 ? words[1] : "";
+        var next = id.Equals("next", StringComparison.OrdinalIgnoreCase);
+        if (!next && !ProposalDesk.LooksLikeId(id))
+        {
+            error = $"desk {action} takes a proposal id (p17) or next";
+            return false;
+        }
+        var rest = words.Skip(2).ToList();
+        var high = false;
+        var why = "";
+        if (action == "approve")
+        {
+            high = rest is [var word] && word.Equals("high", StringComparison.OrdinalIgnoreCase);
+            if (rest.Count > 0 && !high)
+            {
+                error = "desk approve takes a proposal id and, for a high one, the word high — nothing more";
+                return false;
+            }
+        }
+        else
+        {
+            why = string.Join(' ', rest);
+            if (why.Length > DeskWhyChars || why.Any(char.IsControl))
+            {
+                error = $"desk reject takes a reason of at most {DeskWhyChars.ToString(CultureInfo.InvariantCulture)} characters, on one line";
+                return false;
+            }
+        }
+        cmd = new ShowCommand(ShowCommandKind.Desk, Text: ShowArgs.Pack(action, next ? "next" : id, why), Flag: high);
+        return true;
     }
 
     /// <summary>

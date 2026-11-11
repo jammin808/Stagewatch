@@ -23,6 +23,11 @@ public sealed class ReceiptNotes<TPeer> where TPeer : class
     public Dictionary<string, string>? RefIds { get; internal set; }
     /// <summary>Handed to a playout link's peer, which answers for itself: the receipt is its answer, not the show thread's.</summary>
     public TPeer? Peer { get; internal set; }
+    /// <summary>
+    /// The shared proposal this command sent to another app (its whole id): the receipt is what that app made of it, waited for
+    /// within the sender's deadline (<see cref="DeskReceipts"/>), not only that it was queued.
+    /// </summary>
+    public string? Awaited { get; internal set; }
 
     /// <summary>
     /// The receipt these notes come to: refused in the first reason's words, or applied with <paramref name="effect"/>; either way
@@ -104,6 +109,12 @@ public sealed class ReceiptStack<TPeer> where TPeer : class
     public void RefId(string name, string id)
     {
         if (Current is { } notes) (notes.RefIds ??= new(StringComparer.Ordinal))[name] = id;
+    }
+
+    /// <summary>The command running now sent a line to another app as a shared proposal, whose result its receipt waits for.</summary>
+    public void Await(string proposalId)
+    {
+        if (Current is { } notes) notes.Awaited = proposalId;
     }
 
     /// <summary>The command running now was handed to a playout link's peer, which answers for itself.</summary>
