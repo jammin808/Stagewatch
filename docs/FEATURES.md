@@ -72,7 +72,9 @@ The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
   as urgent; the copilot and AI agents read the same proof.
 - **An old key can't lock a PC out any more.** An unknown or revoked key, or a request with no PIN, no longer counts as a
   wrong guess, so an app still polling with an old key no longer locks its whole PC, browsers included, out of the PIN.
-  Five wrong PINs still do. Revoking a key, or changing the PIN, reaches apps and pages already connected at once.
+  Five wrong PINs still do, and a key in force never resets that count: only the right PIN or the minute's end does, so
+  five wrong PINs from a browser hold the keyed apps on that PC off for the minute too. Revoking a key, or changing the
+  PIN, reaches apps and pages already connected at once.
 - **The Patterns token never crosses the network.** Stagewatch proves it holds the pairing token instead of sending it,
   and sends the token itself only to a Patterns on this PC. Nothing a desk says is shown until it pairs (or says it asks
   for no key). A Patterns on another PC that is older than Show Bus 1.1 now stays amber ("update Patterns") and its VT

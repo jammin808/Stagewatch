@@ -284,9 +284,11 @@ slow or malicious client is timed out or dropped without touching the timer.
   `?pin=swk_…`. Scopes: **read** (`/api/state?detail=1`, reports, `/api/screens`), **control** (+ `/api/<verb>`,
   layouts, crew links), **mcp** (+ `/mcp`), **node** (read, stage messages, its own context and proposals; it speaks for
   one node id, see 2.18). Unknown or revoked keys are refused (401); from 2.18 they never count
-  toward the 5-a-minute lockout, and revoking reaches links already open. Each key: 600 requests a minute; replies
-  carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` (seconds); over the limit → `429` with
-  `Retry-After`.
+  toward the 5-a-minute lockout, and revoking reaches links already open. A valid key never clears the wrong-PIN count
+  (only the right PIN, or the minute running out, does), so a key holder can't mix keyed requests between PIN guesses;
+  a locked address is refused even a valid key, so five wrong PINs from a browser on the same machine as a keyed app
+  hold that app off for the minute too. Each key: 600 requests a minute; replies carry `X-RateLimit-Limit`,
+  `X-RateLimit-Remaining`, `X-RateLimit-Reset` (seconds); over the limit → `429` with `Retry-After`.
 - **Layouts:** `GET /api/layouts` → `{"layouts":[names]}`; `GET /api/layouts/<name>` → the layout JSON;
   `POST /api/layouts/save` (body: layout JSON), `POST /api/layouts/delete?name=`, `POST /api/layouts/ai`
   (body `{"request":"…","current":{layout}|null}` → `{"ok","layout","notes"}`, a draft that is **not** saved).
@@ -735,7 +737,8 @@ PIN set, or nothing, proves nothing (`none`).
 Wrong PINs, wrong viewing codes and wrong window addresses: five a minute lock the address out, and a locked address is
 refused even a valid key (`too many wrong PINs — wait a minute`). An unknown or revoked key and a request with no PIN
 no longer count: neither is a guess (a key is 160 random bits), and an app still polling with an old key used to lock its
-whole PC out, browsers included. From 2.19 wrong viewing codes, window addresses and crew links count apart from wrong PINs,
+whole PC out, browsers included. A valid key's request clears nothing: only the right PIN, or the minute running out,
+resets the wrong-PIN count. From 2.19 wrong viewing codes, window addresses and crew links count apart from wrong PINs,
 and nothing but the minute clears their count (see 2.19: wrong passes).
 
 ### What other readers see
@@ -850,7 +853,7 @@ device's first wrong attempt (Show Bus 1.3 §12.2; `view.wrong.per.minute` is 5,
 
 | A wrong attempt | Counts toward | Five in a minute | What clears it |
 |---|---|---|---|
-| a wrong PIN (`?pin=`, `X-Stagewatch-Pin`, `Authorization: Bearer`, a control page signing in, a node link that brings the PIN) | **the PIN's count** | the PIN and every key are refused that device for the rest of the minute: `too many wrong PINs — wait a minute` (401) | the minute's end; below the limit, the right PIN or a key in force (a locked device's PIN and keys are refused before they are checked) |
+| a wrong PIN (`?pin=`, `X-Stagewatch-Pin`, `Authorization: Bearer`, a control page signing in, a node link that brings the PIN) | **the PIN's count** | the PIN and every key are refused that device for the rest of the minute: `too many wrong PINs — wait a minute` (401) | the minute's end; below the limit, the right PIN alone, never a key in force: a key vouches only for itself, so a key holder can't put keyed requests between PIN guesses (a locked device's PIN and keys are refused before they are checked) |
 | a wrong window address (`/w/<token>`, `win=`); a wrong viewing code (`view=`); a crew link key that is no crew link (`key=`), where a crew link is asked for: at a page's door while a viewing code is set and nothing else opened the view, and on a cue's confirmation or a department's notes while **Crew pages confirm cues only** is on (with neither, no key is checked and none counts) | **the view passes' count** | every view pass is refused that device for the rest of the minute: a window page says so and tries again by itself (429), a window's link closes and retries, never told its address is gone, and a fetch, a screen or a crew page hears `too many wrong viewing codes, window addresses or crew links from this device — wait a minute` | only the minute's end: never the right PIN, a key or a right pass |
 
 Counted nowhere: a request with no PIN; an unknown or revoked key; a crew page with no key; another page's crew link (Lighting's

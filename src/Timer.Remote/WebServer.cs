@@ -53,8 +53,8 @@ public sealed class WebServer : IAsyncDisposable
     public const string PinsLocked = "too many wrong PINs — wait a minute";
 
     /// <summary>
-    /// Wrong PINs per device. A right PIN or a key in force clears it. Known gap, not this table's invariant: so a key holder can
-    /// go on guessing the PIN below the limit from its address (counts per address and key close it).
+    /// Wrong PINs per device. Only the right PIN or its minute's end clears it: a key in force never does, so a key holder cannot
+    /// go on guessing the PIN below the limit from its address.
     /// </summary>
     private readonly WrongGuesses _pinGuesses = new(WrongPinsPerMinute);
 
@@ -1398,10 +1398,10 @@ public sealed class WebServer : IAsyncDisposable
     /// The one door for HTTP routes: the PIN opens everything; an API key (swk_…) opens what its scope allows and is
     /// rate limited. Wrong PINs count toward the address's PIN lockout; an unknown or revoked key and a missing PIN never
     /// do, since neither is a guess (a key is 160 random bits), and an app still polling with a revoked key would lock its
-    /// whole machine out. A locked address is refused even a valid key. Wrong view passes are counted apart, and nothing
-    /// here reads or clears their count (12.2). Known gap, not this door's invariant: a valid key's request clears the
-    /// address's PIN count, so a key holder on that address can go on guessing the PIN below the lockout (counts per
-    /// address and key close it). Null = allowed.
+    /// whole machine out. A locked address is refused even a valid key. A valid key clears nothing: it vouches only for
+    /// itself, never for whoever is typing PINs from its address, so the PIN's count is reset only by the right PIN or by
+    /// its minute running out, and a key holder cannot put keyed requests between PIN guesses. Wrong view passes are
+    /// counted apart, and nothing here reads or clears their count (12.2). Null = allowed.
     /// </summary>
     private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need) => AuthorizeSecret(PinFrom(req), remote, need, out _);
 
@@ -1425,7 +1425,6 @@ public sealed class WebServer : IAsyncDisposable
             return new Denied(401, PinsLocked);
         if (ApiKeys.Find(_control.ApiKeys, supplied) is not { } key)
             return new Denied(401, "unknown or revoked API key");
-        _pinGuesses.Clear(remote);
         if (!ApiKeys.Allows(key.Scope, need))
             return new Denied(403, $"this API key is {ApiKeys.Describe(key.Scope)}");
         var over = Spend(key.Id);

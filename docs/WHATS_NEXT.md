@@ -118,7 +118,13 @@ dotnet run --project src/Timer.App -c Debug
 - **Old keys no longer lock a PC out.** Unknown and revoked keys, and requests with no PIN, aren't counted toward the
   lockout any more; wrong PINs, viewing codes and window addresses still are. The lockout now reads "too many wrong PINs
   — wait a minute". *Since 2.19:* wrong viewing codes, window addresses and crew links are counted apart from wrong PINs,
-  each locking a device out of its own kind (REMOTE.md, 2.19).
+  each locking a device out of its own kind (REMOTE.md, 2.19). *Since the lockout fix merged with 2.21's work:* a valid
+  key's request no longer resets the wrong-PIN count. Until now every keyed poll from an app on the same address did, so
+  five wrong PINs in a minute rarely added up on a PC that runs a keyed app; now they do. Five wrong PINs from a browser
+  on the show PC (a mistyped or stale PIN) hold that PC's keyed apps off Stagewatch for the rest of the minute, Patterns,
+  PlayMap and AGMessage among them when all four run on one laptop, and an app refused that way may hold its key back
+  longer by its own link's rules. Only the right PIN or the minute's end clears the count (REMOTE.md, 2.10's API keys
+  and 2.19's wrong passes).
 - **Show apps that don't name their node yet.** Patterns, PlayMap and AGMessage still dial `/ws?cid=…` until each moves
   to its node link (NODES.md). With a node key in the header they already leave Screens and hear no screen command; with
   a control key, the PIN, a read key or no key they are still browser screens to Stagewatch, so `screen … all` reaches
@@ -160,7 +166,14 @@ connected): look at them in the running app with a show app linked.
   thread, so while it is stuck they keep its last light, though `/ws` already sends the stuck beat. The fix is a stuck
   overlay on the context (or the context built off the show thread), with a `stall.e2e.cjs` case for it.
 - **A valid key still clears its address's wrong-PIN count.** A key holder can send four wrong PINs, one keyed request,
-  and repeat. Counting per address and key closes it.
+  and repeat. Counting per address and key closes it. *Since then (the default branch's lockout fix, merged with 2.21's
+  work):* a valid key clears nothing. Only the right PIN, or the minute running out, resets the wrong-PIN count, so the
+  guessing is closed without a count per key; five wrong PINs from a browser hold a keyed app on the same machine off
+  for the minute too (REMOTE.md, 2.10's API keys and 2.19's wrong passes). The suite holds Stagewatch's side (a locked
+  address refuses a valid key in the lockout's words). No interop row reads the other side yet: the lane's laptop sends
+  one wrong PIN and clears it with the right one, and no row sends five from the laptop's address and reads each real
+  app's keyed link refused in those words, held, and back by itself after the minute. It is a row for a later lane
+  unit, run last in its topology, since nothing but the right PIN or the minute clears the count.
 - **MCP reads JSON-RPC leniently.** A repeated key, or a method that isn't a string, drops the connection with no answer;
   the strict parse the node routes use is the fix.
 - **A node key may still put any message on the stage.** It runs only `message` and `clearmessage`, but with any
