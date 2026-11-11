@@ -45,17 +45,16 @@ it lands, so a working tree holds at most the one unit in progress. AGMessage st
   on Stagewatch's SW22.1b and SW22.4.
 - Template: `workflows/patterns-rounds-lean.js` (its units carry both plan and round numbers; drop the ones `git log` names).
 
-### PlayMap (repo Mapper) — PM-11, then waiting on round 3's integration pass
+### PlayMap (repo Mapper) — waiting on round 3's integration pass
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
   fix-proposal-sink-deadline, PM-6 fix-peerlink-core, PM-7 fix-stagewatch-timer-air, PM-8 fix-stagewatch-context-size,
-  fix-desk-unconfirmed, the last at `a6c47e62`. Every leave extension is in `owner-answers.md` and in a "Papers: the owner
-  extends …" commit. CI's runs 469–471 are green on that head.
-- In progress: PM-11 (the context names its peers and timer; its leave is `ContextBuilder.cs` through round 3 §5.7's spine
-  lane, its tests and its CARRYOVER entry — the owner's M-eye-spine answer; a file outside that leave is asked before the push).
-- After PM-11 nothing can start: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
-  happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
+  fix-desk-unconfirmed and PM-11 fix-context-peer-rows (the context names its peers and the timer it draws; `cddf83b6`, its leave
+  extension `783319e1`). Every leave extension is in `owner-answers.md` and in a "Papers: the owner extends …" commit.
+- First on resume: read CI for the pushes after run 471 (PM-11); a red job is ours to root-cause.
+- Nothing can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not happened
+  in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
 - Open items each batch left are in its CARRYOVER entry's Open list.
 - Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch).
 

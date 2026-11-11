@@ -66,6 +66,10 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   its state", never a refusal (EngineLinkClient and its readers, DeskSession's toast, the GO guard's Replied), with their tests and a
   CARRYOVER entry; the desk's 30 s reply wait stays. Desk files are the wave's desk package's: the leave covers the lines this needs.
 
+- M-PMX extension (2026-11-11): the leave for fix-context-peer-rows (PM-11) is extended to src/PlayMap.Engine/Seams.cs (LinkView
+  gains the init-only PeerId, through the spine lane) and src/PlayMap.Engine/Host/NetworkHost.cs (HeardId, the one rule that says
+  which hello a link's far end is, and its two call sites).
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns
