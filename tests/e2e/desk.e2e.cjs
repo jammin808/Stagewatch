@@ -9,12 +9,18 @@
 // secret placeholder rides in no line — nor a key where the app is named, or in a rejection's reason — and is in no log, journal,
 // context or proposal after. A restarted desk makes ids of a new run, which every app runs, never skipping one as an id it ran
 // before. With no PIN set, peer and desk pass only from this PC. These are the bytes PlayMap, Patterns and AGMessage collect against.
+// The desk's readers: the operator's frame ends with desk, the config with peers, each peers row of the context with collects; and
+// the producer page draws the frame's desk in a browser — the next proposal, approved or rejected by the id it shows, a high one by
+// a second press that sends the word high, Approve greyed with its reason while the proposal's app is not collecting. The page
+// takes no press on what it has just drawn (a double-click neither confirms a high proposal nor decides the one behind), names
+// both ends as the desk knows their ids, and reads a line longer than the frame carries whole before Approve is live.
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const WebSocket = require('ws');
+const { chromium } = require('playwright');
 const { Rig, until, PIN } = require('./rig.cjs');
 const { FakeApp } = require('./fakepeers.cjs');
 
@@ -309,6 +315,208 @@ test('the journal keeps each desk row, who and from where apart from its words',
   assert.ok(rows.some((r) => /^Outcome p\d+: PlayMap Hall: PLAYLIST CUE show #3 — done \(cued Intro\)$/.test(r.x)), 'and what came of it');
   assert.ok(rows.some((r) => /^Refused to send to PlayMap Hall \(wire\): PlayMap Hall does not list that line — see its verbs$/.test(r.x)), 'a refusal never quotes an unlisted line');
   assert.ok(rows.some((r) => / — not during the keynote$/.test(r.x)), 'a rejection keeps its reason');
+});
+
+test('the readers: the operator frame ends with desk, the config with peers, each peers row of the context with collects', async () => {
+  const frame = await (await fetch(`${rig.base}/api/state?detail=1`, { headers: { 'X-Stagewatch-Pin': rig.pin } })).text();
+  const state = JSON.parse(frame);
+  assert.equal(Object.keys(state).at(-1), 'desk', 'desk is the operator frame\'s last field');
+  assert.deepEqual(Object.keys(state.desk), ['pending', 'next', 'apps']);
+  assert.deepEqual(state.desk.apps.map((a) => a.id).sort(), [...APPS].sort());
+  assert.deepEqual(state.desk.apps.find((a) => a.id === 'pm-a1b2c3'), { id: 'pm-a1b2c3', name: 'PlayMap Hall', kind: 'playmap', collects: true, verified: true });
+  for (const query of ['', '?detail=1']) {
+    const open = await (await fetch(`${rig.base}/api/state${query}`)).text();
+    assert.ok(!open.includes('"desk"') && !open.includes('PlayMap Hall'), `no frame without the PIN carries the desk (${query || 'plain'})`);
+  }
+  // The config's list of apps changes no oftener than the desk's hold (5 s): three apps heard one after another are all in it by then.
+  let config = null;
+  await until(async () => {
+    config = await (await fetch(`${rig.base}/api/config`)).json();
+    return (config.peers || []).length === 3;
+  }, 9000, 'the three apps in the config\'s peers');
+  assert.equal(Object.keys(config).at(-1), 'peers', 'peers is the config\'s last field');
+  assert.deepEqual([...config.peers].sort((a, b) => a.id.localeCompare(b.id)), [
+    { id: 'ag-778899', name: 'AGMessage', kind: 'messenger' },
+    { id: 'pat-d4e5f6', name: 'Patterns FOH', kind: 'patterns' },
+    { id: 'pm-a1b2c3', name: 'PlayMap Hall', kind: 'playmap' },
+  ]);
+  const rows = (await rig.context()).peers.filter((p) => APPS.includes(p.id));
+  assert.equal(rows.length, 3);
+  for (const row of rows) {
+    assert.equal(Object.keys(row).at(-1), 'collects', 'collects is a peers row\'s last field');
+    assert.equal(row.collects, true, `${row.name} asks for its approved lines every 200 ms`);
+  }
+});
+
+// What the producer page says while no proposal from another app waits.
+const IDLE = 'Nothing from other apps waits for approval.';
+
+test('the producer page draws the desk and decides by the id it shows; a high proposal takes a second press', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${rig.base}/producer?pin=${encodeURIComponent(rig.pin)}`);
+    const shows = (id) => page.waitForFunction((x) => (document.getElementById('deskNext') || { dataset: {} }).dataset.id === x, id, { timeout: 8000 });
+    const idle = () => page.waitForFunction((words) => document.getElementById('desk').textContent === words, IDLE, { timeout: 8000 });
+    await idle();
+    assert.equal(await page.isVisible('#deskBox'), true, 'the panel is drawn from the frame\'s desk');
+    assert.match(await page.textContent('#deskApps'), /PlayMap Hall ✓ collecting/);
+
+    const undo = (await propose(agmessage, playmap, 'UNDO')).json;
+    const panic = (await propose(agmessage, playmap, 'PANIC')).json;
+    await shows(undo.id);
+    assert.equal(await page.textContent('#deskCount'), '· 2 waiting');
+    assert.match(await page.textContent('#deskNext'), /^REVIEWAGMessage → PlayMap Hall · p\d+UNDO/);
+    assert.equal(await page.textContent('#deskApprove'), 'Approve');
+    await page.click('#deskApprove');
+    await until(() => playmap.ran.some((r) => r.id === undo.id), 5000, 'PlayMap running the UNDO the page approved');
+    assert.equal(playmap.ran.find((r) => r.id === undo.id).decidedBy, 'wire', 'a page decides as the wire');
+    await page.waitForFunction(() => /^approved p\d+ \(AGMessage → PlayMap Hall: UNDO\)/.test(document.getElementById('deskMsg').textContent), null, { timeout: 8000 });
+
+    // The high one next: one press arms it and approves nothing; the second sends its id and the word high.
+    await shows(panic.id);
+    assert.match(await page.textContent('#deskNext'), /^HIGH/);
+    await page.click('#deskApprove');
+    await page.waitForFunction(() => document.getElementById('deskApprove').textContent === 'Approve HIGH — press again', null, { timeout: 8000 });
+    await pause(600);
+    assert.equal((await proposals()).find((p) => p.id === panic.id).state, 'pending', 'one press approves nothing high');
+    await page.click('#deskApprove');
+    await until(() => playmap.ran.some((r) => r.id === panic.id), 5000, 'PlayMap running the PANIC the page approved with the word high');
+    await idle();
+
+    // Reject by the id shown; and Approve is greyed, with why, while the proposal's app is not collecting.
+    const again = (await propose(agmessage, playmap, 'UNDO')).json;
+    await shows(again.id);
+    await page.click('#deskReject');
+    await until(async () => (await proposals()).find((p) => p.id === again.id).state === 'rejected', 5000, 'the page\'s rejection');
+    await idle();
+    patterns.silent();
+    const quiet = (await propose(agmessage, patterns, 'EYE FOCUS stage')).json;
+    await shows(quiet.id);
+    // Past --desk-fresh 2 the app no longer collects: Approve says why, and stays greyed after the dwell every new proposal has.
+    await page.waitForFunction(() => (document.getElementById('deskApprove') || {}).title === 'Patterns FOH is not asking this desk for its approved lines: it would not collect this',
+      null, { timeout: 8000 });
+    await pause(1200);
+    assert.equal(await page.isDisabled('#deskApprove'), true);
+    assert.equal(await page.textContent('#deskWhy'), 'Patterns FOH is not collecting — approve once it asks again');
+    assert.match(await page.textContent('#deskApps'), /Patterns FOH — not collecting/);
+    await until(async () => (await rig.context()).peers.find((p) => p.id === 'pat-d4e5f6').collects === false, 5000, 'the context saying Patterns no longer collects');
+    await page.click('#deskReject');
+    await idle();
+    assert.equal((await proposals()).find((p) => p.id === quiet.id).state, 'rejected');
+    assert.equal(playmap.ran.filter((r) => [undo.id, panic.id, again.id].includes(r.id)).length, 2, 'PlayMap ran what the page approved, each once, and not what it rejected');
+    assert.deepEqual(errors, []);
+  } finally {
+    patterns.asking = true;
+    await browser.close();
+  }
+});
+
+test('the producer page takes no press on what it has just drawn, names both ends by their ids, and reads a long line whole', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${rig.base}/producer?pin=${encodeURIComponent(rig.pin)}`);
+    const shows = (id) => page.waitForFunction((x) => (document.getElementById('deskNext') || { dataset: {} }).dataset.id === x, id, { timeout: 8000 });
+    const idle = () => page.waitForFunction((words) => document.getElementById('desk').textContent === words, IDLE, { timeout: 8000 });
+    const approveReads = (words, timeout = 8000) => page.waitForFunction((x) => (document.getElementById('deskApprove') || {}).textContent === x, words, { timeout });
+    const stateOf = async (id) => (await proposals()).find((p) => p.id === id).state;
+    await idle();
+
+    // A double-click on a high proposal arms it and approves nothing: the armed Approve takes no press while it is new.
+    const panic = (await propose(agmessage, playmap, 'PANIC')).json;
+    await shows(panic.id);
+    await page.dblclick('#deskApprove');
+    await approveReads('Approve HIGH — press again');
+    await pause(1500);   // past the dwell, and long enough for a decision to have landed
+    assert.equal(await stateOf(panic.id), 'pending', 'a double-click approves nothing high');
+    assert.equal(playmap.ran.some((r) => r.id === panic.id), false);
+    // Left alone, the arm falls back: Approve reads as it did, and nothing was approved.
+    await approveReads('Approve', 9000);
+    assert.equal(await stateOf(panic.id), 'pending', 'an arm that ran out approved nothing');
+
+    // An arm is the proposal's own: when another proposal takes its place, that one is not armed.
+    const blackout = (await propose(agmessage, playmap, 'BLACKOUT ON')).json;
+    await page.click('#deskApprove');
+    await approveReads('Approve HIGH — press again');
+    assert.equal((await api(['desk', 'reject', panic.id])).json.ok, true);
+    await shows(blackout.id);
+    assert.equal(await page.textContent('#deskApprove'), 'Approve', 'the next high proposal is not armed by the press on the one before');
+    await pause(1200);
+    assert.equal(await stateOf(blackout.id), 'pending');
+    assert.equal((await api(['desk', 'reject', blackout.id])).json.ok, true);
+    await idle();
+
+    // A double-click with two proposals waiting approves the one shown, and not the one drawn in its place.
+    const first = (await propose(agmessage, playmap, 'UNDO')).json;
+    const second = (await propose(agmessage, playmap, 'SHOW SET REMOTE-VIEW-ONLY ON')).json;
+    await shows(first.id);
+    assert.equal(await page.textContent('#deskCount'), '· 2 waiting');
+    await page.dblclick('#deskApprove');
+    await until(() => playmap.ran.some((r) => r.id === first.id), 5000, 'PlayMap running the proposal the double-click approved');
+    await shows(second.id);
+    await pause(1500);
+    assert.equal(await stateOf(second.id), 'pending', 'the proposal behind was not approved by the same double-click');
+    assert.equal(playmap.ran.filter((r) => r.id === first.id).length, 1);
+    assert.equal(await page.textContent('#err'), '', 'the second click sent nothing: no refusal came back');
+    await page.click('#deskReject');
+    await idle();
+
+    // Both ends are named as the desk knows their ids, never as the proposal names them; the frame gives the ids beside the names.
+    const odd = await agmessage.call('POST', '/api/proposals', {
+      from: { t: agmessage.kind, id: agmessage.id, name: 'Operator at FOH' }, target: { t: playmap.kind, id: playmap.id, name: 'AGMessage' }, line: 'UNDO',
+    });
+    assert.equal(odd.status, 201, odd.text);
+    await shows(odd.json.id);
+    assert.match(await page.textContent('#deskNext'), /^REVIEWAGMessage → PlayMap Hall · p\d+UNDO/);
+    assert.equal(await page.getAttribute('#deskNext .who', 'title'), 'ag-778899 → pm-a1b2c3');
+    const frame = await (await fetch(`${rig.base}/api/state?detail=1`, { headers: { 'X-Stagewatch-Pin': rig.pin } })).json();
+    assert.deepEqual(frame.desk.next, {
+      id: odd.json.id, from: 'AGMessage', target: 'PlayMap Hall', line: 'UNDO', risk: 'review', collects: true, cut: false, fromId: 'ag-778899', targetId: 'pm-a1b2c3',
+    });
+    assert.ok(!JSON.stringify(frame).includes('Operator at FOH'), 'the name a proposal gives itself is in no frame');
+    await page.click('#deskReject');
+    await idle();
+    const journalRows = () => fs.readFileSync(rig.journal, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).x);
+    const oddTag = odd.json.id.split('-')[0];
+    await until(() => journalRows().includes(`Rejected ${oddTag} (wire): AGMessage → PlayMap Hall: UNDO`), 5000, 'the journal row of the rejection');
+    assert.ok(journalRows().includes(`Proposed ${oddTag}: AGMessage → PlayMap Hall: UNDO`), 'the journal names both ends as the frame does');
+    assert.ok(!fs.readFileSync(rig.journal, 'utf8').includes('Operator at FOH'), 'the name a proposal gives itself is in no journal row');
+
+    // A line longer than the frame carries: the frame says it is cut, and the page reads the whole of it before Approve is live.
+    const long = 'SET out1 name ' + 'a'.repeat(150) + ' AND THEN THE PART NOBODY SAW';
+    const whole = (await propose(agmessage, playmap, long)).json;
+    await shows(whole.id);
+    const cut = (await (await fetch(`${rig.base}/api/state?detail=1`, { headers: { 'X-Stagewatch-Pin': rig.pin } })).json()).desk.next;
+    assert.equal(cut.cut, true);
+    assert.equal(cut.line, long.slice(0, 120));
+    await page.waitForFunction((x) => document.getElementById('deskLine').textContent === x, long, { timeout: 8000 });
+    await page.click('#deskApprove');
+    await until(() => playmap.ran.some((r) => r.id === whole.id), 5000, 'PlayMap running the long line the page showed whole');
+    assert.equal(playmap.ran.find((r) => r.id === whole.id).line, long);
+    await idle();
+
+    // When the whole line can't be read, Approve stays greyed and says why; the part shown ends with its mark; Reject still works.
+    await page.route('**/api/proposals/**', (route) => route.abort());
+    const unread = (await propose(agmessage, playmap, long)).json;
+    await shows(unread.id);
+    await page.waitForFunction(() => (document.getElementById('deskWhy') || {}).textContent === 'This line is longer than shown and could not be read here — read it at the desk',
+      null, { timeout: 8000 });
+    assert.equal(await page.textContent('#deskLine'), long.slice(0, 120) + '…');
+    assert.equal(await page.isDisabled('#deskApprove'), true);
+    await page.click('#deskReject');
+    await idle();
+    assert.equal(await stateOf(unread.id), 'rejected');
+    assert.equal(playmap.ran.some((r) => r.id === unread.id), false);
+    await page.unroute('**/api/proposals/**');
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
 });
 
 test('an app that stopped asking is refused, and nothing is queued for it', async () => {

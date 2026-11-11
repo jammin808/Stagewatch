@@ -184,7 +184,8 @@ public sealed partial class MainViewModel
             QaPending = _qa.Pending,
             QaQueued = _qa.Queued,
             QaFit = _qa.FitIn(t.Remaining),
-            Questions = _qa.Views()
+            Questions = _qa.Views(),
+            Desk = Desk.Said
         };
         return FrameBuilder.Build(frame, projection, _forecast, advice, ambient);
     }

@@ -52,6 +52,13 @@
   .q { display: flex; gap: 6px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
   .q .txt { flex: 1; }
   .q.live .txt { color: var(--accent); font-weight: 700; }
+  .deskitem { border-left: 4px solid var(--amber); background: var(--panel); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .deskitem.high { border-left-color: var(--red); }
+  .deskitem.low { border-left-color: var(--blue); }
+  .deskitem .who { color: var(--muted); font-size: 13px; }
+  .deskitem .line { font-family: ui-monospace, Consolas, monospace; font-size: 15px; margin: 4px 0 8px; overflow-wrap: anywhere; max-height: 11em; overflow-y: auto; }
+  .deskitem .row { gap: 8px; }
+  .deskitem button:disabled { opacity: .5; cursor: default; }
   #pinbox { max-width: 360px; margin: 18vh auto 0; text-align: center; }
   #pinbox input { text-align: center; font-size: 28px; letter-spacing: .3em; margin: 12px 0; }
   #toast { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 14px; background: #111; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; }
@@ -154,6 +161,13 @@
     <section>
       <h2>Assistant</h2>
       <div id="advice"><div class="muted">No suggestions — the show is tracking.</div></div>
+
+      <div id="deskBox" class="hidden">
+        <h2>Approval desk <span class="muted" id="deskCount"></span></h2>
+        <div id="desk"></div>
+        <div class="muted" id="deskApps" style="font-size:13px"></div>
+        <div class="muted" id="deskMsg" style="font-size:13px;margin-top:4px"></div>
+      </div>
 
       <h2>Running order <span class="muted" id="delayInfo"></span></h2>
       <div class="row" style="margin-bottom:8px">

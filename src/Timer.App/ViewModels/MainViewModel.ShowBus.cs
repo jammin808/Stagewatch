@@ -107,11 +107,12 @@ public sealed partial class MainViewModel
         var view = Network(now);
         _network = view;
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
-            now, _hub.Latest, _hub.ProducerStuck, LinkItems(), view.Rows.Select(r => r.Peer).ToList(), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
+            now, _hub.Latest, _hub.ProducerStuck, LinkItems(), Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
             PlayoutRows());
         _contextJson = ShowContext.Build(input);
         SyncPeerRows(now, view);
         RefreshPlayoutConfig();
+        RefreshDeskReaders();
         var hello = OwnHello;
         var twin = OwnTwin;
         HelloLine = ShowBusHello.Line(hello, input.Name, _nodeId, twin);

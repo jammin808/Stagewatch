@@ -577,6 +577,42 @@ running app on a network: two copies of one install for the conflict, an old cer
   the app's executors for both verbs (`DeskCommand`), an operator's `peer` or `desk` line kept from Companion's recorder (no
   menu sends one yet), a trigger's `peer` line, the renamed Settings label and its help tip (the maintainer's PC; UiSmoke
   compiles with the new name).
+  *Since then (SW21.5):* the desk has its readers (REMOTE.md, "Every reader takes the desk"). The operator's frame ends with
+  `desk{pending,next,apps}` — on HTTP with a credential, a control page's socket, Companion's `SNAPSHOT` and MCP's state, never
+  in a public frame — and `network` (SW21.8) follows it, so the order is desk, then network. `next` names its two ends as the
+  desk knows their ids (the Show network's name, else kind and id — `DeskService.Known`, never the name a proposal gave), with
+  `fromId` and `targetId` beside them, and carries the line's first 120 characters with `cut` when there are more; the desk's
+  journal rows, its receipts' words, the queue's refusals and outcomes (`ProposalDesk.Names`) and the app's Copilot list name
+  them the same way. `/api/config` and Companion's `CONFIG` end with `peers` (id, name, kind), only from a host that keeps a
+  desk; each `peers` row of the context ends with `collects`. What the readers are told is one rule for every host
+  (`DeskService.Refresh`, which the app and the rig both call when a proposal changes and once a second, never per frame): the
+  frame when the summary reads differently (`DeskSummary` is equal to another that says the same, its apps an
+  `EquatableArray`), the config when the apps differ — and that at most once in 5 s (`PeersHold`), a change inside the hold
+  told at its end. The cause is counted, not measured on a show: a hello is not authenticated, and one that renames itself
+  each second would have every page and deck fetch the config each second; `DeskTests` holds the bound on an injected clock
+  (twelve renames in twelve seconds: twelve frames, two configs). The rig counts a `configVersion` (its config was cached at
+  version 0 for a whole run: a link's kind heard after the first fetch never reached a page). The copilot is given the frame
+  without `desk` and the config without `peers` (`AiContext`): another app's words reach the model only inside `other_apps`.
+  The Showcaller page draws the frame's desk: the oldest proposal, Approve and Reject by the id shown, a high one by a second
+  press that sends `high`, Approve greyed with its reason while the proposal's app is not collecting. It takes no press on
+  what it has just drawn — a new proposal, the armed Approve, a button just pressed, for 0.8 s — so a double-click neither
+  confirms a high proposal nor decides the one behind; and it reads a `cut` line whole from `GET /api/proposals/<id>` before
+  Approve takes a press, greying Approve with words when it cannot. `common.js` hands a page its receipts (`onReceipt`).
+  Tests: `DeskTests` (frame, config and context bytes; equality; names; what the readers are told; the copilot's view),
+  `DeskWireTests` over a loopback web server (HTTP, a control socket, a page with no PIN, the config's hold, Companion's
+  `SNAPSHOT` and `CONFIG`, a first-protocol deck's lines), `tests/e2e/desk.e2e.cjs` (the readers on the rig; the page in a
+  browser against three apps: decisions by id, the high double press, a double-click on a high proposal and on the first of
+  two, the arm running out and not carrying to the next proposal, names, a long line read whole, one that cannot be read)
+  and `pages.e2e.cjs` (the page with an idle desk). *What this did not do:* the frame carries one proposal, by the design, so
+  the page shows the oldest and a count, not the queue — one whose app is not collecting stays in front of those behind it
+  until it is rejected there or decided at the desk; a short pending list at the end of `desk` is the fix if a show asks for
+  it. `desk` counts the shared queue only: this Stagewatch's own copilot's proposals wait in the desk's Copilot list, so the
+  page says "Nothing from other apps waits" while the desk may hold its own. The copilot's `recent` rows still quote the
+  journal's "Proposed …" rows, a proposal's line among them, as before this unit; release B's `other_apps` is where they
+  belong. The config is behind the viewing code like the rest of it, so `peers` (ids hellos already say) is not the PIN's;
+  the AI's facts still carry no `collects` (release B's `PeerFact`, SW22.9); the module reads neither field yet (SW22.8); the
+  Show network row's Collects mark and its menu are SW21.6's (PC work). Compiled here, never seen: the app's frame and config
+  wiring (`RefreshDeskReaders`), its context rows and the Copilot list's names.
   *Asks of the other apps (SW21.2).* **Patterns** (Round 94 or after): its `APPLY` line keeps a look's title as typed, only
   shortened (`DeskProposals.Line`, at the pin `5a8ad8f8`), so a title holding a control character or an invisible format character
   is now refused `400` where 2.20 dropped the characters; and at the pin a refused proposal stays unsent and is posted again each

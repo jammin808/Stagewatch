@@ -28,6 +28,7 @@
         SW.store('sw-pin', '');
       },
       onError: flashError,
+      onReceipt: deskReceipt,
       onStatus: function (on) { $('conn').textContent = on ? 'connected' : 'reconnecting…'; $('conn').style.color = on ? '' : 'var(--amber)'; }
     });
   }
@@ -112,6 +113,7 @@
     renderStandby(s);
     renderQuestions(s);
     renderAdvice(s);
+    renderDesk(s);
     renderRows(s);
     $('delayInfo').textContent = s.delay > 0 ? '· delay ' + SW.fmt(s.delay) + ' before next' : '';
   }
@@ -238,6 +240,130 @@
       }
       box.appendChild(row);
     });
+  }
+
+  // The approval desk (Show Bus §11): what other show apps and their AIs propose waits here for a person (this Stagewatch's own
+  // copilot's proposals wait at its desk). The frame's desk block names how many wait and the oldest; a decision names that
+  // proposal by its id, so a press decides the one this page showed and never one that arrived since. A high proposal is approved
+  // by a second press, which sends the word high with its id.
+  var HIGH_ARM_MS = 5000;
+  // A press counts only on what has stood still this long. Whatever is newly drawn — another proposal, the armed Approve, a long
+  // line read whole — and whatever was just pressed takes no press until then, so the second click of a double-click, or a press
+  // aimed at the proposal before, neither confirms a high proposal it only armed nor decides one nobody read.
+  var DESK_DWELL_MS = 800;
+  var deskDrawn = null, deskArmed = '', deskArmTimer = null;
+  var deskShown = '', deskHeld = false, deskHoldTimer = null;
+  var deskWhole = { id: '', line: null, failed: false };
+
+  function holdDesk() {
+    deskHeld = true;
+    clearTimeout(deskHoldTimer);
+    deskHoldTimer = setTimeout(function () { deskHeld = false; if (state) renderDesk(state); }, DESK_DWELL_MS);
+  }
+
+  // The frame carries a line's first characters and says when there are more (cut). Nobody approves a part: the whole line is
+  // read from the desk by the id shown, and until it stands on the page — or when it can't be read — Approve takes no press.
+  function wholeLine(n) {
+    if (!n.cut) return n.line;
+    if (deskWhole.id !== n.id) {
+      var want = deskWhole = { id: n.id, line: null, failed: false };
+      fetch('/api/proposals/' + encodeURIComponent(n.id), { headers: { 'X-Stagewatch-Pin': pinUsed || '' }, cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('not read'); return r.json(); })
+        .then(function (p) {
+          if (p.id !== n.id || typeof p.line !== 'string' || p.line.lastIndexOf(n.line, 0) !== 0) throw new Error('not the line shown');
+          want.line = p.line;
+        })
+        .catch(function () { want.failed = true; })
+        .then(function () { if (deskWhole === want && state) { holdDesk(); renderDesk(state); } });
+    }
+    return deskWhole.line;
+  }
+
+  function renderDesk(s) {
+    var d = s.desk;
+    $('deskBox').classList.toggle('hidden', !d);
+    if (!d) { deskDrawn = null; deskShown = ''; return; }
+    var n = d.next;
+    if (deskArmed && (!n || n.id !== deskArmed)) disarmDesk();
+    var id = n ? n.id : '';
+    if (id !== deskShown) { deskShown = id; if (n) holdDesk(); }
+    var whole = n ? wholeLine(n) : '';
+    var unread = whole === null;
+    // Drawn again only when it reads differently: a frame a second must not replace a button between its press and release.
+    var key = JSON.stringify(d) + '|' + deskArmed + '|' + deskHeld + '|' + (unread ? (deskWhole.failed ? 'unread' : 'reading') : whole.length);
+    if (key === deskDrawn) return;
+    deskDrawn = key;
+    $('deskCount').textContent = d.pending ? '· ' + d.pending + ' waiting' : '';
+    var box = $('desk');
+    box.textContent = '';
+    if (!n) box.appendChild(SW.el('div', 'muted', 'Nothing from other apps waits for approval.'));
+    else {
+      var item = SW.el('div', 'deskitem ' + n.risk);
+      item.id = 'deskNext';
+      item.dataset.id = n.id;
+      var head = SW.el('div', 'row');
+      head.appendChild(pill(n.risk.toUpperCase(), n.risk === 'high' ? 'late' : n.risk === 'review' ? 'warn' : ''));
+      var who = SW.el('span', 'who grow', n.from + ' → ' + n.target + ' · ' + n.id.split('-')[0]);
+      who.title = (n.fromId || '') + ' → ' + (n.targetId || '');   // the node ids the names stand for
+      head.appendChild(who);
+      item.appendChild(head);
+      var line = SW.el('div', 'line', unread ? n.line + '…' : whole);
+      line.id = 'deskLine';
+      item.appendChild(line);
+      var why = !n.collects ? n.target + ' is not collecting — approve once it asks again'
+        : unread && deskWhole.failed ? 'This line is longer than shown and could not be read here — read it at the desk'
+        : unread ? 'Reading the whole line…' : '';
+      var acts = SW.el('div', 'row');
+      var armed = deskArmed === n.id;
+      var approve = SW.el('button', 'small ' + (armed ? 'warn' : 'primary'), armed ? 'Approve HIGH — press again' : 'Approve');
+      approve.id = 'deskApprove';
+      approve.disabled = !n.collects || unread || deskHeld;
+      if (!n.collects) approve.title = n.target + ' is not asking this desk for its approved lines: it would not collect this';
+      else if (unread) approve.title = 'The line is longer than shown: it is approved only once the whole of it stands here';
+      approve.onclick = function () {
+        if (deskHeld) return;
+        if (n.risk === 'high' && !armed) { armDesk(n.id); return; }
+        disarmDesk();
+        holdDesk();
+        if (n.risk === 'high') send('desk', 'approve', n.id, 'high'); else send('desk', 'approve', n.id);
+        if (state) renderDesk(state);
+      };
+      var reject = SW.el('button', 'small', 'Reject');
+      reject.id = 'deskReject';
+      reject.disabled = deskHeld;
+      reject.onclick = function () {
+        if (deskHeld) return;
+        disarmDesk();
+        holdDesk();
+        send('desk', 'reject', n.id);
+        if (state) renderDesk(state);
+      };
+      acts.appendChild(approve);
+      acts.appendChild(reject);
+      if (why) { var note = SW.el('span', 'muted', why); note.id = 'deskWhy'; acts.appendChild(note); }
+      item.appendChild(acts);
+      box.appendChild(item);
+      if (d.pending > 1) box.appendChild(SW.el('div', 'muted', '+ ' + (d.pending - 1) + ' more behind it, oldest first'));
+    }
+    $('deskApps').textContent = (d.apps || []).length
+      ? 'Apps: ' + d.apps.map(function (a) { return a.name + (a.collects ? ' ✓ collecting' : ' — not collecting') + (a.verified ? '' : ', verbs unverified'); }).join(' · ')
+      : '';
+  }
+
+  // The first press on a high proposal: it arms Approve, which then takes no press for the dwell and falls back after HIGH_ARM_MS.
+  function armDesk(id) {
+    deskArmed = id;
+    holdDesk();
+    clearTimeout(deskArmTimer);
+    deskArmTimer = setTimeout(function () { deskArmed = ''; if (state) renderDesk(state); }, HIGH_ARM_MS);
+    if (state) renderDesk(state);
+  }
+  function disarmDesk() { deskArmed = ''; clearTimeout(deskArmTimer); }
+
+  // What a desk line did, in the desk's own words; a refusal also flashes like any other.
+  function deskReceipt(r) {
+    if (!r.ok) flashError(r.error || 'refused');
+    $('deskMsg').textContent = r.ok ? (r.effect || '') : (r.error || '');
   }
 
   function renderRows(s) {

@@ -129,7 +129,7 @@ public sealed class DeskService : IShowApprovals
     public DeskService(DeskHost host)
     {
         _host = host;
-        Queue = new ProposalDesk(host.Id, host.Nodes, host.Run) { WindowTokens = host.WindowTokens, Fresh = host.Fresh };
+        Queue = new ProposalDesk(host.Id, host.Nodes, host.Run) { WindowTokens = host.WindowTokens, Fresh = host.Fresh, Names = Known };
         Queue.Changed += OnChanged;
     }
 
@@ -223,7 +223,7 @@ public sealed class DeskService : IShowApprovals
     }
 
     private DeskApp App(NodeRef node, DateTime now)
-        => new(node.Id, NameOf(node), node.Kind, Queue.NotCollecting(node, now) is null, Verified(node, now));
+        => new(node.Id, NameOf(node), node.Kind, Queue.Collects(node.Id, now), Verified(node, now));
 
     /// <summary>Whether a table of the node's verbs, of its kind, proves something now: posted under the key bound to its id, or read over this Stagewatch's own link.</summary>
     private bool Verified(NodeRef node, DateTime now)
@@ -415,7 +415,7 @@ public sealed class DeskService : IShowApprovals
         }
         Journal(now, Decision(Approved, p, by), by.Named);
         if (!approved.TargetIsDesk)
-            return new(true, $"approved {Short(p.Id)} ({Title(p)}) — {NameOf(p.Target)} runs it and reports back", approved);
+            return new(true, $"approved {Short(p.Id)} ({Title(p)}) — {Actor(p)} runs it and reports back", approved);
         return RunHere(approved);
     }
 
@@ -520,7 +520,7 @@ public sealed class DeskService : IShowApprovals
     public DeskResult? ResultOf(string id)
     {
         if (Queue.Get(id) is not { } p) return null;
-        var who = p.TargetIsDesk ? "this Stagewatch" : NameOf(p.Target);
+        var who = Actor(p);
         var tag = Short(p.Id);
         var line = Quoted(p.Line);
         var said = p.Result.Length > 0 ? ": " + p.Result : "";
@@ -537,16 +537,73 @@ public sealed class DeskService : IShowApprovals
         };
     }
 
-    /// <summary>The desk now, for every reader that shows it: how many proposals wait, the oldest, and the apps a line could go to.</summary>
+    /// <summary>
+    /// The desk now, for every reader that shows it: how many proposals wait, the oldest, and the apps a line could go to. The oldest
+    /// names its two ends as this desk knows their ids (<see cref="Known"/>), each id beside its name, and says when its line is
+    /// longer than the part it carries.
+    /// </summary>
     public DeskSummary Summary()
     {
         var now = Now;
         var pending = Queue.All().Count(p => p.State == SharedProposalState.Pending);
         DeskNext? next = null;
         if (Queue.NextPending() is { } p)
-            next = new DeskNext(p.Id, NameOf(p.From), p.TargetIsDesk ? "this Stagewatch" : NameOf(p.Target), ShowBusText.Clip(p.Line, DeskSummary.NextLineChars), p.Risk,
-                p.TargetIsDesk || Queue.NotCollecting(p.Target, now) is null);
-        return new DeskSummary(pending, next, Apps());
+            next = new DeskNext(p.Id, Proposer(p), Actor(p), ShowBusText.Clip(p.Line, DeskSummary.NextLineChars), p.Risk,
+                p.TargetIsDesk || Queue.Collects(p.Target.Id, now), p.Line.Length > DeskSummary.NextLineChars, p.From.Id, p.Target.Id);
+        return new DeskSummary(pending, next, Apps().ToEquatableArray());
+    }
+
+    // ------------------------------------------------------------------ what the readers are told
+
+    /// <summary>
+    /// The least time between two changes of the apps a config lists (<see cref="PeersSaid"/>). A hello is not authenticated: an app
+    /// that renames itself every second would otherwise send every page and deck the config every second. Within it the list waits,
+    /// and then says the apps as they are.
+    /// </summary>
+    public static readonly TimeSpan PeersHold = TimeSpan.FromSeconds(5);
+
+    private volatile DeskSummary _said = DeskSummary.Empty;
+    private volatile IReadOnlyList<(string Id, string Name, string Kind)> _peersSaid = [];
+    private DateTime _peersSaidUtc = DateTime.MinValue;   // Refresh's thread
+
+    /// <summary>The desk as its readers were last told (<see cref="Refresh"/>): what an operator's frame carries. Any thread.</summary>
+    public DeskSummary Said => _said;
+
+    /// <summary>The apps as a config lists them, as last told (<see cref="Refresh"/>): id, name and kind. Any thread.</summary>
+    public IReadOnlyList<(string Id, string Name, string Kind)> PeersSaid => _peersSaid;
+
+    /// <summary>
+    /// The host's one thread, when a proposal changes and once a second: reads the desk and says which of its readers are to be told
+    /// again. <c>Frame</c>: the summary reads differently from the one last said (<see cref="Said"/> is now the new one). <c>Config</c>:
+    /// the apps differ from the list last said and that list is <see cref="PeersHold"/> old or more (<see cref="PeersSaid"/> is now
+    /// the apps as they are); a change inside the hold is said at its end, by the call that comes then.
+    /// </summary>
+    public (bool Frame, bool Config) Refresh()
+    {
+        var now = Now;
+        var summary = Summary();
+        var frame = summary != _said;
+        if (frame) _said = summary;
+        var peers = summary.Peers();
+        // A clock set back never holds the list longer than the hold: a time before the last change counts as past it.
+        var config = !peers.SequenceEqual(_peersSaid) && (now < _peersSaidUtc || now - _peersSaidUtc >= PeersHold);
+        if (config)
+        {
+            _peersSaid = peers;
+            _peersSaidUtc = now;
+        }
+        return (frame, config);
+    }
+
+    /// <summary>
+    /// The show network's rows as the context says them, each with whether its node collects from this desk now
+    /// (<see cref="PeerSummary.Collects"/>): it asked for its approved lines within the freshness window. Any node's row is
+    /// answered, an app's or another Stagewatch's (which never asks, and so never collects).
+    /// </summary>
+    public IReadOnlyList<PeerSummary> Collecting(IEnumerable<PeerSummary> peers)
+    {
+        var now = Now;
+        return peers.Select(p => p with { Collects = p.Id.Length > 0 && Queue.Collects(p.Id, now) }).ToList();
     }
 
     /// <summary>
@@ -573,13 +630,13 @@ public sealed class DeskService : IShowApprovals
                 Journal(p.CreatedUtc, $"Proposed {Short(p.Id)}: {Title(p)}");
                 break;
             case SharedProposalState.Done or SharedProposalState.Failed or SharedProposalState.Undelivered:
-                Journal(Now, $"Outcome {Short(p.Id)}: {(p.TargetIsDesk ? "this Stagewatch" : NameOf(p.Target))}: {p.Line} — {p.StateName}{(p.Result.Length > 0 ? $" ({p.Result})" : "")}");
+                Journal(Now, $"Outcome {Short(p.Id)}: {Actor(p)}: {p.Line} — {p.StateName}{(p.Result.Length > 0 ? $" ({p.Result})" : "")}");
                 break;
         }
     }
 
     /// <summary>A decision's row: the word, the proposal's number, the role that decided, and what it was — <c>Approved p18 (deck): AI agent → PlayMap Hall: UNDO</c>.</summary>
-    private static string Decision(string word, SharedProposal p, DeskOrigin by) => $"{word} {Short(p.Id)} ({by.Role}): {Title(p)}";
+    private string Decision(string word, SharedProposal p, DeskOrigin by) => $"{word} {Short(p.Id)} ({by.Role}): {Title(p)}";
 
     /// <summary>A decision refused: its row, said once for this proposal, decider and reason (<paramref name="same"/>) while it repeats.</summary>
     private void Refused(DateTime now, SharedProposal p, string word, DeskOrigin by, string same, string why)
@@ -654,9 +711,24 @@ public sealed class DeskService : IShowApprovals
     }
 
     /// <summary>A proposal as a row names it: who proposes, which node is to act, and the line.</summary>
-    private static string Title(SharedProposal p) => $"{NameOf(p.From)} → {(p.TargetIsDesk ? "this Stagewatch" : NameOf(p.Target))}: {p.Line}";
+    private string Title(SharedProposal p) => $"{Proposer(p)} → {Actor(p)}: {p.Line}";
 
-    /// <summary>How words name a node: its name, else its kind and id.</summary>
+    /// <summary>
+    /// How this desk names a node a proposal names: by the name the show network's row carries for its id — the one the Show network
+    /// and <see cref="Apps"/> say — else by its kind and id. Never by the name the proposal gave it: those are the proposer's words,
+    /// and a proposal for PlayMap's id that calls it something else is still PlayMap's to run.
+    /// </summary>
+    public string Known(NodeRef node)
+        => _host.Network().Rows.FirstOrDefault(r => r.Peer.Id == node.Id && r.Peer.Name.Length > 0) is { } row ? row.Peer.Name : NodeBindings.Describe(node.Kind, node.Id);
+
+    /// <summary>Who proposes, as this desk names it: itself by the name it gave a line born here (only this desk writes its own id), another node as <see cref="Known"/>.</summary>
+    public string Proposer(SharedProposal p)
+        => p.From.Id == _host.Id() ? (p.From.Name.Length > 0 ? p.From.Name : "this Stagewatch") : Known(p.From);
+
+    /// <summary>Which node is to act, as this desk names it: this Stagewatch, or another node as <see cref="Known"/>.</summary>
+    public string Actor(SharedProposal p) => p.TargetIsDesk ? "this Stagewatch" : Known(p.Target);
+
+    /// <summary>How words name a node the show network listed: its name there, else its kind and id.</summary>
     private static string NameOf(NodeRef node) => node.Name.Length > 0 ? node.Name : NodeBindings.Describe(node.Kind, node.Id);
 
     /// <summary>An id as people say it: p17 of p17-k3m9.</summary>

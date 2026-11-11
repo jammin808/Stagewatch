@@ -40,6 +40,21 @@ public sealed partial class MainViewModel
     private void JournalDesk(DeskRow row) => _journal.Add(row.Entry(_show.RundownActive ? _show.CurrentItem : -1));
 
     /// <summary>
+    /// Show thread: the desk's readers follow it, by the desk's own rule (<see cref="DeskService.Refresh"/>), asked when a proposal
+    /// changes and once a second — an app starts or stops collecting, comes or goes with no proposal moving — never per frame, so
+    /// building a frame asks the desk nothing: it carries <see cref="DeskService.Said"/>. The operator frame's desk block is
+    /// published when it reads differently; the config's peers (a deck's and a page's list of apps, <see cref="DeskService.PeersSaid"/>)
+    /// are sent again when an app comes, goes or is renamed, no oftener than the desk's hold.
+    /// </summary>
+    private void RefreshDeskReaders()
+    {
+        var (frame, config) = Desk.Refresh();
+        if (frame) MarkDirty();
+        if (config) BumpConfig();   // rebuilds the config from the desk's peers and publishes
+        else Publish();
+    }
+
+    /// <summary>
     /// IShowApprovals: an app proposes (network thread) with what its request proved (the server's credential: a node
     /// key, the operator, or nothing). 403 when the credential may not speak for its <c>from</c>.
     /// </summary>
@@ -69,15 +84,17 @@ public sealed partial class MainViewModel
     /// </summary>
     private void OnSharedProposal(SharedProposal p)
     {
+        RefreshDeskReaders();
         var item = Proposals.FirstOrDefault(x => x.SharedId == p.Id);
-        var target = p.TargetIsDesk ? "this Stagewatch" : (p.Target.Name.Length > 0 ? p.Target.Name : p.Target.Kind);
+        // Both ends by the names this desk knows their ids by, as its journal rows and the frame say them — never the proposal's own.
+        var target = Desk.Actor(p);
         if (item is null)
         {
             var sent = p.State == SharedProposalState.Approved && !p.TargetIsDesk && p.From.Id == _store.Snapshot.NodeId;
             if (p.State != SharedProposalState.Pending && !sent) return;
             item = new CopilotProposal
             {
-                Source = sent ? $"{p.DecidedBy} → {target}" : $"{(p.From.Name.Length > 0 ? p.From.Name : p.From.Kind)} → {target}",
+                Source = sent ? $"{p.DecidedBy} → {target}" : $"{Desk.Proposer(p)} → {target}",
                 Request = p.Reason.Length > 0 ? p.Reason : p.Line,
                 SharedId = p.Id,
             };
@@ -120,7 +137,7 @@ public sealed partial class MainViewModel
                     _ => "not delivered: " + p.Result,
                 };
                 item.State = ProposalState.Done;
-                if (!p.TargetIsDesk) StatusLine = $"{p.Target.Name}: \"{p.Line}\" {p.StateName}" + (p.Result.Length > 0 ? $" — {p.Result}" : "");
+                if (!p.TargetIsDesk) StatusLine = $"{target}: \"{p.Line}\" {p.StateName}" + (p.Result.Length > 0 ? $" — {p.Result}" : "");
                 break;
             case SharedProposalState.Rejected:
                 item.State = ProposalState.Discarded;
@@ -160,7 +177,7 @@ public sealed partial class MainViewModel
             CopilotStatus = char.ToUpperInvariant(outcome.Words[0]) + outcome.Words[1..] + ".";
             return;
         }
-        CopilotStatus = outcome.Proposal is { TargetIsDesk: false } sp ? $"Approved. {sp.Target.Name} runs it and reports back."
+        CopilotStatus = outcome.Proposal is { TargetIsDesk: false } sp ? $"Approved. {Desk.Actor(sp)} runs it and reports back."
             : outcome.Ok ? "Approved — it ran here." : "Approved — it was refused here: " + outcome.Words;
     }
 

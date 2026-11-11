@@ -26,6 +26,7 @@ static class DeskWireTests
         Verbs(Check);
         await Receipts(Check);
         await Transports(Check);
+        await Readers(Check);
     }
 
     static ShowCommand Parse(string verb, params string[] args)
@@ -344,7 +345,7 @@ static class DeskWireTests
     {
         public SnapshotHub Snapshots { get; } = new();
         public List<ShowCommand> Commands { get; } = new();
-        public RemoteConfig GetRemoteConfig() => new([], [], []);
+        public RemoteConfig GetRemoteConfig() => new([], [], [], Peers: b.Desk.PeersSaid);
         public volatile IReadOnlyList<ApiKey> Keys = [];
         public IReadOnlyList<ApiKey> ApiKeys => Keys;
         public volatile IReadOnlyList<IPAddress> From = [];
@@ -616,6 +617,142 @@ static class DeskWireTests
             await stop.CancelAsync();
             await app;
         }
+    }
+
+    /// <summary>
+    /// The desk's readers over a loopback web server: the operator's frame ends with the desk — over HTTP with the PIN and on a
+    /// control page's socket, where a decision made by the id it shows moves it on — a public frame carries none of it, and the
+    /// config ends with the apps a line could go to.
+    /// </summary>
+    static async Task Readers(Action<bool, string> Check)
+    {
+        var b = DeskTests.Room();
+        var control = new DeskControl(b);
+        const string Pin = "4321";
+        var port = FreeTcpPort();
+        await using var web = new WebServer(control, () => Pin);
+        web.Start(port, bindAll: false);
+        // As a host does: it asks the desk what its readers are to be told, and the frame carries what the desk last said; the config
+        // is sent again (the frame's configVersion going up) when the desk says its apps changed.
+        var configVersion = 0;
+        bool Publish()
+        {
+            var config = b.Desk.Refresh().Config;
+            if (config) configVersion++;
+            control.Snapshots.Publish(new ShowSnapshot { Text = "05:00", Seconds = 300, ConfigVersion = configVersion, Desk = b.Desk.Said });
+            control.Snapshots.MarkAlive();
+            return config;
+        }
+        b.Desk.CollectApproved("pm1", NodeCredential.Key("kM"));
+        Propose(b, "UNDO");
+        Propose(b, "PANIC");
+        Publish();
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        async Task<string> Text(string path, string? pin = null)
+        {
+            using var m = new HttpRequestMessage(HttpMethod.Get, path);
+            if (pin is not null) m.Headers.Add("X-Stagewatch-Pin", pin);
+            using var r = await http.SendAsync(m);
+            return await r.Content.ReadAsStringAsync();
+        }
+
+        var operatorFrame = await Text("/api/state?detail=1", Pin);
+        var desk = JsonNode.Parse(operatorFrame)!["desk"];
+        Check(operatorFrame.TrimEnd().EndsWith("\"verified\":true}]}}", StringComparison.Ordinal) && JsonNode.Parse(operatorFrame)!.AsObject().Last().Key == "desk"
+              && (int?)desk!["pending"] == 2 && (string?)desk["next"]!["id"] == "p1-k3m9" && (string?)desk["next"]!["line"] == "UNDO" && (string?)desk["next"]!["risk"] == "review"
+              && (string?)desk["next"]!["from"] == "AGMessage" && (string?)desk["next"]!["target"] == "PlayMap Hall" && (bool?)desk["next"]!["collects"] == true
+              && (bool?)desk["next"]!["cut"] == false && (string?)desk["next"]!["fromId"] == "ag1" && (string?)desk["next"]!["targetId"] == "pm1"
+              && desk["next"]!.AsObject().Select(f => f.Key).SequenceEqual(["id", "from", "target", "line", "risk", "collects", "cut", "fromId", "targetId"])
+              && desk["apps"]!.AsArray().Select(a => (string?)a!["id"]).SequenceEqual(["ag1", "pat1", "pm1"]),
+            $"desk readers wire: with the PIN, /api/state?detail=1 ends with the desk — what waits, the next proposal by its whole id, the apps ({desk?.ToJsonString()})");
+        var publicFrame = await Text("/api/state");
+        var publicDetail = await Text("/api/state?detail=1");
+        Check(!publicFrame.Contains("\"desk\"", StringComparison.Ordinal) && !publicDetail.Contains("\"desk\"", StringComparison.Ordinal)
+              && !publicDetail.Contains("UNDO", StringComparison.Ordinal) && !publicDetail.Contains("PlayMap Hall", StringComparison.Ordinal),
+            "desk readers wire: without the PIN no frame carries the desk — no count, no proposal's line, no app's name");
+
+        var config = await Text("/api/config");
+        Check(config.TrimEnd().EndsWith(",\"peers\":[{\"id\":\"ag1\",\"name\":\"AGMessage\",\"kind\":\"messenger\"},{\"id\":\"pat1\",\"name\":\"Patterns FOH\",\"kind\":\"patterns\"},"
+                + "{\"id\":\"pm1\",\"name\":\"PlayMap Hall\",\"kind\":\"playmap\"}]}", StringComparison.Ordinal),
+            $"desk readers wire: /api/config ends with peers, each app's id, name and kind ({config[^Math.Min(config.Length, 120)..]})");
+        // An app newly heard joins the frame's apps at once and the config once the desk's hold on that list ends: the frame's
+        // configVersion says the config changed.
+        b.Hear("playmap", "pm2", "PlayMap Stage");
+        var early = Publish();
+        var held = JsonNode.Parse(await Text("/api/config"))!["peers"]!.AsArray();
+        var appsNow = JsonNode.Parse(await Text("/api/state?detail=1", Pin))!["desk"]!["apps"]!.AsArray();
+        b.Now += DeskService.PeersHold;
+        var late = Publish();
+        var more = JsonNode.Parse(await Text("/api/config"))!["peers"]!.AsArray();
+        Check(!early && held.Count == 3 && appsNow.Count == 4 && late && more.Count == 4
+              && more.Any(a => (string?)a!["id"] == "pm2" && (string?)a["name"] == "PlayMap Stage" && (string?)a["kind"] == "playmap"),
+            $"desk readers wire: an app newly heard is in the frame's apps at once and joins the config's peers when the hold ends ({held.Count}, {appsNow.Count}, {more.ToJsonString()})");
+
+        // A control page: its frames carry the desk, and approving the id a frame showed moves the desk to the next proposal.
+        using var ws = new ClientWebSocket();
+        await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?role=control&detail=1&pin={Pin}"), CancellationToken.None);
+        var first = await Next(ws, "\"desk\":{\"pending\":2");
+        var shown = first is null ? null : (string?)JsonNode.Parse(first)!["desk"]!["next"]!["id"];
+        Check(shown == "p1-k3m9", $"desk readers wire: a control page's frame carries the desk, the next proposal named by its id ({shown})");
+        await Send(ws, JsonSerializer.Serialize(new { cmd = "desk", args = new[] { "approve", shown ?? "" } }));
+        var receipt = await Next(ws, "\"type\":\"receipt\"");
+        Publish();
+        var moved = await Next(ws, "\"desk\":{\"pending\":1");
+        var next = moved is null ? null : JsonNode.Parse(moved)!["desk"]!["next"];
+        Check(receipt is not null && (bool?)JsonNode.Parse(receipt)!["ok"] == true && (string?)JsonNode.Parse(receipt)!["refs"]!["sharedProposal"] == "p1-k3m9"
+              && (string?)next?["id"] == "p2-k3m9" && (string?)next?["line"] == "PANIC" && (string?)next?["risk"] == "high",
+            $"desk readers wire: approving the id a frame showed is receipted by that id, and the next frame shows the next proposal ({next?.ToJsonString()})");
+        // A page with no credential on the same server: frames, and no desk in them.
+        using var viewer = new ClientWebSocket();
+        await viewer.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?detail=1"), CancellationToken.None);
+        var seen = await Next(viewer, "\"type\":\"state\"");
+        Check(seen is not null && !seen.Contains("\"desk\"", StringComparison.Ordinal) && !seen.Contains("PANIC", StringComparison.Ordinal),
+            "desk readers wire: a page with no PIN gets frames with no desk in them");
+
+        // Companion: the module's stream is the operator's frame and the config — SNAPSHOT ends with desk, CONFIG with peers — and a
+        // deck on the first protocol, whose lines are the timer's, is told neither a waiting line nor an app's name.
+        var bridge = new FakeBridge { Allowed = true, Peers = b.Desk.PeersSaid };
+        var companionPort = FreeTcpPort();
+        await using var companion = new Stagewatch.Companion.CompanionServer(bridge);
+        companion.Start(companionPort, bindAllInterfaces: false);
+        bridge.Snapshots.Publish(new ShowSnapshot { Text = "05:00", Seconds = 300, ConfigVersion = 1, Desk = b.Desk.Said });
+        async Task<List<string>> Lines(string? ask, Func<List<string>, bool> enough)
+        {
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(IPAddress.Loopback, companionPort);
+            var reader = new StreamReader(tcp.GetStream(), Encoding.UTF8);
+            if (ask is not null) await tcp.GetStream().WriteAsync(Encoding.UTF8.GetBytes(ask + "\n"));
+            var lines = new List<string>();
+            while (lines.Count < 12 && !enough(lines))
+            {
+                using var cts = new CancellationTokenSource(2000);
+                try
+                {
+                    if (await reader.ReadLineAsync(cts.Token) is { } line) lines.Add(line);
+                    else break;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;   // nothing more is coming: the check reads what came
+                }
+            }
+            return lines;
+        }
+        var module = await Lines("SUBSCRIBE JSON", l => l.Any(x => x.StartsWith("SNAPSHOT ", StringComparison.Ordinal)) && l.Any(x => x.StartsWith("CONFIG ", StringComparison.Ordinal)));
+        var snapshot = module.FirstOrDefault(x => x.StartsWith("SNAPSHOT ", StringComparison.Ordinal))?["SNAPSHOT ".Length..];
+        var configLine = module.FirstOrDefault(x => x.StartsWith("CONFIG ", StringComparison.Ordinal))?["CONFIG ".Length..];
+        var deskSaid = snapshot is null ? null : JsonNode.Parse(snapshot)!.AsObject();
+        var peersSaid = configLine is null ? null : JsonNode.Parse(configLine)!.AsObject();
+        Check(deskSaid?.Last().Key == "desk" && (int?)deskSaid["desk"]!["pending"] == 1 && (string?)deskSaid["desk"]!["next"]!["id"] == "p2-k3m9"
+              && (string?)deskSaid["desk"]!["next"]!["line"] == "PANIC" && deskSaid["desk"]!["apps"]!.AsArray().Count == 4
+              && peersSaid?.Last().Key == "peers" && peersSaid["peers"]!.AsArray().Select(a => (string?)a!["id"]).Order(StringComparer.Ordinal).SequenceEqual(["ag1", "pat1", "pm1", "pm2"])
+              && peersSaid["peers"]!.AsArray().All(a => a!.AsObject().Select(f => f.Key).SequenceEqual(["id", "name", "kind"])),
+            $"desk readers wire: Companion's SNAPSHOT ends with the desk and its CONFIG with peers ({deskSaid?["desk"]?.ToJsonString()} · {peersSaid?["peers"]?.ToJsonString()})");
+        var first1 = await Lines("STATE", l => l.Count(x => x.StartsWith("STATE ", StringComparison.Ordinal)) >= 2);
+        Check(first1.Count(x => x.StartsWith("STATE ", StringComparison.Ordinal)) >= 2
+              && first1.All(x => !x.Contains("PANIC", StringComparison.Ordinal) && !x.Contains("PlayMap", StringComparison.Ordinal) && !x.Contains("pm1", StringComparison.Ordinal)
+                                 && !x.Contains("desk", StringComparison.OrdinalIgnoreCase) && !x.StartsWith("SNAPSHOT", StringComparison.Ordinal) && !x.StartsWith("CONFIG", StringComparison.Ordinal)),
+            $"desk readers wire: a deck on the first protocol gets the timer's lines — no desk, no waiting line, no app's name ({string.Join(" | ", first1)})");
     }
 
     static void Propose(DeskTests.Bench b, string line)

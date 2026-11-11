@@ -57,6 +57,13 @@ public sealed record PeerSummary(string Kind, string Id, string Name, string Lig
     /// spoke for it (a hello alone). A context verified "none" is held and shown, but sets no risk.
     /// </summary>
     public string Verified { get; init; } = "";
+
+    /// <summary>
+    /// Whether this node collects from this Stagewatch's desk (Show Bus §11): it asked for its approved lines within the desk's
+    /// freshness window, so a line sent or approved for it now would reach it. The desk's fact, set by the desk's host
+    /// (<c>DeskService.Collecting</c>); false for a row no desk was asked about.
+    /// </summary>
+    public bool Collects { get; init; }
 }
 
 /// <summary>

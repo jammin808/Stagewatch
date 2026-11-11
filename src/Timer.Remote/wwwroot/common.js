@@ -110,6 +110,9 @@
           opts.onAuth(msg);
         } else if (msg.type === 'error') {
           if (opts.onError) opts.onError(msg.error); else toast(msg.error);
+        } else if (msg.type === 'receipt' && opts.onReceipt) {
+          // What a command did (Show Bus §3): a page that sends a person's line (peer, desk) reads its answer here.
+          opts.onReceipt(msg);
         }
       };
       ws.onclose = function () {

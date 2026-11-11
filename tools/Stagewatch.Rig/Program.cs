@@ -72,7 +72,10 @@ using Stagewatch.Show;
 // approved, and its receipt waits for what the app made of it; `desk approve|reject <id>|next` decides a proposal. Both are taken
 // over HTTP and a WebSocket by the app's sender gate (the PIN or a control key; with no PIN, this PC or a listed address — the
 // rig lists none). --desk-fresh SECONDS (0.2-600; the contract's 15 by default) is how long an app's last collect keeps it
-// collecting. The desk's rows reach --journal as the app journals them, who and from where in each row's via.
+// collecting. The desk's rows reach --journal as the app journals them, who and from where in each row's via. Its readers are the
+// app's: operator frames end with desk (what waits, the next proposal, the apps a line could go to), the config with peers (those
+// apps; the frame's configVersion goes up when a link's kind changes and, no oftener than the desk's 5 s hold, when the apps do),
+// and each peers row of the context with collects.
 // A message that asks for its acknowledgement (message <text> <urgency> <flash> ack) is the app's: a speaker signal on the
 // app's own board (SignalBoard, ids counting from 1), its receipt's refs.messageId naming it, frames carrying messageId,
 // messageAck ("sent", then "done" once acknowledged: a message signal completes on its first answer) and messageAckBy, and the
@@ -1086,6 +1089,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         var now = DateTime.UtcNow;
         foreach (var escalated in _signals.Update(now))
             Journal(JournalKind.Escalated, _item, $"{escalated.Kind} {escalated.Target}: {escalated.Text}");
+        RefreshConfig();
         var frame = Frame();
         JournalEdges(frame);
         Snapshots.Publish(frame);
@@ -1096,6 +1100,24 @@ sealed class Rig : ICompanionBridge, IDisposable
             _desk.Expire();
         }
     }
+
+    // The config's version (owner thread): as in the app, a config that reads differently is sent again, by the frame's
+    // configVersion going up — a link's kind heard, at once; the apps the desk could send to, by the desk's own rule for its readers
+    // (DeskService.Refresh: the frame carries what it last said, the config its peers, which change no oftener than its hold).
+    private int _configVersion;
+    private string? _linksSaid;
+
+    private void RefreshConfig()
+    {
+        var links = string.Join(",", ConfigLinks().Select(l => l.Name + ":" + l.Kind + ":" + l.Label));
+        if (_linksSaid is not null && links != _linksSaid) _configVersion++;
+        _linksSaid = links;
+        if (_desk.Refresh().Config) _configVersion++;
+    }
+
+    /// <summary>The config's playout links: each link's name, its kind as its peer said it (else as --playout set it) and its peer as people read it.</summary>
+    private List<(string Name, string Kind, string Label)> ConfigLinks()
+        => _o.Playout.Select(l => (l.Name, _playout[l.Name]?.Kind ?? (l.Kind == PlayoutRules.Auto ? "" : l.Kind), _playout[l.Name]?.Peer ?? PlayoutRules.Peer(null, l.Name))).ToList();
 
     // ---------------------------------------------------------------- the journal (--journal), owner thread
     // What the app's show thread writes, for what the rig simulates: an item's start (its timer first counting) and end (the
@@ -1208,6 +1230,8 @@ sealed class Rig : ICompanionBridge, IDisposable
                 ? new PlayoutView(vt.Title, (long)Math.Ceiling(vt.RemainingSeconds), (long)Math.Round(vt.DurationSeconds), vt.Running, vt.Source, vt.Link, vt.Node) : null,
             Elements = DisplayElements.Timer | DisplayElements.Message | DisplayElements.NextUp | DisplayElements.ProgressBar | DisplayElements.TimeOfDay,
             Timings = timings.ToEquatableArray(),
+            ConfigVersion = _configVersion,
+            Desk = _desk.Said,
         };
     }
 
@@ -1248,7 +1272,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         var rows = _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>().Where(l => l.WrongKind is null)
             .Select(l => new PlayoutRow(l.LinkName, l.Peer, l.Kind ?? "", Starts: l.Kind is not null)).ToList();
         return ShowContext.Build(new ContextInput(_nodeId, _o.Room, now, Snapshots.Latest, Snapshots.ProducerStuck, links,
-            view.Rows.Select(r => r.Peer).ToList(), (IReadOnlyList<JournalEntry>?)_journal?.Entries ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0, rows));
+            _desk.Collecting(view.Rows.Select(r => r.Peer)), (IReadOnlyList<JournalEntry>?)_journal?.Entries ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0, rows));
     }
 
     private HashSet<string> _conflictsLogged = new(StringComparer.Ordinal);   // owner thread: the ids in conflict it logged
@@ -1273,7 +1297,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         new[] { ("Wrap", "Please wrap up", MessageUrgency.Warning, FlashRate.Slow) },
         Agenda.Select(a => (a.Title, (string?)a.Speaker, a.Seconds)).ToArray(),
         Array.Empty<(string, string)>(), new[] { "Lighting", "Sound" }, _o.Room, "",
-        PlayoutLinks: _o.Playout.Select(l => (l.Name, _playout[l.Name]?.Kind ?? (l.Kind == PlayoutRules.Auto ? "" : l.Kind), _playout[l.Name]?.Peer ?? PlayoutRules.Peer(null, l.Name))).ToList());
+        PlayoutLinks: ConfigLinks(), Peers: _desk.PeersSaid);
     public IReadOnlyList<ScreenWindow> Windows => _windows.Windows;
     public string? ViewCode => _o.ViewCode.Length == 0 ? null : _o.ViewCode;
     public bool McpAllowed => true;

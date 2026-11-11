@@ -48,18 +48,28 @@ public sealed record SharedProposal(
 public sealed record DeskApp(string Id, string Name, string Kind, bool Collects, bool Verified);
 
 /// <summary>
-/// The oldest proposal waiting for a person: its whole id, who proposes and which node is to act (by name), its line's first
-/// <see cref="DeskSummary.NextLineChars"/> characters, its risk, and whether its target collects (this desk always does).
+/// The oldest proposal waiting for a person: its whole id; who proposes and which node is to act, each by the name this desk knows its
+/// id by (the show network's, never the name the proposal gave it) with the id itself beside it (<paramref name="FromId"/>,
+/// <paramref name="TargetId"/>), so a reader can match the apps; its line's first <see cref="DeskSummary.NextLineChars"/> characters,
+/// and <paramref name="Cut"/> when the line is longer than that, so no reader shows a part as the whole; its risk; and whether its
+/// target collects (this desk always does).
 /// </summary>
-public sealed record DeskNext(string Id, string From, string Target, string Line, string Risk, bool Collects);
+public sealed record DeskNext(string Id, string From, string Target, string Line, string Risk, bool Collects, bool Cut = false, string FromId = "", string TargetId = "");
 
-/// <summary>The desk at one moment, for every reader that shows it: how many proposals wait, the next one, and the apps it could send to.</summary>
-public sealed record DeskSummary(int Pending, DeskNext? Next, IReadOnlyList<DeskApp> Apps)
+/// <summary>
+/// The desk at one moment, for every reader that shows it: how many proposals wait, the next one, and the apps it could send to. It is
+/// part of a frame (<see cref="ShowSnapshot.Desk"/>), so two summaries that say the same are equal, and a desk nothing happened on
+/// publishes nothing.
+/// </summary>
+public sealed record DeskSummary(int Pending, DeskNext? Next, EquatableArray<DeskApp> Apps)
 {
     /// <summary>The most of a waiting line a summary carries; the line itself was fenced when it was proposed (<see cref="LineFence"/>).</summary>
     public const int NextLineChars = 120;
 
-    public static readonly DeskSummary Empty = new(0, null, Array.Empty<DeskApp>());
+    public static readonly DeskSummary Empty = new(0, null, EquatableArray<DeskApp>.Empty);
+
+    /// <summary>The apps as a remote's config lists them (<see cref="RemoteConfig.Peers"/>): id, name and kind, in the summary's order.</summary>
+    public IReadOnlyList<(string Id, string Name, string Kind)> Peers() => Apps.Select(a => (a.Id, a.Name, a.Kind)).ToList();
 }
 
 /// <summary>
@@ -137,6 +147,13 @@ public sealed class ProposalDesk
 
     /// <summary>The tokens of this desk's windows now (any thread), so no line names one's address; none when null.</summary>
     public Func<IEnumerable<string>>? WindowTokens { get; init; }
+
+    /// <summary>
+    /// How the desk's words name a node a proposal names: its host's name for the id (the show network's), so a refusal and an
+    /// outcome name an app as the desk's other readers do, whatever the proposal called it. Called under the desk's lock: it reads
+    /// what the host holds and never calls back into the desk. Without one, the name the proposal gave, else the kind and id.
+    /// </summary>
+    public Func<NodeRef, string>? Names { get; init; }
 
     /// <summary>Whether <paramref name="run"/> is a run's shape.</summary>
     public static bool ValidRun(string? run) => run is { Length: RunChars } && run.All(c => RunAlphabet.Contains(c, StringComparison.Ordinal));
@@ -370,6 +387,9 @@ public sealed class ProposalDesk
     /// </summary>
     public string? NotCollecting(NodeRef target, DateTime nowUtc) { lock (_lock) return Quiet(target, nowUtc); }
 
+    /// <summary>Whether the node under <paramref name="targetId"/> collects now: it asked for its approved lines within <see cref="Fresh"/>.</summary>
+    public bool Collects(string targetId, DateTime nowUtc) { lock (_lock) return _lastCollect.TryGetValue(targetId, out var at) && nowUtc - at <= Fresh; }
+
     private string? Quiet(NodeRef target, DateTime nowUtc)   // under _lock
         => !_lastCollect.TryGetValue(target.Id, out var at)
             ? $"{NameOf(target)} has not asked this desk for approved lines since this desk started — it would not collect this"
@@ -455,7 +475,7 @@ public sealed class ProposalDesk
                 if (p.State != SharedProposalState.Approved || p.TargetIsDesk) continue;
                 var late = p.ClaimedUtc is null ? nowUtc - p.DecidedUtc > CollectWithin : nowUtc - p.ClaimedUtc > ResultWithin;
                 if (!late) continue;
-                var u = p with { State = SharedProposalState.Undelivered, Result = p.ClaimedUtc is null ? $"{p.Target.Name} didn't collect it" : $"{p.Target.Name} didn't report back" };
+                var u = p with { State = SharedProposalState.Undelivered, Result = p.ClaimedUtc is null ? $"{NameOf(p.Target)} didn't collect it" : $"{NameOf(p.Target)} didn't report back" };
                 _byId[p.Id] = u;
                 changed.Add(u);
             }
@@ -486,8 +506,8 @@ public sealed class ProposalDesk
         return PersonVerbs.FirstOrDefault(v => string.Equals(v, first.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>How words name a node: its name, else its kind and id.</summary>
-    private static string NameOf(NodeRef node) => node.Name.Length > 0 ? node.Name : NodeBindings.Describe(node.Kind, node.Id);
+    /// <summary>How words name a node: as the host names its id (<see cref="Names"/>), else by the name given, else its kind and id.</summary>
+    private string NameOf(NodeRef node) => Names?.Invoke(node) ?? (node.Name.Length > 0 ? node.Name : NodeBindings.Describe(node.Kind, node.Id));
 
     /// <summary>A line as refusal words quote it: its first 60 characters.</summary>
     private static string Shown(string line) => line.Length > 60 ? line[..60] + "…" : line;

@@ -7,7 +7,7 @@ multi-room beacon behind `/rooms` and the acknowledged-cue loop on the role page
 | Transport | Default | Auth | Use it for |
 |---|---|---|---|
 | Browser viewer | `http://<pc>:9924/viewer` (also `/speaker`) | none (read-only; may acknowledge cues) | Confidence monitor on any phone, tablet or laptop |
-| Showcaller / Producer | `http://<pc>:9924/producer` | PIN | The whole show on one screen: running order with planned / expected / actual, curfews, assistant, cues, Q&A |
+| Showcaller / Producer | `http://<pc>:9924/producer` | PIN | The whole show on one screen: running order with planned / expected / actual, curfews, assistant, the approval desk (what other apps and AIs propose, approved or rejected by id), cues, Q&A |
 | Role pages | `/moderator`, `/backstage`, `/dept?name=Sound`, `/interpreter`, `/haptic?for=speaker` | none to view; a **crew link key** (`&key=…`) to confirm cues | Moderator clock + Q&A, green room calls, department STANDBY/GO, interpreter booth, pocket buzz on a phone |
 | Audience | `/audience` (agenda, break countdown, QR), `/ask` (question form) | none | Agenda screens and audience questions |
 | All rooms | `/rooms` | none | Every Stagewatch on the network: time, lateness, curfew risk |
@@ -638,6 +638,46 @@ answers once; `GET /api/proposals/<id>` says what came of it. A refusal — an u
 collecting — is `409`, in the desk's words, nothing queued. Other readers (the status line, the rig's log, the show log)
 never quote a line its app does not list: only the sender's receipt says which.
 
+**Every reader takes the desk.** The operator's frame — `/api/state?detail=1` with the PIN or a key, a control page's
+WebSocket, Companion's `SNAPSHOT`, MCP's state — ends with `desk`; no public frame carries it, with the agenda or without:
+
+```
+"desk":{"pending":2,"next":{"id":"p18-k3m9","from":"AGMessage","target":"PlayMap Hall","line":"UNDO","risk":"review","collects":true,"cut":false,"fromId":"ag-7788","targetId":"pm-a1b2"},"apps":[{"id":"pm-a1b2","name":"PlayMap Hall","kind":"playmap","collects":true,"verified":true}]}
+```
+
+`pending` is how many proposals from other apps (and their AIs) wait for a person on the shared queue; what this
+Stagewatch's own copilot proposes waits at its desk, in the Copilot window, and is not counted here. `next` is the oldest
+(`null` when none): its whole id — the one `desk approve <id>` takes; who proposes and which app is to act, each by the name
+this desk knows its id by (the Show network's, else the node's kind and id — never the name the proposal gave it), with the
+ids themselves in `fromId` and `targetId` to match `apps`; the line's first 120 characters, and `cut` when the line is longer
+than that (`GET /api/proposals/<id>` gives the whole line); its risk; and whether its app collects now, so an approval would
+reach it. The line passed the desk's fence when it was proposed (above: no key, no window's address, no control or invisible
+character, no filled secret placeholder). `apps` are the show apps a line could go to, in the Show network's order: each
+one's node id, name, kind, whether it collects (it asked for its approved lines within the last 15 s) and whether its verbs
+are verified. A frame is sent when the desk reads differently — a proposal comes or is decided, an app starts or stops
+collecting — and at most once a second for the apps. The desk's journal rows, its receipts' words and the desk's own list
+name a proposal's two ends the same way.
+
+`/api/config` and Companion's `CONFIG` end with `peers`, those apps as `{"id","name","kind"}` — what a page or a deck offers
+where `peer <app> …` names an app; the frame's `configVersion` goes up when an app comes, goes or is renamed, and for these
+no oftener than once in 5 s (a hello proves nothing, and an app that renamed itself every second would otherwise have every
+page and deck fetch the config every second): a change inside those 5 s is told at their end. Each row of the context's
+`peers` ends with `collects`: whether that node asks this desk for its approved lines now (always `false` for another
+Stagewatch, which never asks). The copilot is given the frame without `desk` and the config without `peers`: another app's
+words reach the model only as that app's data.
+
+The **Showcaller page** (`/producer`, PIN) draws the frame's desk under the Assistant: how many proposals wait and the oldest —
+its risk in words, who proposes for which app, the line — with **Approve** and **Reject**, each sent with the id the page
+shows (`desk approve p18-k3m9`), so a press never decides a proposal that arrived since. A high proposal's Approve arms on
+the first press ("Approve HIGH — press again", 5 s) and sends `desk approve <id> high` on the second. The page takes no
+press on what it has just drawn: a proposal newly shown, the armed Approve and a button just pressed are greyed for 0.8 s,
+so a double-click neither confirms a high proposal nor decides the one behind it. A line the frame marks `cut` is read whole
+from `GET /api/proposals/<id>` and shown whole before Approve takes a press; if it cannot be read, Approve stays greyed
+("longer than shown … read it at the desk") and Reject still works. While the proposal's app is not collecting, Approve is
+greyed and says why; the page lists the apps, each as collecting or not, and shows the desk's own words for what a press
+did. The page shows the oldest proposal only: one whose app is not collecting stays in front of those behind it until it is
+rejected here, or decided at the desk, which lists them all.
+
 ## 2.17: windows — addresses Stagewatch controls
 
 A **window** is a browser Stagewatch drives through an address of its own: `http://<pc>:9924/w/<token>`. Open it on a
@@ -835,10 +875,11 @@ and nothing but the minute clears their count (see 2.19: wrong passes).
 
 ### What other readers see
 
-- **Context** (`GET /api/context`, MCP `get_context`): each `peers` row ends with `link` (`"ws"` while a node link that a
+- **Context** (`GET /api/context`, MCP `get_context`): each `peers` row carries `link` (`"ws"` while a node link that a
   key or the operator proves follows the timer, else `""`) and `verified` (what proves the row's light and headline now:
-  `key`, `operator` or `none`; `""` for an app only heard). A claim, a key conflict or a key that names no id adds no row,
-  and a context that proves nothing never shows under an id a link proves. At most 32 rows.
+  `key`, `operator` or `none`; `""` for an app only heard), and from 2.21 ends with `collects` (whether the node asks this
+  desk for its approved lines now; see "Every reader takes the desk"). A claim, a key conflict or a key that names no id adds
+  no row, and a context that proves nothing never shows under an id a link proves. At most 32 rows.
 - **Screens** (`GET /api/screens`): browsers and claims; each row ends with `claim` (`"patterns 9f8e7d6c"`, `""` for a
   browser). Show apps aren't listed.
 - **The copilot and the assistant:** `screens` rows end with `claim`; `other_apps` rows end with `link` and `verified`.

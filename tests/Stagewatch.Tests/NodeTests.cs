@@ -517,8 +517,8 @@ static class NodeTests
                   && !json.Contains("pat2", StringComparison.Ordinal),
                   "readers: the context's peers rows say which apps follow over /ws and what proves them; a conflict adds no row");
         }
-        Check(json.Contains("\"heard\":\"live\",\"link\":\"ws\",\"verified\":\"key\"}", StringComparison.Ordinal),
-              "readers: link and verified come last in a peers row, after the fields readers already match");
+        Check(json.Contains("\"heard\":\"live\",\"link\":\"ws\",\"verified\":\"key\",\"collects\":false}", StringComparison.Ordinal),
+              "readers: link and verified come after the fields readers already match in a peers row, and collects, the desk's, after them — false where no desk was asked");
 
         var facts = view.Rows.Select(r => new PeerFact(r.Peer.Kind, r.Peer.Name, r.Peer.Light, r.Peer.Headline, Array.Empty<string>(), Array.Empty<string>(), r.Peer.Link, r.Peer.Verified)).ToList();
         var copilot = AiContext.Copilot(new CopilotFacts(T0, ShowClock.For("UTC"), "{}"u8.ToArray(), "{}"u8.ToArray(),

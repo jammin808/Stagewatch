@@ -2183,8 +2183,10 @@ sealed class FakeBridge : Stagewatch.Companion.ICompanionBridge
     public volatile IReadOnlyList<IPAddress> From = Array.Empty<IPAddress>();
     public IReadOnlyList<IPAddress> PlayoutFrom => From;
     public void Execute(ShowCommand command) { lock (Commands) Commands.Add(command); }
+    /// <summary>The apps the config lists (a desk's peers), as a test sets them; null for a host that keeps no desk.</summary>
+    public IReadOnlyList<(string Id, string Name, string Kind)>? Peers { get; set; }
     public RemoteConfig GetRemoteConfig() => new(
-        new[] { (1, "One", 60) }, Array.Empty<(string, string, MessageUrgency, FlashRate)>(), new[] { ("Opening", (string?)null, 300) });
+        new[] { (1, "One", 60) }, Array.Empty<(string, string, MessageUrgency, FlashRate)>(), new[] { ("Opening", (string?)null, 300) }, Peers: Peers);
     public void LoadPreset(int slot, bool autoStart) { }
     public void SetMessage(string text, MessageUrgency urgency, FlashRate flash) { lock (Messages) Messages.Add((text, urgency, flash)); }
     public void SetFlash(FlashRate rate) { }

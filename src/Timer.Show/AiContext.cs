@@ -95,7 +95,25 @@ public static class AiContext
         return lines;
     }
 
-    /// <summary>The copilot's context: the operator frame, presets and messages, screens, links, history, recent log.</summary>
+    /// <summary>A JSON object's fields but <paramref name="field"/>, in their order; any other JSON value as it is.</summary>
+    private static void WriteWithout(Utf8JsonWriter w, byte[] json, string field)
+    {
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            doc.RootElement.WriteTo(w);
+            return;
+        }
+        w.WriteStartObject();
+        foreach (var p in doc.RootElement.EnumerateObject())
+            if (!p.NameEquals(field)) p.WriteTo(w);
+        w.WriteEndObject();
+    }
+
+    /// <summary>
+    /// The copilot's context: the operator frame and the config (each without what other apps wrote into it: the frame's desk, the
+    /// config's peers), presets and messages, screens, links, history, recent log.
+    /// </summary>
     public static string Copilot(CopilotFacts f)
     {
         using var ms = new MemoryStream();
@@ -103,10 +121,13 @@ public static class AiContext
         {
             w.WriteStartObject();
             w.WriteString("now", f.Clock.ToShow(f.NowUtc).ToString("yyyy-MM-dd HH:mm:ss"));
+            // The frame and the config as the operator's readers get them, less what other apps wrote: the desk block (a waiting
+            // proposal's line, the apps' names) and the config's peers (names from hellos, which prove nothing). Another app's words
+            // reach the model only as that app's data (other_apps), never as this Stagewatch's own state.
             w.WritePropertyName("show");
-            w.WriteRawValue(f.FrameUtf8);
+            WriteWithout(w, f.FrameUtf8, "desk");
             w.WritePropertyName("config");
-            w.WriteRawValue(f.ConfigUtf8);
+            WriteWithout(w, f.ConfigUtf8, "peers");
             w.WritePropertyName("screens");
             // Browsers and claims; a show app is never a screen (other_apps lists it, with its link).
             JsonSerializer.Serialize(w, f.Screens.Select(s => new { id = s.Id, name = s.Name, page = s.Page, device = s.Device, control = s.Control, claim = s.Claim }));

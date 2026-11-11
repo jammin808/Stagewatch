@@ -157,6 +157,11 @@ public sealed record ShowSnapshot
     public int QaQueued { get; init; }
     public int QaFit { get; init; }
     public EquatableArray<QuestionView> Questions { get; init; } = EquatableArray<QuestionView>.Empty;
+
+    // ---------------------------------------------------------------- the approval desk (operator frames)
+
+    /// <summary>The shared approval desk (Show Bus §11) as the operator's readers show it: what waits, the next proposal, the apps a line could go to.</summary>
+    public DeskSummary Desk { get; init; } = DeskSummary.Empty;
 }
 
 /// <summary>Where the presenter is in their deck (PowerPoint), plus the rehearsal ghost.</summary>
@@ -730,7 +735,12 @@ public sealed record RemoteConfig(
     /// The playout links a remote may name in <c>playout &lt;link&gt; …</c> (name, the peer's kind once set or heard, "" while not known,
     /// and its label), empty without the licence that runs them; null for a host that runs none.
     /// </summary>
-    IReadOnlyList<(string Name, string Kind, string Label)>? PlayoutLinks = null);
+    IReadOnlyList<(string Name, string Kind, string Label)>? PlayoutLinks = null,
+    /// <summary>
+    /// The show apps this Stagewatch's desk could send a line to (<c>peer &lt;app&gt; …</c>: node id, name, kind), as its show network
+    /// lists them now; null for a host that keeps no desk.
+    /// </summary>
+    IReadOnlyList<(string Id, string Name, string Kind)>? Peers = null);
 
 /// <summary>
 /// The one command grammar. Verbs and arguments are plain strings so every transport

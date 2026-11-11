@@ -313,6 +313,45 @@ public static class SnapshotJson
             w.WriteEndObject();
         }
         w.WriteEndArray();
+
+        // The approval desk is the operator's: what waits, the next proposal's line (fenced when it was proposed; a summary's length of
+        // it, marked when that is not the whole) and the apps a line could go to. Last in the frame, so every earlier field stands
+        // where its readers match it.
+        if (operatorView) WriteDesk(w, s.Desk);
+    }
+
+    private static void WriteDesk(Utf8JsonWriter w, DeskSummary d)
+    {
+        w.WriteStartObject("desk");
+        w.WriteNumber("pending", d.Pending);
+        if (d.Next is { } n)
+        {
+            w.WriteStartObject("next");
+            w.WriteString("id", n.Id);
+            w.WriteString("from", n.From);
+            w.WriteString("target", n.Target);
+            w.WriteString("line", n.Line);
+            w.WriteString("risk", n.Risk);
+            w.WriteBoolean("collects", n.Collects);
+            w.WriteBoolean("cut", n.Cut);
+            w.WriteString("fromId", n.FromId);
+            w.WriteString("targetId", n.TargetId);
+            w.WriteEndObject();
+        }
+        else w.WriteNull("next");
+        w.WriteStartArray("apps");
+        foreach (var a in d.Apps)
+        {
+            w.WriteStartObject();
+            w.WriteString("id", a.Id);
+            w.WriteString("name", a.Name);
+            w.WriteString("kind", a.Kind);
+            w.WriteBoolean("collects", a.Collects);
+            w.WriteBoolean("verified", a.Verified);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteEndObject();
     }
 
     public static byte[] SerializeConfig(RemoteConfig c)
@@ -394,6 +433,19 @@ public static class SnapshotJson
                     w.WriteString("name", l.Name);
                     w.WriteString("kind", l.Kind);
                     w.WriteString("label", l.Label);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+            }
+            if (c.Peers is not null)
+            {
+                w.WriteStartArray("peers");
+                foreach (var p in c.Peers)
+                {
+                    w.WriteStartObject();
+                    w.WriteString("id", p.Id);
+                    w.WriteString("name", p.Name);
+                    w.WriteString("kind", p.Kind);
                     w.WriteEndObject();
                 }
                 w.WriteEndArray();

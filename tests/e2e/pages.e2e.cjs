@@ -1,5 +1,6 @@
 // Every public page draws a frame from the rig (never a placeholder like --:--), on its own and inside a window, with no
-// script errors. What PageShot's screenshots can't tell (a page that never got its frame) is checked here.
+// script errors. What PageShot's screenshots can't tell (a page that never got its frame) is checked here. The producer page,
+// the operator's (it takes the PIN), draws its frame and the frame's desk: an idle desk says nothing waits.
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -68,3 +69,22 @@ for (const [page, drew] of PAGES) {
     await ctx.close();
   });
 }
+
+test('/producer draws a frame and the frame\'s desk panel, with the PIN', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const p = await ctx.newPage();
+  const errors = [];
+  p.on('pageerror', (e) => errors.push(e.message));
+  await p.goto(rig.base + '/producer?pin=' + encodeURIComponent(rig.pin));
+  await p.waitForFunction(() => /\d\d:\d\d/.test(document.getElementById('timer').textContent), null, { timeout: 8000 });
+  await p.waitForFunction(() => !document.getElementById('deskBox').classList.contains('hidden')
+    && document.getElementById('desk').textContent === 'Nothing from other apps waits for approval.', null, { timeout: 8000 });
+  assert.equal(await p.textContent('#deskCount'), '', 'nothing waiting is no count');
+  assert.equal(await p.textContent('#deskApps'), '', 'a rig that hears no show app lists none');
+  if (OUT) {
+    fs.mkdirSync(OUT, { recursive: true });
+    await p.screenshot({ path: path.join(OUT, 'page_producer.png') });
+  }
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

@@ -275,11 +275,12 @@ public static class ShowContext
         var node = new { t = "main", id = x.NodeId, name = ShowBusText.Name(x.Name) };
         var at = new DateTimeOffset(x.NowUtc).ToUnixTimeMilliseconds();
         // One hop (ShowNetwork's join): link is "ws" while a node link proves the id; verified is what proves the row's light and
-        // headline now ("" when nothing spoke for it). Both last in the row: readers match the earlier fields as written.
+        // headline now ("" when nothing spoke for it); collects is whether the node asks this desk for its approved lines now, so a
+        // line proposed for it would reach it. Each after the fields before it: readers match the earlier fields as written.
         var peers = x.Peers.Take(MaxPeers).Select(p => new
         {
             t = p.Kind, id = p.Id, name = ShowBusText.Name(p.Name), light = p.Light, headline = ShowBusText.Cut(p.Headline, HeadlineChars), heard = p.Liveness,
-            link = p.Link, verified = p.Verified,
+            link = p.Link, verified = p.Verified, collects = p.Collects,
         }).ToList();
         string Json(Shape s) => JsonSerializer.Serialize(new
         {
