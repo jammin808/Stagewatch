@@ -545,6 +545,31 @@ Show Bus §11 as the desk keeps it from 2.21 (`ProposalDesk`, `LineFence`):
   `wire`, `trigger`), only a line the app's verified table lists, only while the app collects — is the desk's rule from 2.21; it
   joins Copilot as sent, and its done, failed or undelivered reaches Copilot, the status line and the show log as any approved
   line's does. The verbs that send one (`peer <app> <line>`, `desk approve|reject`) come with 2.21's grammar.
+- **A person decides, and the tick counts.** One service holds these rules (`DeskService`); the desk hosts it now, and the rig
+  — which still answers these routes "no approval desk here" — hosts it with 2.21's grammar. Approving another app's proposal in
+  Copilot honours its tick, as Stagewatch's own steps always have: unticked, nothing is approved ("Nothing was ticked — nothing
+  ran") and it still waits. A high proposal is never ticked for the operator, so it is approved only once they tick it; 2.20
+  approved it whatever the tick. A high proposal is approved only by its id and the word, never as "the next one". A proposal
+  aimed at this Stagewatch runs here the moment it is approved, and the approval's outcome is that run's: refused by the show,
+  it is refused in the show's words and the proposal ends `failed`; handed to a playout link's peer, it stays approved until
+  that peer answers, and Copilot says so, never "it ran here".
+- **The desk's rows in the show log** are a kind of their own (`"k":"Desk"`), which only the desk writes, and each opens with
+  the desk's own word and the proposal's number — never with a name a peer chose: `Proposed p18: AI agent → PlayMap Hall:
+  UNDO`, `Sent p19 to PlayMap Hall (wire): PLAYLIST CUE show #3`, `Approved p18 (operator): AI agent → PlayMap Hall: UNDO`,
+  `Not approved p18 (operator): … — PlayMap Hall has not asked this desk for approved lines in 40 s — it would not collect
+  this`, `Rejected p18 (operator): … — <why>`, `Outcome p18: PlayMap Hall: UNDO — done (…)`. A row's words name the role
+  alone; who and from where (a key's name, an address) is the row's `via`, kept in the journal file and printed by no reader
+  that goes on a wire, to a model or into the report — the context's `recent` and `/report` carry the words only. The show
+  report's AI section lists the desk's rows by their kind beside the copilot's notes; a note or a peer's name that reads like
+  a decision adds none. A refusal's row never quotes the line (`… does not list that line`: the sender is told which). The
+  same refusal again — the same proposal or app, the same sender, the same reason — within a minute is counted, not written
+  again, and one row says how many when the minute ends (`Not approved p18 (deck): refused the same way 14 more times`).
+- **A receipt's `refs` may hold an id beside its numbers** — from 2.21's `peer` and `desk` verbs; no receipt carries one yet.
+  What a command made is named by number (`messageId`, `peerRequest`) or, where the thing has no number, by its id as a string
+  — a shared proposal's (`"refs":{"sharedProposal":"p17-k3m9"}`). A reader that sums or compares refs reads each by its name.
+  Show Bus 1.3 §3 words `refs` as naming what was made "by number"; the string id is this Stagewatch's addition until those
+  words are amended (asked of the spec with 2.21's papers). From 2.21 a refused receipt keeps the refs the command noted before
+  it was refused (2.20 sent `{}`): what it had already made is still named.
 
 ## 2.17: windows — addresses Stagewatch controls
 

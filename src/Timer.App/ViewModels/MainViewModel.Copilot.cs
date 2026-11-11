@@ -159,7 +159,10 @@ public sealed partial class MainViewModel
         p.RaisePending();
     }
 
-    /// <summary>Run the ticked steps, in order, through the same path as every other command. Re-checked first.</summary>
+    /// <summary>
+    /// Run the ticked steps, in order, through the same path as every other command. Re-checked first. Another app's proposal on the
+    /// shared queue is the desk's to decide, by the same tick: unticked, it is not approved.
+    /// </summary>
     [RelayCommand]
     private void ApproveProposal(CopilotProposal? p)
     {
@@ -189,7 +192,9 @@ public sealed partial class MainViewModel
         if (p is null || p.State is ProposalState.Done or ProposalState.Discarded) return;
         DiscardShared(p);
         p.State = ProposalState.Discarded;
-        _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, $"Copilot proposal discarded ({p.Source}): " + Trunc(p.Request, 160));
+        // A shared proposal's rejection is the desk's own journal row (who rejected it, and its id); Stagewatch's own plans are journalled here.
+        if (p.SharedId is null)
+            _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, $"Copilot proposal discarded ({p.Source}): " + Trunc(p.Request, 160));
         UpdatePendingCount();
     }
 

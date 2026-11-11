@@ -41,6 +41,28 @@ public sealed record SharedProposal(
 }
 
 /// <summary>
+/// A show app this desk could send a line to: its node id, name and kind; whether it collects — it asked for its approved lines within
+/// the desk's freshness window — and whether a table of its verbs is verified (posted under the key bound to its id, or read over this
+/// Stagewatch's own link), which is the only table a line is sent or rated by.
+/// </summary>
+public sealed record DeskApp(string Id, string Name, string Kind, bool Collects, bool Verified);
+
+/// <summary>
+/// The oldest proposal waiting for a person: its whole id, who proposes and which node is to act (by name), its line's first
+/// <see cref="DeskSummary.NextLineChars"/> characters, its risk, and whether its target collects (this desk always does).
+/// </summary>
+public sealed record DeskNext(string Id, string From, string Target, string Line, string Risk, bool Collects);
+
+/// <summary>The desk at one moment, for every reader that shows it: how many proposals wait, the next one, and the apps it could send to.</summary>
+public sealed record DeskSummary(int Pending, DeskNext? Next, IReadOnlyList<DeskApp> Apps)
+{
+    /// <summary>The most of a waiting line a summary carries; the line itself was fenced when it was proposed (<see cref="LineFence"/>).</summary>
+    public const int NextLineChars = 120;
+
+    public static readonly DeskSummary Empty = new(0, null, Array.Empty<DeskApp>());
+}
+
+/// <summary>
 /// The shared approval queue (Show Bus §11), held by the desk: every app's AI proposes here, one person approves, and each
 /// target collects what was approved for it, runs it through its own command path and reports the result. The desk never
 /// holds another app's credentials. Every request that names a node (a proposal's from, a collect, a result) is spoken

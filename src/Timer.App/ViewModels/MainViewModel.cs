@@ -106,13 +106,10 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     public event Action<MessageState>? MessageChanged;
     public event Action<string>? CommandRecorded;
 
-    // True while a remote command runs, so only the operator's own actions are offered to Companion's recorder.
-    private bool _executingRemote;
-
     /// <summary>Offer an operator action to Companion's action recorder (no-op for remote commands).</summary>
     private void RecordUi(string line)
     {
-        if (_executingRemote) return;
+        if (_receipts.Remote) return;
         try { CommandRecorded?.Invoke(line); } catch (Exception) { }
     }
 
@@ -776,10 +773,10 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     {
         _ui.BeginInvoke(() =>
         {
-            _executingRemote = true;
+            var found = _receipts.EnterRemote();
             try { ExecuteNow(command); }
             catch (Exception ex) { StatusLine = $"Remote command failed: {ex.Message}"; }
-            finally { _executingRemote = false; }
+            finally { _receipts.LeaveRemote(found); }
         });
     }
 
@@ -1234,14 +1231,14 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         if (p is null) return;
         _ui.BeginInvoke(() =>
         {
-            _executingRemote = true;
+            var found = _receipts.EnterRemote();
             try
             {
                 LoadPreset(p);
                 if (autoStart) StartTimer();
                 Publish();
             }
-            finally { _executingRemote = false; }
+            finally { _receipts.LeaveRemote(found); }
         });
     }
 

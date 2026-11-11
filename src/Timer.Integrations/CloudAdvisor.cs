@@ -159,25 +159,8 @@ public sealed class CloudAdvisor : IIntegration
         return ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out _, out _) ? command.Trim() : null;
     }
 
-    /// <summary>Space-separated tokens with "quoted strings".</summary>
-    public static List<string> Tokenize(string line)
-    {
-        var result = new List<string>();
-        var sb = new StringBuilder();
-        var quoted = false;
-        foreach (var ch in line)
-        {
-            if (ch == '"') { quoted = !quoted; continue; }
-            if (!quoted && char.IsWhiteSpace(ch))
-            {
-                if (sb.Length > 0) { result.Add(sb.ToString()); sb.Clear(); }
-                continue;
-            }
-            sb.Append(ch);
-        }
-        if (sb.Length > 0) result.Add(sb.ToString());
-        return result;
-    }
+    /// <summary>Space-separated tokens with "quoted strings": the one reading every whole-line door shares.</summary>
+    public static List<string> Tokenize(string line) => ShowCommandParser.Tokens(line);
 
     public void Dispose() { }
 }

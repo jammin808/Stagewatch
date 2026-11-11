@@ -148,6 +148,22 @@ public static class VerbSyntax
         return string.Join(' ', words);
     }
 
+    /// <summary>
+    /// A form a person fills by typing only its last words: its leading literal words (one or more, each one word and no alternative)
+    /// and the name of its one value, which is the form's last element — so it takes whatever is typed, one word or more — and holds
+    /// neither a secret nor a line of the node. Null for any other form.
+    /// </summary>
+    public static (string Head, string Value)? Quick(string form)
+    {
+        if (!Closes(form)) return null;
+        var tokens = Tokens(form);
+        if (tokens.Count < 2 || !tokens.Take(tokens.Count - 1).All(IsLiteral)) return null;
+        var last = tokens[^1];
+        if (last[0] != '<' || last[^1] != '>' || Names(last) is not [var name] || name.Length == 0) return null;
+        if (Value(last, last: true).Slot is Slot.Secret or Slot.Line) return null;
+        return (string.Join(' ', tokens.Take(tokens.Count - 1)), name);
+    }
+
     /// <summary>A form's nodes, in order.</summary>
     internal static FormNode[] Compile(string form) => CompileTokens(Tokens(form), tail: true);
 

@@ -739,6 +739,39 @@ public static class ShowCommandParser
         "ladder <id|default> | format <standard|calm|progress> | question <text> [name] | " +
         "q <id|next|clear> [approve|star|live|answered|dismiss] | rehearse [on|off] | listen [on|off] | report [html|csv] | note <text>";
 
+    /// <summary>
+    /// A typed line as its verb and arguments: words split on white space, a "quoted phrase" one word with its quote marks left off.
+    /// How every door that takes a whole line reads it (an agent's, the advisor's, a trigger's, a proposal aimed at this desk).
+    /// </summary>
+    public static List<string> Tokens(string line)
+    {
+        var result = new List<string>();
+        var word = new System.Text.StringBuilder();
+        var quoted = false;
+        foreach (var ch in line)
+        {
+            if (ch == '"') { quoted = !quoted; continue; }
+            if (!quoted && char.IsWhiteSpace(ch))
+            {
+                if (word.Length > 0) { result.Add(word.ToString()); word.Clear(); }
+                continue;
+            }
+            word.Append(ch);
+        }
+        if (word.Length > 0) result.Add(word.ToString());
+        return result;
+    }
+
+    /// <summary>A whole line (<see cref="Tokens"/>) as a command; an empty line is none.</summary>
+    public static bool TryParseLine(string line, out ShowCommand cmd, out string error)
+    {
+        var tokens = Tokens(line);
+        if (tokens.Count > 0) return TryParse(tokens[0], tokens.Skip(1).ToList(), out cmd, out error);
+        cmd = default;
+        error = "an empty line";
+        return false;
+    }
+
     public static bool TryParse(string verb, IReadOnlyList<string> args, out ShowCommand cmd, out string error)
     {
         if (!TryParseCore(verb, args, out cmd, out error)) return false;
@@ -1321,9 +1354,11 @@ public static class ShowCommandParser
 /// <summary>
 /// What became of a command (Show Bus §3): <c>accepted</c> (queued — the owner thread didn't confirm in time) or
 /// <c>applied</c> (run; <see cref="Effect"/> says what changed), or refused (<see cref="Ok"/> false, <see cref="Error"/>).
-/// <see cref="Refs"/> names what it made: a message's signal id, an AI agent's proposal id.
+/// <see cref="Refs"/> names what it made by number: a message's signal id, an AI agent's proposal id. <see cref="RefIds"/> names what
+/// it made by an id that is no number (a shared proposal's, <c>p17-k3m9</c>); both ride the receipt's one <c>refs</c> object.
 /// </summary>
-public sealed record CommandReceipt(string Id, bool Ok, string Stage, string Effect, string? Error, IReadOnlyDictionary<string, long>? Refs = null)
+public sealed record CommandReceipt(string Id, bool Ok, string Stage, string Effect, string? Error, IReadOnlyDictionary<string, long>? Refs = null,
+    IReadOnlyDictionary<string, string>? RefIds = null)
 {
     public static CommandReceipt Accepted(string id) => new(id, true, "accepted", "", null);
     public static CommandReceipt Refused(string id, string error) => new(id, false, "applied", "", error);
@@ -1343,13 +1378,25 @@ public sealed record CommandReceipt(string Id, bool Ok, string Stage, string Eff
     public static string? CleanId(string? id)
         => id is { Length: > 0 and <= 32 } && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? id : null;
 
+    /// <summary>
+    /// The receipt's <c>refs</c>: each numbered ref, then each id, a name said once — a number keeps its name when an id is given the
+    /// same one. Empty, never absent, when the command made nothing.
+    /// </summary>
+    public IReadOnlyDictionary<string, object> AllRefs()
+    {
+        var all = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var (name, number) in Refs ?? new Dictionary<string, long>()) all[name] = number;
+        foreach (var (name, id) in RefIds ?? new Dictionary<string, string>()) all.TryAdd(name, id);
+        return all;
+    }
+
     /// <summary>The receipt's JSON, its fields in §3's order; <c>final</c>, a new last field, only on the follow-up.</summary>
     public byte[] ToJson()
     {
         var fields = new Dictionary<string, object?>
         {
             ["type"] = "receipt", ["id"] = Id, ["ok"] = Ok, ["stage"] = Stage, ["effect"] = Effect,
-            ["error"] = Error, ["refs"] = Refs ?? new Dictionary<string, long>(),
+            ["error"] = Error, ["refs"] = AllRefs(),
         };
         if (IsFinal) fields["final"] = true;
         return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(fields);

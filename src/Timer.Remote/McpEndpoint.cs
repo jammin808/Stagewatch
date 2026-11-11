@@ -182,20 +182,8 @@ public sealed class McpEndpoint
 
     private static byte[] Encode(JsonNode n) => Encoding.UTF8.GetBytes(n.ToJsonString());
 
-    public static List<string> Tokenize(string line)
-    {
-        var result = new List<string>();
-        var sb = new StringBuilder();
-        var quoted = false;
-        foreach (var ch in line)
-        {
-            if (ch == '"') { quoted = !quoted; continue; }
-            if (!quoted && char.IsWhiteSpace(ch)) { if (sb.Length > 0) { result.Add(sb.ToString()); sb.Clear(); } continue; }
-            sb.Append(ch);
-        }
-        if (sb.Length > 0) result.Add(sb.ToString());
-        return result;
-    }
+    /// <summary>An agent's line as its verb and arguments: the one reading every whole-line door shares (<see cref="ShowCommandParser.Tokens"/>).</summary>
+    public static List<string> Tokenize(string line) => ShowCommandParser.Tokens(line);
 }
 
 /// <summary>QR codes as SVG, for the audience "ask a question" link and phone/watch pairing.</summary>

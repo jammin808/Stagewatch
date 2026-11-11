@@ -1,23 +1,20 @@
 using Stagewatch.Core;
 using Stagewatch.Integrations;
+using Stagewatch.Show;
 
 namespace Stagewatch.App.ViewModels;
 
 // Show Bus receipts: "attempts are not facts". A command that comes with a request id runs on the show thread and the
 // sender hears what happened — applied (with the status line it produced), refused (and why), or only accepted when
-// the show thread didn't get to it in time. Whatever the command made (a message's signal id) rides along. A command
-// handed to a playout link's peer is completed in that peer's own words (PlayoutReceipts), within the same deadline.
+// the show thread didn't get to it in time. Whatever the command made (a message's signal id, a shared proposal's id) rides
+// along. A command handed to a playout link's peer is completed in that peer's own words (PlayoutReceipts), within the
+// same deadline. A receipted command that runs another inside itself (an approval of a line aimed at this desk) keeps its
+// own notes: the inner one's refusal, refs and peer are the inner one's alone (ReceiptStack).
 public sealed partial class MainViewModel
 {
-    private sealed class ReceiptNotes
-    {
-        public string? Error;
-        public Dictionary<string, long>? Refs;
-        /// <summary>Handed to a playout link's peer, which answers for itself: the receipt is its answer, not the show thread's.</summary>
-        public PlayoutStep? Peer;
-    }
-
-    private ReceiptNotes? _receipt;
+    // The receipts in flight on the show thread, innermost first, and whether a command from a wire is running — so only the
+    // operator's own actions are offered to Companion's recorder.
+    private readonly ReceiptStack<PlayoutStep> _receipts = new();
 
     /// <summary>IShowCommands: run a command and say what happened. Thread-safe; never waits on itself.</summary>
     public async Task<CommandReceipt> ExecuteWithReceiptAsync(ShowCommand command, string id, TimeSpan timeout)
@@ -38,17 +35,19 @@ public sealed partial class MainViewModel
         return ran.Receipt;
     }
 
+    /// <summary>
+    /// Show thread: run a command with notes of its own, and put back the notes (and the remote mark) it found when it ends — it may
+    /// be running inside another receipted command, whose receipt is still to come.
+    /// </summary>
     private (CommandReceipt Receipt, PlayoutStep? Peer) RunWithReceipt(ShowCommand c, string id)
     {
         var before = StatusLine;
-        var notes = _receipt = new ReceiptNotes();
-        _executingRemote = true;
+        var notes = _receipts.Enter();
         try { ExecuteNow(c); }
         catch (Exception ex) { return (CommandReceipt.Refused(id, ex.Message), null); }
-        finally { _executingRemote = false; _receipt = null; }
-        if (notes.Error is { } error) return (CommandReceipt.Refused(id, error), null);
-        if (notes.Peer is { } peer) return (CommandReceipt.Accepted(id), peer);
-        return (new CommandReceipt(id, true, "applied", StatusLine != before ? StatusLine : "", null, notes.Refs), null);
+        finally { _receipts.Leave(notes); }
+        if (notes.Error is null && notes.Peer is { } peer) return (CommandReceipt.Accepted(id), peer);
+        return (notes.Receipt(id, StatusLine != before ? StatusLine : ""), null);
     }
 
     /// <summary>The action didn't happen: say why on the status line and in the sender's receipt.</summary>
@@ -59,20 +58,14 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>The command was handed to a playout link's peer, which answers for itself: its receipt is that answer.</summary>
-    private void ReceiptPeer(PlayoutStep step)
-    {
-        if (_receipt is { } r) r.Peer = step;
-    }
+    private void ReceiptPeer(PlayoutStep step) => _receipts.Peer(step);
 
     /// <summary>The command being receipted was refused (a licence gate, a missing running order…).</summary>
-    private void ReceiptRefused(string why)
-    {
-        if (_receipt is { Error: null } r) r.Error = why;
-    }
+    private void ReceiptRefused(string why) => _receipts.Refused(why);
 
     /// <summary>The command being receipted made something a sender can follow (a message's signal id).</summary>
-    private void ReceiptRef(string name, long value)
-    {
-        if (_receipt is { } r) (r.Refs ??= new())[name] = value;
-    }
+    private void ReceiptRef(string name, long value) => _receipts.Ref(name, value);
+
+    /// <summary>The command being receipted made something a sender follows by an id that is no number (a shared proposal's id).</summary>
+    private void ReceiptRefId(string name, string id) => _receipts.RefId(name, id);
 }

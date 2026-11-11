@@ -438,8 +438,7 @@ static class PlayoutTests
               "playout grammar: the help names the verb's forms, together once — on a playlist's GO, which the executor times where a clock allows");
         Check((int)ShowCommandKind.Playout == (int)ShowCommandKind.Window + 1, "playout grammar: ShowCommandKind.Playout appended after Window");
         // Each kind appended after the last (old journals keep their numbers): Playout after ClockCheck, then Trigger after it.
-        Check((int)JournalKind.Playout == (int)JournalKind.ClockCheck + 1 && (int)JournalKind.Trigger == (int)JournalKind.Playout + 1
-              && Enum.GetValues<JournalKind>()[^1] == JournalKind.Trigger,
+        Check((int)JournalKind.Playout == (int)JournalKind.ClockCheck + 1 && (int)JournalKind.Trigger == (int)JournalKind.Playout + 1,
               "playout grammar: JournalKind.Playout appended after ClockCheck, and JournalKind.Trigger after it");
 
         // Risk: every action is High, decided here, never by a model; the copilot's check reads the line in the one grammar.

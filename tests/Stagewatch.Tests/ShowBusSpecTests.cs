@@ -2708,10 +2708,13 @@ static class ShowBusSpecTests
         using (var doc = JsonDocument.Parse(JsonSerializer.Serialize(proposal.ToJson())))
             Check(shape.Count > 0 && doc.RootElement.EnumerateObject().Select(x => x.Name).Take(shape.Count).SequenceEqual(shape),
                 "showbus spec: Stagewatch keeps §11's proposal: ProposalDesk writes its fields first, in order, any it appends after them (" + string.Join(", ", shape) + ")");
-        var desk = Source("src/Timer.App/ViewModels/MainViewModel.Desk.cs") ?? "";
+        // The answer is the desk service's: every host of the desk gives the one it builds.
+        var deskNodes = new NodeBindings();
+        var service = new DeskService(new DeskHost { Id = () => "desk01", Name = () => "Hall A", Nodes = deskNodes, Contexts = new PeerContexts(deskNodes), Now = () => Tonight, Run = "k3m9" });
+        var answer = service.SubmitProposal("{\"from\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"name\":\"FOH\"},\"target\":{\"t\":\"main\"},\"line\":\"delay 300\"}", NodeCredential.Key("kP"));
         Check(Flat(eleven).Contains("→ `201 {\"ok\":true,\"id\":\"p17\",\"state\":\"pending\",\"risk\":\"review\"}`", StringComparison.Ordinal)
-              && Regex.IsMatch(desk, @"\(201, Json\(new \{ ok = true, id = p\.Id, state = p\.StateName, risk = p\.Risk(?: \}|,)"),
-            "showbus spec: Stagewatch keeps §11's answer to a proposal: 201 with ok, id, state and risk first (MainViewModel.Desk.cs)");
+              && answer.Status == 201 && answer.Json.StartsWith("{\"ok\":true,\"id\":\"p1-k3m9\",\"state\":\"pending\",\"risk\":\"review\",", StringComparison.Ordinal),
+            "showbus spec: Stagewatch keeps §11's answer to a proposal: 201 with ok, id, state and risk first, any field it appends after them (DeskService)");
     }
 
     /// <summary>

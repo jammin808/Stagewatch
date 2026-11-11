@@ -12,7 +12,12 @@ public enum JournalKind
     /// <summary>What a playout link was asked to do and what became of it, and what was seen of its clip.</summary>
     Playout,
     /// <summary>What an HTTP trigger with an auth profile sent and what became of it, and a person's trust of its target's certificate; never its secret.</summary>
-    Trigger
+    Trigger,
+    /// <summary>
+    /// What the approval desk did with a line (Show Bus §11): proposed, sent, approved or not, rejected, and what came of it. Only the
+    /// desk writes this kind, so no note and no peer's words can pass for one of its rows.
+    /// </summary>
+    Desk
 }
 
 /// <summary>
@@ -31,6 +36,12 @@ public sealed record JournalEntry(
     [JsonPropertyName("ro"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? RundownId { get; init; }
     [JsonPropertyName("ii"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ItemId { get; init; }
     [JsonPropertyName("ex"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Execution { get; init; }
+
+    /// <summary>
+    /// Who did it and from where (a key's name, an address), for the journal file alone: no reader that goes on a wire, to a model or
+    /// into the report prints it. Written only when set.
+    /// </summary>
+    [JsonPropertyName("via"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Via { get; init; }
 
     /// <summary>Whether this entry is about <paramref name="item"/> at <paramref name="index"/> of running order <paramref name="rundownId"/>.</summary>
     public bool IsAbout(string rundownId, RundownItem item, int index)
@@ -209,7 +220,10 @@ public sealed class ShowReport
         }
         var notes = journal.Where(e => e.Kind == JournalKind.Note).ToList();
         var summary = notes.LastOrDefault(e => e.Text.StartsWith(SummaryPrefix, StringComparison.Ordinal))?.Text[SummaryPrefix.Length..] ?? "";
-        var ai = notes.Where(e => AiPrefixes.Any(p => e.Text.StartsWith(p, StringComparison.Ordinal))).Select(e => (e.Utc, e.Text)).ToList();
+        // What the AIs proposed and what people decided, in the journal's order: the copilot's own notes, and the desk's rows — told by
+        // their kind, which only the desk writes, never by a note's opening words.
+        var ai = journal.Where(e => e.Kind == JournalKind.Desk || (e.Kind == JournalKind.Note && AiPrefixes.Any(p => e.Text.StartsWith(p, StringComparison.Ordinal))))
+            .Select(e => (e.Utc, e.Text)).ToList();
         return new ShowReport { ShowName = showName, GeneratedUtc = nowUtc, Rows = rows, TimeZoneName = clock.Zone.DisplayName, Summary = summary, AiDecisions = ai };
     }
 

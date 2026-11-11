@@ -213,38 +213,14 @@ public sealed class Copilot
     }
 
     /// <summary>
-    /// What a command would do to the room — decided here, never by the model. High = it changes what the speaker,
-    /// crew or audience sees right now (including covering a screen, even briefly): never pre-ticked. Low = it changes
-    /// nothing anyone sees. Everything else (timing, words to someone) is Review.
+    /// What a command would do to the room — decided by Core's one table (<see cref="CommandRisk.Of"/>), never by the model. High = it
+    /// changes what the speaker, crew or audience sees right now (including covering a screen, even briefly): never pre-ticked. Low =
+    /// it changes nothing anyone sees. Everything else (timing, words to someone) is Review.
     /// </summary>
-    public static CopilotRisk Classify(ShowCommand c)
-    {
-        var text = c.Text ?? "";
-        return c.Kind switch
-        {
-            ShowCommandKind.Note => CopilotRisk.Low,
-            ShowCommandKind.Undo or ShowCommandKind.Loop or ShowCommandKind.Patterns => CopilotRisk.High,
-            // Every playout action is High: what it does is on another node's air, which nothing here can see (a PlayMap cue shows
-            // its first frame at once, a Patterns cue moves that desk's own standby).
-            ShowCommandKind.Playout => CopilotRisk.High,
-            // Trusting a certificate decides who may answer as a peer from then on: never pre-ticked, and refused from every line anyway.
-            ShowCommandKind.PlayoutTrust => CopilotRisk.High,
-            ShowCommandKind.Screen when text.StartsWith("save", StringComparison.Ordinal) => CopilotRisk.Low,
-            ShowCommandKind.Screen when text.StartsWith("name", StringComparison.Ordinal) => CopilotRisk.Low,
-            // A window's name, its link-loss choice and its fade change nothing on screen now; everything else does.
-            ShowCommandKind.Window => c.Get<WindowArgs>().Action is "new" or "rename" or "loss" or "fade" ? CopilotRisk.Low : CopilotRisk.High,
-            // An extra timer is invisible until it's on stage; putting it on (or taking it off) changes the speaker's screen.
-            ShowCommandKind.Aux when text.StartsWith("stage", StringComparison.Ordinal) || text.StartsWith("unstage", StringComparison.Ordinal) => CopilotRisk.High,
-            ShowCommandKind.Aux => CopilotRisk.Review,
-            ShowCommandKind.Start or ShowCommandKind.Pause or ShowCommandKind.Toggle or ShowCommandKind.Reset
-                or ShowCommandKind.Next or ShowCommandKind.Previous or ShowCommandKind.GoTo or ShowCommandKind.Preset
-                or ShowCommandKind.Blackout or ShowCommandKind.Mode or ShowCommandKind.Screen or ShowCommandKind.Style
-                or ShowCommandKind.Holding or ShowCommandKind.Ndi or ShowCommandKind.Output or ShowCommandKind.Ltc
-                or ShowCommandKind.Preview or ShowCommandKind.Roll or ShowCommandKind.Rundown
-                or ShowCommandKind.SignalGoAll => CopilotRisk.High,
-            _ => CopilotRisk.Review,
-        };
-    }
+    public static CopilotRisk Classify(ShowCommand c) => Of(CommandRisk.Of(c));
+
+    /// <summary>A line's risk as the copilot's list shows it.</summary>
+    public static CopilotRisk Of(LineRisk risk) => risk switch { LineRisk.Low => CopilotRisk.Low, LineRisk.Review => CopilotRisk.Review, _ => CopilotRisk.High };
 
     // ------------------------------------------------------------------ agenda
 

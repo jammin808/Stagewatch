@@ -516,6 +516,39 @@ running app on a network: two copies of one install for the conflict, an old cer
   `operator (copilot)` as a person's line's decider waits for it, since §11 names four role words; the desk's mirror of a person's
   line is compiled here and moves into SW21.3's `DeskService`, where its tests come; and the Copilot's words for a refused approval
   are compiled here, never seen: a walk-through is the maintainer's PC work, not run.
+  *Since then (SW21.3):* the desk is one pure service, `DeskService` (Timer.Show), on an injected clock: the queue's node routes
+  and their answers; how a line rates (this desk's own lines by `CommandRisk.Of`, Core's one risk table as a `LineRisk`, which
+  `Copilot.Classify` now only maps; another app's by its verified table); which app a word names (a node id, a name one app has, or
+  `playmap`, `patterns`, `agmessage`/`messenger` when one app of that kind is heard — never `stagewatch`, `main` or another
+  Stagewatch); `Send`, a person's line (refused from an agent, the advisor, a copilot step or a proposal; refused for an app whose
+  verbs are not verified or do not list it, or that is not collecting); `Decide` (refused from a trigger, an agent, the advisor, the
+  copilot or a proposal; `next` the oldest and never a high one; a high one by its id and the word; nothing unticked; nothing for an
+  app that is not collecting); `ResultOf` (sent, collected, done, refused, undelivered, in words that name the app); the apps, the
+  summary and a row's quick verbs for the readers to come; and the show log's rows. `MainViewModel.Desk.cs` mirrors it. The rows
+  are a journal kind of their own (`JournalKind.Desk`, appended), each opening with the desk's own word and the proposal's number
+  (`Proposed p1: …`, `Sent p1 to …`, `Approved p1 (deck): …`, `Outcome p1: …`), so no note and no name a peer chose passes for
+  one; their words name the role alone, and who and from where is the entry's `via` (appended, written only when set), which the
+  context's `recent`, the report and the AI's facts never print. A refusal's row never quotes the line, and the same refusal again
+  within a minute is counted and said once more when the minute ends (at most 16 held; the oldest gives way with its count) — a
+  flood of *different* refusals is still a row each, which SW21.4's sender gate bounds, with its flood test there. `next` approves
+  no high proposal even with the word; a host's run that throws fails the proposal instead of leaving it approved; a word that is
+  one app's name and another's kind names neither. Approving a shared proposal honours its tick
+  (G14's tick fix: 2.20 approved an unticked one). A receipted command that runs another inside itself keeps its own notes
+  (`ReceiptStack`): the inner one's refusal, refs and peer are its own, and a wire's command is still a wire's after it. A receipt
+  carries ids beside its numbers in `refs` (`RefIds`), and a refused receipt keeps the refs noted before it was refused. Every
+  whole-line door reads a line into words by one function (`ShowCommandParser.Tokens`). The show report's AI section lists the
+  desk's rows by their kind (proposed, sent, approved, not approved, rejected, the outcome) beside the copilot's notes; a
+  rejected shared proposal is the desk's row, no longer "Copilot proposal discarded". A risk fence names every command kind
+  that rates review: a kind appended later fails it until its risk is chosen. Left: nothing calls `Send` yet and `desk` has no
+  verb — `peer` and `desk`, their gate, `refs.sharedProposal` on a wire and the rig's desk (it answers "no approval desk here"
+  until then) are SW21.4's; Show Bus 1.3 §3 says `refs` names what was made "by number", and its text is final and hash-pinned,
+  so the words for a string id are owed to the master before `refs.sharedProposal` goes on a wire (SW21.4, or 2.21's papers);
+  the frame's desk block, config peers and the context's `collects` (the service's `Summary` and `Apps`) are SW21.5's; the row
+  menu, the send dialog and the greyed Approve (its `QuickVerbs`) are SW21.6's; the journal's `Peer` kind, an entry's node and
+  its own time, the report's show-network section and `network.csv` are SW21.7's. The brief's line that names
+  `Copilot.Classify` as a new command's risk is the maintainer's to change: the table is `CommandRisk.Of` now. Compiled here,
+  never seen: Copilot's words for an unticked or refused approval and for a line handed to a playout peer, the show log's
+  order when an approval runs a line here, and the UI smoke's new unticked check (the maintainer's PC).
   *Asks of the other apps (SW21.2).* **Patterns** (Round 94 or after): its `APPLY` line keeps a look's title as typed, only
   shortened (`DeskProposals.Line`, at the pin `5a8ad8f8`), so a title holding a control character or an invisible format character
   is now refused `400` where 2.20 dropped the characters; and at the pin a refused proposal stays unsent and is posted again each

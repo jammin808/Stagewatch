@@ -397,6 +397,12 @@ public static class Program
             var pPat = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("Patterns FOH"));
             var pUs = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("AGM"));
             var queued = forPatterns.Status == 201 && forUs.Status == 201 && pPat is { IsPending: true } && pUs is { IsPending: true } && pPat.Steps[0].Risk == Stagewatch.Integrations.CopilotRisk.High;
+            // A high step is never ticked for the operator: approving it unticked approves nothing, and it still waits.
+            var unticked = queued && !pPat!.Steps[0].Selected;
+            vm.ApproveProposalCommand.Execute(pPat);
+            Pump(200);
+            unticked = unticked && pPat is { IsPending: true } && vm.CopilotStatus.StartsWith(Stagewatch.Show.DeskService.NothingTicked, StringComparison.Ordinal);
+            if (pPat is not null) pPat.Steps[0].Selected = true;
             vm.ApproveProposalCommand.Execute(pPat);
             Pump(200);
             var held = pPat is { IsPending: true } && vm.CopilotStatus.Contains("has not asked this desk for approved lines", StringComparison.Ordinal);
@@ -406,8 +412,8 @@ public static class Program
             Pump(300);
             var collected = vm.CollectApproved("pat1", NodeCredential.Key("keyP"));
             var stolen = vm.CollectApproved("pat1", NodeCredential.Key("keyA"));
-            var okD = queued && held && firstAsk.Status == 200 && collected.Json.Contains("EYE FOCUS screen 2") && stolen.Status == 403 && pUs!.Steps[0].Result.StartsWith("done");
-            Console.WriteLine((okD ? "OK   " : "FAIL ") + $"approval desk: queued, held until its app asks, approved, collected by its own app only; ours ran here ({forPatterns.Status}/{forUs.Status}, {pUs?.Steps[0].Result}, held {held})");
+            var okD = queued && unticked && held && firstAsk.Status == 200 && collected.Json.Contains("EYE FOCUS screen 2") && stolen.Status == 403 && pUs!.Steps[0].Result.StartsWith("done");
+            Console.WriteLine((okD ? "OK   " : "FAIL ") + $"approval desk: queued, an unticked approval approves nothing, held until its app asks, approved, collected by its own app only; ours ran here ({forPatterns.Status}/{forUs.Status}, {pUs?.Steps[0].Result}, unticked {unticked}, held {held})");
             if (!okD) failures++;
 
             Run(vm, "rundown Day 2");

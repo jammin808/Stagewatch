@@ -107,8 +107,14 @@ department notes, undo (one history per running order) and session checkpoints. 
   the stored password, and every outcome is a `CertificateRead` the desk journals and puts on the status line — a
   replacement is a new fingerprint every pinned peer sees as CERTIFICATE CHANGED once.
   `TlsPins` (Core) is the pin store for outgoing TLS (Slides agent). `ProposalDesk` (Core, pure, thread-safe) is the
-  shared approval queue; `MainViewModel.Desk.cs` mirrors it into the Copilot list (`CopilotProposal.SharedId`), runs
-  desk-targeted lines through `RunWithReceipt`, and journals every decision. Node keys are bound one-to-one to node ids.
+  shared approval queue, and `DeskService` (Show, pure) the desk around it: how a line rates for its target (its own
+  lines by `CommandRisk.Of`, Core's one risk table, which `Copilot.Classify` maps; another app's by its verified verb
+  table), which show app a word names, a person's line to another app (born approved), a person's decision (never a
+  trigger's, an agent's or the advisor's; a high proposal only by its id and the word; nothing unticked), what a sent
+  line came to, and the journal's rows (`JournalKind.Desk`: the role in the words, who and from where in the entry's
+  `via`; a refusal repeated is one row and a count). `MainViewModel.Desk.cs` only mirrors it into the Copilot list
+  (`CopilotProposal.SharedId`) and gives it `RunWithReceipt` for a line aimed at this desk; `ReceiptStack` (Show) keeps
+  each receipted command's notes its own when one runs inside another. Node keys are bound one-to-one to node ids.
 - **Windows (2.17).** `ScreenWindows` (Core, pure) holds the rules: tokens (130 bits, compared in constant time), what a
   window may show, `Apply` for every `window …` command (refusing a no-op with the reason), and the context items.
   `WindowDirector` (Remote) runs the commands for the app, the rig and the tests: it applies, saves (the app: settings),
