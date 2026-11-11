@@ -13,46 +13,49 @@ carry byte-identical copies of the contract, not of this folder.
 | `<area>.md` | The source designs units cite (`spec-1-3`, `peerlink` (the §13 profile), `peerlink-*`, `eye`, `ecosystem-lane`, `cross-app-proposals`, `playout-links`, `windows-for-peers`, `peers-not-screens`, `patterns-playmap-side`, `agmessage`); `plan.md` is an older draft kept for its longer text; `plan-critique.md` the critique the plan answered |
 | `agmessage-handoff.md` | What was handed to AGMessage's own session (its AG-1) |
 | `data/` | `gaps.json` (G01–G49), `maps-lite.json`, `master-plan.json` (the units as data), `units/*.json` (each design's units) |
-| `workflows/` | The scripts each train ran (implement → adversarial review → fold-in and one commit per unit). They name this folder by its path in a cloud checkout (`/home/user/Stagewatch/docs/ecosystem`); edit `S` if the trees live elsewhere |
+| `workflows/` | The scripts each train ran (implement → adversarial review → fold-in and one commit per unit), the `-lean` templates in use now and `unit-brief.py`, which builds a unit's brief from this folder. They name this folder by its path in a cloud checkout (`/home/user/Stagewatch/docs/ecosystem`); edit `S` if the trees live elsewhere |
 
-## Where the work stands (2026-10-28)
+## Where the work stands (2026-11-11)
 
-Every repository's work is on the session's designated working branch (the same name in all five repositories), committed and
-pushed; no working tree holds anything uncommitted. The owner has **paused all three active trees**; nothing resumes until the
-owner says so, tree by tree.
+Every repository's work is on the session's designated working branch (the same name in all five repositories). The owner
+lifted all three pauses on 2026-11-11 ("Resume and continue StageWatch, Patterns, and PlayMap"); each landed unit is pushed as
+it lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — paused after SW21.2 ("until I say continue")
+### Stagewatch — 2.21 under way
 
 - Landed: 2.17 (controlled windows), 2.18 (Train 1's harms), 2.19 (Show Bus 1.3 final, the PeerLink kit, hello 1.3, the
   interop lane `tools/test.sh interop` with CI's interop job), the brief's four lines, the temp-folder fence, 2.20 SW20.1–SW20.12
-  (playout links on the PeerLink core), 2.21 SW21.1 (the verb table) and SW21.2 (the desk's rules), the last at `5490c89`.
-- Next, in order: SW21.3 (DeskService, LineRisk/CommandRisk in Core), SW21.4 (release A grammar: `peer <app> <line>`,
-  `desk approve|reject <id>` with receipts), SW21.5 (readers), SW21.7 (one report), SW21.8 (one preflight, "ready for doors"),
-  SW21.6 (the desk, WPF — compiled here, walked on the PC), SW21.9 (interop desk rows), then SW21.10 (2.21 papers).
-- Waiting on Patterns Round 94: SW20.13 (the VT interop rows S4.1–S4.4) and SW20.14 (2.20 papers). With the owner's S-releases
-  answer, 2.20 and 2.21 may ship as one release with combined papers.
-- Template: `workflows/train4-stagewatch.js` (drop its `.slice(…)` limit, which stopped it after SW21.2, and the units already
-  committed — `git log` names each as `2.21 SW21.k: …`).
+  (playout links on the PeerLink core), 2.21 SW21.1 (the verb table), SW21.2 (the desk's rules) and SW21.3 (the desk as one
+  service, `CommandRisk.Of` in Core), the last at `14b3b2f`. `main` was merged in at `b6f454e` (its lockout fix: a valid key
+  clears no count); the merge's WHATS_NEXT names one interop row not yet built.
+- Next, in order: SW21.4 (release A grammar: `peer <app> <line>`, `desk approve|reject <id>` with receipts), SW21.5 (readers),
+  SW21.7 (one report), SW21.8 (one preflight, "ready for doors"), SW21.6 (the desk, WPF — compiled here, walked on the PC),
+  SW21.9 (interop desk rows); then SW20.13 (the VT interop rows S4.1–S4.4, once Patterns Round 94's papers are pushed), then
+  SW20.14 and SW21.10 as one set of papers (the owner's S-releases answer: 2.20 and 2.21 ship as one release); then Train 5
+  (SW22.1a … SW22.10).
+- Template: `workflows/train4-stagewatch-lean.js` (drop the units `git log` already names as `2.21 SW21.k: …`).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — paused before Round 94 ("wait for me to confirm resume")
+### Patterns — Round 94 under way
 
-- Landed and pushed: Rounds 89–93. Round 92 was a repair round (CI's red test job, L64; the twin key, L65; the 1.3 copy; the
-  temp-folder fence); Round 93 is the plan's P92 (the PeerLink core, the Stagewatch link on it, its record in every reader,
-  STAGEWATCH verbs, papers PLAN §111), closed at `b57410d`. The tag table's next row is round 93's: `b57410d`.
-- Next: Round 94 = the plan's P93 (94.0 opening; 94.1 one speaker message — needs Stagewatch's SW20.10, landed; 94.2 playlist hold;
-  94.3 `VIDEO … ON <key>`; 94.4 papers), then Round 95 = the plan's P94 (the Eye's NETWORK band), and so on, each one higher.
-- Template: `workflows/train3-patterns.js` (its units carry both plan and round numbers; set the filter to the round to run).
+- Landed and pushed: Rounds 89–93 (Round 93 is the plan's P92, closed at `b57410d`; the tag table's next row is round 93's) and
+  Round 94.0 (PLAN §112's opening, `d44bc93`).
+- Next: Round 94 = the plan's P93 (94.1 one speaker message; 94.2 playlist hold; 94.3 `VIDEO … ON <key>`; 94.4 papers), then
+  Round 95 = the plan's P94 (the Eye's NETWORK band: 95.0 opening, 95.1, 95.2, 95.3 papers). Round 96 (the plan's P95) waits
+  on Stagewatch's SW22.1b and SW22.4.
+- Template: `workflows/patterns-rounds-lean.js` (its units carry both plan and round numbers; drop the ones `git log` names).
 
-### PlayMap (repo Mapper) — paused ("until I say continue")
+### PlayMap (repo Mapper) — PM-11, then waiting on round 3's integration pass
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
   fix-proposal-sink-deadline, PM-6 fix-peerlink-core, PM-7 fix-stagewatch-timer-air, PM-8 fix-stagewatch-context-size,
-  fix-desk-unconfirmed. Every leave extension is in `owner-answers.md` and in a "Papers: the owner extends …" commit.
-- First on resume: read CI for the pushes after run 468 (PM-6 onward); a red job is ours to root-cause.
-- Next units (none started): PM-11 (the context names its peers and timer; deps met); PM-9a–c and PM-10 (wp4-peerlink — the owner's
-  answer is "first after round 3's integration pass": check `docs/round3/PLAN.md` first); PM-12…PM-20 per `master-plan.md`.
+  fix-desk-unconfirmed, the last at `a6c47e62`. Every leave extension is in `owner-answers.md` and in a "Papers: the owner
+  extends …" commit. CI's runs 469–471 are green on that head.
+- In progress: PM-11 (the context names its peers and timer; its leave is `ContextBuilder.cs` through round 3 §5.7's spine
+  lane, its tests and its CARRYOVER entry — the owner's M-eye-spine answer; a file outside that leave is asked before the push).
+- After PM-11 nothing can start: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
+  happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
 - Open items each batch left are in its CARRYOVER entry's Open list.
 - Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch).
 
@@ -71,9 +74,20 @@ what 0.5.x landed against `agmessage-handoff.md`, then plan Train 9 (AG-2…) on
 2. Bench: `tools/setup-dev.sh` in Stagewatch (the .NET 10 SDK, Node, Chromium's headless shell) and in Mapper (Xvfb and Mesa,
    FFmpeg 9.0 in `/opt/ffmpeg9`, DXC in `/opt/dxc`); Patterns builds with the .NET 10 SDK alone.
 3. Read each tree's `CLAUDE.md`, then this folder's `master-plan.md` for the next unit's section and `owner-answers.md`.
-4. Run the tree's template (or one unit by hand) the way every unit so far ran: implement and validate with the tree's own lanes,
-   an adversarial review that does not edit, then fold-in and **one** commit per unit; push after each landed unit; a file
-   outside a PlayMap batch's leave is asked of the owner before the push.
+4. Run the tree's template (or one unit by hand): implement and validate with the tree's own lanes, an adversarial review
+   that does not edit, then fold-in and **one** commit per unit; push after each landed unit; a file outside a PlayMap batch's
+   leave is asked of the owner before the push. Since 2026-11-11 units run lean (the owner's choice), which the `-lean`
+   templates carry:
+   - a brief per unit, built by text extraction only: `python3 docs/ecosystem/workflows/unit-brief.py artifacts/briefs SW21.4 …`
+     (Patterns units by the plan's id, `P93.2` for Round 94.2); agents work from the brief and open the plan or a design only
+     at a section the brief lists;
+   - one full validate per unit, run by the committing stage; the implementer runs the tests of what it touched, the reviewer
+     rebuilds nothing and runs only the narrowest `--no-build` test that proves or kills a finding (Patterns' R4 stays: the
+     whole Core, Rendering and App suites per code unit, once, at the commit);
+   - build and test output goes to a log file; only its summary and the failing tests are read;
+   - `artifacts/interop` (the interop lane's sibling clones and builds) is kept between runs;
+   - a round's opening is one stage; a round's papers are a writer and one check-and-commit stage; code units keep all three;
+   - pushes, CI reads, merges and this guide's updates are done by hand, not as a run.
 5. Tests make temporary paths only through each tree's fence (Patterns `tests/Shared/TempRun.cs`, Stagewatch
    `tests/Stagewatch.Tests/Scratch.cs`); give a run its own TMPDIR under the tree's ignored output folder.
 
