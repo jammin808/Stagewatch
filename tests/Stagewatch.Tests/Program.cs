@@ -2109,6 +2109,8 @@ NodeTests.Run(Check);
 VerbTableTests.Run(Check);
 DeskRulesTests.Run(Check);
 DeskTests.Run(Check);
+PeerLinesTests.Run(Check);
+ReportTests.Run(Check);
 await DeskWireTests.Run(Check);
 await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);

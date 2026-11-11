@@ -5,8 +5,8 @@ using Stagewatch.Show;
 namespace Stagewatch.App.ViewModels;
 
 // The shared approval queue (Show Bus §11): this Stagewatch is the desk, and this file only mirrors it. The rules — how a line rates,
-// who may send or decide, what is refused and in which words, the journal's rows — are DeskService's (Timer.Show), pure, so any
-// host of the desk keeps the same ones. Other apps' AI proposals land in the same Copilot list as Stagewatch's own; the operator approves or discards each
+// who may send or decide, what is refused and in which words, the journal's rows, which of a verified peer's own lines are heard
+// and journalled — are DeskService's (Timer.Show), pure, so any host of the desk keeps the same ones. Other apps' AI proposals land in the same Copilot list as Stagewatch's own; the operator approves or discards each
 // once; the target app collects what was approved for it, runs it through its own command path and reports back. Network calls (any
 // thread) go to the thread-safe service; the list, the status line and the journal follow on the show thread.
 public sealed partial class MainViewModel
@@ -24,6 +24,8 @@ public sealed partial class MainViewModel
             Network = () => _network,
             Linked = LinkedContext,
             WindowTokens = () => ControlledWindows.Select(w => w.Token),
+            KeyName = ApiKeyName,
+            ShowTime = utc => ShowClock.ToShow(utc).ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
             RunHere = RunApprovedHere,
         });
         d.Changed += p => _ui.BeginInvoke(() => OnSharedProposal(p));
@@ -34,10 +36,18 @@ public sealed partial class MainViewModel
             if (_ui.CheckAccess()) JournalDesk(row);
             else _ui.BeginInvoke(() => JournalDesk(row));
         };
+        // What verified peers' own journals told the desk, heard on the show thread once a second: the service's rows, as they are.
+        d.Heard += line =>
+        {
+            if (_ui.CheckAccess()) JournalHeard(line);
+            else _ui.BeginInvoke(() => JournalHeard(line));
+        };
         return d;
     });
 
     private void JournalDesk(DeskRow row) => _journal.Add(row.Entry(_show.RundownActive ? _show.CurrentItem : -1));
+
+    private void JournalHeard(HeardLine line) => _journal.Add(line.Entry(_show.RundownActive ? _show.CurrentItem : -1));
 
     /// <summary>
     /// Show thread: the desk's readers follow it, by the desk's own rule (<see cref="DeskService.Refresh"/>), asked when a proposal
@@ -230,6 +240,9 @@ public sealed partial class MainViewModel
         if (p.SharedId is { } id) Desk.Decide(id, approve: false, DeskOrigin.Operator);
     }
 
-    /// <summary>Once a second: approved proposals a target never collected become undelivered.</summary>
-    private void ExpireShared() => _deskService?.Expire();
+    /// <summary>
+    /// Once a second, show thread, after the show network of this second is joined and published: approved proposals a target never
+    /// collected become undelivered, and the lines verified peers' own journals told since the last second are heard from that join.
+    /// </summary>
+    private void ExpireShared() => Desk.Expire();
 }

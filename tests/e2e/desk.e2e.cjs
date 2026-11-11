@@ -14,6 +14,9 @@
 // a second press that sends the word high, Approve greyed with its reason while the proposal's app is not collecting. The page
 // takes no press on what it has just drawn (a double-click neither confirms a high proposal nor decides the one behind), names
 // both ends as the desk knows their ids, and reads a line longer than the frame carries whole before Approve is live.
+// One report: what a verified app's own journal told the desk (its context's recent lines) reaches /api/report/network.csv and
+// the report's show network section once, with its node, its own time and its road; another app's key posting under its id
+// adds nothing; the report's AI section holds the desk's rows, a rejection included; and none of it is the rig's own recent.
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -315,6 +318,45 @@ test('the journal keeps each desk row, who and from where apart from its words',
   assert.ok(rows.some((r) => /^Outcome p\d+: PlayMap Hall: PLAYLIST CUE show #3 — done \(cued Intro\)$/.test(r.x)), 'and what came of it');
   assert.ok(rows.some((r) => /^Refused to send to PlayMap Hall \(wire\): PlayMap Hall does not list that line — see its verbs$/.test(r.x)), 'a refusal never quotes an unlisted line');
   assert.ok(rows.some((r) => / — not during the keynote$/.test(r.x)), 'a rejection keeps its reason');
+  assert.equal(sent.k, 'Desk', 'in the desk\'s own kind');
+  assert.equal(sent.n, 'pm-a1b2c3', 'with the node it was sent to, by its id');
+});
+
+test('one report: a verified app\'s lines reach network.csv once, with their node, own time and road; a forged id\'s never; /report holds the rejection', async () => {
+  const headers = { 'X-Stagewatch-Pin': PIN };
+  const csv = async () => (await fetch(rig.base + '/api/report/network.csv', { headers })).text();
+  assert.equal((await fetch(rig.base + '/api/report/network.csv')).status, 401, 'network.csv needs a credential');
+  const at = Date.now();
+  playmap.recent = [{ at, text: 'PLAYLIST GO show — Intro, "take 2"' }];
+  await playmap.post();
+  const text = await until(async () => { const t = await csv(); return t.includes('PLAYLIST GO show') ? t : null; }, 5000, 'PlayMap\'s line in network.csv');
+  const lines = text.split('\r\n');
+  assert.equal(lines[0], '# peer lines are a sample; each node\'s own journal is the record');
+  assert.equal(lines[1], 'Time,Node,Kind,Node id,Node time,Via,Text');
+  assert.ok(lines.some((l) => /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,PlayMap Hall,playmap,pm-a1b2c3,,node key '[^']+',PlayMap Hall joins the report; its earlier lines are in its own journal$/.test(l)),
+    'the app joined the report when the desk first heard it, with no backlog: ' + lines.slice(0, 6).join(' | '));
+  const stamp = new Date(at).toISOString().slice(0, 19).replace('T', ' ');
+  const row = lines.find((l) => l.includes('PLAYLIST GO show'));
+  assert.match(row, new RegExp(`^\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d,PlayMap Hall,playmap,pm-a1b2c3,${stamp},node key '[^']+',"PLAYLIST GO show — Intro, ""take 2"""$`),
+    'its line with its node, its own time on its own clock and the road its context came by');
+  // The same lines again, and the same context held: journalled once.
+  await playmap.post();
+  await pause(1500);
+  assert.equal((await csv()).split('PLAYLIST GO show').length - 1, 1, 'a line is in the report once');
+  // Another app's key posting as PlayMap: refused, and nothing it said is in the report.
+  const forged = await agmessage.call('POST', '/api/peers/context', { ...playmap.context(), recent: [{ at: at + 1, text: 'FORGED LINE' }] });
+  assert.equal(forged.status, 403, 'a node key cannot speak for another node: ' + forged.text);
+  await pause(1500);
+  assert.ok(!(await csv()).includes('FORGED LINE'), 'no row of a context that was refused');
+  // The journal file keeps the row: the peer kind, the node, the line's own time and the road, apart from its words.
+  const kept = fs.readFileSync(rig.journal, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((r) => r.k === 'Peer' && r.x.startsWith('PLAYLIST GO show'));
+  assert.ok(kept && kept.n === 'pm-a1b2c3' && kept.pt === at && /^node key '/.test(kept.via) && kept.nn === 'PlayMap Hall' && kept.nk === 'playmap', JSON.stringify(kept));
+  // The page: the desk's rows, the rejection included, in the AI section; the app's line in the show network, never in the rig's own recent.
+  const html = await (await fetch(rig.base + '/report', { headers })).text();
+  assert.match(html, /Rejected p\d+ \(wire\): [^<]* — not during the keynote/, 'the rejection is reported, with who (by role) and why');
+  assert.match(html, /<h2>The show network<\/h2>.*Peer lines are a sample; each node's own journal is the record\..*PLAYLIST GO show — Intro/s, 'the show network section says it is a sample and lists the line');
+  assert.ok(!JSON.stringify((await rig.context()).recent).includes('PLAYLIST GO show'), 'a peer\'s line is never said again as the rig\'s own');
+  playmap.recent = [];
 });
 
 test('the readers: the operator frame ends with desk, the config with peers, each peers row of the context with collects', async () => {

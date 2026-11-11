@@ -299,7 +299,8 @@ public static class ShowContext
         var whole = new Shape(
             items.Select(Part.Of).ToList(),
             x.Links.Select(Sized).Select(l => Part.Of(new ContextLink("timer", l.Id, l.Kind == "playout" ? "follows" : "hears", l.Light))).ToList(),
-            x.Journal.TakeLast(MaxRecent).Select(e => Part.Of(new DateTimeOffset(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
+            // This show's own rows alone: what another node's journal told this desk (a peer row) is never said again as Stagewatch's.
+            ShowJournal.LastOwn(x.Journal, MaxRecent).Select(e => Part.Of(new DateTimeOffset(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
                 ShowBusText.Cut(string.Create(CultureInfo.InvariantCulture, $"{x.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}"), RecentChars))).ToList(),
             CommandsFor(x.Playout).Select(Part.Of).ToList());
         // The usual context fits: one serialization, as it is sent. Only one over a count or the bytes is measured part by part.

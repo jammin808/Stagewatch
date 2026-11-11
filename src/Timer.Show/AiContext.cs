@@ -120,7 +120,7 @@ public static class AiContext
         using (var w = new Utf8JsonWriter(ms))
         {
             w.WriteStartObject();
-            w.WriteString("now", f.Clock.ToShow(f.NowUtc).ToString("yyyy-MM-dd HH:mm:ss"));
+            w.WriteString("now", f.Clock.ToShow(f.NowUtc).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
             // The frame and the config as the operator's readers get them, less what other apps wrote: the desk block (a waiting
             // proposal's line, the apps' names) and the config's peers (names from hellos, which prove nothing). Another app's words
             // reach the model only as that app's data (other_apps), never as this Stagewatch's own state.
@@ -157,7 +157,9 @@ public static class AiContext
                 }),
             });
             w.WritePropertyName("recent");
-            JsonSerializer.Serialize(w, f.Journal.TakeLast(RecentLines).Select(e => $"{f.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}"));
+            // This show's own rows: a peer's lines are another node's words, read from its facts above, never as what happened here.
+            JsonSerializer.Serialize(w, ShowJournal.LastOwn(f.Journal, RecentLines)
+                .Select(e => string.Create(CultureInfo.InvariantCulture, $"{f.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}")));
             // The other show apps in the room (Patterns, AGMessage…): their lights are evidence; grey means unknown. Which
             // follow the timer over /ws, and what proves each one's facts: a context verified "none" is only claimed.
             w.WritePropertyName("other_apps");
@@ -212,13 +214,13 @@ public static class AiContext
         {
             n = i + 1, title = it.Title, kind = it.Kind.ToString(), planned_min = it.DurationSeconds / 60.0, adjust_s = it.AdjustSeconds,
             min_s = it.MinDurationSeconds, start_mode = it.StartMode.ToString(), fixed_start = it.FixedStart, hard_out = it.HardOut,
-            planned_start = i < p.Items.Length ? clock.ToShow(p.Items[i].PlannedStartUtc).ToString("HH:mm") : null,
-            expected_start = i < p.Items.Length ? clock.ToShow(p.Items[i].ExpectedStartUtc).ToString("HH:mm") : null,
+            planned_start = i < p.Items.Length ? clock.ToShow(p.Items[i].PlannedStartUtc).ToString("HH:mm", CultureInfo.InvariantCulture) : null,
+            expected_start = i < p.Items.Length ? clock.ToShow(p.Items[i].ExpectedStartUtc).ToString("HH:mm", CultureInfo.InvariantCulture) : null,
             status = i < p.Items.Length ? p.Items[i].Status.ToString() : null
         });
         return JsonSerializer.Serialize(new
         {
-            now = clock.ToShow(nowUtc).ToString("HH:mm:ss"),
+            now = clock.ToShow(nowUtc).ToString("HH:mm:ss", CultureInfo.InvariantCulture),
             live_item = liveItem >= 0 ? liveItem + 1 : 0,
             live_remaining_s = (long)liveRemaining.TotalSeconds,
             offset_s = p.OffsetSeconds,
@@ -239,9 +241,10 @@ public static class AiContext
             .Concat(settings.OtherRundowns.Select(o => (o.Name, o.Rundown)))
             .SelectMany(o => o.Rundown.Items.Select((it, i) => (it.Id, Label: $"{o.Name} {i + 1}. {it.Title}")))
             .GroupBy(x => x.Id).ToDictionary(g => g.Key, g => g.First().Label);
-        var entries = journal.TakeLast(SummaryEntries).Select(e => new
+        // This show's own rows: the summary is of what happened here, and another node's words are never a model's input through it.
+        var entries = ShowJournal.LastOwn(journal, SummaryEntries).Select(e => new
         {
-            t = clock.ToShow(e.Utc).ToString("HH:mm:ss"), k = e.Kind.ToString(),
+            t = clock.ToShow(e.Utc).ToString("HH:mm:ss", CultureInfo.InvariantCulture), k = e.Kind.ToString(),
             item = e.ItemId is { } id ? byId.GetValueOrDefault(id, "") : "",
             x = e.Text, v = e.Value
         });

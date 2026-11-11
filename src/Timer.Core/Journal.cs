@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -17,7 +18,15 @@ public enum JournalKind
     /// What the approval desk did with a line (Show Bus §11): proposed, sent, approved or not, rejected, and what came of it. Only the
     /// desk writes this kind, so no note and no peer's words can pass for one of its rows.
     /// </summary>
-    Desk
+    Desk,
+    /// <summary>
+    /// What another show app's own journal told this Stagewatch through a context that proves its node (Show Bus §6 <c>recent</c>): one
+    /// of its lines, with the node, the line's time on that node's clock when it told one and the road its context came by; or
+    /// (<see cref="JournalEntry.Value"/> 1) this desk's own words about what it took — the node joined, lines may be missing. A sample:
+    /// that node's own journal is the record. Only the desk's hearing writes this kind, and no reader takes such a row for one of
+    /// this show's own.
+    /// </summary>
+    Peer
 }
 
 /// <summary>
@@ -38,10 +47,34 @@ public sealed record JournalEntry(
     [JsonPropertyName("ex"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Execution { get; init; }
 
     /// <summary>
-    /// Who did it and from where (a key's name, an address), for the journal file alone: no reader that goes on a wire, to a model or
-    /// into the report prints it. Written only when set.
+    /// On a desk row, who did it and from where (a key's name, an address), for the journal file alone: no reader that goes on a wire,
+    /// to a model or into the report prints it. On a peer row, the road its node's context came by (its node key by the key's name,
+    /// this Stagewatch's own link, the operator's credential — never an address), which the report's show network section and
+    /// network.csv print. Written only when set.
     /// </summary>
     [JsonPropertyName("via"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Via { get; init; }
+
+    /// <summary>The other node a desk row or a peer row is about, by its Show Bus id. Written only when set.</summary>
+    [JsonPropertyName("n"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Node { get; init; }
+
+    /// <summary>
+    /// A peer row's line as its node timed it: Unix milliseconds on that node's own clock. <see cref="Utc"/> is when this Stagewatch
+    /// first heard the line; neither is ever shifted by an offset nobody measured. Written only when the line told a time.
+    /// </summary>
+    [JsonPropertyName("pt"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public long? PeerAtMs { get; init; }
+
+    /// <summary>A peer row's node as this desk named it when it heard the line, and its Show Bus kind. Written only when set.</summary>
+    [JsonPropertyName("nn"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? NodeName { get; init; }
+    [JsonPropertyName("nk"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? NodeKind { get; init; }
+
+    /// <summary>
+    /// On a peer row whose node only the operator's credential proved, the address its context was posted from, for the journal file
+    /// alone: no reader that goes on a wire, to a model or into the report or network.csv prints it. Written only when set.
+    /// </summary>
+    [JsonPropertyName("fr"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? From { get; init; }
+
+    /// <summary>A peer row that is this desk's own words about its node (it joined the report, lines may be missing), not a line the node told.</summary>
+    [JsonIgnore] public bool IsPeerNote => Kind == JournalKind.Peer && Value != 0;
 
     /// <summary>Whether this entry is about <paramref name="item"/> at <paramref name="index"/> of running order <paramref name="rundownId"/>.</summary>
     public bool IsAbout(string rundownId, RundownItem item, int index)
@@ -103,6 +136,20 @@ public sealed class ShowJournal : IAsyncDisposable
     public void Add(DateTime utc, JournalKind kind, int item = -1, string text = "", double value = 0)
         => Add(new JournalEntry(utc, kind, item, text, value));
 
+    /// <summary>
+    /// The last <paramref name="count"/> rows that are this show's own, oldest first: a peer's lines (<see cref="JournalKind.Peer"/>) are
+    /// left out, so what another node said never reads as what happened here and never crowds it out. Reads from the end, so a long
+    /// journal costs no more than a short one.
+    /// </summary>
+    public static IReadOnlyList<JournalEntry> LastOwn(IReadOnlyList<JournalEntry> journal, int count)
+    {
+        var own = new List<JournalEntry>(Math.Max(0, Math.Min(count, journal.Count)));
+        for (var i = journal.Count - 1; i >= 0 && own.Count < count; i--)
+            if (journal[i].Kind != JournalKind.Peer) own.Add(journal[i]);
+        own.Reverse();
+        return own;
+    }
+
     private async Task WriteLoopAsync()
     {
         try
@@ -154,6 +201,13 @@ public sealed record ReportRow(
     int? OverrunSeconds, int? WrapUpToFinishSeconds, int Messages, int Acks, double? AvgAckSeconds);
 
 /// <summary>
+/// One row of the report's show network section: a line another node's journal told this Stagewatch (or, <see cref="Note"/>, this
+/// desk's own words about what it took), when it was first heard here, the node as this desk named it, the line's time on that
+/// node's own clock when it told one, and the road its context came by.
+/// </summary>
+public sealed record NetworkLine(DateTime Utc, string Node, string Kind, string NodeId, long? PeerAtMs, string Via, string Text, bool Note);
+
+/// <summary>
 /// Planned vs actual, per item — the client deliverable no stage timer produces. Built from the
 /// journal, so it is exactly what happened, including who acknowledged what and how long a
 /// speaker took to finish after the wrap-up cue.
@@ -168,6 +222,17 @@ public sealed class ShowReport
     public string Summary { get; init; } = "";
     /// <summary>What AI proposed and what people decided, in order (time, text).</summary>
     public List<(DateTime Utc, string Text)> AiDecisions { get; init; } = new();
+    /// <summary>What verified peers' own journals told this Stagewatch, in the order it heard them: a sample, never the record.</summary>
+    public List<NetworkLine> Network { get; init; } = new();
+
+    /// <summary>What the show network section and network.csv say of themselves.</summary>
+    public const string Sample = "peer lines are a sample; each node's own journal is the record";
+
+    /// <summary>The report format that is the show network's lines as CSV (<see cref="NetworkCsv"/>), beside "html" and "csv".</summary>
+    public const string NetworkFormat = "network";
+
+    /// <summary>network.csv's columns.</summary>
+    public const string NetworkColumns = "Time,Node,Kind,Node id,Node time,Via,Text";
 
     /// <summary>Journal note prefixes the copilot writes — the report collects them.</summary>
     public const string SummaryPrefix = "Show summary (reviewed): ";
@@ -224,21 +289,67 @@ public sealed class ShowReport
         // their kind, which only the desk writes, never by a note's opening words.
         var ai = journal.Where(e => e.Kind == JournalKind.Desk || (e.Kind == JournalKind.Note && AiPrefixes.Any(p => e.Text.StartsWith(p, StringComparison.Ordinal))))
             .Select(e => (e.Utc, e.Text)).ToList();
-        return new ShowReport { ShowName = showName, GeneratedUtc = nowUtc, Rows = rows, TimeZoneName = clock.Zone.DisplayName, Summary = summary, AiDecisions = ai };
+        return new ShowReport
+        {
+            ShowName = showName, GeneratedUtc = nowUtc, Rows = rows, TimeZoneName = clock.Zone.DisplayName, Summary = summary, AiDecisions = ai, Network = NetworkOf(journal),
+        };
+    }
+
+    /// <summary>
+    /// What other nodes' journals said, as heard: the journal's peer rows alone, in its order, each under the name the desk gave its
+    /// node then. One pass over the journal and nothing of the running order, so the show network's lines cost no report.
+    /// </summary>
+    public static List<NetworkLine> NetworkOf(IReadOnlyList<JournalEntry> journal)
+    {
+        var network = new List<NetworkLine>();
+        foreach (var e in journal)
+            if (e.Kind == JournalKind.Peer)
+                network.Add(new NetworkLine(e.Utc, e.NodeName is { Length: > 0 } name ? name : NodeBindings.Describe(e.NodeKind, e.Node ?? ""), e.NodeKind ?? "", e.Node ?? "",
+                    e.PeerAtMs, e.Via ?? "", e.Text, e.IsPeerNote));
+        return network;
+    }
+
+    // Every time and number the report writes is formatted with the invariant culture: the same bytes on a PC set to Thai (a Buddhist
+    // year), Finnish (a '.' between hours and minutes) or anything else.
+    private static string Stamp(ShowClock clock, DateTime utc) => clock.ToShow(utc).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    private static string TimeOfDay(ShowClock clock, DateTime utc) => clock.ToShow(utc).ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+
+    /// <summary>A line's time on its node's clock as a moment, or null when it told none or one no calendar holds.</summary>
+    private static DateTime? NodeTime(long? atMs)
+        => atMs is { } ms && ms > 0 && ms <= PeerLine.MaxAtMs ? DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime : null;
+
+    private static string Q(string s) => s.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0 ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
+
+    /// <summary>
+    /// The show network as CSV: one sentence saying what it is (<see cref="Sample"/>, a line that opens with '#'), the columns
+    /// (<see cref="NetworkColumns"/>), then a row per peer row in the order heard — this Stagewatch's time, the node, its kind and id,
+    /// the line's time on the node's own clock (empty when it told none), the road and the text. Another node's words are never a
+    /// formula: a cell of theirs that opens with '=', '+', '-' or '@' is written behind an apostrophe.
+    /// </summary>
+    public string NetworkCsv(ShowClock clock) => NetworkCsv(Network, clock);
+
+    /// <summary>network.csv of <paramref name="network"/>'s lines (<see cref="NetworkOf"/>), as <see cref="NetworkCsv(ShowClock)"/> writes this report's.</summary>
+    public static string NetworkCsv(IReadOnlyList<NetworkLine> network, ShowClock clock)
+    {
+        static string Plain(string s) => s.Length > 0 && s[0] is '=' or '+' or '-' or '@' ? "'" + s : s;
+        var sb = new StringBuilder("# ").Append(Sample).Append("\r\n").Append(NetworkColumns).Append("\r\n");
+        foreach (var l in network)
+            sb.Append(Stamp(clock, l.Utc)).Append(',').Append(Q(Plain(l.Node))).Append(',').Append(Q(Plain(l.Kind))).Append(',').Append(Q(Plain(l.NodeId))).Append(',')
+              .Append(NodeTime(l.PeerAtMs) is { } at ? Stamp(clock, at) : "").Append(',').Append(Q(Plain(l.Via))).Append(',').Append(Q(Plain(l.Text))).Append("\r\n");
+        return sb.ToString();
     }
 
     public string ToCsv(ShowClock clock)
     {
-        string T(DateTime? utc) => utc is { } u ? clock.ToShow(u).ToString("yyyy-MM-dd HH:mm:ss") : "";
+        string T(DateTime? utc) => utc is { } u ? Stamp(clock, u) : "";
         string D(int? s) => s is { } v ? TimerTick.FormatSeconds(v, forceHours: true) : "";
-        string Q(string s) => s.IndexOfAny(new[] { ',', '"', '\n' }) >= 0 ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
         var sb = new StringBuilder("#,Title,Speaker,Kind,Planned start,Planned,Adjusted,Actual start,Actual end,Actual,Over/under,Wrap-up to finish,Messages,Acks,Avg ack (s)\r\n");
         foreach (var r in Rows)
             sb.Append(r.Number).Append(',').Append(Q(r.Title)).Append(',').Append(Q(r.Speaker)).Append(',').Append(r.Kind).Append(',')
               .Append(T(r.PlannedStartUtc)).Append(',').Append(D(r.PlannedSeconds)).Append(',').Append(r.AdjustSeconds == 0 ? "" : D(r.AdjustSeconds)).Append(',')
               .Append(T(r.ActualStartUtc)).Append(',').Append(T(r.ActualEndUtc)).Append(',').Append(D(r.ActualSeconds)).Append(',')
               .Append(D(r.OverrunSeconds)).Append(',').Append(D(r.WrapUpToFinishSeconds)).Append(',')
-              .Append(r.Messages).Append(',').Append(r.Acks).Append(',').Append(r.AvgAckSeconds is { } k ? k.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) : "")
+              .Append(r.Messages).Append(',').Append(r.Acks).Append(',').Append(r.AvgAckSeconds is { } k ? k.ToString("0.0", CultureInfo.InvariantCulture) : "")
               .Append("\r\n");
         return sb.ToString();
     }
@@ -247,7 +358,7 @@ public sealed class ShowReport
     public string ToHtml(ShowClock clock)
     {
         static string E(string s) => System.Net.WebUtility.HtmlEncode(s);
-        string T(DateTime? utc) => utc is { } u ? clock.ToShow(u).ToString("HH:mm:ss") : "—";
+        string T(DateTime? utc) => utc is { } u ? TimeOfDay(clock, u) : "—";
         string D(int? s) => s is { } v ? TimerTick.FormatSeconds(v) : "—";
         string O(int? s) => s is not { } v ? "—" : Math.Abs(v) < 30 ? "on time" : (v > 0 ? "+" : "−") + TimerTick.FormatSeconds(Math.Abs(v));
         var sb = new StringBuilder();
@@ -260,7 +371,7 @@ public sealed class ShowReport
           .Append("h2{font-size:16px;margin:28px 0 4px}.summary{background:#f8fafc;border-left:4px solid #0ea5e9;padding:8px 14px;margin:0 0 20px;font-size:14px}.summary p{margin:6px 0}.summary p.b{margin:3px 0 3px 8px}")
           .Append("@media print{body{margin:12mm}}</style></head><body>")
           .Append("<h1>").Append(E(ShowName)).Append("</h1><p class=\"sub\">Show report · generated ")
-          .Append(E(clock.ToShow(GeneratedUtc).ToString("dddd d MMMM yyyy HH:mm"))).Append(" · ").Append(E(TimeZoneName)).Append("</p>")
+          .Append(E(clock.ToShow(GeneratedUtc).ToString("dddd d MMMM yyyy HH:mm", CultureInfo.InvariantCulture))).Append(" · ").Append(E(TimeZoneName)).Append("</p>")
           .Append("<div class=\"kpi\"><div><b>").Append(ItemsRun).Append('/').Append(Rows.Count).Append("</b>items run</div>")
           .Append("<div><b>").Append(D(TotalPlannedSeconds)).Append("</b>planned</div>")
           .Append("<div><b>").Append(D(TotalActualSeconds)).Append("</b>actual</div>")
@@ -288,7 +399,7 @@ public sealed class ShowReport
             sb.Append("</td><td class=\"n\">").Append(T(r.ActualStartUtc)).Append("</td><td class=\"n\">").Append(T(r.ActualEndUtc))
               .Append("</td><td class=\"n\">").Append(D(r.ActualSeconds)).Append("</td><td class=\"n ").Append(cls).Append("\">").Append(O(r.OverrunSeconds))
               .Append("</td><td class=\"n\">").Append(D(r.WrapUpToFinishSeconds)).Append("</td><td class=\"n\">").Append(r.Messages).Append(" / ").Append(r.Acks);
-            if (r.AvgAckSeconds is { } k) sb.Append(" <small>(").Append(k.ToString("0", System.Globalization.CultureInfo.InvariantCulture)).Append(" s)</small>");
+            if (r.AvgAckSeconds is { } k) sb.Append(" <small>(").Append(k.ToString("0", CultureInfo.InvariantCulture)).Append(" s)</small>");
             sb.Append("</td></tr>");
         }
         sb.Append("</tbody></table>");
@@ -297,6 +408,22 @@ public sealed class ShowReport
             sb.Append("<h2>AI suggestions and decisions</h2><p class=\"sub\">Everything the copilot or AI agents proposed, and what the operator did. Nothing ran without approval.</p><table><tbody>");
             foreach (var (utc, text) in AiDecisions)
                 sb.Append("<tr><td class=\"n\">").Append(T(utc)).Append("</td><td>").Append(E(text)).Append("</td></tr>");
+            sb.Append("</tbody></table>");
+        }
+        if (Network.Count > 0)
+        {
+            // Another node's words are shown as text, under the name this desk gave the node; this desk's own words about it in italics.
+            sb.Append("<h2>The show network</h2><p class=\"sub\">What other show apps' own journals told this Stagewatch, through contexts that prove their node. ")
+              .Append("Peer lines are a sample; each node's own journal is the record. The time is when this Stagewatch first heard the line; ")
+              .Append("its clock is the node's own time for it, never adjusted.</p>")
+              .Append("<table><thead><tr><th>Heard</th><th>Node</th><th>Its clock</th><th>Via</th><th>Line</th></tr></thead><tbody>");
+            foreach (var l in Network)
+            {
+                sb.Append("<tr><td class=\"n\">").Append(T(l.Utc)).Append("</td><td>").Append(E(l.Node));
+                if (l.Kind.Length > 0) sb.Append("<br><small>").Append(E(l.Kind)).Append("</small>");
+                sb.Append("</td><td class=\"n\">").Append(NodeTime(l.PeerAtMs) is { } at ? "its clock " + TimeOfDay(clock, at) : "—")
+                  .Append("</td><td>").Append(E(l.Via)).Append("</td><td>").Append(l.Note ? "<i>" + E(l.Text) + "</i>" : E(l.Text)).Append("</td></tr>");
+            }
             sb.Append("</tbody></table>");
         }
         sb.Append("<p class=\"sub\" style=\"margin-top:18px\">Generated by Stagewatch.</p></body></html>");

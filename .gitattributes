@@ -9,3 +9,4 @@
 *.sh text eol=lf
 tools/showbus/*.mjs text eol=lf
 companion-module/test/*.tsv text eol=lf
+tests/Stagewatch.Tests/fixtures/report-before-peers.* -text

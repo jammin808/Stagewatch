@@ -501,7 +501,8 @@ public sealed partial class MainViewModel
                 break;
             case ShowCommandKind.Report:
             {
-                var format = c.Text == "csv" || !FeatureGate.AllowsFullReport(_license.Tier) ? "csv" : "html";
+                // The show network's lines are a file of their own; the report is the page where the licence has it, else its CSV.
+                var format = c.Text == ShowReports.Network ? ShowReports.Network : c.Text == "csv" || !FeatureGate.AllowsFullReport(_license.Tier) ? "csv" : "html";
                 if (!Gate(ReportAllowed(format), "The show report", FeatureTier.Pro)) break;
                 if (WriteReport(format, open: false) is { } path) StatusLine = $"Report saved: {path}";
                 else Refuse("Report: nothing to report yet");
@@ -675,7 +676,7 @@ public sealed partial class MainViewModel
     /// <summary>IShowControl: the MCP endpoint answers only when enabled and licensed (Production).</summary>
     public bool McpAllowed => Settings.Integrations.Mcp && FeatureGate.AllowsMcp(_license.Tier);
 
-    public string ReportText(string format) => ShowReports.Render(BuildReport(), format, ShowClock);
+    public string ReportText(string format) => ShowReports.Text(format, _journal.Entries, ShowClock, BuildReport);
 
     /// <summary>IShowControl: the report for remotes (web / MCP threads). Built on the owner thread, never racing the journal.</summary>
     public string? Report(string format)

@@ -361,7 +361,7 @@ public enum ShowCommandKind
     Rehearse,
     /// <summary>Number = 1 / 0 / -1: speech-to-script tracking.</summary>
     Listen,
-    /// <summary>Text = "html" | "csv": write the show report.</summary>
+    /// <summary>Text = "html" | "csv": write the show report; "network": write the show network's lines (network.csv).</summary>
     Report,
     /// <summary>Text = a show-caller note for the journal.</summary>
     Note,
@@ -659,7 +659,7 @@ public interface IShowApprovals
 /// <summary>The planned-vs-actual show report. Thread-safe.</summary>
 public interface IShowReports
 {
-    /// <summary>The report ("html" | "csv"), or null when there's nothing to report.</summary>
+    /// <summary>The report ("html" | "csv" | "network", the show network's lines as CSV), or null when there's nothing to report.</summary>
     string? Report(string format) => null;
 }
 
@@ -773,7 +773,7 @@ public static class ShowCommandParser
         "signal <message|standby|go|call|nudge> <target> [text] [noack] | signal clear <target|id> | signal resend <id> | " +
         "ack <id> [seen|done] [name] | trim <item> <±seconds> | delay <seconds|mm:ss|clear> | catchup | preview [on|off] | " +
         "ladder <id|default> | format <standard|calm|progress> | question <text> [name] | " +
-        "q <id|next|clear> [approve|star|live|answered|dismiss] | rehearse [on|off] | listen [on|off] | report [html|csv] | note <text>";
+        "q <id|next|clear> [approve|star|live|answered|dismiss] | rehearse [on|off] | listen [on|off] | report [html|csv|network] | note <text>";
 
     /// <summary>
     /// The grammar as a person reads it: <see cref="Help"/>, which every AI is handed, and the two verbs only a person sends —
@@ -1060,7 +1060,11 @@ public static class ShowCommandParser
                     cmd = new(ShowCommandKind.Listen, Number: OnOff(Arg(0))); return true;
 
                 case "report":
-                    cmd = new(ShowCommandKind.Report, Text: Arg(0).ToLowerInvariant() is "csv" ? "csv" : "html"); return true;
+                {
+                    // report [html|csv|network]: the page unless a file is named — the report's CSV, or the show network's lines.
+                    var format = Arg(0).ToLowerInvariant();
+                    cmd = new(ShowCommandKind.Report, Text: format is "csv" or ShowReport.NetworkFormat ? format : "html"); return true;
+                }
 
                 case "screen": case "screens":
                 {

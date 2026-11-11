@@ -43,6 +43,10 @@ static class DeskTests
         public readonly List<HeardNode> Heard = [];
         public readonly List<DeskRow> Rows = [];
         public readonly List<SharedProposal> Changes = [];
+        /// <summary>What peers' own journals told the desk, as it heard them (its second-a-tick's rows).</summary>
+        public readonly List<HeardLine> Lines = [];
+        /// <summary>The names the operator gave keys, by key id: how a road or a proposal's coming is worded.</summary>
+        public readonly Dictionary<string, string> KeyNames = new(StringComparer.Ordinal);
         public readonly Dictionary<string, PeerContexts.Entry> Linked = new(StringComparer.Ordinal);
         public DateTime Now = T0;
         public Func<ShowCommand, string, DeskRun>? RunHere;
@@ -60,6 +64,7 @@ static class DeskTests
                     Array.Empty<NodeLinkFact>(), DeskId, Now),
                 Linked = t => Linked.GetValueOrDefault(t.Id),
                 WindowTokens = () => ["w7kq2m9xw7kq2m9xw7kq2m9xw7"],
+                KeyName = id => KeyNames.GetValueOrDefault(id),
                 Now = () => Now,
                 Fresh = fresh ?? ProposalDesk.CollectFresh,
                 Run = run,
@@ -68,6 +73,7 @@ static class DeskTests
             // A test that drives the desk from more than one thread (a web server's, an app's collects) reads the rows under their lock.
             Desk.Journalled += row => { lock (Rows) Rows.Add(row); };
             Desk.Changed += change => { lock (Changes) Changes.Add(change); };
+            Desk.Heard += line => { lock (Lines) Lines.Add(line); };
         }
 
         public void Hear(string kind, string id, string name, double age = 1) => Heard.Add(new HeardNode(kind, id, name, "10.0.0.9", age));
@@ -83,6 +89,9 @@ static class DeskTests
 
         /// <summary>The desk's rows as a host journals them.</summary>
         public List<JournalEntry> Journal() => Rows.Select(r => r.Entry()).ToList();
+
+        /// <summary>The desk's rows and what it heard of peers' journals, as a host journals both, in time's order.</summary>
+        public List<JournalEntry> JournalWithPeers() => Rows.Select(r => r.Entry()).Concat(Lines.Select(l => l.Entry())).OrderBy(e => e.Utc).ToList();
     }
 
     static string Context(string kind, string id, string name, params (string Verb, string Risk)[] verbs) => JsonSerializer.Serialize(new
@@ -99,7 +108,7 @@ static class DeskTests
         ("BLACKOUT ON|OFF", "high"), ("LABEL <words>", "low"), ("NOTE ADD <note>", "review"), ("OUTPUT NAME <output> <name>", "low"),
     ];
 
-    static string Proposal(string fromKind, string fromId, string fromName, string targetKind, string targetId, string targetName, string line, string reason = "")
+    internal static string Proposal(string fromKind, string fromId, string fromName, string targetKind, string targetId, string targetName, string line, string reason = "")
         => JsonSerializer.Serialize(new { from = new { t = fromKind, id = fromId, name = fromName }, target = new { t = targetKind, id = targetId, name = targetName }, line, reason });
 
     /// <summary>The words of a route's refusal: its JSON's <c>error</c>.</summary>
@@ -813,8 +822,8 @@ static class DeskTests
     static void Journal(Action<bool, string> Check)
     {
         var options = new JsonSerializerOptions { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
-        Check(Enum.GetValues<JournalKind>()[^1] == JournalKind.Desk && (int)JournalKind.Desk == (int)JournalKind.Trigger + 1,
-            "desk journal: JournalKind.Desk is appended after Trigger, the last kind");
+        Check(Enum.GetValues<JournalKind>()[^1] == JournalKind.Peer && (int)JournalKind.Desk == (int)JournalKind.Trigger + 1 && (int)JournalKind.Peer == (int)JournalKind.Desk + 1,
+            "desk journal: JournalKind.Desk is appended after Trigger and Peer after it, the last kind");
 
         // A peer chooses its name (its hello's); a person types a note. Neither opens a desk row, and neither is one. The name a proposal
         // gives its target is said in no row: the target is named as this desk knows its id.
@@ -852,7 +861,7 @@ static class DeskTests
         var facts = string.Join("\n", kept.Select(e => $"{e.Kind}: {e.Text}")) + context + built.ToHtml(ShowClock.For("UTC")) + built.ToCsv(ShowClock.For("UTC"));
         string[] whos = ["FOH tablet", "10.0.0.7", "Stream Deck", "10.0.0.9"];
         Check(kept.Count == 3 && kept[0] is { Kind: JournalKind.Desk, Text: "Sent p1 to PlayMap Hall (wire): UNDO", Via: "key 'FOH tablet', 10.0.0.7" }
-              && kept[1] is { Text: "Proposed p2: AGMessage → PlayMap Hall: STATUS", Via: null }
+              && kept[1] is { Text: "Proposed p2: AGMessage → PlayMap Hall: STATUS", Via: "a node key" }
               && kept[2] is { Text: "Approved p2 (deck): AGMessage → PlayMap Hall: STATUS", Via: "Stream Deck XL, 10.0.0.9" },
             $"desk journal: a host's entry is the desk's kind, its words the role alone, who and from where its via ({string.Join(" | ", kept.Select(e => e.Text))})");
         Check(context.Contains("Sent p1 to PlayMap Hall (wire): UNDO", StringComparison.Ordinal) && built.AiDecisions.Count == 3 && !whos.Any(x => facts.Contains(x, StringComparison.Ordinal)),
@@ -860,7 +869,7 @@ static class DeskTests
         var line = JsonSerializer.Serialize(kept[0], options);
         var back = JsonSerializer.Deserialize<JournalEntry>(line, options);
         Check(line.Contains("\"k\":\"Desk\"", StringComparison.Ordinal) && line.Contains("\"via\":", StringComparison.Ordinal) && back is { Kind: JournalKind.Desk, Via: "key 'FOH tablet', 10.0.0.7" }
-              && !JsonSerializer.Serialize(kept[1], options).Contains("via", StringComparison.Ordinal),
+              && !JsonSerializer.Serialize(new DeskRow(T0, "Outcome p1: PlayMap Hall: UNDO — done").Entry(), options).Contains("via", StringComparison.Ordinal),
             "desk journal: the journal file keeps who and from where, written only when there is one, and reads it back");
 
         // A refusal repeated — a held button, a trigger firing at a silent app — is one row, then one more that counts the rest.

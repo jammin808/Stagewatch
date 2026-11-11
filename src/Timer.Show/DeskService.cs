@@ -24,15 +24,20 @@ public sealed record DeskRun(bool Ok, string Words, Task<(bool Done, string Word
 /// <summary>
 /// A row for the desk's journal, in the order the desk made them. <see cref="Words"/> open with the desk's own word (Proposed, Sent,
 /// Approved…) and name a role alone — they reach every reader of the journal (the context's recent lines, the report, a model).
-/// <see cref="Who"/> — a key's name, an address — is kept apart, for the journal file alone.
+/// <see cref="Who"/> — a key's name, an address — is kept apart, for the journal file alone, and so is <see cref="Node"/>, the id of
+/// the other node the row is about ("" when it is about this desk alone).
 /// </summary>
 public sealed record DeskRow(DateTime AtUtc, string Words, string Who = "")
 {
+    /// <summary>The other node the row is about, by its Show Bus id: who proposed, or which app is to run the line.</summary>
+    public string Node { get; init; } = "";
+
     /// <summary>
     /// The row as every host journals it: the desk's own kind, which nothing else writes, so no note and no peer's name passes for a
-    /// desk row; who and from where in the entry's <see cref="JournalEntry.Via"/>, never in its text.
+    /// desk row; who and from where in the entry's <see cref="JournalEntry.Via"/> and the node's id in its
+    /// <see cref="JournalEntry.Node"/>, never in its text.
     /// </summary>
-    public JournalEntry Entry(int item = -1) => new(AtUtc, JournalKind.Desk, item, Words) { Via = Who.Length > 0 ? Who : null };
+    public JournalEntry Entry(int item = -1) => new(AtUtc, JournalKind.Desk, item, Words) { Via = Who.Length > 0 ? Who : null, Node = Node.Length > 0 ? Node : null };
 }
 
 /// <summary>
@@ -70,6 +75,12 @@ public sealed class DeskHost
     /// <summary>The tokens of this desk's windows now, so no line names one's address.</summary>
     public Func<IEnumerable<string>>? WindowTokens { get; init; }
 
+    /// <summary>A key's name by its id, or null when it is gone: how the road of a context posted with a node key is worded.</summary>
+    public Func<string, string?> KeyName { get; init; } = _ => null;
+
+    /// <summary>A moment as the show reads its time of day (HH:mm:ss on the show's clock); UTC's when the host gives none.</summary>
+    public Func<DateTime, string> ShowTime { get; init; } = utc => utc.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+
     /// <summary>The clock (UTC).</summary>
     public Func<DateTime> Now { get; init; } = () => DateTime.UtcNow;
 
@@ -89,7 +100,8 @@ public sealed class DeskHost
 /// <summary>
 /// The approval desk as one pure service (Show Bus §11): the shared queue, how a line rates for its target, which show app a word
 /// names, a person's line to another app (born approved), a person's decision on a proposal, what a sent line came to, and the desk's
-/// journal rows — the same rules for every host of the desk, which only mirrors it. A line is sent only to an app whose
+/// journal rows, with the lines verified peers' own journals told it (<see cref="Heard"/>) — the same rules for every host of the desk,
+/// which only mirrors it. A line is sent only to an app whose
 /// verbs are verified and list it, and only while that app collects; a proposal is approved only by a person, a high one only with
 /// its id and the word (never as <c>next</c>), and an unticked one not at all; an approved line aimed at this desk runs here through
 /// the host and the decision returns what that run did. A refusal repeated is one journal row and a count. Thread-safe: the queue
@@ -131,6 +143,7 @@ public sealed class DeskService : IShowApprovals
         _host = host;
         Queue = new ProposalDesk(host.Id, host.Nodes, host.Run) { WindowTokens = host.WindowTokens, Fresh = host.Fresh, Names = Known };
         Queue.Changed += OnChanged;
+        _lines = new PeerLines(host.ShowTime);
     }
 
     /// <summary>The shared queue itself: the service is its only writer on a host.</summary>
@@ -142,6 +155,12 @@ public sealed class DeskService : IShowApprovals
     /// <summary>A row for the desk's journal (the caller's thread): who proposed, who sent or decided and from where, and what came of it.</summary>
     public event Action<DeskRow>? Journalled;
 
+    /// <summary>
+    /// A row for the journal about another node's own journal (the thread that called <see cref="Expire"/>): a line its verified
+    /// context told that this desk had not heard, or the desk's words that the node joined or that lines may be missing.
+    /// </summary>
+    public event Action<HeardLine>? Heard;
+
     private DateTime Now => _host.Now();
 
     // ------------------------------------------------------------------ the node routes (IShowApprovals)
@@ -152,7 +171,13 @@ public sealed class DeskService : IShowApprovals
     /// </summary>
     public (int Status, string Json) SubmitProposal(string body, NodeCredential credential)
     {
-        var (p, error, forbidden) = Queue.Submit(body, credential, Risk, Now, NeverProposed);
+        SharedProposal? p;
+        string? error;
+        bool forbidden;
+        // The queue raises the proposal's first change on this thread, inside the call: its row keeps how the proposal came.
+        _submittedWith = Came(credential);
+        try { (p, error, forbidden) = Queue.Submit(body, credential, Risk, Now, NeverProposed); }
+        finally { _submittedWith = null; }
         return p is null ? (forbidden ? 403 : 400, Json(new { ok = false, error }))
             : (201, Json(new { ok = true, id = p.Id, state = p.StateName, risk = p.Risk, form = p.Form, formWords = p.FormWords }));
     }
@@ -188,6 +213,17 @@ public sealed class DeskService : IShowApprovals
     }
 
     private static string Json(object o) => JsonSerializer.Serialize(o);
+
+    /// <summary>How the proposal a route is taking came, for its row's who: set only for the length of the queue's call, on the calling thread.</summary>
+    [ThreadStatic] private static string? _submittedWith;
+
+    /// <summary>What a request's credential is, in words for the journal file: the node key by the name the operator gave it, or the operator's credential; "" for none.</summary>
+    private string Came(NodeCredential credential) => credential.Proof switch
+    {
+        NodeProof.Key => credential.KeyId is { } k && _host.KeyName(k) is { } name ? $"node key '{LineFence.Shown(name, 60)}'" : "a node key",
+        NodeProof.Operator => "the operator's credential",
+        _ => "",
+    };
 
     // ------------------------------------------------------------------ risk
 
@@ -347,10 +383,10 @@ public sealed class DeskService : IShowApprovals
         {
             var head = $"Refused to send to {found.Name} ({by.Role})";
             var same = journalled ?? (Queue.NotCollecting(target, now) is { } quiet && quiet == refused ? "not collecting" : refused);
-            Refusal(now, $"send|{found.Id}|{by.Role}|{by.Named}|{same}", head, $"{head}: {journalled ?? refused}", by.Named);
+            Refusal(now, $"send|{found.Id}|{by.Role}|{by.Named}|{same}", head, $"{head}: {journalled ?? refused}", by.Named, found.Id);
             return new(false, refused!) { Shown = journalled ?? refused! };
         }
-        Journal(now, $"Sent {Short(sent.Id)} to {found.Name} ({by.Role}): {sent.Line}", by.Named);
+        Journal(now, $"Sent {Short(sent.Id)} to {found.Name} ({by.Role}): {sent.Line}", by.Named, found.Id);
         return new(true, $"sent to {found.Name} as {Short(sent.Id)} — it collects it and reports back", sent);
     }
 
@@ -397,7 +433,7 @@ public sealed class DeskService : IShowApprovals
             }
             if (Queue.Reject(p.Id, by.Role, now) is not { } rejected) return new(false, $"{Short(p.Id)} is no longer waiting", Queue.Get(p.Id));
             var because = LineFence.Shown(why, ProposalDesk.MaxReason);
-            Journal(now, Decision(Rejected, p, by) + (because.Length > 0 ? " — " + because : ""), by.Named);
+            Journal(now, Decision(Rejected, p, by) + (because.Length > 0 ? " — " + because : ""), by.Named, About(p));
             return new(true, $"rejected {Short(p.Id)} ({Title(p)})", rejected);
         }
         if (!ticked) return new(false, NothingTicked, p);
@@ -413,7 +449,7 @@ public sealed class DeskService : IShowApprovals
             Refused(now, p, NotApproved, by, !p.TargetIsDesk && Queue.NotCollecting(p.Target, now) == refused ? "not collecting" : refused!, refused!);
             return new(false, refused!, Queue.Get(p.Id));
         }
-        Journal(now, Decision(Approved, p, by), by.Named);
+        Journal(now, Decision(Approved, p, by), by.Named, About(p));
         if (!approved.TargetIsDesk)
             return new(true, $"approved {Short(p.Id)} ({Title(p)}) — {Actor(p)} runs it and reports back", approved);
         return RunHere(approved);
@@ -607,14 +643,52 @@ public sealed class DeskService : IShowApprovals
     }
 
     /// <summary>
-    /// Once a second: approved proposals a target never collected, or never answered, become undelivered, and a refusal whose repeats
-    /// were counted for <see cref="RepeatWindow"/> gets its row of how many.
+    /// Once a second, on the host's one thread: approved proposals a target never collected, or never answered, become undelivered; a
+    /// refusal whose repeats were counted for <see cref="RepeatWindow"/> gets its row of how many; and the lines verified peers' own
+    /// journals told since are heard (<see cref="Heard"/>).
     /// </summary>
     public void Expire()
     {
         var now = Now;
         Queue.Expire(now);
         Write(now, null);
+        Hear(now);
+    }
+
+    // ------------------------------------------------------------------ what peers' journals told
+
+    /// <summary>Which of each node's recent lines this desk has heard: read and written under itself.</summary>
+    private readonly PeerLines _lines;
+
+    /// <summary>
+    /// The show network as last joined, read for what each node's own journal told (Show Bus §6 <c>recent</c>): only a context that
+    /// proves its node now — posted under the key bound to its id or the operator's credential, or read over this Stagewatch's own
+    /// link — is heard, so a context that proves nothing, or one set aside under an id a link proves, writes no row. Each fresh line
+    /// is one row with its node, its own time and the road it came by (<see cref="ShowNetwork.Road"/>); a node's first sight is one
+    /// joining row and no backlog. A line that holds a key or a window's address is left out, and its row says so without it. Where
+    /// only the operator's credential proves a posted context's node, each of its rows keeps the address it was posted from, apart
+    /// from the road, for the journal file alone.
+    /// </summary>
+    private void Hear(DateTime now)
+    {
+        List<HeardLine> rows = [];
+        var view = _host.Network();
+        lock (_lines)
+        {
+            foreach (var row in view.Rows)
+            {
+                if (row.Context is not { } context || row.ContextProof == NodeProof.None) continue;
+                var node = new NodeRef(row.Peer.Kind, row.Peer.Id, row.Peer.Name);
+                var from = row is { Pulled: false, ContextProof: NodeProof.Operator } ? context.Address : "";
+                foreach (var taken in _lines.Take(node, context.RecentLines, ShowNetwork.Road(row, _host.KeyName), now))
+                {
+                    var line = from.Length > 0 ? taken with { From = from } : taken;
+                    if (line.Note || Withheld(line.Text) is not { } withheld) rows.Add(line);
+                    else rows.Add(line with { Text = $"a line from {NameOf(node)} is left out of the report: it holds {(withheld == LineFence.Key ? "a key" : "a window's address")}", AtMs = null, Note = true });
+                }
+            }
+        }
+        foreach (var row in rows) Heard?.Invoke(row);
     }
 
     // ------------------------------------------------------------------ the journal
@@ -627,10 +701,10 @@ public sealed class DeskService : IShowApprovals
         switch (p.State)
         {
             case SharedProposalState.Pending:
-                Journal(p.CreatedUtc, $"Proposed {Short(p.Id)}: {Title(p)}");
+                Journal(p.CreatedUtc, $"Proposed {Short(p.Id)}: {Title(p)}", _submittedWith ?? "", About(p, proposer: true));
                 break;
             case SharedProposalState.Done or SharedProposalState.Failed or SharedProposalState.Undelivered:
-                Journal(Now, $"Outcome {Short(p.Id)}: {Actor(p)}: {p.Line} — {p.StateName}{(p.Result.Length > 0 ? $" ({p.Result})" : "")}");
+                Journal(Now, $"Outcome {Short(p.Id)}: {Actor(p)}: {p.Line} — {p.StateName}{(p.Result.Length > 0 ? $" ({p.Result})" : "")}", node: About(p));
                 break;
         }
     }
@@ -640,16 +714,28 @@ public sealed class DeskService : IShowApprovals
 
     /// <summary>A decision refused: its row, said once for this proposal, decider and reason (<paramref name="same"/>) while it repeats.</summary>
     private void Refused(DateTime now, SharedProposal p, string word, DeskOrigin by, string same, string why)
-        => Refusal(now, $"decide|{p.Id}|{word}|{by.Role}|{by.Named}|{same}", $"{word} {Short(p.Id)} ({by.Role})", $"{Decision(word, p, by)} — {why}", by.Named);
+        => Refusal(now, $"decide|{p.Id}|{word}|{by.Role}|{by.Named}|{same}", $"{word} {Short(p.Id)} ({by.Role})", $"{Decision(word, p, by)} — {why}", by.Named, About(p));
 
-    private void Journal(DateTime atUtc, string words, string who = "") => Write(Now, new DeskRow(atUtc, words, who));
+    private void Journal(DateTime atUtc, string words, string who = "", string node = "") => Write(Now, new DeskRow(atUtc, words, who) { Node = node });
+
+    /// <summary>
+    /// The other node a proposal's row is about, by its id: the app that is to run the line — or, for the row of its proposing
+    /// (<paramref name="proposer"/>), the app that proposed it — and the proposal's other end when that one is this desk; "" when
+    /// both ends are this desk.
+    /// </summary>
+    private string About(SharedProposal p, bool proposer = false)
+    {
+        var own = _host.Id();
+        var (first, second) = proposer ? (p.From.Id, p.Target.Id) : (p.Target.Id, p.From.Id);
+        return first != own ? first : second != own ? second : "";
+    }
 
     /// <summary>
     /// A refusal's row, bounded: the first of its kind (<paramref name="key"/>: what was tried, by whom, and why) is written at once;
     /// the same again within <see cref="RepeatWindow"/> is counted, and the count is one more row (<paramref name="head"/> and how
     /// many) when the window ends — so a held button or a trigger firing at a silent app is two rows a minute, not one a press.
     /// </summary>
-    private void Refusal(DateTime now, string key, string head, string words, string who)
+    private void Refusal(DateTime now, string key, string head, string words, string who, string node)
     {
         List<DeskRow> rows = [];
         lock (_repeats)
@@ -663,8 +749,8 @@ public sealed class DeskService : IShowApprovals
                     if (_repeats[0].Counted(now) is { } counted) rows.Add(counted);
                     _repeats.RemoveAt(0);
                 }
-                _repeats.Add(new Repeat(key, now, head, who));
-                rows.Add(new DeskRow(now, words, who));
+                _repeats.Add(new Repeat(key, now, head, who, node));
+                rows.Add(new DeskRow(now, words, who) { Node = node });
             }
         }
         Raise(rows);
@@ -699,7 +785,7 @@ public sealed class DeskService : IShowApprovals
     /// <summary>A refusal said once and how often it came again since: the oldest first.</summary>
     private readonly List<Repeat> _repeats = [];
 
-    private sealed class Repeat(string key, DateTime at, string head, string who)
+    private sealed class Repeat(string key, DateTime at, string head, string who, string node)
     {
         public string Key => key;
         public DateTime At => at;
@@ -707,7 +793,7 @@ public sealed class DeskService : IShowApprovals
 
         /// <summary>The row of its repeats, or null when it came once.</summary>
         public DeskRow? Counted(DateTime atUtc) => More == 0 ? null
-            : new DeskRow(atUtc, string.Create(CultureInfo.InvariantCulture, $"{head}: refused the same way {More} more time{(More == 1 ? "" : "s")}"), who);
+            : new DeskRow(atUtc, string.Create(CultureInfo.InvariantCulture, $"{head}: refused the same way {More} more time{(More == 1 ? "" : "s")}"), who) { Node = node };
     }
 
     /// <summary>A proposal as a row names it: who proposes, which node is to act, and the line.</summary>

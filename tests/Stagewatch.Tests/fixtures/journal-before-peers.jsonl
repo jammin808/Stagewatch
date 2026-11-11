@@ -1,0 +1,15 @@
+{"t":"2026-10-25T18:00:00Z","k":"ShowOpened","i":-1,"x":"Autumn gala","v":0}
+{"t":"2026-10-25T18:00:05Z","k":"Note","i":-1,"x":"Doors at 19:00, \"house\" lights <half>","v":0}
+{"t":"2026-10-25T18:01:00Z","k":"ItemStart","i":0,"x":"Welcome","v":0,"ro":"ro-1","ii":"it-1","ex":"e1"}
+{"t":"2026-10-25T18:03:10Z","k":"Message","i":0,"x":"Two minutes","v":0,"ro":"ro-1","ii":"it-1","ex":"e1"}
+{"t":"2026-10-25T18:03:14.5Z","k":"Ack","i":0,"x":"Two minutes","v":4.5,"ro":"ro-1","ii":"it-1","ex":"e1"}
+{"t":"2026-10-25T18:04:00Z","k":"Phase","i":0,"x":"WrapUp","v":0,"ro":"ro-1","ii":"it-1","ex":"e1"}
+{"t":"2026-10-25T18:06:40Z","k":"ItemEnd","i":0,"x":"Welcome","v":340,"ro":"ro-1","ii":"it-1","ex":"e1"}
+{"t":"2026-10-25T18:06:41Z","k":"Note","i":0,"x":"Copilot asked: are we late?","v":0}
+{"t":"2026-10-25T18:06:50Z","k":"Note","i":0,"x":"AI agent proposed: nudge 60 — waits for approval","v":0}
+{"t":"2026-10-25T18:07:00Z","k":"Desk","i":1,"x":"Proposed p1: AI agent → PlayMap Hall: UNDO","v":0}
+{"t":"2026-10-25T18:07:05Z","k":"Desk","i":1,"x":"Rejected p1 (deck): AI agent → PlayMap Hall: UNDO — not now","v":0,"via":"key 'FOH deck', 10.0.0.7"}
+{"t":"2026-10-25T18:07:10Z","k":"ItemStart","i":1,"x":"Keynote, part 1","v":0,"ro":"ro-1","ii":"it-2","ex":"e2"}
+{"t":"2026-10-25T18:20:00Z","k":"Playout","i":1,"x":"stage-left: PLAYLIST GO show — done","v":0}
+{"t":"2026-10-25T18:32:10Z","k":"ItemEnd","i":1,"x":"Keynote, part 1","v":1500,"ro":"ro-1","ii":"it-2","ex":"e2"}
+{"t":"2026-10-25T18:40:00Z","k":"Note","i":-1,"x":"Show summary (reviewed): Ran to time.\n- Welcome ran 40 s over\n- <b>Keynote</b> ended early","v":0}

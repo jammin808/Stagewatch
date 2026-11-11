@@ -67,6 +67,16 @@ public sealed record PeerSummary(string Kind, string Id, string Name, string Lig
 }
 
 /// <summary>
+/// One line of a node's <c>recent</c> (Show Bus §6) as this reader keeps it: its text, and its time on that node's own clock in Unix
+/// milliseconds — 0 when the line told none, or one that is no moment a calendar holds.
+/// </summary>
+public readonly record struct PeerLine(long AtMs, string Text)
+{
+    /// <summary>The latest time a line may tell: the last millisecond of the year 9999.</summary>
+    public const long MaxAtMs = 253402300799999;
+}
+
+/// <summary>
 /// The contexts other show apps posted here or that we fetched (Show Bus §6), kept for 30 s, validated and size-capped:
 /// anything on the network can post anything. A context is taken only from a credential that may speak for its node
 /// (<see cref="NodeBindings"/>), and keeps the proof it came with. Thread-safe.
@@ -152,6 +162,9 @@ public sealed class PeerContexts
 
         /// <summary>The node key it was posted with when <see cref="Proof"/> is <see cref="NodeProof.Key"/>, else null.</summary>
         public string? KeyId { get; init; }
+
+        /// <summary><see cref="Recent"/>, line for line, each with the time its node gave it (<see cref="PeerLine.AtMs"/>).</summary>
+        public IReadOnlyList<PeerLine> RecentLines { get; init; } = Array.Empty<PeerLine>();
     }
 
     /// <summary>Why a body is refused when <see cref="Parse"/> can't read a context from it (the server and the store say the same).</summary>
@@ -287,7 +300,7 @@ public sealed class PeerContexts
 
     /// <summary>
     /// Pure: a §6 context → an entry, or null when it isn't one (a repeated key included). Its strings are capped; its first
-    /// <see cref="MaxItems"/> items and last <see cref="MaxRecent"/> recent lines are kept; its commands as <see cref="ReadCommands"/>
+    /// <see cref="MaxItems"/> items and last <see cref="MaxRecent"/> recent lines are kept, each line with its <c>at</c>; its commands as <see cref="ReadCommands"/>
     /// keeps them; its links as <see cref="ReadLinks"/> keeps them.
     /// </summary>
     public static Entry? Parse(string json, string address, DateTime nowUtc)
@@ -304,11 +317,13 @@ public sealed class PeerContexts
                 .Select(i => new ContextItem(Str(i["id"], ItemIdChars), Str(i["kind"], ItemKindChars), Str(i["label"], ItemLabelChars),
                     Light.Clean(Str(i["light"], 8)), Str(i["state"], ItemStateChars)))
                 .ToList();
-            var recent = (root["recent"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().TakeLast(MaxRecent).Select(r => Str(r["text"], RecentChars)).Where(t => t.Length > 0).ToList();
+            var lines = (root["recent"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().TakeLast(MaxRecent)
+                .Select(r => new PeerLine(At(r["at"]), Str(r["text"], RecentChars))).Where(l => l.Text.Length > 0).ToList();
+            var recent = lines.Select(l => l.Text).ToList();
             var (commands, commandsDropped) = ReadCommands(root["commands"] as JsonArray);
             var (links, linksDropped) = ReadLinks(root["links"] as JsonArray);
             return new Entry(kind, id, Str(node["name"], 60), Light.Clean(Str(root["light"], 8)), Str(root["headline"], HeadlineChars), items, recent, json, address, nowUtc)
-            { Commands = commands, CommandsDropped = commandsDropped, Links = links, LinksDropped = linksDropped };
+            { Commands = commands, CommandsDropped = commandsDropped, Links = links, LinksDropped = linksDropped, RecentLines = lines };
         }
         catch (JsonException) { return null; }
         catch (InvalidOperationException) { return null; }   // a value of the wrong type
@@ -385,6 +400,10 @@ public sealed class PeerContexts
         var item = slash < 0 ? null : end[(slash + 1)..];
         return node.Length >= EndIdMin && NodeBindings.ValidId(node) && item is null or { Length: > 0 and <= ItemIdChars };
     }
+
+    /// <summary>A recent line's <c>at</c>: whole Unix milliseconds from 1 to <see cref="PeerLine.MaxAtMs"/>, else 0 — the line told no time this reader keeps.</summary>
+    private static long At(JsonNode? n)
+        => n is JsonValue v && v.GetValueKind() == JsonValueKind.Number && v.TryGetValue<long>(out var ms) && ms is > 0 and <= PeerLine.MaxAtMs ? ms : 0;
 
     /// <summary>A string value as sent, untrimmed and uncut, or null when it is not a string.</summary>
     private static string? Whole(JsonNode? n) => n is not null && n.GetValueKind() == JsonValueKind.String ? n.GetValue<string>() : null;

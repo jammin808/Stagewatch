@@ -167,7 +167,9 @@ static class V2Tests
         Check(P("message", new[] { "Wrap" }, out c) && !c.Flag, "cmd message no ack");
         Check(ShowCommandParser.IsPublicVerb("ACK") && ShowCommandParser.IsPublicVerb("question") && !ShowCommandParser.IsPublicVerb("start"), "public verbs");
         Check(P("catchup", Array.Empty<string>(), out c) && c.Kind == ShowCommandKind.CatchUp, "cmd catchup");
-        Check(P("report", new[] { "csv" }, out c) && c.Text == "csv", "cmd report");
+        Check(P("report", new[] { "csv" }, out c) && c.Text == "csv" && P("report", new[] { "NETWORK" }, out c) && c is { Kind: ShowCommandKind.Report, Text: "network" }
+              && P("report", Array.Empty<string>(), out c) && c.Text == "html" && P("report", new[] { "pdf" }, out c) && c.Text == "html"
+              && ShowCommandParser.Help.Contains("report [html|csv|network]", StringComparison.Ordinal), "cmd report");
     }
 
     static RundownItem Item(string t, int mins, SegmentKind k = SegmentKind.Talk) => new() { Title = t, DurationSeconds = mins * 60, Kind = k };

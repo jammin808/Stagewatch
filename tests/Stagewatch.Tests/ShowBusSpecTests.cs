@@ -249,6 +249,36 @@ static class ShowBusSpecTests
     }
 
     /// <summary>
+    /// §6's recent lines in the desk's report, kept: a line told by a context that proves its node — here one posted under the key
+    /// bound to its id — is heard once, after the row that says its node joins; journalled as a peer row it is listed in the report's
+    /// show network and in network.csv with its node, its own time and the road it came by. A context that proves nothing is held
+    /// and adds no row.
+    /// </summary>
+    static bool PeerRecentKept()
+    {
+        const long at = 1792898411000;   // 2026-10-25T03:20:11Z on the node's clock
+        static string Context(string kind, string id, string name, string text)
+            => System.Text.Json.JsonSerializer.Serialize(new { v = 1, node = new { t = kind, id, name }, recent = new[] { new { at, text } } });
+        var b = DeskTests.Room();
+        b.KeyNames["kM"] = "Stage left";
+        b.Desk.Expire();   // first sight: each node joins, with no backlog
+        b.Now = b.Now.AddSeconds(1);
+        var (keyed, _, keyProof) = b.Peers.Accept(Context("playmap", "pm1", "PlayMap Hall", "PLAYLIST GO show — Intro"), "10.0.0.9", b.Now, DeskTests.DeskId, NodeCredential.Key("kM"));
+        var (claimed, _, noProof) = b.Peers.Accept(Context("messenger", "ag9", "Stranger", "words nobody proved"), "10.0.0.8", b.Now, DeskTests.DeskId, NodeCredential.None);
+        b.Desk.Expire();
+        b.Now = b.Now.AddSeconds(1);
+        b.Desk.Expire();
+        var clock = ShowClock.For("UTC");
+        var report = ShowReport.Build("Summit", new Rundown(), b.Lines.Select(l => l.Entry()).ToList(), null, clock, b.Now);
+        var csv = report.NetworkCsv(clock);
+        return keyed == 200 && keyProof == NodeProof.Key && claimed == 200 && noProof == NodeProof.None
+               && report.Network.Where(l => l.Text == "PLAYLIST GO show — Intro").ToList() is [{ NodeId: "pm1", Node: "PlayMap Hall", PeerAtMs: at, Via: "node key 'Stage left'", Note: false }]
+               && csv.StartsWith("# " + ShowReport.Sample + "\r\n", StringComparison.Ordinal)
+               && csv.Contains(",PlayMap Hall,playmap,pm1,2026-10-25 03:20:11,node key 'Stage left',PLAYLIST GO show — Intro\r\n", StringComparison.Ordinal)
+               && !report.Network.Any(l => l.NodeId == "ag9") && !csv.Contains("nobody proved", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// What else of §1–§11 and §12 Stagewatch does not keep yet, past what a §14 row names: §8's Stagewatch row's words for it, the unit
     /// that ends it (each after 2.19, or "not scheduled"), what the code does today in the row's words, and a check that holds exactly
     /// while the code still does that. Once the code changes its check fails, and the entry leaves this table for a check of the words
@@ -264,8 +294,6 @@ static class ShowBusSpecTests
                   && Source("src/Timer.Remote/WebServer.cs") is { } server && !server.Contains("snonce", StringComparison.Ordinal)),
         ("13.6.9's mark on a key seen in clear", "SW22.1b", "it takes a key sent in clear from another machine as it takes any other, and marks nothing",
             SeenInClearAsToday),
-        ("verified peers' `recent` in its report", "SW21.7", "its report holds its own journal alone",
-            () => Source("src/Timer.Show/ShowReports.cs") is { } reports && !reports.Contains("Peer", StringComparison.Ordinal)),
         ("12.2's page rule for a page opened with a viewing code or a crew link", "not scheduled",
             "it serves those pages without the window page's no-referrer, noindex and no-framing headers", PageRuleAtWindowsOnly),
         ("12.2's revocation at once for a viewing code or a crew link", "not scheduled", "a screen already open on a changed one keeps its link until it reconnects",
@@ -2842,6 +2870,10 @@ static class ShowBusSpecTests
         Check(notKept.Contains("a line a person sends to another app (today it has no `peer` or `desk` verb) —", StringComparison.Ordinal) && PersonLineKept(),
             "showbus spec: Stagewatch keeps what §8's row names it without: a line a person sends to another app — `peer <app> <line>`, a form of that app's "
             + "verified table under the line rules, born approved, decidedBy a role word");
+        // Kept since SW21.7, its words in the frozen row still standing: what verified peers' journals told, in the desk's report.
+        Check(notKept.Contains("verified peers' `recent` in its report (today its report holds its own journal alone) —", StringComparison.Ordinal) && PeerRecentKept(),
+            "showbus spec: Stagewatch keeps what §8's row names it without: verified peers' recent in its report — a line told by a context that proves its node "
+            + "is heard once, journalled as a peer row and listed in the show network and network.csv with its road; a context that proves nothing adds no row");
         foreach (var (what, unit, today, differs) in WordsNotKeptYet)
         {
             Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),

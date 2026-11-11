@@ -330,6 +330,20 @@ public static class ShowNetwork
         };
     }
 
+    /// <summary>
+    /// The road a row's context came by, for the journal's peer rows and the report: this Stagewatch's own link (by the name Settings
+    /// gives it), the node's key (by the name the operator gave the key), or the operator's credential; "" for a row whose context
+    /// proves nothing, or that has none. A name, never an address and never a secret.
+    /// </summary>
+    public static string Road(NetworkRow row, Func<string, string?> keyName)
+    {
+        if (row.Context is not { } context || row.ContextProof == NodeProof.None) return "";
+        if (row.Pulled) return row.Via.Length > 0 ? $"the link '{row.Via}'" : "the link";
+        return row.ContextProof == NodeProof.Key
+            ? context.KeyId is { } k && keyName(k) is { } n ? $"node key '{LineFence.Shown(n, 60)}'" : "its node key"
+            : "the operator's credential";
+    }
+
     /// <summary>A node link that proves nothing for its id, or names none, for the desk.</summary>
     public static string ApartLine(NodeLinkFact link)
     {

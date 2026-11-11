@@ -587,6 +587,15 @@ public sealed class WebServer : IAsyncDisposable
                 if (csv is null) { await WriteJsonError(stream, 404, "no report", ct); return; }
                 await WriteAsync(stream, 200, "text/csv; charset=utf-8", Encoding.UTF8.GetBytes(csv), ct, cors: true); return;
             }
+            case "/api/report/network.csv":
+            {
+                // What verified peers' own journals told this Stagewatch, as the report's show network section lists it: a sample, and
+                // its first line says so. Read scope and cross-origin, as the report's CSV.
+                if (Authorize(req, remote, ApiKeyScope.Read) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+                var csv = _control.Report(ShowReport.NetworkFormat);
+                if (csv is null) { await WriteJsonError(stream, 404, "no report", ct); return; }
+                await WriteAsync(stream, 200, "text/csv; charset=utf-8", Encoding.UTF8.GetBytes(csv), ct, cors: true); return;
+            }
             case "/api/qr":
             {
                 var text = req.Query.GetValueOrDefault("text") ?? "";

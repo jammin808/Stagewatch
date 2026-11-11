@@ -17,7 +17,14 @@ static class WebV2Tests
         public void Execute(ShowCommand command) { lock (Commands) Commands.Add(command); }
         public RemoteConfig GetRemoteConfig() => new(Array.Empty<(int, string, int)>(), Array.Empty<(string, string, MessageUrgency, FlashRate)>(),
             Array.Empty<(string, string?, int)>(), new[] { ("keynote", "Keynote") }, new[] { "Lighting", "Sound" }, "Hall A", "keynote");
-        public string? Report(string format) => format == "csv" ? "#,Title\r\n1,Opening\r\n" : "<!doctype html><h1>Summit</h1>";
+        public string? Report(string format) => NoReport ? null : format switch
+        {
+            "csv" => "#,Title\r\n1,Opening\r\n",
+            ShowReport.NetworkFormat => NetworkCsv,
+            _ => "<!doctype html><h1>Summit</h1>",
+        };
+        public const string NetworkCsv = "# " + ShowReport.Sample + "\r\n" + ShowReport.NetworkColumns + "\r\n2026-10-25 04:20:11,Stage left,playmap,9f8e7d6c,2026-10-25 04:20:11,node key 'Stage left',PLAYLIST GO show\r\n";
+        public volatile bool NoReport;
         public volatile bool Mcp = true;
         public (string? Secret, bool Required) CrewKeyPolicy { get; set; } = ("test-secret", true);
         public IReadOnlyList<string> CrewDepartments => new[] { "Lighting", "Sound" };
@@ -510,6 +517,43 @@ static class WebV2Tests
         GuessCounts(Check);
         await ViewPassCounts(Check);
         await LockoutTablesRead(Check);
+        await NetworkCsvRoute(Check);
+    }
+
+    /// <summary>
+    /// GET /api/report/network.csv on a real server: read scope (401 with no credential; a read key or the PIN reads it), the host's
+    /// "network" report passed through byte for byte as text/csv, cross-origin as the report's CSV is, and 404 "no report" when the
+    /// host has none. What the bytes say — the sample sentence, the columns, the rows — is ReportTests' and the desk e2e's.
+    /// </summary>
+    static async Task NetworkCsvRoute(Action<bool, string> Check)
+    {
+        var control = new ReportControl();
+        var (read, readSecret) = ApiKeys.Create("Dashboard", ApiKeyScope.Read, DateTime.UtcNow);
+        control.Keys = new[] { read };
+        var port = FreePort();
+        await using var web = new WebServer(control, () => "4321");
+        web.Start(port, bindAll: false);
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        HttpRequestMessage Keyed(string path)
+        {
+            var m = new HttpRequestMessage(HttpMethod.Get, path);
+            m.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", readSecret);
+            return m;
+        }
+        var bare = await http.GetAsync("/api/report/network.csv");
+        var keyed = await http.SendAsync(Keyed("/api/report/network.csv"));
+        var body = await keyed.Content.ReadAsStringAsync();
+        var pinned = await http.GetAsync("/api/report/network.csv?pin=4321");
+        Check(bare.StatusCode == HttpStatusCode.Unauthorized && keyed.StatusCode == HttpStatusCode.OK && pinned.StatusCode == HttpStatusCode.OK
+              && body == ReportControl.NetworkCsv && keyed.Content.Headers.ContentType?.ToString() == "text/csv; charset=utf-8",
+            $"network.csv: read scope — 401 with no credential, the host's show network format, passed through byte for byte, with a read key or the PIN ({(int)bare.StatusCode}, {(int)keyed.StatusCode}, {(int)pinned.StatusCode})");
+        Check(keyed.Headers.TryGetValues("Access-Control-Allow-Origin", out var origins) && origins.Single() == "*"
+              && (await http.SendAsync(Keyed("/api/report.csv"))).Headers.TryGetValues("Access-Control-Allow-Origin", out var reportOrigins) && reportOrigins.SequenceEqual(origins),
+            "network.csv: cross-origin as the report's CSV is");
+        control.NoReport = true;
+        var none = await http.SendAsync(Keyed("/api/report/network.csv"));
+        Check(none.StatusCode == HttpStatusCode.NotFound && (await none.Content.ReadAsStringAsync()).Contains("no report", StringComparison.Ordinal),
+            "network.csv: 404 no report when the host has none, as the report's routes");
     }
 
     /// <summary>

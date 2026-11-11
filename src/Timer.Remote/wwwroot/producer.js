@@ -38,6 +38,7 @@
     var q = pinUsed ? '?pin=' + encodeURIComponent(pinUsed) : '';
     $('reportLink').href = '/report' + q;
     $('csvLink').href = '/api/report.csv' + q;
+    $('networkLink').href = '/api/report/network.csv' + q;
     loadCrewLinks();
   }
 

@@ -132,7 +132,7 @@ async function fakePatterns(options) {
 /**
  * A show app on a desk's node routes (Show Bus §6, §11), as PlayMap, Patterns and AGMessage each are one: under its node key it
  * posts its context — its verbs with their risks — every 5 s, asks for its approved lines every `poll` ms, runs each proposal once
- * and reports what it did. It remembers every id it ran (its id memory), across the desk's restarts too: a new run's p1 is a new
+ * and reports what it did. `recent` is its own journal's last lines, said in every context it posts. It remembers every id it ran (its id memory), across the desk's restarts too: a new run's p1 is a new
  * id, run, never skipped as the old run's p1. `run(line, proposal)` is the test's own answer ({ ok, words }); `ran` is every line it
  * ran, in order, with its proposal's id and who decided it. silent() stops its asks (it still posts its context); close() ends it.
  */
@@ -140,6 +140,7 @@ class FakeApp {
   constructor({ desk, key, kind, id, name, verbs, poll = 200, run = () => ({ ok: true, words: '' }) }) {
     Object.assign(this, { desk, key, kind, id, name, verbs, poll, run });
     this.ran = [];
+    this.recent = [];   // its journal's last lines ({ at, text }), as its next context says them
     this.seen = new Set();
     this.collects = 0;
     this.errors = [];
@@ -149,7 +150,7 @@ class FakeApp {
 
   context() {
     return {
-      v: 1, node: { t: this.kind, id: this.id, name: this.name }, light: 'green', headline: 'ready', items: [], recent: [],
+      v: 1, node: { t: this.kind, id: this.id, name: this.name }, light: 'green', headline: 'ready', items: [], recent: this.recent,
       commands: this.verbs.map(([verb, risk, words]) => ({ verb, risk, words: words || '' })),
     };
   }

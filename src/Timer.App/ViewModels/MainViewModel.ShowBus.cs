@@ -102,10 +102,12 @@ public sealed partial class MainViewModel
     private void RefreshShowBus()
     {
         if (++_contextTick % 4 != 0) return;
-        ExpireShared();
         var now = DateTime.UtcNow;
         var view = Network(now);
         _network = view;
+        // After the join is published: the desk hears peers' lines from the network of this second — a key revoked or bound to another
+        // id in the last one proves nothing now — and expires what no app collected before its readers below are told.
+        ExpireShared();
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
             now, _hub.Latest, _hub.ProducerStuck, LinkItems(), Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
             PlayoutRows());

@@ -72,7 +72,9 @@ using Stagewatch.Show;
 // approved, and its receipt waits for what the app made of it; `desk approve|reject <id>|next` decides a proposal. Both are taken
 // over HTTP and a WebSocket by the app's sender gate (the PIN or a control key; with no PIN, this PC or a listed address — the
 // rig lists none). --desk-fresh SECONDS (0.2-600; the contract's 15 by default) is how long an app's last collect keeps it
-// collecting. The desk's rows reach --journal as the app journals them, who and from where in each row's via. Its readers are the
+// collecting. The desk's rows reach --journal as the app journals them, who and from where in each row's via; and so does what a
+// verified app's own journal told it (the recent lines of a context that proves its node, each once, with its node, its own time
+// and its road), which /report lists as the show network and /api/report/network.csv gives as CSV. Its readers are the
 // app's: operator frames end with desk (what waits, the next proposal, the apps a line could go to), the config with peers (those
 // apps; the frame's configVersion goes up when a link's kind changes and, no oftener than the desk's 5 s hold, when the apps do),
 // and each peers row of the context with collects.
@@ -460,6 +462,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             Network = () => _network,
             Linked = target => PlayoutLinks.PulledFor(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>(), target),
             WindowTokens = () => _windows.Windows.Select(w => w.Token),
+            KeyName = id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name,
             Fresh = o.DeskFresh ?? ProposalDesk.CollectFresh,
             RunHere = RunApprovedHere,
         });
@@ -469,6 +472,8 @@ sealed class Rig : ICompanionBridge, IDisposable
             _journal?.Add(row.Entry(_item));
             Log("desk: " + row.Words);
         });
+        // As the app: what verified peers' own journals told the desk, each line once, with its node, its own time and its road.
+        _desk.Heard += line => Post(() => _journal?.Add(line.Entry(_item)));
         if (_madeKeys is { Count: > 0 }) SaveState(state.Windows);
         Settings.Remote.Pin = o.Pin;
         Settings.Integrations.RoomName = o.Room;
@@ -1183,8 +1188,8 @@ sealed class Rig : ICompanionBridge, IDisposable
             try
             {
                 var clock = ShowClock.For("UTC");
-                var report = ShowReport.Build(_o.Room, RigRundown, _journal.Entries, _startedUtc, clock, DateTime.UtcNow);
-                done.TrySetResult(ShowReports.Render(report, format, clock));
+                var journal = _journal.Entries;
+                done.TrySetResult(ShowReports.Text(format, journal, clock, () => ShowReport.Build(_o.Room, RigRundown, journal, _startedUtc, clock, DateTime.UtcNow)));
             }
             finally { done.TrySetResult(null); }
         });
