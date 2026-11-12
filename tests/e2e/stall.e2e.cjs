@@ -92,13 +92,16 @@ test('a stalled show sends the plain beat, then the stuck beat, exactly, every 2
   assert.ok(first.at - running.receivedAt < 1000, 'the frame follows the show running again');
   assert.ok(!notPong.slice(recovered).some((m) => m.text === STUCK), 'no stuck beat once the show runs');
 
-  // The link dialled while stuck: its verdict, then only the stuck beat (never the frozen frame), then a frame first.
+  // The link dialled while stuck: its verdict, its grants (Show Bus 12.6: a key-verified link hears them before anything else, an
+  // empty list when its node holds none), then only the stuck beat (never the frozen frame), then a frame first.
   const lateHeard = late.messages;
   assert.deepEqual(lateHeard[0].json, { type: 'auth', ok: true, scope: 'node', node: { t: 'playmap', id: 'pm000001', verified: 'key' } });
-  const lateBack = lateHeard.findIndex((m, i) => i > 0 && m.text !== STUCK);
-  assert.ok(lateBack > 1, 'the late link heard the stuck beat: ' + JSON.stringify(lateHeard.map((m) => m.text.slice(0, 40))));
-  assert.ok(lateHeard[1].at - lateHeard[0].at < 1000, `the stuck beat ${lateHeard[1].at - lateHeard[0].at} ms after the verdict`);
-  for (let i = 2; i < lateBack; i++) {
+  assert.equal(lateHeard[1].json.type, 'grants', 'its grants next: ' + lateHeard[1].text.slice(0, 80));
+  assert.deepEqual(lateHeard[1].json.grants, [], 'no window is granted to it');
+  const lateBack = lateHeard.findIndex((m, i) => i > 1 && m.text !== STUCK);
+  assert.ok(lateBack > 2, 'the late link heard the stuck beat: ' + JSON.stringify(lateHeard.map((m) => m.text.slice(0, 40))));
+  assert.ok(lateHeard[2].at - lateHeard[0].at < 1000, `the stuck beat ${lateHeard[2].at - lateHeard[0].at} ms after the verdict`);
+  for (let i = 3; i < lateBack; i++) {
     const gap = lateHeard[i].at - lateHeard[i - 1].at;
     assert.ok(gap >= BEAT_EVERY - 500 && gap <= BEAT_EVERY + 1000, `the late link's stuck beats ${gap} ms apart`);
   }

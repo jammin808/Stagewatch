@@ -98,7 +98,11 @@ public sealed record AppLookup(ShowApp? App, string Error)
 /// </summary>
 public readonly record struct WindowHit(ScreenWindow Window, string Via);
 
-/// <summary>What a window says it shows (it reports after each swap), as the server last heard it.</summary>
+/// <summary>
+/// What a window says it shows (it reports after each swap), as the server last heard it: one row per window, over every link on any
+/// of its addresses. <see cref="Via"/> is the pass the report it keeps came by ("" its own address, else a page grant's node id), and
+/// <see cref="Drawn"/> counts the show apps' links that draw it now (a draw grant assigned on its app's key-verified link).
+/// </summary>
 public sealed record WindowObserved(
     string WindowId,
     int Connected,
@@ -109,7 +113,49 @@ public sealed record WindowObserved(
     DateTime? ShownUtc,
     string Error,
     string Device,
+    string Address,
+    string Via = "",
+    int Drawn = 0);
+
+/// <summary>
+/// One viewer of a window (Show Bus 12.10): by the pass it holds the window with — <see cref="Via"/> "" for the window's own address,
+/// else the node id of the app a grant gives it to, <see cref="How"/> <see cref="ScreenWindows.HowPage"/> (its links on that grant's
+/// address) or <see cref="ScreenWindows.HowDraw"/> (its key-verified link drawing it) — with what that viewer last said it shows.
+/// </summary>
+public sealed record ViewerObserved(
+    string WindowId,
+    string Via,
+    string How,
+    int Connected,
+    int Revision,
+    string Content,
+    bool Hold,
+    int SwapMs,
+    DateTime? ShownUtc,
+    string Error,
+    string Device,
     string Address);
+
+/// <summary>
+/// One grant as its node's links carry it (Show Bus 12.5–12.6), for the operator: whether the app is linked by its own key-verified link
+/// (<see cref="Linked"/>, by <see cref="Link"/> <c>tls</c>, <c>local</c> or <c>plain</c>), whether that link was given the window
+/// (<see cref="Delivered"/>: a page grant's address, a draw grant's assignment), how many of its viewers are on it now (<see cref="Open"/>),
+/// and where that leaves it (<see cref="State"/>, one of <see cref="WindowGrants.States"/>) in words. <see cref="AppCannot"/> is
+/// the app's own reason, from its newest link's <c>grants-seen</c>, for showing no page at all ("" when it gave none). Never a path.
+/// </summary>
+public sealed record GrantObserved(
+    string WindowId,
+    string Node,
+    string Kind,
+    string Name,
+    string How,
+    bool Linked,
+    string Link,
+    bool Delivered,
+    int Open,
+    string State,
+    string Words,
+    string AppCannot = "");
 
 /// <summary>A window action, the window(s) it is for ("all", a name or an id) and its argument.</summary>
 public sealed record WindowArgs(string Action, string Who, string Argument) : ShowArgs;

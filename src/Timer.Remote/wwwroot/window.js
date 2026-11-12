@@ -24,7 +24,7 @@
   var latest = null, latestAt = 0;
   var subs = [];                // pages listening: { win, fn }
   var error = '', retries = 0, retryTimer = 0, swapMs = 0;
-  var ws = null, delay = 500, lastHeard = Date.now(), lost = false, gone = false;
+  var ws = null, delay = 500, lastHeard = Date.now(), lost = false, gone = false, blackEnd = false;
 
   function nowAbs() { return performance.timeOrigin ? performance.timeOrigin + performance.now() : Date.now(); }
   function isPage(content) { return !!content && content !== 'holding' && content !== 'black'; }
@@ -195,9 +195,10 @@
   }
 
   function paint() {
-    var hold = holdShown();
+    // A page grant's address that stopped working ends in plain black (Show Bus 12.7): no holding page, no words, nothing over it.
+    var hold = !blackEnd && holdShown();
     var blackout = !!(latest && latest.blackout && !lost);
-    $('black').style.display = blackout || (want && want.content === 'black' && !hold) ? 'block' : 'none';
+    $('black').style.display = blackEnd || blackout || (want && want.content === 'black' && !hold) ? 'block' : 'none';
     holdEl.style.display = hold ? 'flex' : 'none';
     if (hold) {
       var words = want ? want.holdText || '' : '';
@@ -208,9 +209,9 @@
       var idle = !words && !image && (!want || (want.content === 'holding' && !want.hold));
       holdIdle.textContent = idle ? (want ? want.name : 'Stagewatch') : '';
     }
-    html.classList.toggle('lost-warn', lost && !!want && want.onLoss === 'warn');
+    html.classList.toggle('lost-warn', !blackEnd && lost && !!want && want.onLoss === 'warn');
     html.setAttribute('data-hold', hold ? '1' : '0');
-    html.setAttribute('data-link', lost ? 'lost' : 'ok');
+    html.setAttribute('data-link', gone ? 'gone' : lost ? 'lost' : 'ok');
     html.setAttribute('data-showing', shownContent());
     html.setAttribute('data-error', error);
     html.setAttribute('data-rev', String(want ? want.rev : 0));
@@ -247,7 +248,7 @@
       heard();
       if (msg.type === 'state') { latest = msg; latestAt = nowAbs(); subs.slice().forEach(function (s) { call(s.fn, msg, latestAt); }); paint(); return; }
       if (msg.type === 'window') {
-        if (msg.revoked) { revoked(); return; }
+        if (msg.revoked) { revoked(msg.black === true); return; }
         msg.at = nowAbs();
         want = msg;
         apply();
@@ -265,14 +266,18 @@
     setTimeout(connect, d / 2 + Math.random() * d / 2);
   }
 
-  function revoked() {
+  // The address stopped working: the window stops trying. Its own address says so in words (12.3); a page grant's address (black)
+  // draws plain black with no words (12.7), since a show app's screen is on air and a person reads the window's own notice elsewhere.
+  function revoked(black) {
     gone = true;
+    blackEnd = !!black;
     stopLoading();
     clearTimeout(retryTimer);
     for (var i = 0; i < frames.length; i++) retire(i);
     front = -1; frontContent = '';
-    $('gone').style.display = 'flex';
-    html.setAttribute('data-link', 'gone');
+    $('ident').style.display = 'none';
+    $('gone').style.display = blackEnd ? 'none' : 'flex';
+    paint();
     if (ws) { try { ws.close(); } catch (e) { /* closing */ } }
   }
 

@@ -999,6 +999,11 @@ static class ShowBusSpecTests
         Check(offers.Order(StringComparer.Ordinal).SequenceEqual(holders.Order(StringComparer.Ordinal)) && offers.All(w => n.Caps.Any(x => x.Word == w && x.Kinds.Length > 0)),
             "showbus spec: 12.6's can= offers exactly the caps an app holds a window with, each a §14 cap row that names the kinds that may offer it ("
             + string.Join(", ", offers) + ")");
+        // Stagewatch reads a link's can= by those rows: each ability for exactly the kinds its cap row names, at most hello.caps words.
+        Check(WindowGrants.AbilityKinds.Keys.Order(StringComparer.Ordinal).SequenceEqual(offers.Order(StringComparer.Ordinal))
+              && WindowGrants.AbilityKinds.All(a => n.Caps.Single(x => x.Word == a.Key).Kinds.Order(StringComparer.Ordinal).SequenceEqual(a.Value.Order(StringComparer.Ordinal)))
+              && WindowGrants.MaxCanWords == n.Of("hello.caps"),
+            "showbus spec: Stagewatch keeps 12.6's can=: each ability for the kinds its §14 cap row names, read for the first hello.caps words");
     }
 
     /// <summary>
@@ -1834,7 +1839,7 @@ static class ShowBusSpecTests
         // reaches the limit as it asks is told to wait, never that a right address is gone.
         var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
         var windowPage = Method(server, "private async Task HandleWindowPageAsync(") ?? "";
-        var windowFor = Method(server, "private ScreenWindow? WindowFor(") ?? "";
+        var windowFor = Method(server, "private WindowHit? WindowFor(") ?? "";
         Check(Regex.IsMatch(windowFor, @"locked = PassesLockedOut\(remote\);\s*if \(locked\) return null;")
               && Regex.IsMatch(server, @"WindowFor\(winToken, remote, out lockedWindow\)") && Regex.IsMatch(server, @"if \(!lockedWindow\) await ws\.SendAsync\(WindowGone\b")
               && Regex.IsMatch(windowPage, @"WindowFor\(token, remote, out var locked\);\s*if \(locked\)\s*\{\s*await WriteAsync\(stream, 429,")
@@ -2248,7 +2253,7 @@ static class ShowBusSpecTests
 
         var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
         string Of(string signature) => Method(server, signature) ?? "";
-        var passPaths = new[] { "private ScreenWindow? WindowFor(", "private string? ViewPass(", "private string? CrewLinkFor(" }.Select(Of).ToList();
+        var passPaths = new[] { "private WindowHit? WindowFor(", "private string? ViewPass(", "private string? CrewLinkFor(" }.Select(Of).ToList();
         // The PIN's door and the key's (a key by its secret or by its link's session credential, AuthorizeKey) read the PIN's table alone;
         // AuthorizeSecret, which sends a secret to one or the other, reads no table of its own and no view pass's.
         var pinDoor = new[] { "private string? CheckPin(", "private Denied? AuthorizeKey(" }.Select(Of).ToList();

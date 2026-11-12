@@ -1,6 +1,6 @@
 // Windows Stagewatch controls, in a real browser against the rig: what a window shows is what it was told, swapped in
 // only once drawn; the holding page; cue and release; a page that won't load; two windows in one browser; blackout and
-// identify; link loss each way and a restarted Stagewatch; a revoked address. Run: tools/test.sh e2e
+// identify; link loss each way and a restarted Stagewatch; a revoked address; a page grant's black end. Run: tools/test.sh e2e
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -209,5 +209,38 @@ test('revoke: the old address goes dark and stays dark; the new one works', asyn
   const again = await ctx.newPage();
   await again.goto(rig.base + fresh);
   await waitAttr(again, 'data-showing', '/countdown?to=next');
+  await ctx.close();
+});
+
+test('a page grant\'s black end: plain black with no words, and the window stops trying', async () => {
+  // A grant's address ends with {"type":"window","revoked":true,"black":true} (Show Bus 12.7). The rig grants no app yet, so the
+  // window's own link is routed and the black end is put in after the server's first window message, as a grant's link hears it.
+  assert.equal((await rig.run('window new grantend /clock')).ok, true);
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  let sockets = 0;
+  await page.routeWebSocket(/\/ws\?win=/, (ws) => {
+    sockets++;
+    const server = ws.connectToServer();
+    let ended = false;
+    server.onMessage((m) => {
+      if (ended) return;
+      ws.send(m);
+      if (typeof m === 'string' && m.includes('"type":"window"') && !m.includes('revoked')) {
+        ended = true;
+        ws.send('{"type":"window","revoked":true,"black":true}');
+      }
+    });
+  });
+  await page.goto(rig.base + (await rig.window('grantend')).path);
+  await waitAttr(page, 'data-link', 'gone');
+  assert.equal(await page.locator('#black').isVisible(), true, 'plain black');
+  assert.equal(await page.locator('#gone').isVisible(), false, 'no words');
+  assert.equal(await page.locator('#hold').isVisible(), false, 'no holding page');
+  assert.equal(await page.evaluate(() => document.documentElement.classList.contains('lost-warn')), false, 'no NOT CONNECTED');
+  await page.waitForTimeout(2500);
+  assert.equal(await attr(page, 'data-link'), 'gone', 'it stays gone');
+  assert.equal(sockets, 1, 'it never dials again');
+  await shot(page, 'window-black-end');
   await ctx.close();
 });

@@ -772,7 +772,7 @@ file).
 | | |
 |---|---|
 | Window page | `GET /w/<token>`: no PIN. Its own policy: it frames only this Stagewatch's pages, no other site may frame it, no referrer leaves it, nothing caches or indexes it. An address not in use says so (404); five wrong addresses a minute from one device lock that device out for a minute (the page retries by itself); from 2.19 they count with wrong viewing codes and crew links, apart from wrong PINs (see 2.19: wrong passes) |
-| Window list | `GET /api/windows` (read): each window's name, what it should show (`content`, `hold`, `holdText`, `holdImage`, `onLoss`, `fadeMs`, `rev`), `connected`, what it says it shows (`shown`: `rev`, `content`, `hold`, `ms`, `at`, `error`), `inStep` (it shows the revision it was sent), `device`, `address`. `path` (`/w/<token>`) only with the PIN or a control key |
+| Window list | `GET /api/windows` (read): each window's name, what it should show (`content`, `hold`, `holdText`, `holdImage`, `onLoss`, `fadeMs`, `rev`), `connected`, what it says it shows (`shown`: `rev`, `content`, `hold`, `ms`, `at`, `error`), `inStep` (it shows the revision it was sent), `device`, `address`, and from 2.22 `drawn` and each grant's row (`grants`, never its address). `path` (`/w/<token>`) only with the PIN or a control key |
 | Context | Each window is a Show Bus item `window:<name>` (kind `screen`): green only when it says it shows what it was sent; amber while a change is sent but not shown, when it couldn't show a page, or when its link is lost; grey until someone opens it. A lost lobby screen never turns the show red |
 
 ### Commands
@@ -787,7 +787,7 @@ One grammar on every transport (HTTP `/api/window/...`, WebSocket, OSC `/stagewa
 | `window cue <window\|all> <page>` | Load the page behind the holding page; `release` shows it at once |
 | `window hold <window\|all> [toggle \| text <words> \| image <n\|name\|off>]` | The holding page, drawn by the window itself (so it shows with no network): words, a holding image, or the show's holding image when one is on air, else black. The page stays loaded underneath. `toggle` releases them all if any is holding, else holds them all |
 | `window release <window\|all>` | Back to the page, at once |
-| `window identify\|reload <window\|all>` | Name on the window for 6 s / reload it (it comes back to what it showed). Refused for a window nobody has open |
+| `window identify\|reload <window\|all>` | Name on the window for 6 s / reload it (it comes back to what it showed). Refused for a window nobody has open; identify also reaches an app that draws it, and reload of a window only apps draw is refused |
 | `window loss <window\|all> <hold\|warn>` | When the link drops: the holding page (audience screens; the default) or dimmed with NOT CONNECTED (crew screens). Never a confident stale clock |
 | `window fade <window\|all> <ms>` | Crossfade between pages, 0 (cut) to 5000 |
 | `window rename <window> <name>` · `window revoke <window\|all>` · `window delete <window>` | Rename; a new address (the old one stops at once, and a screen on it says so), and a new one for each of its page grants; delete (one at a time), ending its grants |
@@ -806,9 +806,8 @@ A bare `window withdraw` is refused in Core too, and a withdraw by a name two ap
 ids. A proposal (§11) whose line is `window grant <window> <app>` is refused under any credential
 but the operator's unless `<app>` is its own `from.id`: "a show app may ask a window only for itself". The app a grant names is
 looked up among the show apps this Stagewatch hears; until the desk and the rig hear them for grants (a later 2.22 unit),
-every grant is refused with "No show app called … (this Stagewatch hears none)". Delivery of a grant's address to its app's
-key-verified link, and the black end on a withdrawn, revoked or deleted grant's address, are the web server's, in a later
-2.22 unit: until then a grant's address travels nowhere.
+every grant is refused with "No show app called … (this Stagewatch hears none)". A grant's address travels only on its app's own
+key-verified node link, and a withdrawn, revoked or deleted grant's address ends black: see 2.22, windows granted to show apps.
 
 ### What a window does
 
@@ -821,7 +820,7 @@ key-verified link, and the black end on a withdrawn, revoked or deleted grant's 
   isn't a Stagewatch page, never reaches the screen: the old page stays, the window retries (2 s, 4 s… 30 s) and reports
   why. After each swap, hold or failure it reports `{"type":"shown",rev,content,hold,ms,error}`.
 - **Blackout** covers every window. A revoked or deleted address shows "This window's address was replaced or removed"
-  and stops trying. Reconnects back off with jitter, so a room of windows doesn't reconnect in one burst.
+  and stops trying; a page grant's address that stops working ends in plain black with no words. Reconnects back off with jitter, so a room of windows doesn't reconnect in one burst.
 - Double-click or `F` on the window toggles full screen; the screen is kept awake.
 
 ## 2.18: show apps on /ws — one key, one node
@@ -1303,7 +1302,61 @@ Upgrade: websocket
 Not in this release yet: S14 at this `/ws` acceptor, which comes with the receipts (SW22.1c: the store, a repeat, `RECEIPTS`,
 `final`), since a node LINK socket runs no command that is not public over `/ws` and the scripted peer's side call sends no
 `X-Request-Id` (the kit's stand-in answers S14 meanwhile); `final`, `receipts` and `stuck` in `can` (the stuck beat itself, `{"type":"beat","live":false}`, reaches
-a verified link as it reaches every socket); window grants, which a key seen in clear will never get; the `open` answer of 13.6.7 (a
+a verified link as it reaches every socket); the `open` answer of 13.6.7 (a
 Stagewatch with no keys refuses every LINK as `refused` today); Settings saying, while HTTPS is off, that other apps cannot link with
 keys; and the desk, context and AI facts reading the wrong-proof table (which the rig's `auth` line lists) and each node link's
 LINK-verified and oversize counts (which only the server's own node list holds).
+
+### Windows granted to show apps (Show Bus 12.5–12.7)
+
+A window granted to a show app (`window grant`, above) reaches that app only on its own node link: a link a key bound to that
+app's id proves — verified by LINK, or the 2.18 bearer node link with `verified:"key"` — never one the PIN or a control key proves,
+and never another node's. This is the owner's answer to the D0 question: a window grant's page address rides exactly two carriers,
+a browser's address bar and the one verified node link to the grant's own app (Show Bus §1 rule 5).
+
+```
+GET /ws?node=9f8e7d6c&t=patterns&can=pages        ← can= lists what the link offers for windows
+```
+
+- **`can=`** lists the link's abilities, comma-separated: `pages` (an app of kind `patterns`) and `window-draw` (kind `playmap`), the
+  §14.6 cap rows. The first 32 words are read; a word it does not know, or one whose cap row names another kind, is not offered.
+- **`grants`**, after the verdict and before any frame, then whole whenever it changes: every grant to that app, an empty list when
+  it holds none, with `rev` rising on that link from 1. `link` says what carries it: `tls`, `local` (this machine's loopback, 13.1:
+  never another of its addresses) or `plain`.
+
+```json
+{"type":"grants","from":"abc123abc123","rev":2,"link":"tls","grants":[
+ {"window":"wk3m9x2","name":"lobby","how":"page","path":"/w/k7m2…","cannot":""},
+ {"window":"wz5n6p7","name":"stage","how":"draw","path":"","cannot":""}]}
+```
+
+  A page grant's `path` is set only on a TLS or local link that offers `pages`, on a key never seen in clear. Otherwise `cannot` says
+  why, the carrier first: `this link is not encrypted — link over wss://`, `this node's key crossed the network unencrypted — the
+  Stagewatch operator makes it a new key`, `this link doesn't offer pages` (a draw grant: `this link doesn't offer window-draw`).
+- **A draw grant**, on a link that offers `window-draw` and a key never seen in clear: `{"type":"window-assign","window",…,"rev"}`
+  (the window message, the window named by `window`) on connect and on each change; `{"type":"window-end","window","why"}`, `why`
+  `withdrawn` or `deleted`; `{"type":"window-identify","window","name"}` on `window identify`. It never hears a screen's `identify`
+  or `reload`.
+- **The app says** `{"type":"grants-seen","rev","cannot"}` (`cannot` up to 200 characters: why it shows no page at all) and, for a
+  window granted it to draw, `{"type":"window-shown","window","rev","content","hold","ms","error"}`. A `window-shown` for any other
+  window, or from a link that was not assigned it (no `window-draw`, or a key seen in clear), is answered `{"type":"error","error":"only a show app a window is granted to draw may say what it draws"}`; a `grants-seen`
+  from any socket but an app's own key-verified link, `only a show app's key-verified link says which grants it saw`.
+- **The black end.** A page grant's address opens a window link as the window's own does (`/ws?win=<grant token>&detail=1`). When it
+  stops working — withdrawn, deleted or revoked — its link hears `{"type":"window","revoked":true,"black":true}` and is let go; the
+  window page then draws plain black, no words, `data-link="gone"`, and stops trying. The window's own address keeps its words.
+  That end goes only to a link that was open on the address when it stopped working. No tombstone is kept for a dead grant address:
+  a link that opens it later (a page that reconnects after a dropped link, or reloads) hears the window message's end in words,
+  `{"type":"window","revoked":true}`, as for any address that names no window, and `GET /w/<it>` answers the 404 page; the app's
+  browser draws black over either by 12.9 (no page yet, or `data-link` gone). Tombstones: no measurement this round (a dead address
+  draws one end and the page stops, so no lockout burst has a measured cause).
+- **`window identify`** reaches a window that is open on a screen or drawn by an app; **`window reload`** of a window only apps
+  draw is refused: `stage is drawn by PlayMap Stage left, which has no page to reload — window show stage <page> sends it again`.
+- **`GET /api/windows`** adds, per window and at its end, `drawn` (apps' links drawing it now) and `grants`:
+  `[{"node","t","name","how","linked","link","delivered","open","state","words","cannot"}]`, `cannot` the app's own reason for
+  showing no page at all (its newest link's `grants-seen`, "" when it gave none; a `held` grant says it in `words`), `state` one of `waiting` (no key-verified link
+  of the app), `plain`, `key-in-clear`, `cannot`, `sent` (not acknowledged), `held` (acknowledged, no page open or nothing drawn),
+  `open`, `shown` and `stale` (its viewer shows another revision, or could not show it). A grant's address is in no list, for any
+  credential, the PIN included; nor in a frame, the context, a journal row or a log line.
+
+Not in this release yet: the desk and the rig hearing show apps for `window grant` (every grant is refused there until they do), the
+window's light and words over its viewers and claims, and the operator frame's `windows` block.

@@ -1148,6 +1148,26 @@ maintainer's too.
   S14 with the core's receipt store (PeerLinkScenarios.Attacks.cs), as it has since 2.19.
 - **S12 at `/ws` is its emitting half only.** The stuck beat (`{"type":"beat","live":false}`) was already sent to every socket; SW22.1b
   holds it on a verified LINK socket with a test. `stuck` in `can`, and `stuckMs`, come with SW22.1c.
+- **Window grants reach their apps (SW22.4), but nobody can make one yet outside a test.** The web server delivers `grants`, the draw
+  messages and the black end (REMOTE 2.22, windows granted to show apps), and `/api/windows` lists each grant's state. The desk and
+  the rig still hear no show apps for `window grant`, so every grant made there is refused: the desk's `FindApp` is SW22.5's (with the
+  window's light over its viewers and claims, the operator frame's `windows` block and the journal rows), the rig's SW22.6's (with
+  `grants.e2e.cjs`). `ContextItems` still reads one row per window; `ViewerStatus()` and `GrantStatus()` wait for SW22.5 to read them.
+- **Two choices SW22.4 made where the design left room**, for SW22.5 and the papers unit to keep or change: a key is marked seen in
+  clear whenever it arrives plain from another machine (SW22.1b's mark), not only while this Stagewatch offers TLS, so a plain link
+  from another machine always reads `plain` first and `key-in-clear` once it comes back over TLS; and a draw grant whose key is marked
+  while its link is up ends on that link with `window-end` `withdrawn`, as 12.5 gives such a key no draw assignment.
+- **SW22.4's black end reaches only a link open when the grant address stopped working.** No tombstone is kept (D15), so a page that
+  reconnects or reloads on a withdrawn, revoked or deleted grant's address hears the window message's end in words and `GET` answers
+  the 404 page; the holder draws black over both by 12.9, and the unit test pins it. Keeping the black end for a later reconnect
+  would need the page to remember from its first window message that it holds a grant, a spec note first: left to the papers unit.
+- **SW22.4's per-turn costs: no measurement this round.** Each node link's send-loop turn (every frame and heartbeat) rebuilds its
+  grant rows (`WindowGrants.For`) and reads its key's mark under the sightings' lock; each window link's turn looks its token up over
+  up to five passes per window; `PushWindows` drops gone viewers on the owner thread (viewers × windows × grants). None of it is on
+  the show thread's hot path; caching the rows on the windows' reference and a sightings version waits for a measured cause.
+- **SW22.4's viewer table between a check and a write.** A `shown` or `window-shown` checked against the windows just before a delete
+  can land just after it; that report stays until the next windows change or the bound's own sweep drops it, so the table stays
+  bounded and the gone row is read by nobody (`ViewerStatus` filters what is gone).
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

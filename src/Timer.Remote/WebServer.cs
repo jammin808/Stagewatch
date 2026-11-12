@@ -334,15 +334,69 @@ public sealed class WebServer : IAsyncDisposable
     /// <summary>What each window last said it shows, kept after its link drops (so a lost window reads "link lost").</summary>
     private readonly ConcurrentDictionary<string, WindowObserved> _windowSeen = new(StringComparer.Ordinal);
 
-    /// <summary>The windows changed (owner thread): each window's link re-reads its own on its next turn, latest wins.
-    /// A window whose address was revoked or deleted is told so and let go. Never blocks.</summary>
+    /// <summary>
+    /// The most viewers' reports kept (12.10): one per window for its own address and one per grant, <see cref="ScreenWindows.MaxGrants"/>
+    /// of them, for each of <see cref="ScreenWindows.Max"/> windows. Reports of a window or grant that is gone are dropped one by one,
+    /// never all at once, so the table never holds more than the windows and grants there are.
+    /// </summary>
+    public const int MaxViewers = (ScreenWindows.MaxGrants + 1) * ScreenWindows.Max;
+
+    /// <summary>What each viewer of a window last said it shows, by (window id, via): kept after its link drops, bounded by <see cref="MaxViewers"/>.</summary>
+    private readonly ConcurrentDictionary<(string Window, string Via), ViewerObserved> _viewerSeen = new();
+
+    /// <summary>How many viewers' reports are kept now (never more than <see cref="MaxViewers"/>). Thread-safe.</summary>
+    public int ViewersKept => _viewerSeen.Count;
+
+    /// <summary>
+    /// The windows changed (owner thread): each window's link and each show app's node link re-reads its own on its next turn, latest
+    /// wins. A window whose address was revoked or deleted is told so and let go, a page grant's black; an app's link hears its grants
+    /// as they now are. The reports of viewers whose window or grant is gone are dropped. Never blocks.
+    /// </summary>
     public void PushWindows()
     {
+        DropGoneViewers();
         foreach (var c in _sockets.Keys)
-            if (c.WindowId is not null) c.Signal();
+            if (c.WindowId is not null || c.Link.Class == WsClass.Node) c.Signal();
     }
 
-    /// <summary>Show windows' names full screen for a few seconds. Returns how many window links were told.</summary>
+    /// <summary>Whether a viewer's report still has a window and a pass to be about: the window's own address, or a grant of it to that node.</summary>
+    private static bool ViewerHolds(IReadOnlyList<ScreenWindow> windows, (string Window, string Via) key)
+        => windows.FirstOrDefault(w => w.Id == key.Window) is { } w && (key.Via.Length == 0 || (w.Grants ?? []).Any(g => g?.Node == key.Via));
+
+    private void DropGoneViewers()
+    {
+        var windows = _control.Windows;
+        foreach (var key in _viewerSeen.Keys)
+            if (!ViewerHolds(windows, key)) _viewerSeen.TryRemove(key, out _);
+    }
+
+    /// <summary>
+    /// Keeps one viewer's report when its window and pass are there now. A new viewer past <see cref="MaxViewers"/> first drops those that
+    /// are gone, and is kept only when there is then room: the table is bounded, and nobody's report is cleared to make room.
+    /// </summary>
+    private void KeepViewer(ViewerObserved seen)
+    {
+        var key = (seen.WindowId, seen.Via);
+        if (!ViewerHolds(_control.Windows, key)) return;
+        if (!_viewerSeen.ContainsKey(key) && _viewerSeen.Count >= MaxViewers)
+        {
+            DropGoneViewers();
+            if (_viewerSeen.Count >= MaxViewers) return;
+        }
+        _viewerSeen[key] = seen;
+    }
+
+    /// <summary>The node links a key bound to their node proves (12.5's first point), each with that node: the only links grants reach.</summary>
+    private IEnumerable<(WsClient Client, string Node)> GrantLinks()
+    {
+        foreach (var c in _sockets.Keys)
+            if (c.WindowId is null && GrantsNode(c.Link) is { } node) yield return (c, node);
+    }
+
+    /// <summary>
+    /// Show windows' names full screen for a few seconds: on every link on the window's addresses, and on each show app's link that draws
+    /// it (12.6's <c>window-identify</c>). Returns how many links were told.
+    /// </summary>
     public int IdentifyWindows(IEnumerable<string> windowIds)
     {
         var n = 0;
@@ -350,6 +404,13 @@ public sealed class WebServer : IAsyncDisposable
         {
             var name = _control.Windows.FirstOrDefault(w => w.Id == id)?.Name ?? "";
             n += PushToWindows(new[] { id }, IdentifyJson(name, id));
+            var drawn = WindowGrants.IdentifyJson(id, name);
+            foreach (var (c, _) in GrantLinks())
+            {
+                if (!c.Drawing.Contains(id)) continue;
+                n++;
+                _ = Task.Run(async () => { try { await c.SendTextAsync(drawn, CancellationToken.None); } catch { } });
+            }
         }
         return n;
     }
@@ -357,7 +418,10 @@ public sealed class WebServer : IAsyncDisposable
     /// <summary>What a window hears when its operator asks it to show its name (Show Bus 12.3).</summary>
     public static byte[] IdentifyJson(string name, string id) => JsonSerializer.SerializeToUtf8Bytes(new { type = "identify", name, id });
 
-    /// <summary>Make windows reload themselves (they come back to what they were showing).</summary>
+    /// <summary>
+    /// Make windows reload themselves (they come back to what they were showing): every link on their addresses. A show app that draws a
+    /// window has no page to reload, and hears nothing (12.6).
+    /// </summary>
     public int ReloadWindows(IEnumerable<string> windowIds) => PushToWindows(windowIds, Encoding.UTF8.GetBytes(ReloadJson));
 
     /// <summary>What a window hears when its operator reloads it (Show Bus 12.3).</summary>
@@ -376,12 +440,27 @@ public sealed class WebServer : IAsyncDisposable
         return n;
     }
 
-    /// <summary>Every window's link and what it last said it shows. Thread-safe.</summary>
+    /// <summary>How many show apps' links draw each window now (a draw grant assigned on its app's key-verified link), by window id.</summary>
+    private Dictionary<string, int> DrawnCounts()
+    {
+        var drawn = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (c, _) in GrantLinks())
+            foreach (var id in c.Drawing)
+                drawn[id] = drawn.GetValueOrDefault(id) + 1;
+        return drawn;
+    }
+
+    /// <summary>
+    /// Every window's links and what it last said it shows: one row per window, over every link on any of its addresses, and how many
+    /// show apps' links draw it (<see cref="WindowObserved.Drawn"/>). Thread-safe.
+    /// </summary>
     public IReadOnlyList<WindowObserved> WindowStatus()
     {
         var live = _sockets.Keys.Where(c => c.WindowId is not null).GroupBy(c => c.WindowId!).ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        var drawn = DrawnCounts();
         var ids = new HashSet<string>(_windowSeen.Keys, StringComparer.Ordinal);
         ids.UnionWith(live.Keys);
+        ids.UnionWith(drawn.Keys);
         var list = new List<WindowObserved>(ids.Count);
         foreach (var id in ids)
         {
@@ -389,7 +468,72 @@ public sealed class WebServer : IAsyncDisposable
             var clients = live.GetValueOrDefault(id);
             var newest = clients?.OrderByDescending(c => c.ConnectedUtc).First();
             list.Add(new WindowObserved(id, clients?.Count ?? 0, seen?.Revision ?? 0, seen?.Content ?? "", seen?.Hold ?? false, seen?.SwapMs ?? 0, seen?.ShownUtc,
-                seen?.Error ?? "", newest?.Device ?? seen?.Device ?? "", newest is null ? seen?.Address ?? "" : Screens.AddressOf(newest.Remote)));
+                seen?.Error ?? "", newest?.Device ?? seen?.Device ?? "", newest is null ? seen?.Address ?? "" : Screens.AddressOf(newest.Remote),
+                seen?.Via ?? "", drawn.GetValueOrDefault(id)));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Every viewer of every window (12.10): one row per (window, via) — its own address, each page grant's address, each app's link that
+    /// draws it — with how many links hold it that way now and what that viewer last said it shows. Thread-safe.
+    /// </summary>
+    public IReadOnlyList<ViewerObserved> ViewerStatus()
+    {
+        var windows = _control.Windows;
+        var live = _sockets.Keys.Where(c => c.WindowId is not null).GroupBy(c => (Window: c.WindowId!, Via: c.WindowVia ?? ""))
+            .ToDictionary(g => g.Key, g => g.ToList());
+        var drawing = new Dictionary<(string Window, string Via), int>();
+        foreach (var (c, node) in GrantLinks())
+            foreach (var id in c.Drawing)
+                drawing[(id, node)] = drawing.GetValueOrDefault((id, node)) + 1;
+        var keys = new HashSet<(string Window, string Via)>(_viewerSeen.Keys);
+        keys.UnionWith(live.Keys);
+        keys.UnionWith(drawing.Keys);
+        var list = new List<ViewerObserved>(keys.Count);
+        foreach (var key in keys.Where(k => ViewerHolds(windows, k)))
+        {
+            var seen = _viewerSeen.GetValueOrDefault(key);
+            var how = key.Via.Length == 0 ? "" : windows.First(w => w.Id == key.Window).Grants.First(g => g?.Node == key.Via).How;
+            var clients = live.GetValueOrDefault(key);
+            var newest = clients?.OrderByDescending(c => c.ConnectedUtc).First();
+            var connected = how == ScreenWindows.HowDraw ? drawing.GetValueOrDefault(key) : clients?.Count ?? 0;
+            list.Add(new ViewerObserved(key.Window, key.Via, how, connected, seen?.Revision ?? 0, seen?.Content ?? "", seen?.Hold ?? false, seen?.SwapMs ?? 0,
+                seen?.ShownUtc, seen?.Error ?? "", newest?.Device ?? seen?.Device ?? "", newest is null ? seen?.Address ?? "" : Screens.AddressOf(newest.Remote)));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Every grant of every window as its app's links carry it (12.5–12.6): whether the app is linked by its own key-verified link and by
+    /// what, whether that link was given the window, how many of its viewers are on it, and where that leaves it in words. Never a path.
+    /// Thread-safe.
+    /// </summary>
+    public IReadOnlyList<GrantObserved> GrantStatus()
+    {
+        var windows = _control.Windows;
+        var links = GrantLinks().ToList();
+        var viewers = ViewerStatus().ToDictionary(v => (v.WindowId, v.Via));
+        var list = new List<GrantObserved>();
+        foreach (var w in windows)
+        {
+            foreach (var g in w.Grants ?? [])
+            {
+                if (g is null) continue;
+                var newest = links.Where(l => l.Node == g.Node).Select(l => l.Client).OrderByDescending(c => c.ConnectedUtc).FirstOrDefault();
+                var sent = newest?.Grants;
+                var row = newest is null ? null
+                    : sent?.Rows.FirstOrDefault(r => r.Window == w.Id)
+                      ?? WindowGrants.For([w], g.Node, newest.LinkWord, newest.Can, !_control.Sightings.MayGrant(newest.Link.KeyId ?? "")).FirstOrDefault();
+                var acknowledged = sent is not null && newest!.SeenRev == sent.Rev && sent.Rows.Any(r => r.Window == w.Id);
+                var viewer = viewers.GetValueOrDefault((w.Id, g.Node));
+                // A page grant's viewers are the links on its address; a draw grant's, its app's links that draw it once one has reported.
+                var open = viewer is null ? 0 : g.How == ScreenWindows.HowDraw && viewer.ShownUtc is null ? 0 : viewer.Connected;
+                var appCannot = newest?.SeenCannot ?? "";
+                var (state, words) = WindowGrants.State(w, g, row, acknowledged, open, viewer, appCannot);
+                list.Add(new GrantObserved(w.Id, g.Node, g.Kind, g.Name, g.How, newest is not null, newest?.LinkWord ?? "",
+                    sent?.Rows.Any(r => r.Window == w.Id && r.Cannot.Length == 0) == true, open, state, words, appCannot));
+            }
         }
         return list;
     }
@@ -1035,18 +1179,19 @@ public sealed class WebServer : IAsyncDisposable
     private void CountWrongPass(IPAddress remote) => _passGuesses.Count(remote, Environment.TickCount64);
 
     /// <summary>
-    /// The window an address names, or null: <paramref name="locked"/> when the device is locked out of view passes, so the address
-    /// was not looked at and the caller says wait, never gone; else the address names no window and is counted as a wrong view pass.
+    /// The window an address names, and by which of its passes (its own address, or a page grant's), or null: <paramref name="locked"/>
+    /// when the device is locked out of view passes, so the address was not looked at and the caller says wait, never gone; else the
+    /// address names no window and is counted as a wrong view pass.
     /// One reading of the lock decides both, so a device that reaches the limit as it asks is told to wait, never that a right
     /// address is gone. Never says how close a guess was.
     /// </summary>
-    private ScreenWindow? WindowFor(string? token, IPAddress remote, out bool locked)
+    private WindowHit? WindowFor(string? token, IPAddress remote, out bool locked)
     {
         locked = PassesLockedOut(remote);
         if (locked) return null;
-        var w = ScreenWindows.ByToken(_control.Windows, token);
-        if (w is null) CountWrongPass(remote);
-        return w;
+        var hit = ScreenWindows.Find(_control.Windows, token);
+        if (hit is null) CountWrongPass(remote);
+        return hit;
     }
 
     /// <summary>GET /w/&lt;token&gt;: the window page. No referrer leaves it, no search engine keeps it, no other site frames it.</summary>
@@ -1079,8 +1224,9 @@ public sealed class WebServer : IAsyncDisposable
            "body{display:flex;align-items:center;justify-content:center;text-align:center;padding:0 6vw}</style><p>" + WebUtility.HtmlEncode(words) + "</p>";
 
     /// <summary>
-    /// GET /api/windows (read): every window, what it was told and what it says it shows. A window's address (its pass)
-    /// is listed only for the PIN or a control key.
+    /// GET /api/windows (read): every window, what it was told and what it says it shows, how many show apps draw it and where each of
+    /// its grants stands (12.5–12.6). A window's own address (its pass) is listed only for the PIN or a control key; a grant's address
+    /// for no credential, the PIN included (12.5).
     /// </summary>
     private async Task HandleWindowListAsync(Stream stream, HttpRequest req, IPAddress remote, CancellationToken ct)
     {
@@ -1088,6 +1234,7 @@ public sealed class WebServer : IAsyncDisposable
         var supplied = PinFrom(req);
         var showPath = !ApiKeys.LooksLikeKey(supplied) || ApiKeys.Find(_control.ApiKeys, supplied) is { } k && ApiKeys.Allows(k.Scope, ApiKeyScope.Control);
         var seen = WindowStatus().ToDictionary(o => o.WindowId, StringComparer.Ordinal);
+        var grants = GrantStatus().ToLookup(g => g.WindowId, StringComparer.Ordinal);
         var body = JsonSerializer.SerializeToUtf8Bytes(new
         {
             windows = _control.Windows.Select(w =>
@@ -1101,6 +1248,12 @@ public sealed class WebServer : IAsyncDisposable
                     shown = o is null || o.ShownUtc is null ? null : new { rev = o.Revision, content = o.Content, hold = o.Hold, ms = o.SwapMs, at = o.ShownUtc.Value.ToString("o"), error = o.Error },
                     inStep = o is { Connected: > 0, Error.Length: 0 } && o.Revision == w.Revision,
                     device = o?.Device ?? "", address = o?.Address ?? "",
+                    drawn = o?.Drawn ?? 0,
+                    grants = grants[w.Id].Select(g => new
+                    {
+                        node = g.Node, t = g.Kind, name = g.Name, how = g.How, linked = g.Linked, link = g.Link, delivered = g.Delivered,
+                        open = g.Open, state = g.State, words = g.Words, cannot = g.AppCannot,
+                    }),
                 };
             }),
         });
@@ -1928,7 +2081,8 @@ public sealed class WebServer : IAsyncDisposable
         // device locked out of view passes is turned away for now, never told its address is gone.
         var winToken = req.Query.GetValueOrDefault("win");
         var lockedWindow = false;
-        var window = winToken is null ? null : WindowFor(winToken, remote, out lockedWindow);
+        var hit = winToken is null ? null : WindowFor(winToken, remote, out lockedWindow);
+        var window = hit?.Window;
 
         var nodeAsked = req.Query.ContainsKey("node");
         var wantsControl = winToken is null && req.Query.GetValueOrDefault("role") == "control";
@@ -2029,7 +2183,12 @@ public sealed class WebServer : IAsyncDisposable
             Device = Screens.Device(req.Headers.GetValueOrDefault("user-agent")),
             WindowId = window?.Id,
             WindowToken = window is null ? null : winToken,
+            WindowVia = hit?.Via,
             Sender = WebSender(req, remote, proved: false),
+            // 12.5–12.6: what carries a node link (TLS, this machine's loopback, or neither) and what it offers for windows, read once at
+            // its upgrade; a window or a screen offers nothing.
+            LinkWord = secure ? WindowGrants.LinkTls : IsLocal(req, remote) ? WindowGrants.LinkLocal : WindowGrants.LinkPlain,
+            Can = nodeAsked ? WindowGrants.Offered(req.Query.GetValueOrDefault("can"), req.Query.GetValueOrDefault("t")) : [],
         };
         if (admission.Close)
         {
@@ -2172,6 +2331,7 @@ public sealed class WebServer : IAsyncDisposable
     {
         byte[]? lastSent = null;
         byte[]? lastWindow = null;
+        var assigned = new Dictionary<string, (ScreenWindow Window, byte[] Json)>(StringComparer.Ordinal);
         while (!ct.IsCancellationRequested && client.Socket.State == WebSocketState.Open)
         {
             // What a credential change made of this socket goes out before anything else, from this one sender, so the
@@ -2187,15 +2347,22 @@ public sealed class WebServer : IAsyncDisposable
                     return;
                 }
             }
-            // A window hears what to show before any frame, and again whenever that changes; an address that stopped
-            // working (revoked, deleted) is told so and let go.
+            // A show app's own key-verified link hears its grants after its verdict and before any frame, then whole whenever they
+            // change, and each window granted it to draw (12.5–12.6). No other socket hears either.
+            if (GrantsNode(client.Link) is { } node && client.Link.KeyId is { } keyId)
+                await SendGrantsAsync(client, node, keyId, assigned, ct);
+
+            // A window hears what to show before any frame, and again whenever that changes; an address that stopped working is told
+            // so and let go: the window's own address (revoked, deleted) in words (12.3), a page grant's (withdrawn, revoked, deleted)
+            // black (12.7).
             if (client.WindowToken is { } token)
             {
-                if (ScreenWindows.ByToken(_control.Windows, token) is not { } w)
+                if (ScreenWindows.Find(_control.Windows, token) is not { } found || found.Via != (client.WindowVia ?? ""))
                 {
-                    await client.SendTextAsync(WindowGone, ct);
+                    await client.SendTextAsync(string.IsNullOrEmpty(client.WindowVia) ? WindowGone : WindowGoneBlack, ct);
                     return;
                 }
+                var w = found.Window;
                 var assignment = WindowJson(w);
                 if (lastWindow is null || !assignment.AsSpan().SequenceEqual(lastWindow))
                 {
@@ -2229,6 +2396,58 @@ public sealed class WebServer : IAsyncDisposable
     /// <summary>What a window whose address stopped working (revoked, deleted) hears before it is let go (Show Bus 12.3).</summary>
     public const string WindowGoneJson = "{\"type\":\"window\",\"revoked\":true}";
     private static readonly byte[] WindowGone = Encoding.UTF8.GetBytes(WindowGoneJson);
+
+    /// <summary>
+    /// What a window link on a page grant's address hears when that address stops working — withdrawn, deleted or revoked — before it is
+    /// let go (Show Bus 12.7): 12.3's end with black, so the app's screen draws plain black and stops, never words.
+    /// </summary>
+    public const string WindowGoneBlackJson = "{\"type\":\"window\",\"revoked\":true,\"black\":true}";
+    private static readonly byte[] WindowGoneBlack = Encoding.UTF8.GetBytes(WindowGoneBlackJson);
+
+    /// <summary>
+    /// The node a socket may be given that node's window grants on (12.5's first point): a node link a key bound to that node proves —
+    /// verified by LINK (13.6), or by its node key on /ws (§7.1) — and never one the PIN or a control key proves. Null for any other.
+    /// </summary>
+    private static string? GrantsNode(WsLink link)
+        => link is { Class: WsClass.Node, Verified: NodeProof.Key, Node: { } node, KeyId: not null } ? node : null;
+
+    /// <summary>
+    /// A grants node link's turn (12.5–12.6): its grants whole when they differ from what it was last sent (the first time always, an
+    /// empty list when its node holds none), its revision rising on this link; then, for each draw grant this link may be given — it
+    /// offers window-draw, its key was never seen in clear — the window's assignment when it changed, and an end for each window it was
+    /// assigned and may no longer draw (withdrawn, or deleted when the window is gone). Latest wins: only what is current is sent.
+    /// </summary>
+    private async Task SendGrantsAsync(WsClient client, string node, string keyId, Dictionary<string, (ScreenWindow Window, byte[] Json)> assigned, CancellationToken ct)
+    {
+        var windows = _control.Windows;
+        var rows = WindowGrants.For(windows, node, client.LinkWord, client.Can, keyInClear: !_control.Sightings.MayGrant(keyId));
+        var sent = client.Grants;
+        if (sent is null || !sent.Rows.SequenceEqual(rows))
+        {
+            var rev = (sent?.Rev ?? 0) + 1;
+            await client.SendTextAsync(WindowGrants.GrantsJson(_control.OwnNodeId ?? "", rev, client.LinkWord, rows), ct);
+            client.Grants = new WsClient.GrantsSent(rev, client.LinkWord, rows);
+        }
+        var draw = rows.Where(r => r.How == ScreenWindows.HowDraw && r.Cannot.Length == 0).Select(r => r.Window).ToHashSet(StringComparer.Ordinal);
+        var changed = false;
+        foreach (var ended in assigned.Keys.Where(id => !draw.Contains(id)).ToList())
+        {
+            await client.SendTextAsync(WindowGrants.EndJson(ended, windows.Any(w => w.Id == ended) ? WindowGrants.EndWithdrawn : WindowGrants.EndDeleted), ct);
+            assigned.Remove(ended);
+            changed = true;
+        }
+        foreach (var w in windows)
+        {
+            if (!draw.Contains(w.Id)) continue;
+            var had = assigned.TryGetValue(w.Id, out var was);
+            if (had && ReferenceEquals(was.Window, w)) continue;
+            var json = WindowGrants.AssignJson(w);
+            if (!had || !json.AsSpan().SequenceEqual(was.Json)) await client.SendTextAsync(json, ct);
+            assigned[w.Id] = (w, json);
+            changed |= !had;
+        }
+        if (changed) client.Drawing = assigned.Keys.ToArray();
+    }
 
     /// <summary>What a window is told (Show Bus 12.3): everything it acts on, never its own address.</summary>
     public static byte[] WindowJson(ScreenWindow w) => JsonSerializer.SerializeToUtf8Bytes(new
@@ -2293,8 +2512,18 @@ public sealed class WebServer : IAsyncDisposable
             using var doc = JsonDocument.ParseValue(ref reader);
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return Error("expected an object");
-            if (root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "shown")
-                return client.WindowId is null ? Error("only a window says what it shows") : WindowShown(client, root);
+            if (root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String)
+            {
+                switch (type.GetString())
+                {
+                    case "shown":
+                        return client.WindowId is null ? Error("only a window says what it shows") : WindowShown(client, root);
+                    case "grants-seen":
+                        return GrantsNode(client.Link) is null ? Error(WindowGrants.SeenOnlyOnLink) : GrantsSeen(client, root);
+                    case "window-shown":
+                        return GrantsNode(client.Link) is { } node ? DrawShown(client, node, root) : Error(WindowGrants.DrawOnly);
+                }
+            }
             if (root.TryGetProperty("cmd", out var c) && c.ValueKind == JsonValueKind.String) verb = c.GetString();
             if (root.TryGetProperty("id", out var rid) && rid.ValueKind == JsonValueKind.String) requestId = CommandReceipt.CleanId(rid.GetString());
             if (root.TryGetProperty("t", out var pt) && pt.ValueKind == JsonValueKind.Number && pt.TryGetInt64(out var t1)) pingT = t1;
@@ -2352,23 +2581,62 @@ public sealed class WebServer : IAsyncDisposable
         static byte[] Error(string e) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "error", error = e }));
     }
 
-    /// <summary>A window says what it shows (after each swap, hold or failure): kept for the operator, the context and /api/windows.</summary>
+    /// <summary>
+    /// A window says what it shows (after each swap, hold or failure): kept for the operator, the context and /api/windows, as the window's
+    /// one row and as the row of its viewer by the pass its link came in on.
+    /// </summary>
     private byte[]? WindowShown(WsClient client, JsonElement root)
     {
-        static string Text(JsonElement r, string name, int max)
-        {
-            var v = r.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : "";
-            v = new string(v.Where(ch => !char.IsControl(ch)).ToArray());
-            return v.Length > max ? v[..max] : v;
-        }
-        static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var i) ? i : 0;
+        var via = client.WindowVia ?? "";
         var seen = new WindowObserved(client.WindowId!, 1, Int(root, "rev"), Text(root, "content", 400),
             root.TryGetProperty("hold", out var h) && h.ValueKind == JsonValueKind.True, Math.Clamp(Int(root, "ms"), 0, 600_000), DateTime.UtcNow,
-            Text(root, "error", 200), client.Device, Screens.AddressOf(client.Remote));
+            Text(root, "error", 200), client.Device, Screens.AddressOf(client.Remote), via);
         if (_windowSeen.Count > 4 * ScreenWindows.Max) _windowSeen.Clear();
         _windowSeen[client.WindowId!] = seen;
+        KeepViewer(new ViewerObserved(seen.WindowId, via, via.Length == 0 ? "" : ScreenWindows.HowPage, 1, seen.Revision, seen.Content, seen.Hold, seen.SwapMs,
+            seen.ShownUtc, seen.Error, seen.Device, seen.Address));
         return null;
     }
+
+    /// <summary>
+    /// A show app says which grants it saw (12.6 <c>grants-seen</c>): the revision, and why it shows no page at all ("" when it can). Kept on
+    /// its link, so the operator reads a grant as sent until its app acknowledges it, and a held grant in the app's own reason.
+    /// </summary>
+    private static byte[]? GrantsSeen(WsClient client, JsonElement root)
+    {
+        client.SeenCannot = Text(root, "cannot", WindowGrants.MaxSeenCannot);
+        client.SeenRev = Int(root, "rev");
+        return null;
+    }
+
+    /// <summary>
+    /// A show app says what it draws of a window (12.6 <c>window-shown</c>): taken only for a draw grant of that window held by this link's
+    /// node and assigned on this very link (it offers window-draw, its key was never seen in clear), kept as that viewer's row; anything
+    /// else is refused in 12.6's words, with no row kept.
+    /// </summary>
+    private byte[]? DrawShown(WsClient client, string node, JsonElement root)
+    {
+        var id = Text(root, "window", 40);
+        if (!client.Drawing.Contains(id)
+            || _control.Windows.FirstOrDefault(w => w.Id == id) is not { } window
+            || !(window.Grants ?? []).Any(g => g is { How: ScreenWindows.HowDraw } && g.Node == node))
+            return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "error", error = WindowGrants.DrawOnly }));
+        KeepViewer(new ViewerObserved(window.Id, node, ScreenWindows.HowDraw, 1, Int(root, "rev"), Text(root, "content", 400),
+            root.TryGetProperty("hold", out var h) && h.ValueKind == JsonValueKind.True, Math.Clamp(Int(root, "ms"), 0, 600_000), DateTime.UtcNow,
+            Text(root, "error", 200), client.Device, Screens.AddressOf(client.Remote)));
+        return null;
+    }
+
+    /// <summary>A string field of a socket's message, its control characters taken out and cut at <paramref name="max"/>; "" when it is no string.</summary>
+    private static string Text(JsonElement r, string name, int max)
+    {
+        var v = r.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : "";
+        v = new string(v.Where(ch => !char.IsControl(ch)).ToArray());
+        return v.Length > max ? v[..max] : v;
+    }
+
+    /// <summary>A whole-number field of a socket's message; 0 when it is none.</summary>
+    private static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var i) ? i : 0;
 
     /// <summary>
     /// The receipt, and after an <c>accepted</c> that waits on another node its one follow-up (Show Bus §3: the same id with
@@ -2450,6 +2718,9 @@ public sealed class WebServer : IAsyncDisposable
         /// <summary>One message a credential change left for the send loop (latest wins), and whether the socket closes after it.</summary>
         public sealed record Posted(byte[] Json, bool Close);
 
+        /// <summary>The grants a node link was sent: their revision on this link, what carried it then, and the rows.</summary>
+        public sealed record GrantsSent(int Rev, string Link, IReadOnlyList<GrantRow> Rows);
+
         private int _oversize;
 
         /// <summary>Messages past <see cref="MaxWsMessageBytes"/> this LINK socket sent and was not closed for (13.14).</summary>
@@ -2464,6 +2735,32 @@ public sealed class WebServer : IAsyncDisposable
         /// <summary>The controlled window this link belongs to (null for an ordinary screen), and the address it came in on.</summary>
         public string? WindowId { get; init; }
         public string? WindowToken { get; init; }
+
+        /// <summary>
+        /// Which of the window's passes that address is (<see cref="WindowHit.Via"/>): "" its own, else the node id of the page grant
+        /// whose address it is. Null for a socket that is no window's link.
+        /// </summary>
+        public string? WindowVia { get; init; }
+
+        /// <summary>What carries this socket (12.6's <c>link</c>): <c>tls</c>, <c>local</c> (this machine's loopback, 13.1) or <c>plain</c>.</summary>
+        public string LinkWord { get; init; } = WindowGrants.LinkPlain;
+
+        /// <summary>The abilities this node link offers for windows (its <c>can=</c>, read by <see cref="WindowGrants.Offered"/>).</summary>
+        public IReadOnlyList<string> Can { get; init; } = [];
+
+        /// <summary>The grants this link was last sent (12.6) and their revision on it; null until it was sent any.</summary>
+        public GrantsSent? Grants { get => Volatile.Read(ref _grants); set => Volatile.Write(ref _grants, value); }
+        private GrantsSent? _grants;
+
+        /// <summary>The revision of the grants this link's app says it saw (<c>grants-seen</c>), 0 until it says; and why it shows no page at all.</summary>
+        public int SeenRev { get => Volatile.Read(ref _seenRev); set => Volatile.Write(ref _seenRev, value); }
+        private int _seenRev;
+        public string SeenCannot { get => Volatile.Read(ref _seenCannot); set => Volatile.Write(ref _seenCannot, value); }
+        private string _seenCannot = "";
+
+        /// <summary>The windows this link was assigned to draw (12.6's <c>window-assign</c>) and not ended since; swapped whole by its send loop.</summary>
+        public IReadOnlyCollection<string> Drawing { get => Volatile.Read(ref _drawing); set => Volatile.Write(ref _drawing, value); }
+        private IReadOnlyCollection<string> _drawing = [];
         public string Page { get; init; } = "/";
         public string Device { get; init; } = "";
         public DateTime ConnectedUtc { get; } = DateTime.UtcNow;

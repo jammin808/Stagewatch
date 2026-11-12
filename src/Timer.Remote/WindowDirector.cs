@@ -50,10 +50,14 @@ public sealed class WindowDirector
                 return change;
             case WindowEffect.Identify or WindowEffect.Reload:
             {
-                // Attempts are not facts: a window nobody has open can't be found or reloaded, and the sender hears so.
+                // Attempts are not facts: a window nobody has open can't be found or reloaded, and the sender hears so. A window a show
+                // app draws can be identified there too (12.6's window-identify); it has no page to reload, so only its open links are.
                 if (Web is null) return WindowChange.Refused(current, "Windows: turn on Settings → Remote first");
-                var open = Web.WindowStatus().Where(o => o.Connected > 0).Select(o => o.WindowId).ToHashSet(StringComparer.Ordinal);
-                var reachable = change.Touched.Where(open.Contains).ToList();
+                var status = Web.WindowStatus().ToDictionary(o => o.WindowId, StringComparer.Ordinal);
+                var identify = change.Effect == WindowEffect.Identify;
+                var reachable = change.Touched.Where(id => status.GetValueOrDefault(id) is { } o && (o.Connected > 0 || (identify && o.Drawn > 0))).ToList();
+                if (reachable.Count == 0 && !identify && change.Touched.Count == 1 && status.GetValueOrDefault(change.Touched[0]) is { Drawn: > 0 })
+                    return WindowChange.Refused(current, DrawnOnly(change.Touched[0]));
                 if (reachable.Count == 0)
                     return WindowChange.Refused(current, change.Touched.Count == 1 ? $"{Name(change.Touched[0])} isn't open on any screen" : "None of those windows is open on a screen");
                 var told = change.Effect == WindowEffect.Identify ? Web.IdentifyWindows(reachable) : Web.ReloadWindows(reachable);
@@ -65,4 +69,13 @@ public sealed class WindowDirector
     }
 
     private string Name(string id) => _windows.FirstOrDefault(w => w.Id == id)?.Name ?? id;
+
+    /// <summary>Why a window only show apps draw is not reloaded (Show Bus 12.6): naming the apps that draw it and what sends it again.</summary>
+    private string DrawnOnly(string id)
+    {
+        var name = Name(id);
+        var apps = (_windows.FirstOrDefault(w => w.Id == id)?.Grants ?? []).Where(g => g is { How: ScreenWindows.HowDraw }).Select(ScreenWindows.GrantLabel).ToList();
+        var who = apps.Count == 0 ? "a show app" : string.Join(" and ", apps);
+        return $"{name} is drawn by {who}, which has no page to reload — window show {name} <page> sends it again";
+    }
 }
