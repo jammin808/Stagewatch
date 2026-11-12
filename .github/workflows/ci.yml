@@ -146,8 +146,9 @@ jobs:
 
   # The interop lane (tools/test.sh interop) at the siblings' pins: Stagewatch's rig with Patterns' bench host, PlayMap's node
   # (the Mapper repository) and AGMessage at the commits tools/interop/siblings.json pins, built in clones of the lane's own and
-  # run on a one-kernel LAN and on one show laptop, each topology in user, network and PID namespaces of its own that end with
-  # it, once the lane's own scripts have passed their self-check (tools/interop/selfcheck.py). A release waits for it. It runs
+  # run on a one-kernel LAN, on one show laptop and on that laptop with no network, each topology in user, network and PID
+  # namespaces of its own that end with it, once the lane's own scripts have passed their self-check
+  # (tools/interop/selfcheck.py). A release waits for it. It runs
   # for this repository's own events (pushes to main, its pull requests, tags and runs by hand). The siblings are read with the
   # repository secret SIBLINGS_READ_TOKEN (read-only contents on the three repositories, the maintainer's to make): without it
   # the job fails and says why, and never passes; a lane that could not run fails it too (SW_INTEROP_REQUIRED). The token rides

@@ -46,8 +46,19 @@ class PlayMap {
       patternsHost: `${patterns.addr}:${patterns.port}`, patternsToken: patterns.token,
       stagewatchHost: stagewatch, stagewatchKey: key ? key.secret : '', stagewatchEnabled: true, companion: { mdns: false },
     }, null, 1), { mode: 0o600 });
+    return this.launch(ms);
+  }
+
+  /**
+   * Start the engine on the home it has (the first start, after its settings are written; or again after a kill, the same id,
+   * settings, key store, address and ports, its output kept apart: playmap.2.out, ...); resolves once its log says it is up
+   * again (within ms): an "is up" line written after this start, whether the engine went on with its log or began it afresh.
+   */
+  async launch(ms = 60000) {
+    this.starts = (this.starts || 0) + 1;
+    const logged = fs.existsSync(this.engineLog) ? fs.readFileSync(this.engineLog, 'utf8') : '';
     this.proc = new AppProcess(this.run, {
-      name: 'playmap',
+      name: this.starts === 1 ? 'playmap' : `playmap.${this.starts}`,
       ns: this.host.ns,
       command: 'dotnet',
       args: [this.run.builds.mapper.node, 'engine', '--headless', '--home', this.folders.home, '--no-recover'],
@@ -57,7 +68,8 @@ class PlayMap {
     const up = await until(() => {
       if (!this.proc.running) throw fatal(`the engine exited (${JSON.stringify(this.proc.exit)}) before it was up`);
       const text = fs.existsSync(this.engineLog) ? fs.readFileSync(this.engineLog, 'utf8') : '';
-      const line = text.split('\n').find((l) => UP.test(l));
+      const since = text.startsWith(logged) ? text.slice(logged.length) : text;
+      const line = since.split('\n').find((l) => UP.test(l));
       const m = line && UP.exec(line);
       return m ? { at: Date.now(), wire: m[1], web: m[2], renderer: m[3].trim(), line } : null;
     }, ms, "PlayMap's 'is up' line").catch((e) => { throw this.proc.why(e); });
@@ -194,6 +206,13 @@ class PlayMap {
     this.closeWire();
     await this.closeOperator();
     return this.proc ? this.proc.stop('SIGTERM') : null;
+  }
+
+  /** Killed as a crash is (SIGKILL: no word to anyone, its sockets reset by the kernel); resolves once it has ended. */
+  async kill() {
+    this.closeWire();
+    await this.closeOperator();
+    return this.proc.stop('SIGKILL', 0);
   }
 
   /** What it keeps a secret in by design: playmap.node.json (its token and Patterns') and its TLS key's folder. */

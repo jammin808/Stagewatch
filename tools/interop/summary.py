@@ -20,7 +20,7 @@ import os
 import sys
 from pathlib import Path
 
-TOPOLOGIES = ('lan', 'laptop')
+TOPOLOGIES = ('lan', 'laptop', 'offline')
 # builds.json's ends short of a build (tools/interop/build.sh's exit codes 1, 2 and 3), and how the summary heads each.
 ENDS = {'failed': 'not built', 'refused': 'refused', 'notRun': 'not run'}
 APPS = (('stagewatch', 'Stagewatch (the rig)'), ('patterns', 'Patterns (bench host)'), ('mapper', 'PlayMap (node)'),

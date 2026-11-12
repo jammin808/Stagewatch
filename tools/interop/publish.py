@@ -26,7 +26,7 @@ import shutil
 import sys
 from pathlib import Path
 
-TOPOLOGIES = ('lan', 'laptop')
+TOPOLOGIES = ('lan', 'laptop', 'offline')
 # The sweep's row: every file of a topology's run read for every secret of its register (tests/interop/lib/sweep.cjs).
 SWEEP_ROW = 'S7.1'
 # From an app's home, only its journals and logs.

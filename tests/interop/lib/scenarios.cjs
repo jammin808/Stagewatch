@@ -289,6 +289,24 @@ async function lockoutAfter(sw, r, never) {
   if (counted.length) throw new Error(`the rig counted failures against ${counted.join(', ')}`);
 }
 
+/**
+ * No address is ever counted (row S7.4): every row the matrix holds before `self` read the rig's lockout tables after it (its
+ * `auth` names the addresses it read, each 0 in both tables, which lockoutAfter asserted as it read them), and neither of the
+ * rig's tables counts any address now. Resolves with what was read.
+ */
+async function nobodyCounted(sw, matrix, self) {
+  const rows = matrix.doc.rows.filter((x) => x.id !== self);
+  const unread = rows.filter((x) => x.verdict !== 'pass' || Object.keys(x.auth).length === 0).map((x) => x.id);
+  if (unread.length) throw new Error(`rows that did not pass with the lockout tables read after them: ${unread.join(', ')}`);
+  const counted = rows.flatMap((x) => Object.entries(x.auth).filter(([, n]) => n.pins || n.viewPasses).map(([a]) => `${x.id} ${a}`));
+  if (counted.length) throw new Error(`addresses counted after a row: ${counted.join(', ')}`);
+  const t = await sw.auth();
+  const now = [...Object.entries(t.pins).map(([a, n]) => [a, n, 'wrong PINs']), ...Object.entries(t.viewPasses).map(([a, n]) => [a, n, 'wrong view passes'])]
+    .filter(([, n]) => n > 0);
+  if (now.length) throw new Error(`the rig counts ${now.map(([a, n, what]) => `${a} (${n} ${what})`).join(', ')}`);
+  return { rowsRead: rows.map((x) => x.id), addresses: [...new Set(rows.flatMap((x) => Object.keys(x.auth)))], tables: { pins: t.pins, viewPasses: t.viewPasses } };
+}
+
 /** The time since `from` (unix ms), for a row's measured facts. */
 const since = (from) => Date.now() - from;
 
@@ -442,5 +460,5 @@ async function noSecretAnywhere({ run, matrix, apps }) {
 module.exports = {
   patternsHears, playmapHears, agmessageHears, rigHears, oneIdOnePeer, playmapUnmarked, playmapMarksConflict, rigShowsContext,
   playmapFollowsPatterns, unknownWordsRefused, noSecretAnywhere,
-  stagewatchLinks, allLive, stillHeld, readLockout, lockoutAfter, namesAddress, since, left, inTime, HELLO_ONLY,
+  stagewatchLinks, allLive, stillHeld, readLockout, lockoutAfter, nobodyCounted, namesAddress, since, left, inTime, HELLO_ONLY,
 };

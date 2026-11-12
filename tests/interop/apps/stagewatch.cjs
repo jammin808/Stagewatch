@@ -24,11 +24,16 @@ const NODE_ID = 'interop-sw-1';
 const BUS_PORT = 9928;
 
 class Stagewatch {
-  /** `bus`: { keys } puts the rig on the show network with that many node keys (see the header); omitted, it is off it. */
+  /**
+   * `bus`: { keys } puts the rig on the show network with that many node keys (see the header); { keys, hello: false } gives it
+   * the keys and its certificate with no Show Bus port (a laptop with no network, where every address is typed); omitted, it
+   * is off it.
+   */
   constructor(run, host, bus = null) {
     this.run = run;
     this.host = host;
     this.bus = bus;
+    this.onBus = !!bus && bus.hello !== false;
     this.folders = run.folders('stagewatch');
     // 16 hex: long enough that finding it in a capture means it leaked, never a timestamp that happens to hold it.
     this.pinFile = run.secrets.file('stagewatch.pin', hex(8));
@@ -57,7 +62,7 @@ class Stagewatch {
       args: [this.run.builds.stagewatch.rig, '--port', String(PORTS.http), '--companion', String(PORTS.companion), '--osc', String(PORTS.osc),
         '--bind', 'all', '--pin-file', this.pinFile, '--secrets-out', this.secretsOut, '--state', this.state, '--journal', this.journal,
         '--node-id', NODE_ID, '--exit-on-eof',
-        ...(this.bus ? ['--bus', String(BUS_PORT), '--tls', this.tlsFolder, '--node-keys', String(this.bus.keys)] : [])],
+        ...(this.bus ? [...(this.onBus ? ['--bus', String(BUS_PORT)] : []), '--tls', this.tlsFolder, '--node-keys', String(this.bus.keys)] : [])],
       env: baseEnv(this.folders),
       cwd: this.folders.home,
       stdin: true,
@@ -110,7 +115,8 @@ class Stagewatch {
     if (r.secrets !== 'file') wrong.push(`secrets ${r.secrets}`);
     if (r.journal !== true) wrong.push('no journal');
     if (this.bus) {
-      if (r.bus !== BUS_PORT) wrong.push(`bus ${r.bus}, not ${BUS_PORT}`);
+      const port = this.onBus ? BUS_PORT : 0;
+      if (r.bus !== port) wrong.push(`bus ${r.bus}, not ${port}`);
       if (!/^sha256:[0-9a-f]{64}$/.test(r.tls || '')) wrong.push(`tls ${r.tls}, not a certificate's fingerprint`);
       // A first start names every key it made; a restart makes none (--state keeps them).
       const made = (r.nodeKeys || []).map((k) => k.id);
@@ -250,6 +256,57 @@ class Stagewatch {
     return res.json;
   }
 
+  /** The operator's frame as the operator's own pages read it (GET /api/state?detail=1 with the PIN): it ends desk, network. */
+  async operatorFrame() {
+    const res = await get(`http://${this.address}/api/state?detail=1`, 5000, { 'X-Stagewatch-Pin': this.pin });
+    if (res.status !== 200 || !res.json) throw new Error(`the rig answered GET /api/state?detail=1 with ${res.status}`);
+    return res.json;
+  }
+
+  /**
+   * A command with a receipt, as the operator's pages and Companion send one (GET /api/<segments>, each argument one path
+   * segment, with the PIN and a request id): { status, json }, whatever it said, for the row to read.
+   */
+  async api(segments, id) {
+    const route = `http://${this.address}/api/${segments.map(encodeURIComponent).join('/')}`;
+    const res = await get(route, 30000, { 'X-Stagewatch-Pin': this.pin, 'X-Request-Id': id });
+    return { status: res.status, json: res.json, text: res.text };
+  }
+
+  /** Every proposal the rig's desk holds as the operator reads them (GET /api/proposals with the PIN). */
+  async proposals() {
+    const res = await get(`http://${this.address}/api/proposals`, 5000, { 'X-Stagewatch-Pin': this.pin });
+    if (res.status !== 200 || !res.json || !Array.isArray(res.json.proposals)) throw new Error(`the rig answered GET /api/proposals with ${res.status}`);
+    return res.json.proposals;
+  }
+
+  /** One proposal by its id as the rig's desk keeps it (GET /api/proposals/<id> with the PIN). */
+  async proposal(id) {
+    const res = await get(`http://${this.address}/api/proposals/${encodeURIComponent(id)}`, 5000, { 'X-Stagewatch-Pin': this.pin });
+    if (res.status !== 200 || !res.json) throw new Error(`the rig answered GET /api/proposals/${id} with ${res.status}`);
+    return res.json;
+  }
+
+  /** The room's one verdict as its route serves it (GET /api/preflight with the PIN). */
+  async preflight() {
+    const res = await get(`http://${this.address}/api/preflight`, 5000, { 'X-Stagewatch-Pin': this.pin });
+    if (res.status !== 200 || !res.json) throw new Error(`the rig answered GET /api/preflight with ${res.status} ${res.text.slice(0, 160)}`);
+    return res.json;
+  }
+
+  /**
+   * The rig's Companion door as the Companion module holds it (lib/companion.cjs): a connection from the switch that subscribes
+   * to the JSON frames and pings, kept until the rig stops or `closeCompanion`; opened again after a restart.
+   */
+  async companion() {
+    if (this.deck && !this.deck.closed) return this.deck;
+    const { CompanionDeck } = require('../lib/companion.cjs');
+    this.deck = await CompanionDeck.connect(this.host.addr, PORTS.companion, this.run.log(`stagewatch.companion.${this.starts}`));
+    return this.deck;
+  }
+
+  closeCompanion() { if (this.deck) { this.deck.close(); this.deck = null; } }
+
   /**
    * Stop its show thread for ms (1..30000) through the rig's own `stall` line. Resolves with the unix ms the rig says the
    * thread stopped, and `running(within)`, which resolves with the unix ms it says the thread turned over again; both times
@@ -268,9 +325,9 @@ class Stagewatch {
   }
 
   /** Killed as a crash is (SIGKILL: no word to anyone, its sockets reset by the kernel); resolves once it has ended. */
-  kill() { return this.proc.stop('SIGKILL', 0); }
+  kill() { this.closeCompanion(); return this.proc.stop('SIGKILL', 0); }
 
-  stop() { return this.proc ? this.proc.stop('eof') : null; }
+  stop() { this.closeCompanion(); return this.proc ? this.proc.stop('eof') : null; }
 
   /** What it keeps a secret in by design: --state (the windows' addresses beside the keys' hashes) and its certificate's folder
    *  (the private key, and its password unsealed off Windows). */

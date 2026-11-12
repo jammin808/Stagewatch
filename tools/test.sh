@@ -18,15 +18,17 @@
 #            Patterns' bench host, PlayMap's node and AGMessage's server, the three siblings at the pushed commits
 #            tools/interop/siblings.json pins, each built in a clone of the lane's own, never in a sibling's working tree
 #            (tools/interop/build.sh), then run on each topology in turn, each in user, network, PID and mount namespaces
-#            of its own that end with its run (tools/interop/run.sh): lan (each app a host of its own on one switch) and
-#            laptop (the four on one host with its Wi-Fi up). Each topology's matrix, a row per cross-app fact with its
+#            of its own that end with its run (tools/interop/run.sh): lan (each app a host of its own on one switch),
+#            laptop (the four on one host with its Wi-Fi up) and offline (the four on one host with no network, its
+#            loopback alone). Each topology's matrix, a row per cross-app fact with its
 #            verdict, its time and its evidence, goes to artifacts/interop/<topology>. The lane's own scripts are checked
 #            first (tools/interop/selfcheck.py), and the lane does not run when they fail. Where a sibling's repository is
 #            absent, a pin cannot be fetched, no Node for AGMessage is found or fetched, or the kernel gives this user no
 #            such namespaces, bridge or veth, the lane is "not run", said with why and never counted as passed. It changes
 #            no setting of the machine's. tools/interop/summary.py prints what a run built and its rows;
 #            tools/interop/publish.py copies what may leave the machine (CI's artifact).
-#              SW_INTEROP_TOPOLOGY=lan|laptop   one topology (default: both)
+#              SW_INTEROP_TOPOLOGY=lan|laptop|offline
+#                                               one topology (default: all three)
 #              SW_INTEROP_REQUIRED=1            "not run" fails the lane (CI)
 #              SW_INTEROP_HEADS=1               each sibling at its repository's HEAD instead of its pin, still pushed only
 #                                               (CI's nightly drift report)
@@ -92,9 +94,9 @@ for l in "${lanes[@]}"; do
       lane interop
       python3 -I tools/interop/selfcheck.py || { failed+=("interop (self-check)"); continue; }
       case "${SW_INTEROP_TOPOLOGY:-all}" in
-        all) topologies=(lan laptop) ;;
-        lan|laptop) topologies=("$SW_INTEROP_TOPOLOGY") ;;
-        *) echo "interop: SW_INTEROP_TOPOLOGY is lan, laptop or all (given: \"$SW_INTEROP_TOPOLOGY\"); offline has no rows yet" >&2
+        all) topologies=(lan laptop offline) ;;
+        lan|laptop|offline) topologies=("$SW_INTEROP_TOPOLOGY") ;;
+        *) echo "interop: SW_INTEROP_TOPOLOGY is lan, laptop, offline or all (given: \"$SW_INTEROP_TOPOLOGY\")" >&2
            failed+=(interop); continue ;;
       esac
       tools/interop/build.sh

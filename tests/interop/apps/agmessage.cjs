@@ -34,9 +34,12 @@ class AGMessage {
    *  and its health answers (within ms). */
   async start(stagewatch, ms = 60000) {
     const h = this.folders.home;
-    fs.writeFileSync(path.join(h, 'data', 'settings.json'), JSON.stringify({ stagewatchUrl: `http://${stagewatch}` }, null, 2), { mode: 0o600 });
+    // Its settings are typed once, before its first start; a restart finds them as the server left them (its context token
+    // sealed there among them), as a restarted server does.
+    this.starts = (this.starts || 0) + 1;
+    if (this.starts === 1) fs.writeFileSync(path.join(h, 'data', 'settings.json'), JSON.stringify({ stagewatchUrl: `http://${stagewatch}` }, null, 2), { mode: 0o600 });
     this.proc = new AppProcess(this.run, {
-      name: 'agmessage',
+      name: this.starts === 1 ? 'agmessage' : `agmessage.${this.starts}`,
       ns: this.host.ns,
       command: this.run.builds.agmessage.node,
       args: [this.run.builds.agmessage.server],
@@ -158,6 +161,9 @@ class AGMessage {
   }
 
   async stop() { await this.closeAdmin(); return this.proc ? this.proc.stop('SIGTERM') : null; }
+
+  /** Killed as a crash is (SIGKILL); its admin helper, whose server is gone, ends with it. Resolves once it has ended. */
+  async kill() { await this.closeAdmin(); return this.proc.stop('SIGKILL', 0); }
 
   /** What it keeps a secret in by design: its server's secret key (in its data folder) and its key folder (AGM_KEY_DIR). */
   secretFiles() { return [path.join(this.folders.home, 'data', 'secret.key'), path.join(this.folders.home, 'keys')]; }

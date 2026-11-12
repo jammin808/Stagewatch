@@ -7,8 +7,9 @@
 # UDP, abstract Unix sockets), and is the topology's alone (lan.py builds in no other), and its user is that user namespace's
 # root, the invoking user outside it. Its mount namespace hides none of the machine's files: a Unix socket bound to a path
 # stays reachable, and no app is given the address of one (tests/interop/lib/proc.cjs gives each its own environment).
-# <topology> is lan (each app a host of its own on one switch: tests/interop/lan.interop.cjs) or laptop (the four apps on
-# one host with its Wi-Fi up: tests/interop/laptop.interop.cjs). It asks lan.py whether this kernel gives a namespace a
+# <topology> is lan (each app a host of its own on one switch: tests/interop/lan.interop.cjs), laptop (the four apps on
+# one host with its Wi-Fi up: tests/interop/laptop.interop.cjs) or offline (the four apps on one host with no network, its
+# loopback alone: tests/interop/offline.interop.cjs). It asks lan.py whether this kernel gives a namespace a
 # bridge and a veth, makes the topology's folder afresh ($SW_INTEROP_OUT/<topology>: its run folder, this user's alone, and
 # its matrix) with the run's secrets folder a tmpfs of the run's own mount namespace (--mount-proc makes one), so no secret
 # the driver hands over there is written to a disk and that folder, seen from outside the run, during it or after it (a
@@ -25,8 +26,8 @@ if [ "$$" != 1 ]; then
 fi
 topology="${1:-}"
 case "$topology" in
-  lan|laptop) ;;
-  *) echo "interop: run.sh takes the topology, lan or laptop (given: \"$topology\")" >&2; exit 2 ;;
+  lan|laptop|offline) ;;
+  *) echo "interop: run.sh takes the topology, lan, laptop or offline (given: \"$topology\")" >&2; exit 2 ;;
 esac
 # No proxy reaches into these namespaces, and an app or the driver that read one would send the LAN's own requests to it.
 unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy NO_PROXY no_proxy

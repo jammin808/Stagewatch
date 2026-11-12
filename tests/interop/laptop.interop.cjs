@@ -8,8 +8,12 @@
 // addresses, so after every row both of the rig's lockout tables (wrong PINs; wrong view passes) hold 0 for 127.0.0.1 and for
 // the laptop's address. Each table's reader is shown to see those two addresses by a control from each: the PIN's in S1c.1
 // (a wrong PIN counted, the right one clearing it), the view passes' in S7.1, after the last read (a wrong window address
-// counted; only the end of its minute clears it). When the rows end the apps are stopped, the files each keeps a secret in by
-// design are removed, and the matrix is written, whatever happened.
+// counted; only the end of its minute clears it). The rig runs as the show laptop runs the app: on the Show Bus port, serving
+// its certificate beside plain HTTP, and making two node keys, one for Patterns and one for PlayMap, each handed over in that
+// app's own settings (AGMessage is given none: its keyed rows are another unit's); so every app that dials it speaks with a
+// credential, or with none, and none is a guess. S1c.3 watches the laptop for two minutes with every app linked, and S7.4
+// reads that no row counted any address and that neither table counts one at the end. When the rows end the apps are
+// stopped, the files each keeps a secret in by design are removed, and the matrix is written, whatever happened.
 //
 // Deadlines are the contract's number × 1.5 + 2 s, as on the LAN (lan.interop.cjs): a hello every 2 s → heard within 5 s, a
 // link to the rig live within the gone bound (12 s → 20 s), each counted from the moment the last app said it was ready.
@@ -23,7 +27,7 @@ const { Stagewatch, PORTS } = require('./apps/stagewatch.cjs');
 const { Patterns, DOORS } = require('./apps/patterns.cjs');
 const { PlayMap } = require('./apps/playmap.cjs');
 const { AGMessage } = require('./apps/agmessage.cjs');
-const { until } = require('./lib/inbox.cjs');
+const { until, sleep } = require('./lib/inbox.cjs');
 const S = require('./lib/scenarios.cjs');
 
 const APPS = ['stagewatch', 'patterns', 'playmap', 'agmessage'];
@@ -35,6 +39,12 @@ const HELLO_MS = 5000;
 const LINK_MS = 20000;
 /** What the maintainer types on one machine. */
 const LOOPBACK = '127.0.0.1';
+/** The rig's node keys: Patterns' and PlayMap's. */
+const RIG_KEYS = 2;
+/** S1c.3 watches the laptop this long with every app linked: past a minute's lockout window twice over. */
+const WATCH_MS = 120000;
+/** S1c.3 reads the lockout tables this often during its watch. */
+const WATCH_EVERY_MS = 5000;
 
 let run;
 let lan;
@@ -94,7 +104,7 @@ test('S1c.1 every app hears every other on one laptop', row({
   r.evidence.push(...APPS.flatMap((n) => [run.log(`${n}.out`), run.log(`${n}.err`)]), run.log('lan.out'), run.log('patterns.wire'),
     run.log('playmap.wire'), run.log('agmessage-admin.out'));
   const rigAt = `${LOOPBACK}:${PORTS.http}`;
-  const sw = new Stagewatch(run, laptop);
+  const sw = new Stagewatch(run, laptop, { keys: RIG_KEYS });
   apps.stagewatch = sw;
   await sw.start(READY_MS);
   sw.checkReady();
@@ -102,7 +112,7 @@ test('S1c.1 every app hears every other on one laptop', row({
 
   const pat = new Patterns(run, laptop);
   apps.patterns = pat;
-  await pat.start(rigAt, READY_MS);
+  await pat.start(rigAt, READY_MS, sw.keyFor('patterns'));
   pat.checkReady();
   matrix.said('patterns', `bench ${pat.ready.build}, node ${pat.ready.node}`);
   ids.patterns = pat.ready.node;
@@ -110,7 +120,7 @@ test('S1c.1 every app hears every other on one laptop', row({
   const pm = new PlayMap(run, laptop);
   apps.playmap = pm;
   r.evidence.push(pm.engineLog);
-  await pm.start({ addr: LOOPBACK, port: DOORS.wire, token: pat.token }, rigAt, READY_MS);
+  await pm.start({ addr: LOOPBACK, port: DOORS.wire, token: pat.token }, rigAt, READY_MS, sw.keyFor('playmap'));
   pm.checkReady();
   matrix.said('playmap', `node ${pm.nodeId}, renderer ${pm.up.renderer}`);
   ids.playmap = pm.nodeId;
@@ -150,12 +160,14 @@ test('S1c.1 every app hears every other on one laptop', row({
   const heardMs = S.since(readyAt);
 
   // Every link to the rig live, each at the address the maintainer typed: PlayMap's link dials 127.0.0.1 and trusts the time
-  // it shows, Patterns follows 127.0.0.1, AGMessage's settings name it and its link is connected.
+  // it shows, Patterns follows the rig it was typed (named 127.0.0.1 until the rig's hello names its room, and the room's name
+  // once it does), AGMessage's settings name it and its link is connected.
+  const room = (await sw.context()).node.name;
   const links = await until(async () => {
     const l = await S.stagewatchLinks(apps);
     if (!S.allLive(l)) throw new Error(`not every link to the rig is live: ${JSON.stringify(l)}`);
     if (l.playmap.host !== rigAt) throw new Error(`PlayMap's link dials ${l.playmap.host}, not ${rigAt}`);
-    if (l.patterns.name !== LOOPBACK) throw new Error(`Patterns follows ${l.patterns.name}, not ${LOOPBACK}`);
+    if (l.patterns.name !== LOOPBACK && l.patterns.name !== room) throw new Error(`Patterns follows ${l.patterns.name}, not ${LOOPBACK} or ${room}`);
     const url = (await agm.settings()).stagewatchUrl;
     if (url !== `http://${rigAt}`) throw new Error(`AGMessage's settings link it to ${url}, not http://${rigAt}`);
     return { ...l, agmessage: { ...l.agmessage, url } };
@@ -184,6 +196,63 @@ test('S1c.2 PlayMap follows Patterns at 127.0.0.1', row({
 }, async (r) => {
   r.evidence.push(run.log('playmap.wire'), run.log('patterns.wire'), apps.playmap.engineLog);
   r.facts = await S.playmapFollowsPatterns(apps.playmap, apps.patterns, `${LOOPBACK}:${DOORS.wire}`, HELLO_MS);
+  await lockoutAfter(r);
+}));
+
+test('S1c.3 the rig on the laptop, and nobody locks the laptop out', row({
+  id: 'S1c.3',
+  title: "the rig on the show laptop's Show Bus: it hears every app from the laptop's own addresses and every app hears it; Patterns and PlayMap speak with their own node keys; then for two minutes, with every app linked, neither of the rig's lockout tables counts 127.0.0.1 or the laptop's address at any read",
+  apps: APPS,
+  deadlineMs: [HELLO_MS, WATCH_MS],
+}, async (r) => {
+  r.evidence.push(run.log('stagewatch.out'), run.log('patterns.wire'), run.log('playmap.wire'), run.log('agmessage-admin.out'));
+  const sw = apps.stagewatch;
+  const own = [laptop.addr, LOOPBACK];
+  const t = Date.now();
+  const rig = await S.rigHears(sw, [
+    { t: 'patterns', id: ids.patterns, addr: own },
+    { t: 'playmap', id: ids.playmap, addr: own },
+    { t: 'messenger', id: ids.agmessage, addr: own, helloOnly: true },
+  ], HELLO_MS);
+  const node = sw.ready.node;
+  const patterns = await S.patternsHears(apps.patterns, [{ kind: 'main', id: node, addr: own }], S.left(t, HELLO_MS));
+  const playmap = await S.playmapHears(apps.playmap, [{ t: 'main', id: node, addr: own }], S.left(t, HELLO_MS));
+  const agmessage = await S.agmessageHears(apps.agmessage, [{ t: 'main', id: node, addr: own }], S.left(t, HELLO_MS));
+  const heardMs = S.inTime(t, HELLO_MS, 'the rig and every app hearing each other');
+  // Patterns' and PlayMap's node links speak with their own keys, as the rig's own record says.
+  const keyed = await until(async () => {
+    const rows = await sw.nodes();
+    const wrong = [];
+    for (const [app, id] of [['patterns', ids.patterns], ['playmap', ids.playmap]]) {
+      const x = rows.find((n) => n.id === id);
+      if (!x || x.verified !== 'key' || x.keyId !== sw.keyFor(app).id) wrong.push(`${app} ${JSON.stringify(x || null)}`);
+    }
+    if (wrong.length) throw new Error(`not speaking with its own key: ${wrong.join('; ')}`);
+    return rows.map((n) => ({ t: n.t, id: n.id, verified: n.verified, keyId: n.keyId }));
+  }, HELLO_MS, "Patterns' and PlayMap's node links speaking with their own keys");
+  // The watch: every app linked at every read, and the laptop's two addresses counted in neither table.
+  const watchFrom = Date.now();
+  const watch = { reads: 0, linked: 0 };
+  while (S.since(watchFrom) < WATCH_MS) {
+    await sleep(WATCH_EVERY_MS);
+    const l = await S.stagewatchLinks(apps);
+    if (!S.allLive(l)) throw new Error(`${S.since(watchFrom)} ms into the watch not every link to the rig is live: ${JSON.stringify(l)}`);
+    watch.linked++;
+    const { counted } = await S.readLockout(sw, [LOOPBACK, laptop.addr]);
+    if (counted.length) throw new Error(`${S.since(watchFrom)} ms into the watch the rig counted failures against ${counted.join(', ')}`);
+    watch.reads++;
+  }
+  r.facts = { rig, patterns, playmap, agmessage, heardMs, keyed, watch: { ms: S.since(watchFrom), ...watch } };
+  await lockoutAfter(r);
+}));
+
+test("S7.4 no app's address is ever counted", row({
+  id: 'S7.4',
+  title: "no address is ever counted: every row before this one read both of the rig's lockout tables after it with the laptop's addresses at 0, and now neither table counts any address at all",
+  apps: APPS,
+  deadlineMs: null,
+}, async (r) => {
+  r.facts = await S.nobodyCounted(apps.stagewatch, matrix, 'S7.4');
   await lockoutAfter(r);
 }));
 

@@ -164,7 +164,7 @@ read and how long it took. It is not a default lane: it builds three other repos
 ```bash
 tools/setup-dev.sh                                # once: Python 3.12+, unshare, nsenter, mount, the driver's packages
 tools/test.sh interop                             # the build lane, the self-check, the siblings' builds, each topology
-SW_INTEROP_TOPOLOGY=laptop tools/test.sh interop  # one topology: lan or laptop
+SW_INTEROP_TOPOLOGY=laptop tools/test.sh interop  # one topology: lan, laptop or offline
 tools/test.sh help                                # every lane, and every variable a person sets for it
 ```
 
@@ -214,7 +214,7 @@ for the run.
 |---|---|---|
 | `lan` | separate hosts on one switch: a bridge at 10.99.0.1 (the driver, which never listens on the Show Bus port) and a namespace per app joined to it by a veth, each with its own address and loopback: the rig 10.99.0.2, Patterns 10.99.0.3, PlayMap 10.99.0.4, AGMessage 10.99.0.5. A broadcast crosses the bridge as on a real LAN, and a cable is pulled and put back at the bridge's end, so the host keeps its addresses as a machine with a pulled cable does | `tests/interop/lan.interop.cjs` |
 | `laptop` | the maintainer's show laptop: the four apps on one host, its Wi-Fi a veth at 10.99.0.2 with a default route, the access point at 10.99.0.1; each app is typed the others' addresses as on one machine, 127.0.0.1 and the port | `tests/interop/laptop.interop.cjs` |
-| `offline` | one host with loopback only: `lan.py offline` builds it, and no driver runs on it yet (its rows are named in `docs/WHATS_NEXT.md`) | none yet |
+| `offline` | the show laptop with no network at all: the four apps on one host whose only interface is its loopback, so nothing is heard on the Show Bus and every link is an address typed as on one machine, 127.0.0.1 and the port; the rig makes its node keys and serves its certificate with no Show Bus port | `tests/interop/offline.interop.cjs` |
 
 **Secrets.** Every secret the run makes or learns is in the run's register: the rig's PIN and node keys, its certificate's
 password (kept unsealed beside the key off Windows), each app's token, and AGMessage's admin and context tokens. The driver
@@ -245,8 +245,9 @@ once those are removed, for every secret of the register, in either case. A row'
   moment the app that caused the event says it happened, else from the driver's act, and a hello from the moment the last
   app said it was ready. A row that only gets to read after its deadline fails rather than claim it.
 - After every row both of the rig's lockout tables (wrong PINs; wrong view passes) are read, and no address of the run is
-  counted in either: on the LAN the switch's and every app's, on the laptop 127.0.0.1 and its own address. A control from
-  those addresses shows each table's reader sees them.
+  counted in either: on the LAN the switch's and every app's, on the laptop 127.0.0.1 and its own address, offline
+  127.0.0.1. A control from those addresses shows each table's reader sees them. Row S7.4, last but one on each topology,
+  reads that every row before it did so and that neither table counts any address at all.
 
 | Row | On | What it holds |
 |---|---|---|
@@ -267,10 +268,21 @@ once those are removed, for every secret of the register, in either case. A row'
 | S6.1 | lan | the rig killed and restarted: every link lets go, then is gone, then is live again |
 | S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again |
 | S6.2a | lan | a stuck Stagewatch: PlayMap's link stays live and shows no time, for Stagewatch's own reason, and the rig's running time again once the show turns over |
-| S7.1 | lan, laptop | no secret of the register in any log, frame, STATE, context, report or capture the run kept |
-| S7.3 | lan | unknown words are refused by Patterns, PlayMap and the rig |
+| S3.3 | lan | Patterns' assistant proposes a look to the rig's desk (the bench's `propose look`): pending there at review as the bench's own `APPLY <id>` naming the look, approved by the operator (`desk approve <id>`), Patterns applies it once, opening EDIT SAFE with the air's look unchanged, its chip says applied once, and the rig's desk says done |
+| S3.4 | lan | the rig's desk sends Patterns `VIDEO STOP` (`peer patterns`) with a synthetic clip on its air: the clip is held at its top, the rig rates it high by Patterns' table, and the rig's desk says done in Patterns' words (`ran VIDEO STOP: OK`) |
+| S6.2b | lan | a stuck Stagewatch: Patterns' link stays live and says stuck with no time from it, and its time comes back once the rig's show turns over |
+| S6.3 | lan | PlayMap killed: the rig's context row for it goes stale, then gone; the doors are not ready, PlayMap's heard row red and first, naming the node key that configures it; restarted, its links to the rig and to Patterns pair again and the doors are ready again |
+| S7.1 | lan, laptop, offline | no secret of the register in any log, frame, STATE, context, report or capture the run kept |
+| S7.3 | lan | unknown words are refused by Patterns, PlayMap and the rig, and by the rig's desk: a line an app's verbs do not list is refused there with the words and becomes no proposal |
+| S7.4 | lan, laptop, offline | no address is ever counted: every row before it read both lockout tables with the run's addresses at 0, and neither table counts any address at all |
+| S8.1 | lan | ready for doors with everything up: the rig's verdict (`/api/preflight`) ready with Patterns' and PlayMap's heard and context rows green and AGMessage's heard row green (its context row recorded, amber until it holds a key), no app's own context lighting red (the matrix's `ownItems`, S8.0), and the operator frame's `network` and the Companion module's `network_ready` saying the same |
+| S8.2 | lan | not ready, saying why (read inside S6.3): one red row, first, PlayMap's heard, naming its node key and the fix; the frame's `network` and the Companion module's `network_ready` say not ready |
+| S8.3 | lan | a stuck show is never ready: the verdict not ready and stuck with one red row within 6.5 s of the rig's stall, the Companion module's `network_ready` unknown, both ready again once the show turns over |
+| S8.4 | lan | AGMessage, only seen (no key or link configures it), killed: its heard row amber and the doors ready at every read through the gone bound; restarted, connected again and green |
 | S1c.1 | laptop | on one laptop every app hears every other from the laptop's own addresses, and every link to the rig is live at 127.0.0.1 |
 | S1c.2 | laptop | PlayMap follows Patterns at 127.0.0.1, paired by proof |
+| S1c.3 | laptop | the rig on the laptop's Show Bus hears every app from the laptop's own addresses and every app hears it; Patterns and PlayMap speak with their own node keys; for two minutes with every app linked, neither lockout table counts 127.0.0.1 or the laptop's address |
+| S1b.1 | offline | with no network, the addresses typed as 127.0.0.1 link every pair: PlayMap follows Patterns, paired by proof; every link to the rig is live, Patterns' and PlayMap's with their own node keys from 127.0.0.1 |
 
 The suite's `InteropDocTests` hold this table to the drivers, so a row a driver adds or drops fails the suite until the
 table says so: a driver's rows are its top-level `test(…, row({ id: '…', … }))` calls, one per id, and a driver that skips,
@@ -311,13 +323,20 @@ not run". `docs/WHATS_NEXT.md` has the job's details and the maintainer's action
   alone (a key that speaks for no node refused in the rig's words);
 - carry PlayMap's and Patterns' contexts to the rig and the rig's to Patterns, within Show Bus §14's bounds, and refuse
   unknown words and a key speaking for another node;
-- let every link to the rig go when the rig is killed or its cable pulled, and come back; PlayMap shows no time while the
-  rig's show thread is stuck, and the rig's time again after;
+- let every link to the rig go when the rig is killed or its cable pulled, and come back; PlayMap and Patterns show no time
+  while the rig's show thread is stuck, and the rig's time again after;
+- carry a line across the rig's desk both ways: Patterns' assistant's proposal approved at the rig and applied at Patterns
+  in EDIT SAFE, and the rig's own line run at Patterns, each with the desk saying done in Patterns' words; a line an app does
+  not list is refused at the desk;
+- give the room one verdict on every door (the route, the operator frame, the Companion door read by the module's rule):
+  ready with everything up, not ready naming the configured node that went and its key, never ready while the show is
+  stuck, and still ready when a node only seen goes away;
 - lock no address of the run out of Stagewatch, and leave no secret of the run's register in any log, frame, STATE,
   context, report or capture the run keeps (a secret an app makes for itself, such as its own certificate's key or
   AGMessage's `data/secret.key`, is not in the register and is not looked for);
-- on separate hosts on one switch, and, for hearing each other, PlayMap following Patterns, the lockout and the sweep, on
-  one show laptop; each run from a clean start, with each fact's measured time.
+- on separate hosts on one switch; for hearing each other, PlayMap following Patterns, the rig on the Show Bus with keys,
+  the lockout over two minutes and the sweep, on one show laptop; for every pair linked at 127.0.0.1, the lockout and the
+  sweep, on that laptop with no network; each run from a clean start, with each fact's measured time.
 
 **What it does not prove.**
 - **Two machines and a real network.** One kernel is not two machines: a firewall's prompts, a machine with two networks,
@@ -327,7 +346,16 @@ not run". `docs/WHATS_NEXT.md` has the job's details and the maintainer's action
   WebView2 (the design's S5.1w, Patterns showing a granted page: a Windows job or the walk), DPAPI (the rig's certificate
   password is unsealed off Windows) and PlayMap's Direct3D 12 never run on the lane.
 - **The desk itself.** The rig is Stagewatch's servers around a simulated show, not the WPF app, so the app's own link to
-  Patterns (`PlayoutLink`) is held by the suite against scripted desks and the scripted peer, not by the lane.
+  Patterns (`PlayoutLink`) is held by the suite against scripted desks and the scripted peer, not by the lane. The rows
+  decide on the rig's desk over HTTP with the operator's PIN: its Companion door refuses `peer` and `desk` from another
+  machine, and the Companion module itself does not run here; its `network_ready` is read off the rig's Companion door by the
+  module's own rule (a frame's `network`; a STUCK pong throws the frame away, so yes or no after a stall is read from a
+  frame sent after it). S6.3's doors are configured by PlayMap's node key, not by a playout link to it (the VT rows'
+  unit).
+- **AGMessage's own context.** AGMessage holds no node key in the lane, so it posts no context: its heard row is held
+  green and its context row stays amber, and 'ready for doors' is held on Patterns' and PlayMap's contexts alone until
+  SW-INT-AG keys it. A forged post for its id (S2.7) lights its key row red for 30 s, so the doors rows read before
+  S2.7 or wait for the room to be ready again (docs/WHATS_NEXT.md names it).
 - **Pictures, media and timing.** Patterns' clips are synthetic and PlayMap draws nothing: no decoder, renderer or output
   runs, and the deadlines are the contract's bounds with slack, not a show machine's latency.
 - **Browsers and AI.** No browser runs on the lane yet (windows, pages and grants come with the rows that need one, and
