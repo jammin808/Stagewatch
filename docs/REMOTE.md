@@ -807,7 +807,7 @@ ids. A proposal (§11) whose line is `window grant <window> <app>` is refused un
 but the operator's unless `<app>` is its own `from.id`: "a show app may ask a window only for itself". The app a grant names is
 looked up among the show apps this Stagewatch hears: on the desk, every app of the show network's join with a valid Show Bus id
 that is not this Stagewatch and that no two running machines say, with what its key-verified link's `can=` offers, else its hello's
-caps; the rig hears none yet, so every grant there is refused with "No show app called … (this Stagewatch hears none)". A grant's
+caps; the headless rig hears the show apps the same way (see 2.22, "The rig grants as the app does"). A grant's
 address travels only on its app's own key-verified node link, and a withdrawn, revoked or deleted grant's address ends black: see
 2.22, windows granted to show apps.
 
@@ -1454,5 +1454,14 @@ GET /ws?node=9f8e7d6c&t=patterns&can=pages        ← can= lists what the link o
   and Diagnostics, never a token. A load that repaired the windows writes them back at once, so a new address lasts and its note
   is said once.
 
-Not in this release yet: the rig hearing show apps for `window grant` (every grant is refused there until it does), the rig's frame
-`windows` block and `grants.e2e.cjs` (2.22, the rig's grants), and the Companion module's grant action, feedbacks and variables.
+- **The rig grants as the app does (2.22).** The headless rig hears the show apps for `window grant` as the desk does (its node links,
+  the contexts posted to it, the hellos on `--bus`; a §11 proposal approved there by its id alone), builds the window items over every
+  viewer, grant and claim, ends operator frames with `windows`, journals and logs each grant its app took, and keeps the grants in
+  `--state`, repairing them on load as the app's settings do. `tests/e2e/grants.e2e.cjs` runs against it a page grant (sent, held,
+  shown, its light and its taker's log line), a placement by the holder alone, a restart that keeps the grant, a draw grant (assign,
+  shown, behind, identify, reload refused), a revoke, a withdraw and the address fence over standard output and error, the frames,
+  the context and `/api/windows`; the door rule, `can=` without pages, plain non-local links, a key seen in clear, the copilot's
+  facts and a proposal approved by id are held by the unit suite (`WindowTests`, `WindowGrantTests`, `WindowLightTests`,
+  `PlayoutGateTests`).
+
+Not in this release yet: the Companion module's grant action, feedbacks and variables.

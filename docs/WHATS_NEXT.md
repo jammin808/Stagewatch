@@ -1175,10 +1175,21 @@ maintainer's too.
 - **The Companion module's comments lag** (`companion-module/src/connection.ts` says a `final` follow-up comes only after an accepted
   that waits on another node). Any command the show thread had not run within the deadline now gets one; `parseReceipt` reads it
   either way. The words move with the module's next change, and its tests.
-- **Window grants reach their apps (SW22.4); the desk makes them (SW22.5); the rig does not yet.** The web server delivers `grants`,
-  the draw messages and the black end (REMOTE 2.22, windows granted to show apps), and `/api/windows` lists each grant's state. The
-  desk hears the show network's apps for `window grant` (`ShowNetwork.Apps`); the rig still hears none, so every grant made there is
-  refused: the rig's `FindApp`, its frame's `windows` and `grants.e2e.cjs` are SW22.6's.
+- **Window grants reach their apps (SW22.4); the desk makes them (SW22.5); so does the rig (SW22.6).** The web server delivers
+  `grants`, the draw messages and the black end (REMOTE 2.22, windows granted to show apps), and `/api/windows` lists each grant's
+  state. The desk and the rig hear the show network's apps for `window grant` (`ShowNetwork.Apps`); the rig builds the window items
+  over viewers, grants and claims, ends operator frames with `windows`, journals and logs each grant taken (never an address), keeps
+  the grants in `--state` and says each repair of them as it loads. `tests/e2e/grants.e2e.cjs` runs it with two node keys: a page
+  grant on Patterns' link (`can=pages`, over this machine's loopback) acknowledged, opened, shown and green; the holder's placement
+  claim in the context and the operator frame, a non-holder's identical link placing nothing; the grant's address kept across a
+  restart; a draw grant on PlayMap's link (`window-assign`, no address, shown, then behind, `window-identify`, reload refused); revoke
+  and withdraw each ending the grant's page in plain black, the app hearing its new address or none, and a real window then loading
+  from the same browser; and no grant's address in the rig's standard output or error, a frame, the context or `/api/windows`.
+  Left: a §11 proposal approved at the rig names its app by its id alone (as the desk's), held by the unit tests of each half
+  (`FindApp(idOnly)`, `DeskOrigin.Proposal`), not by an e2e row; the grant over TLS from another machine, and a key seen in clear,
+  are the unit suite's (the rig's e2e runs on one machine's loopback). The rig's `--state` file holds the windows' and the page
+  grants' addresses (view passes) in the mode a new file gets, not owner-only as `--secrets-out` and `node.key` are: it is the
+  operator's to protect, and writing it owner-only (through `AtomicFile`, its temporary copies and `.bak` too) is open.
 - **Window lights and words (SW22.5, G22, G24).** A window's item is the worst over the viewers ever opened (its own address, each
   page grant, each drawing once it reported; a grant never opened counts for nothing), its words naming the app, then whom it is
   granted to with where each grant stands, then its holders' claims; the Screens window draws the same, with a Granted to column
@@ -1218,7 +1229,7 @@ maintainer's too.
   already said (2.19). Left, each with its unit:
   - The window item's light and words over its viewers, grants and claims, and the operator frame's `windows` block: landed in
     SW22.5 (above).
-  - The desk makes grants since SW22.5, so it takes claims; the rig makes none until SW22.6 hears show apps.
+  - The desk makes grants since SW22.5 and the rig since SW22.6, so both take claims.
   - §6 P4's `serves` row per grant holder is not published; no 2.22 unit names it.
   - Patterns at its pin reads the first 12 rows of this context's commands (its brief's cap); its 32 is Patterns' PT-W3.
   - Three of the design's rows are written whole (`nudge <seconds> | trim <item> <seconds> | delay <seconds>`, the window settings

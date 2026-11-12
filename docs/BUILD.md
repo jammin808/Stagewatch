@@ -120,8 +120,14 @@ tools/test.sh help            # what each lane does, and the variables a person 
   (Show Bus §11, the app's own `DeskService`): show apps propose, collect and report on `/api/proposals` with their node
   keys, and `peer <app> <line>` and `desk approve|reject <id>|next` run over HTTP and a WebSocket by the app's sender
   gate; `--desk-fresh SECONDS` (0.2-600, the contract's 15 by default) is how long an app's last collect keeps it
-  collecting (`tests/e2e/desk.e2e.cjs` runs it at 2, against three show apps asking every 200 ms). Lines on its standard
-  input: `stall <ms>`
+  collecting (`tests/e2e/desk.e2e.cjs` runs it at 2, against three show apps asking every 200 ms). It grants windows as
+  the app does: `window grant <window> <app>` finds its app among the show apps it hears (its node links, the contexts
+  posted to it, the hellos on `--bus`) and the web server delivers each grant on that app's own key-verified link;
+  operator frames end with `windows` while there is one, each grant its app took is a journal row and a log line, never
+  an address, and `--state` keeps the grants, repairing them as it loads as the app's settings do (each repair said on
+  standard error, never a token). The `--state` file holds the windows' and the page grants' addresses, which are view
+  passes, in the mode a new file gets (not owner-only, as `--secrets-out` is): it is the operator's to protect. Lines on
+  its standard input: `stall <ms>`
   stops its show thread that long, as a stuck show (`stalled`, then `running`); `auth` reads the lockout tables, each
   address in its open minute (`addresses` for wrong PINs, `viewPasses` for wrong window addresses, viewing codes and
   crew links, `proofs` for wrong LINK proofs per address and key id, so a check that nothing is locked out reads all
@@ -148,7 +154,9 @@ tools/test.sh help            # what each lane does, and the variables a person 
   show's exact beat (`stall.e2e.cjs`), the speaker's message and its acknowledgement as a show app sends and answers it,
   the bytes Patterns' fake Stagewatch is to copy (`message.e2e.cjs`), playout links to a fake PlayMap node and a fake
   Patterns desk (`playout.e2e.cjs`, `fakepeers.cjs`: pairing by proof, receipts in the peer's words with their follow-up,
-  a refusal from the peer's own facts that sends nothing, every reader), and the rig as the interop lane drives it
+  a refusal from the peer's own facts that sends nothing, every reader), windows granted to show apps (`grants.e2e.cjs`:
+  a page grant opened, shown and green, the holder's placement claim, a draw grant, revoke and withdraw ending in plain
+  black with no lockout, no grant's address in any output), and the rig as the interop lane drives it
   (`rig-faults.e2e.cjs`: its id across a restart, no secret on its output, `auth`, its input's end, the journal and
   report, no key kept by a start that failed). `SW_E2E_OUT=<folder>` keeps screenshots.
 - `tools/showbus-copies.sh` is Show Bus 1.3's comparison of the trees (`docs/SHOWBUS.md` §14.5): it holds the master's own

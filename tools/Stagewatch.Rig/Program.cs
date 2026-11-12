@@ -19,7 +19,9 @@ using Stagewatch.Show;
 // "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file","tls":"sha256:…"|null,
 // "playout":[{"name","kind","address"}]};
 // nodeKeys lists only the node keys made in this run (--node-keys N makes them on a first start; --state keeps their hashes and
-// the node each speaks for, never a secret).
+// the node each speaks for, never a secret). --state keeps the windows with their grants (a grant's address is in that file, the
+// rig's own, and in no line it prints); loading repairs them as the app's settings load does, each repair said on standard error
+// (never an address) and written back at once.
 // Secrets: "pin" is "none" for no PIN, "set" when it came from --pin-file or --secrets-out is given, and the PIN itself only
 // when it came from --pin (or is the default) with no --secrets-out. With --secrets-out FILE the rig writes every secret it would
 // print to FILE (owner-only on Linux and macOS, written whole before the ready line): {"pin":"…","windows":[{"name","path"}],
@@ -69,6 +71,12 @@ using Stagewatch.Show;
 // The rig simulates the timer, messages, blackout, holding images, the running order's Next/Previous/GoTo, windows,
 // screen commands (browsers only, never a show app's node link), the contexts show apps post and, with --playout, the playout
 // links; any other command is refused with words (in its receipt and its log), never pretended.
+// Windows are granted as the app grants them (Show Bus §12): `window grant <window> <app>` finds its app among the show apps the
+// rig hears this second (its node links, the contexts posted to it, the hellos on --bus; ShowNetwork.Apps, as the desk's FindApp),
+// by its id or a name no other app has, and a §11 proposal approved here by its id alone; the web server delivers each grant on that
+// app's own key-verified link. Once a second, with the context, each window's item is the worst over its viewers (its own address,
+// each grant's) with whom it is granted to and what its holders claim (12.10), operator frames end with `windows` (after network)
+// while there is one, and each grant its app took is a journal row and a log line ("Patterns FOH took lobby's address"), never an address.
 // The rig is an approval desk as the app is one (Show Bus §11), by the app's own service (DeskService): show apps propose, collect
 // and report on /api/proposals with their node keys; `peer <app> <line>` sends one line an app's verified verbs list, born
 // approved, and its receipt waits for what the app made of it; `desk approve|reject <id>|next` decides a proposal. Both are taken
@@ -497,7 +505,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         });
         // As the app: what verified peers' own journals told the desk, each line once, with its node, its own time and its road.
         _desk.Heard += line => Post(() => _journal?.Add(line.Entry(_item)));
-        if (_madeKeys is { Count: > 0 }) SaveState(state.Windows);
+        if (_madeKeys is { Count: > 0 } || state.Repaired) SaveState(_windows.Windows);
         Settings.Remote.Pin = o.Pin;
         Settings.Integrations.RoomName = o.Room;
         Settings.Holding.Images.Add(Sponsors);
@@ -1052,7 +1060,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.GoTo => Item((int)c.Number - 1),
             ShowCommandKind.Holding => HoldingImage(c.Text ?? "toggle"),
             ShowCommandKind.Note => Did(() => Journal(JournalKind.Note, _item, c.Text ?? ""), "noted"),
-            ShowCommandKind.Window => WindowCommand(c.Get<WindowArgs>()),
+            ShowCommandKind.Window => WindowCommand(c.Get<WindowArgs>(), c.By),
             ShowCommandKind.Screen => ScreenDirector.Run(c.Get<ScreenArgs>(), _web, PeerName, RenameScreen, SaveScreenPreset, ResolveScreenTarget),
             ShowCommandKind.Playout => Handed(_director.Playout(c.Get<PlayoutArgs>(), c.Number, _item, VtLink())),
             ShowCommandKind.Patterns => Handed(_director.Patterns(c.Text ?? "end", (int)c.Number, _item, VtLink())),
@@ -1144,11 +1152,31 @@ sealed class Rig : ICompanionBridge, IDisposable
         return _holding.Set(image) ? (true, image is null ? "holding image off" : "holding " + image.Name) : (false, "Holding: nothing changes");
     }
 
-    private (bool, string) WindowCommand(WindowArgs a)
+    /// <summary>
+    /// Owner thread: a <c>window …</c> line, as the app's executor runs one. A grant finds its app among the show apps the rig hears (its
+    /// node links, the contexts posted to it, the hellos on --bus); a Show Bus §11 proposal approved at this desk (<paramref name="by"/>
+    /// <see cref="DeskOrigin.Proposal"/>) names its app by its Show Bus id alone (12.4: an app asks only for itself).
+    /// </summary>
+    private (bool, string) WindowCommand(WindowArgs a, DeskOrigin? by)
     {
-        var change = _windows.Run(a, ScreenPresetPath, Settings.Holding.Images, ((IShowScreens)this).FindApp);
+        var idOnly = by == DeskOrigin.Proposal;
+        var change = _windows.Run(a, ScreenPresetPath, Settings.Holding.Images, app => ScreenWindows.FindApp(HeardApps(), app, idOnly));
         if (change.Effect == WindowEffect.Changed) Journal(JournalKind.Note, -1, "Window: " + change.Words);
         return (change.Ok, change.Words);
+    }
+
+    /// <summary>IShowScreens: the show app a <c>window grant</c> names, by its id or a name no other app has, as the rig hears the network now.</summary>
+    AppLookup IShowScreens.FindApp(string idOrName) => ScreenWindows.FindApp(HeardApps(), idOrName);
+
+    /// <summary>
+    /// The show apps a window may be granted to, from the last join of the show network (node links, contexts, hellos), as the app's desk
+    /// hears them (<see cref="ShowNetwork.Apps"/>): each with its key-verified link's <c>can=</c>, else its hello's caps.
+    /// </summary>
+    private IReadOnlyList<ShowApp> HeardApps()
+    {
+        var caps = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var p in _beacon?.Peers() ?? Array.Empty<SlidesBeacon.Peer>()) caps.TryAdd(p.Hello.Id, p.Hello.Caps ?? []);
+        return ShowNetwork.Apps(_network, caps, _nodeId);
     }
 
     /// <summary>Owner thread, 4 Hz and after every command: the frame (published only when something visible changed) and,
@@ -1314,6 +1342,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             ConfigVersion = _configVersion,
             Desk = _desk.Said,
             Network = _preflight?.VerdictAt(new DateTimeOffset(now).ToUnixTimeMilliseconds()),
+            Windows = _windowViews,
         };
     }
 
@@ -1352,10 +1381,17 @@ sealed class Rig : ICompanionBridge, IDisposable
         foreach (var c in view.Conflicts.Where(c => !_conflictsLogged.Contains(c.Id))) Log($"hello: {c.Conflict} — its hello adds no peers row while the mark stands");
         _conflictsLogged = view.Conflicts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         _network = view;
+        // As the app: the windows from one read of the list, each item the worst over its viewers (its own address, each grant's), with
+        // whom it is granted to and what its holders claim (12.10: only from a context a key bound to the holder's id proves, while its
+        // grant has a viewer on it); the frame's windows and the show log's took rows from the same facts.
         var windows = _windows.Windows;
+        var grants = _web?.GrantStatus() ?? Array.Empty<GrantObserved>();
         var placements = WindowPlacements.From(view.Rows.Where(r => r.Context is not null).Select(r => new HeldContext(r.Context!, r.ContextProof, r.Pulled)),
-            _nodeId, WindowPlacements.Holders(windows, _web?.GrantStatus() ?? Array.Empty<GrantObserved>()));
-        var windowFacts = ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, _web?.WindowStatus() ?? Array.Empty<WindowObserved>()), placements);
+            _nodeId, WindowPlacements.Holders(windows, grants));
+        var windowItems = ScreenWindows.ContextItems(windows, _web?.WindowStatus() ?? Array.Empty<WindowObserved>(),
+            _web?.ViewerStatus() ?? Array.Empty<ViewerObserved>(), grants, placements);
+        var windowFacts = ScreenWindows.Facts(windows, windowItems, placements);
+        RefreshWindowReaders(windows, windowFacts, grants);
         Preflight(now, view, [.. links, .. windowFacts.Select(w => w.Item), .. health]);
         // As the app: no rows for a link whose peer answers as another kind than its settings name, which is sent nothing.
         var rows = _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>().Where(l => l.WrongKind is null)
@@ -1366,6 +1402,26 @@ sealed class Rig : ICompanionBridge, IDisposable
     }
 
     private HashSet<string> _conflictsLogged = new(StringComparer.Ordinal);   // owner thread: the ids in conflict it logged
+
+    /// <summary>The windows as the operator's frame carries them, made once a second with the context (owner thread).</summary>
+    private EquatableArray<WindowView> _windowViews = EquatableArray<WindowView>.Empty;
+
+    /// <summary>Owner thread: who took a grant, once per grant in this run.</summary>
+    private readonly GrantsTaken _grantsTaken = new();
+
+    /// <summary>
+    /// Owner thread, once a second with the context, as the app: the frame's windows from the facts the context was built from, and a
+    /// show-log row and a log line for each grant its app took since the last second ("Patterns FOH took lobby's address"), never an address.
+    /// </summary>
+    private void RefreshWindowReaders(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<WindowFact> facts, IReadOnlyList<GrantObserved> grants)
+    {
+        _windowViews = ScreenWindows.Views(windows, facts);
+        foreach (var row in _grantsTaken.Note(windows, grants))
+        {
+            Journal(JournalKind.Note, -1, "Window: " + row);
+            Log("window: " + row);
+        }
+    }
 
     /// <summary>
     /// Owner thread, once a second: the room's verdict as the app judges it (<see cref="NetworkPreflight.Run"/>) — the join of this
@@ -1557,6 +1613,8 @@ sealed class Rig : ICompanionBridge, IDisposable
     {
         [JsonPropertyName("windows")] public List<ScreenWindow> Windows { get; set; } = new();
         [JsonPropertyName("keys")] public List<ApiKey> Keys { get; set; } = new();
+        /// <summary>Loading repaired the windows or their grants (never saved): the constructor writes the repairs back.</summary>
+        [JsonIgnore] public bool Repaired { get; set; }
     }
 
     /// <summary>The state as saved; a list alone is windows (a state file from before the rig kept keys).</summary>
@@ -1570,7 +1628,12 @@ sealed class Rig : ICompanionBridge, IDisposable
             var state = doc.RootElement.ValueKind == JsonValueKind.Array
                 ? new RigState { Windows = JsonSerializer.Deserialize<List<ScreenWindow>>(text) ?? new() }
                 : JsonSerializer.Deserialize<RigState>(text) ?? new RigState();
-            state.Windows ??= new();
+            // As the app loads its settings: the windows and their grants made whole, each repair said now (never a token) and written
+            // back at once by the constructor, so a new address lasts and its note is said once.
+            var notes = new LoadNotes();
+            state.Windows = ScreenWindows.Kept(state.Windows, null, notes);
+            foreach (var note in notes.Words) Log("state: " + note);
+            state.Repaired = notes.Count > 0;
             state.Keys = Stagewatch.Core.ApiKeys.Sanitise(state.Keys).Where(k => k.Scope == ApiKeyScope.Node).ToList();
             return state;
         }
