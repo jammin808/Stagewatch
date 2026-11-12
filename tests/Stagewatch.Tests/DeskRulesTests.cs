@@ -511,6 +511,19 @@ static class DeskRulesTests
         RiskVerdict Rate(NodeRef target, string line) => target.Id == DeskId ? Own(line) : peers.VerdictFor(target, line, T0);
         NodeRef Target(JsonElement e) => e.GetProperty("target").GetString() == "main" ? targets["main"] : targets[e.GetProperty("table").GetString()!];
         string IdOf(string kind) => targets.Values.FirstOrDefault(t => t.Kind == kind)?.Id ?? kind + "1";
+        // Patterns' VIDEO … ON <key> rows: §6 reads a value named key as a secret placeholder, so a line that fills it is listed, high
+        // and secret — the desk refuses it in the secret's words and queues nothing — and only the marker in its place is not secret.
+        if (targets.TryGetValue("patterns-context.json", out var patterns))
+        {
+            string[] keyed = ["VIDEO END 10 ON clip7", "VIDEO SEEK 1:30 ON clip7", "VIDEO RESTART ON clip7", "VIDEO PLAY ON clip7", "VIDEO PAUSE ON clip7", "VIDEO STOP ON clip7"];
+            var before = desk.All().Count;
+            Check(keyed.All(l => peers.VerdictFor(patterns, l, T0) is { Listed: true, Risk: "high", Secret: true } v && v.Form!.EndsWith(" ON <key>", StringComparison.Ordinal)
+                                  && peers.VerdictFor(patterns, l.Replace("clip7", VerbSyntax.SecretMarker, StringComparison.Ordinal), T0) is { Listed: true, Risk: "high", Secret: false })
+                  && keyed.All(l => desk.Submit(Body("playmap", IdOf("playmap"), patterns.Kind, patterns.Id, l, targetName: patterns.Name), NodeCredential.Key("key-playmap"), Rate, T0)
+                                        is (null, { } error, false) && error == LineFence.SecretWords(patterns.Name))
+                  && desk.All().Count == before,
+                "peer lines: Patterns' VIDEO … ON <key> rows rate a filled key high and secret, the marker in its place not secret, and the desk queues no line that fills it");
+        }
         var taken = 0;
         foreach (var e in doc.RootElement.GetProperty("lines").EnumerateArray())
         {

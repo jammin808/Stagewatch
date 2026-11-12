@@ -21,8 +21,25 @@ function namesAddress(text, addr) {
 const addrsOf = (p) => [].concat(p.addr);
 const said = (addrs) => addrs.join(' or ');
 
-/** Patterns hears each of peers ({ kind, id, addr }, addr one address or a list of them): its STATE's bus.apps lists the id
- *  as live, and its EYE's card for the id names an address the hellos came from. Resolves with what it read. */
+/**
+ * Whether Patterns draws the Stagewatch its link follows amber only because that link's 13.16.3 record is amber at level 0
+ * (Show Bus 1.3 §13.16.4: an app's light is no better than its live link's record, and a level-0 link, which neither end proves
+ * yet, is amber): the record live, amber, level 0 and `legacy`, the key taken, the show not stuck, the link held off nothing,
+ * and no conflict on the row. Anything else that makes it amber is not this.
+ */
+function amberByLevel0(st, app) {
+  const sw = (st.bus && st.bus.stagewatch) || {};
+  const rec = sw.link || {};
+  return !app.conflict && sw.key === 'key' && sw.stuck === false && !sw.held && rec.state === 'live' && rec.light === 'amber'
+    && rec.level === 0 && (rec.flags || []).includes('legacy');
+}
+
+/** Patterns hears each of peers ({ kind, id, addr, linked, own }, addr one address or a list of them): its STATE's bus.apps
+ *  lists the id as live, and its EYE's card for the id names an address the hellos came from. The Stagewatch its link follows
+ *  (`linked`) may be amber for one reason only, its link's record at level 0 (amberByLevel0): Patterns draws that row the worse
+ *  of the app's own context light and the record (Show Bus 1.3 §13.16.4; red over amber over green over grey), so `own()`, read
+ *  from that app itself and never from Patterns, must say neither amber nor red (green, or grey for a timer at rest) with the
+ *  very headline Patterns' row carries — then nothing but the record is amber. The read says so. Resolves with what it read. */
 async function patternsHears(pat, peers, ms) {
   return until(async () => {
     const st = await pat.state();
@@ -32,12 +49,22 @@ async function patternsHears(pat, peers, ms) {
     for (const p of peers) {
       const app = apps.find((a) => a.kind === p.kind && a.id === p.id);
       if (!app) throw new Error(`Patterns' bus.apps has no ${p.kind} ${p.id}: ${JSON.stringify(apps.map((a) => `${a.kind}:${a.id}`))}`);
-      if (app.light === 'red' || app.light === 'amber') throw new Error(`Patterns hears ${p.kind} ${p.id} but not live: ${app.light} "${app.headline}"`);
+      let level0 = false;
+      let ownLight = '';
+      if (p.linked && p.own && app.light === 'amber' && amberByLevel0(st, app)) {
+        const own = await p.own();
+        if (own.light === 'amber' || own.light === 'red' || own.headline !== app.headline) {
+          throw new Error(`Patterns draws ${p.kind} ${p.id} amber "${app.headline}" while that app's own context says ${own.light} "${own.headline}": not its link's record alone`);
+        }
+        level0 = true;
+        ownLight = own.light;
+      }
+      if (app.light === 'red' || (app.light === 'amber' && !level0)) throw new Error(`Patterns hears ${p.kind} ${p.id} but not live: ${app.light} "${app.headline}"`);
       const card = (eye.nodes || []).find((n) => n.id === `app:${p.id}`);
       if (!card) throw new Error(`Patterns' EYE has no card app:${p.id}`);
       const words = [card.sub, ...(card.words || [])].join(' · ');
       if (!addrsOf(p).some((a) => namesAddress(words, a))) throw new Error(`Patterns' EYE card for ${p.kind} ${p.id} names no ${said(addrsOf(p))}: "${card.sub}"`);
-      read[p.kind] = { id: p.id, light: app.light, headline: app.headline, eye: card.sub };
+      read[p.kind] = { id: p.id, light: app.light, headline: app.headline, eye: card.sub, ...(level0 ? { amberBy: "its link's record at level 0 (Show Bus 1.3 §13.16.4); the app's own context neither amber nor red, with this headline", own: ownLight } : {}) };
     }
     return read;
   }, ms, 'Patterns hearing ' + peers.map((p) => p.kind).join(' and '));

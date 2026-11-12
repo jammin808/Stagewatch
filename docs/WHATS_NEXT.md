@@ -320,9 +320,8 @@ running app on a network: two copies of one install for the conflict, an old cer
   rig takes `--playout` (`tests/e2e/playout.e2e.cjs`, against fake PlayMap and Patterns peers). Not done: Patterns' `pausable`,
   `stoppable` and `ON <key>` land in its Round 94 (P93.2, P93.3), so today every pause or stop of a real Patterns playlist item is
   refused here and no real desk is sent `ON <key>` (*since then (SW20.13):* S4.1 pauses a real Patterns clip on its air through a
-  playout link, at the lane's Patterns pin, which stays at round 91's 5a8ad8f (below, "The VT rows": at Round 94's fa5d76b ten
-  LAN rows fail, Patterns' desk holding its key from the rig until a person presses Trust); at fa5d76b the same row read
-  `pausable` true; no lane row yet pauses a real playlist item or
+  playout link, at the lane's Patterns pin, round 91's 5a8ad8f then (below, "The VT rows"); since SW22.4p the pin is Patterns'
+  pushed head d707925, where the same row reads `pausable` true; no lane row yet pauses a real playlist item or
   sends `ON <key>`); `together` is refused with words, and no help line or context row offers it
   (the timed GO, with `INDEX` and `CUE LIST`, is SW20.7's); a link set to `wss` was not started (SW20.6 starts it, below); an AI's playout line is still a desk proposal, not re-targeted to
   the peer's own approvals (that needs `proposal.collect.ms`, SW21.2); the module's playout actions are SW20.12's, and it sends
@@ -793,7 +792,10 @@ running app on a network: two copies of one install for the conflict, an old cer
   moves the pin**, in that later unit: Patterns' bench given a control line that presses Trust beside the fingerprint the desk
   shows (queued for Patterns' Round 95; the unit number is Patterns' to give), or the rig answering LINK so it proves
   itself (SW22.1a–c, `/ws` speaks LINK), whichever lands first; the pin then moves to a pushed Patterns commit at which
-  every row passes. The rows, each added once it passed:
+  every row passes. *Since then (SW22.4p):* the bench's control line came first (Patterns' Round 95.3, `trust <hex>`), and the
+  pins moved to the siblings' pushed heads, where every row passes (below, "The lane at the siblings' heads"). The rig answering
+  LINK does not lift the hold yet, since Patterns at its head offers no LINK (its round 96.1 is the unit that does). The rows,
+  each added once it passed:
   - S4.1: a rig with `--playout patterns=<Patterns>:9697,patterns` and Patterns' own token is paired by proof as Patterns (kind
     and node its STATE says) within 5 s of its ready line, its record live, level 0 and amber for `plain` and `legacy`; its VT
     is the clip on Patterns' air (a 90 s synthetic clip, role `program`) within 1.5 s of the clip's own time left; `playout
@@ -1096,18 +1098,17 @@ maintainer's too.
   Show network row's menu and … button, the send dialog, the greyed Approve); SW21.8's header verdict, its tooltip and *Copy the
   preflight*. WPF compiles on Linux and is never claimed as seen; `pwsh tools\smoke.ps1`, the six Windows-only checks and the
   release itself (`tools\release.ps1` on the PC) are the maintainer's and were not run here.
-- **What the interop lane proves, and what it does not.** At the pins `tools/interop/siblings.json` holds — Patterns 5a8ad8f8 (its
-  round 91's papers, Round 91.6), PlayMap 952940b5, AGMessage d0e39617 (0.5.0) — the real apps pass every row in the lane on this
+- **What the interop lane proves, and what it does not.** At the pins this release was cut with — Patterns 5a8ad8f8 (its round
+  91's papers, Round 91.6), PlayMap 952940b5, AGMessage d0e39617 (0.5.0) — the real apps passed every row in the lane on this
   bench: 32 on the LAN, 5 on the show laptop, 3 on the offline laptop. They hold discovery, contexts both ways under each app's
   own key, the rig's verdict on PlayMap's node link, Stagewatch's playout links driving the real Patterns bench and PlayMap
   engine (S4.1–S4.4) with PlayMap following Patterns (S4.5), the desk's rows (S3.3, S3.4, S7.3), the stuck rows (S6.2a, S6.2b),
   the doors (S6.3, S8.1–S8.4), loss and recovery (S6.1, S6.1b), nobody counted toward a lockout (S7.4) and no secret anywhere a
-  run keeps (S7.1). **The LAN rows prove against Patterns at round 91's pin, not a newer Patterns.** From its Round 93.2 Patterns'
-  desk holds its node key from a Stagewatch on another machine until that Stagewatch proves itself (LINK, which the rig does not
-  answer yet) or a person presses Trust beside its fingerprint on the desk's Nodes page, which neither Patterns' bench nor the rig
-  can press; at Patterns' Round 94 head (fa5d76b9) ten LAN rows that pass at 5a8ad8f fail for that one reason, while S0.1 and the
-  VT rows S4.1–S4.4 were run there green as well (S4.1 reading the clip's `pausable`). SW20.13's entry above names the rows and
-  what moves the pin (a bench control line that presses Trust, or the rig answering LINK, SW22.1a–c). Not proved: AGMessage's
+  run keeps (S7.1). Those LAN rows proved against Patterns at round 91's pin, not a newer Patterns: from its Round 93.2 Patterns'
+  desk holds its node key from a Stagewatch on another machine until that Stagewatch proves itself or a person presses Trust
+  beside its fingerprint, and neither the bench nor the rig could stand in for that press then. *Since then (2.22, SW22.4p):*
+  the pins are the siblings' pushed heads and the lane stands in for the person's press; what it proves there is in "The lane at
+  the siblings' heads (SW22.4p)" under 2.22 below. Not proved: AGMessage's
   keyed rows (S2.2, S2.5, S3.1, S3.2, S3.8 and S7.3's AGMessage leg, SW-INT-AG), PlayMap letting go of a gone Patterns' blackout
   (S6.4, S6.7) and AGMessage's stuck row (S6.2c), each waiting on its app; discovery with no network (S1b.2, Show Bus 1.4); PlayMap
   proposing (S3.6); windows (S5.*) and the MCP desk rows (S3.5, S3.7), which are 2.22's; a cue, or the TLS carrier, against a real
@@ -1212,6 +1213,63 @@ maintainer's too.
 - **SW22.4's viewer table between a check and a write.** A `shown` or `window-shown` checked against the windows just before a delete
   can land just after it; that report stays until the next windows change or the bound's own sweep drops it, so the table stays
   bounded and the gone row is read by nobody (`ViewerStatus` filters what is gone).
+
+- **The lane at the siblings' heads (SW22.4p).** `tools/interop/siblings.json` pins Patterns at d707925 (its round 96's opening,
+  past Round 95.3) and PlayMap at 783319e (Mapper's PM-11, the context naming its peers); AGMessage stays at d0e3961 (0.5.0).
+  Each pin was read pushed (`git ls-remote` named the same commit on its branch) and `tools/interop/build.sh` built it in the
+  lane's own clone. Every row that passed at the old pins passes at the new ones, and two rows are new: 34 of 34 on the LAN,
+  5 of 5 on the show laptop, 3 of 3 offline.
+  - **The person's Trust (S0.2).** Patterns' desk holds its node key from the rig, which is on another machine and cannot prove
+    itself to a Patterns that offers no LINK, until a person presses TRUST beside the fingerprint its Nodes card draws. The lane
+    presses it as the room is set up, between Patterns' start and PlayMap's. It reads the rig's fingerprint from the rig's own
+    ready line (the certificate it serves), never from Patterns. It waits for Patterns' STATE to say the key waits for Trust
+    beside the rig's short fingerprint. Before the press it reads: Patterns' link live over TLS with no key (record flags
+    `keyless`, `legacy`, `first`); the rig's `nodes` line with no link of Patterns' id; and Patterns' key bound to no node in
+    the rig's `--state`, so the key was never sent. The Nodes card draws on the desk's own tick, about a second after STATE.
+    Until it draws a certificate, sixteen hex of another fingerprint typed at the bench's `trust` line are answered "nothing
+    waits for Trust"; once it does, they are refused by the one drawn and nothing is trusted. Then the rig's own first sixteen
+    hex are taken, the answer naming the rig's short fingerprint. Within 5 s Patterns' link carries its key over TLS and the
+    rig's record holds its link proved by that key. A second press finds nothing waiting. The fingerprint is public: no key or
+    token goes into the trust line, its answers or the matrix, and each answer is checked against the run's secrets.
+  - **S1.5 reads Patterns' amber by its contract.** Since its Round 93.3, Patterns draws an app no better than its live link's
+    13.16.3 record (Show Bus 1.3 §13.16.4). A level-0 link, with neither end proving itself, is amber. So Patterns lists the rig
+    it follows amber "Welcome — Host · idle" after the press, as the contract says it should. The row accepts that amber for
+    the linked rig, and only when the link's record is live, amber, level 0 and `legacy`, the key is taken, the show is not
+    stuck, nothing is held, the row carries no conflict, and the rig's own context, read from the rig at that moment, is neither
+    amber nor red (an idle rig's is grey) with the very headline Patterns draws for it. Patterns draws the row the worst of that
+    context's light and the record (red over amber over green over grey, `ShowContext.Worst`), so then the record is the only
+    amber there is. Any other amber still fails, and the read says why it was amber.
+    The rig's hello is still read live from its address, as before. Green waits on Patterns offering LINK (its round 96.1),
+    which the rig's `/ws` now answers (SW22.1a–c).
+  - **PM-11's reads (S2.1c), one assertion each.** PlayMap's context has exactly one `follows` row from `link:patterns` to
+    `@<Patterns' id>` and one from `link:stagewatch` to `@<the rig's id>`. Each row is in its link item's light, and the item
+    says "not proved" (both links level 0, the id a hello's). The timer row, P3's `@<Stagewatch's id>/timer -feeds->
+    output:<id>`, is not read yet. The lane's PlayMap runs headless on null backends with no project output drawing a
+    `timer:` source, and giving it one is more than one assertion.
+  - **S4.3 read a stale context, a race in the row, now closed.** The rig builds its context once a second, so a context read
+    just after both links paired could still say them "connecting", grey, against records already amber. The first run at the
+    new pins failed so. The row now reads link items only from a context the rig built after both links were read paired. It
+    still asserts each item's light equals its own record's, within the same deadline.
+  - **The desk's fixtures follow the pin.** `tests/Stagewatch.Tests/fixtures/patterns-context.json`, the table the desk rates
+    Patterns' lines by, is Patterns' `ShowContextBuilder.Commands` at d707925, 36 rows verbatim and in order (33 at 5a8ad8f8):
+    STAGE MESSAGE's words now say it goes through a linked Stagewatch holding a node key, and three high rows name a clip by
+    its key, `VIDEO END <seconds> ON <key>`, `VIDEO SEEK <m:ss> ON <key>` and `VIDEO RESTART|PLAY|PAUSE|STOP ON <key>`. §6 reads
+    a value named `key` as a secret placeholder, so the desk's rules test now holds that a line filling it is listed, high and
+    secret and is refused unqueued in the secret's words, while the marker in its place is not secret. `peer-lines.json`'s
+    APPLY lines are unchanged (`DeskProposals.Line` reads at d707925 as at 5a8ad8f8).
+  - **Runs.** The LAN took three runs to go green, each failure the lane's own and fixed in the lane: the first pressed before
+    the card drew a certificate, the second met S1.5's level-0 amber. The laptop and offline passed on their first run. After
+    the review's fold-in the unit's validate (`tools/test.sh build unit interop`) ran twice: the first failed S1.5 (and S7.4,
+    which fails with any row before it), because the tightened row asked the rig's own context for green and an idle rig's is
+    grey, which Patterns' worst-of ranks below green and so never darkens a row; the row now asks for neither amber nor red, as
+    that order says, and the second validate ran every lane green: 5865 unit checks, 34 of 34 on the LAN, 5 of 5 on the
+    laptop, 3 of 3 offline. No row
+    failed on the host's load (PlayMap's own preflight reads red above 95 % CPU and closes the doors): S8.3 and the doors rows
+    passed in every run, the first of which started while another tree's build had the load average near 7.
+  - **What it still does not prove.** Patterns at level 1 (it offers no LINK at its head), so no Patterns link is green. PlayMap's
+    P3 timer row (above). AGMessage 0.6.0, which is another session's branch and not
+    its main; its pin stays at 0.5.0. PlayMap's early STATE still
+    marks `malformed` (the finding under "The VT rows"). And everything the paragraph above lists as not proved.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

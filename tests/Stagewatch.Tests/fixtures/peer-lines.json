@@ -1,5 +1,5 @@
 {
- "_source": "The lines the other show apps document for this desk and for each other, each as its own tree writes it at the pushed commit tools/interop/siblings.json pins (AGMessage d0e39617, Patterns 5a8ad8f8; PlayMap's busy golden context at b083d74e), with the tables they rate by beside this file. lines: what each sends and the desk takes, by its own rules for a line to this desk (main) and by the target's verified table otherwise; from main is a person's line sent from this desk. refused: what the desk refuses and why. AGMessage 0.4.0's stage line (app/server.js at f0e0851, its stage:propose) is the one Show Bus 1.3's G05 found this desk's parser refuses.",
+ "_source": "The lines the other show apps document for this desk and for each other, each as its own tree writes it at the pushed commit tools/interop/siblings.json pins (AGMessage d0e39617, Patterns d7079257, where DeskProposals.Line reads as it did at 5a8ad8f8; PlayMap's busy golden context at b083d74e), with the tables they rate by beside this file. lines: what each sends and the desk takes, by its own rules for a line to this desk (main) and by the target's verified table otherwise; from main is a person's line sent from this desk. refused: what the desk refuses and why. AGMessage 0.4.0's stage line (app/server.js at f0e0851, its stage:propose) is the one Show Bus 1.3's G05 found this desk's parser refuses.",
  "lines": [
   {
    "from": "messenger",
@@ -37,7 +37,7 @@
    "from": "patterns",
    "target": "patterns",
    "line": "APPLY a3f9: Look \"Keynote blue\"",
-   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at 5a8ad8f8: DeskProposals.Line(\"a3f9\", \"Look\", \"Keynote blue\")",
+   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at d7079257: DeskProposals.Line(\"a3f9\", \"Look\", \"Keynote blue\")",
    "table": "patterns-context.json",
    "risk": "review",
    "form": "APPLY <proposal>"
@@ -98,7 +98,7 @@
    "from": "patterns",
    "target": "patterns",
    "line": "APPLY a3f9: Look \"Keynote\tblue\"",
-   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at 5a8ad8f8: DeskProposals.Line(\"a3f9\", \"Look\", a look titled with a tab), which keeps the tab (it only shortens a title)",
+   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at d7079257: DeskProposals.Line(\"a3f9\", \"Look\", a look titled with a tab), which keeps the tab (it only shortens a title)",
    "table": "patterns-context.json",
    "error": "a line holds no control characters"
   },

@@ -3,7 +3,10 @@
 // its Stagewatch link typed at the rig's own address (the address the rig's hello comes from), with the node key the rig made
 // for it when the rig makes keys (read from an owner-only file, --stagewatch-key-file) and none otherwise, clips synthetic and
 // control lines on its standard input, whose end stops it. Its first output line is its ready line, with no secret in it. The
-// lane reads it as a deck would: over its wire, paired by proof (lib/wire.cjs), its STATE asked for with STATUS.
+// lane reads it as a deck would: over its wire, paired by proof (lib/wire.cjs), its STATE asked for with STATUS. A rig on
+// another machine gets that key only once a person presses TRUST beside the rig's fingerprint on the Nodes page (Show Bus 1.3
+// §13.6.8); the lane stands in for that person at the bench's own `trust` line, typing hex it read from the rig, never from
+// Patterns.
 'use strict';
 const path = require('node:path');
 const { AppProcess, baseEnv } = require('../lib/proc.cjs');
@@ -48,6 +51,7 @@ class Patterns {
     try { ready = JSON.parse(first.line); } catch { ready = null; }
     if (!ready || ready.patterns !== 'ready') throw new Error(`the bench's first line is not its ready line: ${first.line.slice(0, 300)}`);
     this.readyMs = first.at - this.proc.spawnedAt;
+    this.readyAt = first.at;
     this.ready = ready;
     this.readyLine = first.line;
     return ready;
@@ -109,6 +113,16 @@ class Patterns {
     this.proc.say(line);
     return parsed(await answer);
   }
+
+  /** Its link to its Stagewatch as STATE gives it now (bus.stagewatch): state, carrier, key, headline, its 13.16.3 record. */
+  async stagewatchLink() { return (await this.state()).bus.stagewatch; }
+
+  /**
+   * The person's TRUST press beside the fingerprint the Nodes card draws (the bench's `trust` line: at least 8 hex that begin
+   * that fingerprint, pressed through the desk's own Trust path); its answer, { ok: true, fingerprint, said } or { ok: false,
+   * error }. What it types is the start of a certificate's fingerprint, which is public.
+   */
+  trust(hex) { return this.control(`trust ${hex}`, (j) => j.control === 'trust'); }
 
   /** A synthetic clip of `seconds` on its air (the bench's `clip` line); the answer ({ ok, key, lengthMs }) or its words. */
   async clip(name, seconds) {

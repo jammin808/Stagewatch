@@ -1,4 +1,4 @@
 {"v":1,
- "patterns": {"repo":"jammin808/Patterns","ref":"5a8ad8f8a3d7141cf52ae1b6b17b202a3b98a604","build":"tools/Patterns.Bench/Patterns.Bench.csproj"},
- "mapper":   {"repo":"jammin808/Mapper","ref":"952940b5234eb6ad99416aa0aea3cd9b5b26bccb","build":"tools/PlayMap.Node/PlayMap.Node.csproj"},
+ "patterns": {"repo":"jammin808/Patterns","ref":"d707925799e0947b34e81f0f41abe7a86316b3f0","build":"tools/Patterns.Bench/Patterns.Bench.csproj"},
+ "mapper":   {"repo":"jammin808/Mapper","ref":"783319e143ee68d2249b2d7a8ab526a4098d5485","build":"tools/PlayMap.Node/PlayMap.Node.csproj"},
  "agmessage":{"repo":"jammin808/AGMessage","ref":"d0e3961722d56e1f01329017536d1a3d20bbb38a","build":"app"}}

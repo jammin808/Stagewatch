@@ -6,8 +6,10 @@
 // three node keys: one for Patterns and one for PlayMap, each handed over in that app's own settings, and one handed to
 // nobody, which row S2.7 tries against an id that has a key of its own and row S2.1b gives PlayMap (LINK STAGEWATCH, said
 // as its operator says it at PlayMap's own machine: on its wire at 127.0.0.1, from inside its namespace, so no key crosses
-// this LAN) before giving it its own key again. The rows read PlayMap's link with the rig's certificate pinned and Patterns'
-// link carried over TLS with its key; that neither app ever sends its key in clear off its own machine is held by that app's
+// this LAN) before giving it its own key again. Patterns' desk sends its key to a Stagewatch on another machine only once a
+// person presses TRUST beside the rig's fingerprint: S0.1 stands in for that person between Patterns' start and PlayMap's, with
+// hex read from the rig, and S0.2 reads what the press did. The rows read PlayMap's link with the rig's certificate pinned and
+// Patterns' link carried over TLS with its key; that neither app ever sends its key in clear off its own machine is held by that app's
 // own tests (Patterns' Round 89.5, PlayMap's PM-2), not read here; the rig's verdict on a node link is read from both ends,
 // the app's link and the rig's own record of it (its `nodes` line). AGMessage is
 // given none (its keyed rows are another unit's). The rig is the room's approval desk and its one verdict, as the app is: the
@@ -156,6 +158,108 @@ let readyAt = 0;
 const stagewatchLinks = () => S.stagewatchLinks(apps);
 const { allLive } = S;
 
+/**
+ * A person's TRUST press at Patterns (row S0.2), made as the room is set up, between Patterns' start and PlayMap's (S0.1):
+ * { facts } once it was made and read, or { error } with the reason it was not; null until S0.1 reaches it.
+ */
+let pressed = null;
+
+/** S0.2's deadlines: Patterns' desk draws the rig's certificate beside TRUST within a hello's of its ready line (its link dials
+ *  the rig at its start), and once it is pressed the key reaches the rig within the same. */
+const TRUST_MS = HELLO_MS;
+
+/**
+ * The words a reader of Patterns' link says while its key waits for a person's Trust beside `shown` (Patterns'
+ * StagewatchKey.TrustWords): what the Nodes card draws beside TRUST, and STATE's bus.stagewatch headline with it.
+ */
+const trustWaits = (shown) => `compare its fingerprint ${shown} and press Trust to send the key`;
+
+/**
+ * Stand in for the person at Patterns' desk (Show Bus 1.3 §13.6.8): its desk holds its node key from the rig, which is on another
+ * machine and cannot prove itself to it, until a person compares the fingerprint the Nodes card draws with the rig's own and
+ * presses TRUST. The lane reads the rig's fingerprint from the rig (its ready line: the certificate it serves), never from Patterns,
+ * waits for the desk to draw that fingerprint beside TRUST (its link reading the rig's public view with no key meanwhile, and the
+ * rig's own record holding no link of Patterns' and its key bound to nobody), types sixteen hex that begin another fingerprint
+ * until the Nodes card, drawn on the desk's own tick, draws a certificate (then refused by the one drawn, nothing trusted), then the rig's own first sixteen hex (taken, its answer naming the rig's short
+ * fingerprint), and reads the key reach the rig: Patterns' link live over TLS with its key, and the rig's nodes line holding its
+ * link, proved by that key. The rig's own hex pressed a second time finds nothing waiting. Resolves with what was read; `from` is
+ * Patterns' ready time.
+ */
+async function pressTrust(sw, pat, from) {
+  const fp = sw.tls.slice('sha256:'.length);
+  const shown = shortFingerprint(sw.tls);
+  const key = sw.keyFor('patterns');
+  const leaks = (what, said) => {
+    const leaked = run.secrets.foundIn(JSON.stringify(said));
+    if (leaked.length) throw new Error(`${what} holds ${leaked.join(', ')}`);
+  };
+  const rigRows = async () => (await sw.nodes()).filter((n) => n.id === pat.ready.node)
+    .map(({ t, verified, keyId, links, words }) => ({ t, verified, keyId, links, words }));
+
+  // Before the press: the desk draws the rig's own fingerprint beside TRUST, and its link reads the rig's public view without the
+  // key; on the rig's side no link of Patterns' is proved by a key, and Patterns' key is bound to no node (it was never sent).
+  const waiting = await until(async () => {
+    const l = await pat.stagewatchLink();
+    if (!(l.headline || '').includes(trustWaits(shown))) throw new Error(`Patterns' link to the rig is ${l.state}, its key "${l.key}": "${l.headline}"`);
+    return l;
+  }, S.left(from, TRUST_MS), "Patterns' desk drawing the rig's fingerprint beside TRUST");
+  const offeredMs = S.inTime(from, TRUST_MS, "Patterns' desk drawing the rig's fingerprint beside TRUST");
+  const flags = (waiting.link && waiting.link.flags) || [];
+  if (waiting.state !== 'live' || waiting.carrier !== 'tls' || waiting.key === 'key' || !flags.includes('keyless')) {
+    throw new Error(`before the press Patterns' link is ${waiting.state} over ${waiting.carrier}, its key "${waiting.key}", flags ${JSON.stringify(flags)}: not the rig's public view read without the key`);
+  }
+  const rowsBefore = await rigRows();
+  if (rowsBefore.some((n) => n.verified === 'key' || n.verified === 'operator')) throw new Error(`before the press the rig holds a link of Patterns' proved by a credential: ${JSON.stringify(rowsBefore)}`);
+  const boundBefore = sw.savedKeys().find((k) => k.id === key.id);
+  if (!boundBefore || boundBefore.node !== null) throw new Error(`before the press Patterns' key is bound to ${JSON.stringify(boundBefore)}: it reached the rig`);
+
+  // The Nodes card draws on the desk's own tick, after the link's record: until it draws a certificate, hex that begins another
+  // fingerprint is answered "nothing waits"; once it does, that hex is refused by the one drawn. Neither trusts anything.
+  const wrong = (fp[0] === '0' ? '1' : '0') + fp.slice(1, 16);
+  const nothingWaits = 'nothing waits for Trust: the Nodes card draws no certificate beside TRUST';
+  let early = 0;
+  const refused = await until(async () => {
+    const said = await pat.trust(wrong);
+    leaks("the bench's answer to a wrong trust line", said);
+    if (said.ok === false && said.error === nothingWaits) { early++; throw new Error(`the bench answers "${said.error}"`); }
+    return said;
+  }, S.left(from, TRUST_MS), "Patterns' Nodes card drawing a certificate beside TRUST");
+  const drawnMs = S.inTime(from, TRUST_MS, "Patterns' Nodes card drawing a certificate beside TRUST");
+  const refusedWords = `the certificate waiting for Trust begins ${shown} — not the hex typed; nothing is trusted`;
+  if (refused.ok !== false || refused.error !== refusedWords) throw new Error(`the bench answered hex of another fingerprint with ${JSON.stringify(refused)}`);
+  const still = await pat.stagewatchLink();
+  if (still.key === 'key' || !(still.headline || '').includes(trustWaits(shown))) throw new Error(`after a refused trust line Patterns' link says its key "${still.key}": "${still.headline}"`);
+
+  // The press, with the rig's own first sixteen hex: taken, naming the rig's short fingerprint.
+  const pressedAt = Date.now();
+  const taken = await pat.trust(fp.slice(0, 16));
+  leaks("the bench's answer to the trust line", taken);
+  if (taken.ok !== true || taken.fingerprint !== shown || !/^Trusted Stagewatch /.test(taken.said || '')) throw new Error(`the bench answered the rig's own hex with ${JSON.stringify(taken)}`);
+
+  // After it the key goes, over TLS: Patterns' link live with its key, and the rig's record of it proved by that key.
+  const keyed = await until(async () => {
+    const l = await pat.stagewatchLink();
+    if (l.state !== 'live' || l.carrier !== 'tls' || l.key !== 'key') throw new Error(`Patterns' link to the rig is ${l.state} over ${l.carrier}, its key "${l.key}": "${l.headline}"`);
+    const rows = await rigRows();
+    const proved = rows.find((n) => n.verified === 'key' && n.keyId === key.id);
+    if (!proved) throw new Error(`the rig's nodes line holds no link of Patterns' proved by its key: ${JSON.stringify(rows)}`);
+    return { link: l, rig: proved };
+  }, S.left(pressedAt, TRUST_MS), "Patterns' key reaching the rig after the press");
+  const keyedMs = S.inTime(pressedAt, TRUST_MS, "Patterns' key reaching the rig after the press");
+
+  // The offer is spent: nothing waits for Trust.
+  const spent = await pat.trust(fp.slice(0, 16));
+  if (spent.ok !== false || spent.error !== nothingWaits) throw new Error(`a second press answered ${JSON.stringify(spent)}`);
+  return {
+    rig: { fingerprint: shown },
+    before: { offeredMs, state: waiting.state, carrier: waiting.carrier, key: waiting.key, flags, headline: waiting.headline, rigLinks: rowsBefore, bound: boundBefore.node },
+    refused: { typed: wrong.length, drawnMs, answeredNothingWaits: early, error: refused.error },
+    taken: { typed: 16, fingerprint: taken.fingerprint, said: taken.said },
+    after: { keyedMs, state: keyed.link.state, carrier: keyed.link.carrier, key: keyed.link.key, headline: keyed.link.headline, rig: keyed.rig },
+    spent: spent.error,
+  };
+}
+
 /** The rig's three node keys as the lane hands them out: Patterns', PlayMap's, and the free one, handed to nobody. */
 const rigKeys = () => ({ patterns: apps.stagewatch.keyFor('patterns'), playmap: apps.stagewatch.keyFor('playmap'), free: apps.stagewatch.keyFor('nobody') });
 
@@ -176,7 +280,7 @@ function boundAsHanded(when) {
 
 test('S0.1 each app is ready in its own namespace', row({
   id: 'S0.1',
-  title: 'each app is ready in its own namespace',
+  title: "each app is ready in its own namespace, within 60 s of its start; between Patterns' start and PlayMap's the lane makes a person's Trust press at Patterns, as the room is set up (S0.2 reads what it did)",
   apps: HOSTS,
   deadlineMs: READY_MS,
 }, async (r) => {
@@ -195,6 +299,9 @@ test('S0.1 each app is ready in its own namespace', row({
   await pat.reachable();
   matrix.said('patterns', `bench ${pat.ready.build}, node ${pat.ready.node}`);
   ids.patterns = pat.ready.node;
+  // The person at Patterns' desk trusts the rig before the other apps start, as an operator setting up the room would; S0.2 reads
+  // what the press did, and a press that failed fails that row, not this one.
+  pressed = await pressTrust(sw, pat, pat.readyAt).then((facts) => ({ facts }), (error) => ({ error }));
 
   const pm = new PlayMap(run, lan.host('playmap'));
   apps.playmap = pm;
@@ -231,7 +338,7 @@ test('S0.1 each app is ready in its own namespace', row({
     if (app.readyMs > READY_MS) throw new Error(`${name} was ready after ${app.readyMs} ms, past ${READY_MS}`);
     readyMs[name] = app.readyMs;
   }
-  r.facts = { readyMs, addresses: Object.fromEntries(HOSTS.map((n) => [n, lan.host(n).addr])), namespaces };
+  r.facts = { readyMs, addresses: Object.fromEntries(HOSTS.map((n) => [n, lan.host(n).addr])), namespaces, trustPress: pressed.error ? 'not taken (S0.2 says why)' : 'taken (S0.2)' };
   matrix.measure('readyMs', readyMs);
   // AGMessage's id on the show network, as its own context says it, and its context token, learned for the sweep.
   ids.agmessage = (await agm.context()).node.id;
@@ -303,13 +410,14 @@ test('S1.4 the rig hears all three', row({
 
 test('S1.5 every app hears the rig', row({
   id: 'S1.5',
-  title: "every app hears the rig: kind main, its --node-id, from the rig's own address where the reader says one, within 5 s of the last app ready",
+  title: "every app hears the rig: kind main, its --node-id, from the rig's own address where the reader says one, within 5 s of the last app ready (Patterns, whose link follows the rig, draws it no better than that link's record: amber only with the record live, amber, level 0 and legacy, the key taken, and the rig's own context, read from the rig, neither amber nor red with the headline Patterns draws)",
   apps: HOSTS,
   deadlineMs: HELLO_MS,
 }, async (r) => {
   r.evidence.push(run.log('patterns.wire'), run.log('playmap.wire'), run.log('agmessage-admin.out'));
   const addr = lan.host('stagewatch').addr;
-  const patterns = await S.patternsHears(apps.patterns, [{ kind: 'main', id: NODE_ID, addr }], S.left(readyAt, HELLO_MS));
+  const own = async () => { const c = await apps.stagewatch.context(); return { light: c.light, headline: c.headline }; };
+  const patterns = await S.patternsHears(apps.patterns, [{ kind: 'main', id: NODE_ID, addr, linked: true, own }], S.left(readyAt, HELLO_MS));
   const playmap = await S.playmapHears(apps.playmap, [{ t: 'main', id: NODE_ID, addr }], S.left(readyAt, HELLO_MS));
   const agmessage = await S.agmessageHears(apps.agmessage, [{ t: 'main', id: NODE_ID, addr }], S.left(readyAt, HELLO_MS));
   r.facts = { sinceReadyMs: S.inTime(readyAt, HELLO_MS, 'every app hearing the rig'), patterns, playmap, agmessage };
@@ -364,6 +472,23 @@ test('S1.6 one id is one peer', row({
   // follow; its kind is messenger, AGMessage's, so a later row picks PlayMap's peers by id, never by kind.
   r.facts.conflictControl = await S.playmapMarksConflict(apps.playmap,
     { at: lan.host('playmap').addr, port: BUS_PORT, from: lan.map.switch, rig }, HELLO_MS);
+  await lockoutAfter(r);
+}));
+
+// S0.2 reads what S0.1's press did, after the hello rows, whose deadlines count from the last app ready and take no row's time
+// before them.
+test('S0.2 a person trusts the rig at Patterns', row({
+  id: 'S0.2',
+  title: "a person trusts the rig at Patterns (pressed as the room is set up, between Patterns' start and PlayMap's): within 5 s of Patterns' ready line its desk draws the rig's own fingerprint (read from the rig) beside TRUST while its link reads the rig's public view over TLS without its key, the rig holding no link of Patterns' and Patterns' key bound to nobody; within the same 5 s its Nodes card draws a certificate beside TRUST (until then hex of another fingerprint typed at the bench's trust line is answered that nothing waits), and that hex is then refused by the one drawn; the rig's own first sixteen hex are taken, naming its short fingerprint; within 5 s of the press the key goes: Patterns' link live over TLS with its key, the rig's record of it proved by that key; a second press finds nothing waiting; and the link still keyed when the row reads it",
+  apps: ['patterns', 'stagewatch'],
+  deadlineMs: [TRUST_MS, TRUST_MS],
+}, async (r) => {
+  r.evidence.push(run.log('patterns.out'), run.log('patterns.wire'), run.log('stagewatch.err'));
+  if (!pressed) throw new Error('S0.1 did not reach the press: Patterns never started');
+  if (pressed.error) throw pressed.error;
+  const now = await apps.patterns.stagewatchLink();
+  if (now.state !== 'live' || now.carrier !== 'tls' || now.key !== 'key') throw new Error(`Patterns' link to the rig is ${now.state} over ${now.carrier}, its key "${now.key}": "${now.headline}"`);
+  r.facts = { ...pressed.facts, now: { state: now.state, carrier: now.carrier, key: now.key } };
   await lockoutAfter(r);
 }));
 
@@ -608,6 +733,8 @@ test('S4.3 both at once', row({
       'stage-left': await vtPaired('stage-left', 'playmap', ids.playmap, readyAt, "the VT rig's link to PlayMap paired"),
     },
   };
+  // The rig builds its context once a second: one built before both links were read paired may still say them connecting.
+  const pairedAt = Date.now();
   // PlayMap's item, paused by S4.2, runs again through its link.
   let at = Date.now();
   r.facts.play = await vtPlayout(['stage-left', 'play'], 'interop-s4-3-play', true);
@@ -620,8 +747,8 @@ test('S4.3 both at once', row({
   const items = await until(async () => {
     const c = await vt.context();
     const mine = (c.items || []).filter((i) => i.id === 'link:patterns' || i.id === 'link:stage-left');
-    return mine.length === 2 ? mine : null;
-  }, S.left(readyAt, HELLO_MS), "the context's link items");
+    return c.at > pairedAt && mine.length === 2 ? mine : null;
+  }, S.left(readyAt, HELLO_MS), "the link items of a context the rig built after both links were read paired");
   const links = await vt.links();
   r.facts.items = items.map((i) => ({ id: i.id, label: i.label, light: i.light, state: i.state }));
   for (const i of items) {
@@ -885,6 +1012,27 @@ test("S2.1 PlayMap's context reaches the rig", row({
   const own = async () => { const c = (await pm.context()).json; return { light: c.light, headline: c.headline }; };
   r.facts = { link: { state: link.state, host: link.host, paired: link.paired, detail: link.detail },
     ...(await contextReachesRig(ids.playmap, own, blackout('ON'), blackout('OFF'), 'PlayMap')) };
+  await lockoutAfter(r);
+}));
+
+test("S2.1c PlayMap's context names the peers it follows", row({
+  id: 'S2.1c',
+  title: "PlayMap's context names the peers it follows (Show Bus 1.3 §6 P2): its link:patterns follows @<Patterns' id> and its link:stagewatch follows @<the rig's id>, each row in its link item's light, the item saying \"not proved\" (both links level 0, the id a hello's)",
+  apps: ['playmap', 'patterns', 'stagewatch'],
+  deadlineMs: null,
+}, async (r) => {
+  r.evidence.push(run.log('playmap.wire'));
+  const ctx = (await apps.playmap.context()).json;
+  const follows = {};
+  for (const [item, id] of [['link:patterns', ids.patterns], ['link:stagewatch', NODE_ID]]) {
+    const own = (ctx.items || []).find((i) => i.id === item);
+    const rows = (ctx.links || []).filter((l) => l.from === item && l.kind === 'follows');
+    if (!own || rows.length !== 1 || rows[0].to !== `@${id}` || rows[0].light !== own.light || !/ · not proved/.test(own.state || '')) {
+      throw new Error(`PlayMap's context says ${item} ${JSON.stringify(own)} with follows rows ${JSON.stringify(rows)}, not one row to @${id} in its light`);
+    }
+    follows[item] = { to: rows[0].to, light: rows[0].light, item: own.state };
+  }
+  r.facts = { follows };
   await lockoutAfter(r);
 }));
 

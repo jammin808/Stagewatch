@@ -178,7 +178,7 @@ tools/test.sh help                                # every lane, and every variab
 | App | What runs | Built from |
 |---|---|---|
 | Stagewatch | the rig (`tools/Stagewatch.Rig`, above): the real web, Companion and OSC servers around a simulated show; on the LAN it is on the Show Bus port, serves its certificate beside plain HTTP and makes three node keys, one handed to Patterns and one to PlayMap in their own settings, one to nobody | this tree, as the build lane built it (the matrix says how many uncommitted files it included) |
-| Patterns | its bench host (`tools/Patterns.Bench`): the real desk's services booted headless, its clips synthetic, control lines on its input | the Patterns repository at its pin |
+| Patterns | its bench host (`tools/Patterns.Bench`): the real desk's services booted headless, its clips synthetic, control lines on its input (a clip, the assistant's proposal, and `trust <hex>`, the desk's own TRUST press beside the fingerprint its Nodes card draws) | the Patterns repository at its pin |
 | PlayMap | its node host (`tools/PlayMap.Node`, `engine --headless`) on null backends: it plays and answers, and draws nothing | the Mapper repository at its pin |
 | AGMessage | its server (`app/server.js`), plain HTTP, on a Node its `engines` field accepts; given no key | the AGMessage repository at its pin |
 
@@ -204,14 +204,13 @@ tools/test.sh help                                # every lane, and every variab
   comes with the pin that brings it. `SW_INTEROP_HEADS=1` runs each sibling at the commit its repository has checked out
   instead (still pushed only), and `builds.json` and the matrix say how far each is from its pin: the nightly drift report,
   which moves no pin.
-- Patterns' pin is its round 91's papers (5a8ad8f), and the LAN rows prove against that. Round 94's papers (fa5d76b) are
-  pushed, and there S0.1 with the VT rows (S4.1–S4.4) pass, S4.1 reading the clip's `pausable` true, but ten LAN rows that
-  pass at 5a8ad8f fail (S1.5, S2.1b, S2.3, S2.4, S2.7, S3.3, S3.4, S7.3's Patterns leg, S7.4, S8.1), for one reason:
-  since its round 93.2 Patterns' desk holds its node key from a Stagewatch on another machine until that Stagewatch proves
-  itself (LINK, which the rig does not answer) or a person presses Trust beside its fingerprint on the desk's Nodes page,
-  and neither the bench nor the rig can stand in for that press yet (the laptop and offline topologies, at loopback, pass).
-  The pin moves, as a unit of its own, once Patterns' bench has a control line that presses Trust or the rig answers LINK
-  (`docs/WHATS_NEXT.md`, "The VT rows").
+- The pins are the siblings' pushed heads of 2026-11-12: Patterns d707925 (its round 96's opening, past round 95.3, whose
+  bench answers `trust <hex>`), PlayMap 783319e (its fix batch PM-11: its context names the peers it follows), AGMessage
+  d0e3961 (0.5.0). Since its round 93.2 Patterns' desk holds its node key from a Stagewatch on another machine until that
+  Stagewatch proves itself (LINK, which Patterns does not offer yet) or a person presses TRUST beside its fingerprint on the
+  Nodes page. On the LAN the lane stands in for that person (row S0.2): it reads the rig's fingerprint from the rig's ready
+  line, never from Patterns, waits for the desk to draw it, and types its first sixteen hex at the bench's trust line, before
+  PlayMap and AGMessage start. The laptop and offline topologies link at 127.0.0.1, where the key goes without a press.
 
 **The topologies.** `tools/test.sh interop` starts `tools/interop/run.sh <topology>` once per topology inside `unshare
 --user --map-root-user --net --pid --fork --mount-proc --kill-child`, with 20 minutes to finish. The run's processes live in
@@ -268,15 +267,17 @@ once those are removed, for every secret of the register, in either case. A row'
 
 | Row | On | What it holds |
 |---|---|---|
-| S0.1 | lan | each app is ready in its own namespace, within 60 s of its start |
+| S0.1 | lan | each app is ready in its own namespace, within 60 s of its start; between Patterns' start and PlayMap's the lane makes a person's Trust press at Patterns, as the room is set up, which S0.2 reads |
+| S0.2 | lan | a person trusts the rig at Patterns, pressed between Patterns' start and PlayMap's: within 5 s of Patterns' ready line its desk draws the rig's own fingerprint (read from the rig) beside TRUST while its link reads the rig's public view over TLS without its key, the rig holding no link of Patterns' and Patterns' key bound to nobody; hex of another fingerprint is refused by the one drawn, the rig's own first sixteen hex are taken, and within 5 s the key goes (Patterns' link keyed over TLS, the rig's record of it proved by that key); a second press finds nothing waiting |
 | S1.1 | lan | Patterns hears PlayMap and AGMessage, each from its own address |
 | S1.2 | lan | PlayMap hears Patterns and AGMessage, each from its own address where its NODES says one |
 | S1.3 | lan | AGMessage hears Patterns from its own address |
 | S1.4 | lan | the rig's hello table lists Patterns, PlayMap and AGMessage, each from its own address, live and unmarked, and its context's peers are each live |
-| S1.5 | lan | every app hears the rig: kind `main`, its node id, from the rig's own address where the reader says one |
+| S1.5 | lan | every app hears the rig: kind `main`, its node id, from the rig's own address where the reader says one; Patterns draws the rig it follows no better than its link's record, amber only with that record live, amber, level 0 and `legacy`, the key taken, and the rig's own context, read from the rig, neither amber nor red with the headline Patterns draws for it |
 | S1.6 | lan | one id is one peer: read every 500 ms for 20 s, the rig, Patterns and PlayMap (its NODES, its STATE's peers and its context's) each list every show app they hear once; PlayMap reads the rig's Show Bus 1.3 hello as live and unmarked at the rig's one address at every read, and marks an id two senders say in turn (a control: hellos of the driver's own id, sent to PlayMap alone) |
 | S2.1 | lan | PlayMap's context reaches the rig: its link paired with the rig's certificate pinned, the rig's row for it proved by its own key, and a change of it there and back within 9.5 s |
 | S2.1b | lan | PlayMap reads the rig's verdict on its node link from both ends, its link and the rig's own record (`nodes`): its link taken off until the rig holds none for it, then given the free key, which speaks for no node, at its own machine, it is refused in the rig's own words and the rig's record says that key's link verified none in them; its link live and never paired through a 7 s watch (amber in its context, no proven link in the rig's row or record); given its own key again, it is paired again with the rig's certificate still pinned, the rig's record its key's alone |
+| S2.1c | lan | PlayMap's context names the peers it follows (§6 P2): `link:patterns` follows `@<Patterns' id>` and `link:stagewatch` follows `@<the rig's id>`, each in its link item's light, the item saying "not proved" |
 | S2.3 | lan | Patterns' context reaches the rig: its link over TLS with its key, the rig's row for it proved by that key, and a change of it there and back within 9.5 s |
 | S2.4 | lan | Patterns reads the rig's context: its STATE says the rig's own headline, and a change of it there and back within 9.5 s |
 | S2.6 | lan | PlayMap's, Patterns' and the rig's own contexts are each under 64 KiB as carried |
