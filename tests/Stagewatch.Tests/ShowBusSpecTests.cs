@@ -2354,7 +2354,7 @@ static class ShowBusSpecTests
         // §6's order of commands: panic, air and transport first.
         var airFirst = ShowContext.Commands.TakeWhile(c => c.Air).Select(c => c.Verb).ToList();
         Check(Flat(s6).Contains("A sender lists its panic, air and transport commands first.", StringComparison.Ordinal)
-              && ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air) && new[] { "blackout", "next", "start | pause" }.All(airFirst.Contains),
+              && ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air) && new[] { "blackout", "next | start | pause" }.All(airFirst.Contains),
             "showbus spec: Stagewatch keeps §6's order of commands: its panic, air and transport commands first (" + string.Join(", ", airFirst) + ")");
 
         // What of §6's rules Stagewatch does not keep yet: each entry holds exactly while its code still does what it says.
@@ -3195,7 +3195,7 @@ static class ShowBusSpecTests
                && Proposed(ProposalJson("note see http://10.0.0.6:9924/w/" + ScreenWindows.NewToken()), "low") is null && filled is (null, { }, false)
                && Proposed(ProposalJson("CUE GO", "patterns", "9f8e7d6c", "high"), "low", NodeCredential.Key("k1")) is { Risk: "high" }
                && ShowContext.Commands.All(c => VerbSyntax.Forms(c.Verb).Count > 0 && !c.Verb.Contains(" / ", StringComparison.Ordinal))
-               && ShowContext.Commands.Any(c => c.Verb == "patterns end [<seconds>]");
+               && ShowContext.Commands.Any(c => c.Verb.StartsWith("patterns end [<seconds>] | ", StringComparison.Ordinal));
     }
 
     /// <summary>

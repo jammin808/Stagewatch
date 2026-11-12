@@ -1128,11 +1128,22 @@ its rate, which has its own count per key (600 requests a minute, 429 with `Retr
   200 characters, a label 80, a state 160 and a recent line 200, each cut with "…"; an item's id keeps 60 and its kind 30, cut with
   no mark. No cut splits a character in two. An item light that is not one of §6's is sent grey. The context's name is the hello's,
   by the same rule.
-- **Commands, panic, air and transport first:** `blackout`; `window hold`, `show` and `revoke`; `start | pause`; `next`;
-  `patterns end [<seconds>]`; `signal go all`; `signal go <dept> <cue>`. The rest follow by what an operator needs most. Each verb
-  is §6's notation (2.21): every form of it, written out, is a line this desk's parser takes, at a risk no lower than its own, so
+- **Commands: thirteen rows (2.22), panic, air and transport first:** `blackout`; `window hold|release <window or all>`;
+  `window show|cue <window or all> <page or setup or holding or black>`; `window identify|reload|revoke|delete <window>`;
+  `window grant <window> <app> | window withdraw <window or all> [<app>]`; `next | start | pause`;
+  `patterns end [<seconds>] | patterns restart|play|pause|stop | patterns seek <m:ss>`; `signal go <dept> <cue> | signal go all`
+  (all high). Then `signal standby <dept> <cue>`, `message …` and `nudge <seconds> | trim <item> <seconds> | delay <seconds>`
+  (review), `window new <window> [<page>] | window rename <window> <name> | window loss <window or all> hold|warn |
+  window fade <window or all> <ms>` and `note <text>` (low). Each playout link's rows stand among the first. Every window verb and
+  Patterns' transport is a row; a show app may propose `window grant <window> <app>` only for itself. Each verb is §6's notation
+  (2.21): every form of it, written out, is a line this desk's parser takes, at a risk no lower than its own, so
   `message <phrase> [info|warn|crit [off|slow|fast [ack]]]` takes a message of one word or in double quotes, and its urgency
   before its flash, as the parser reads it.
+- **Links (2.22).** The timer `follows` each playout link and `hears` every other link it runs. It `feeds` a window
+  (`timer -feeds-> window:<name>`) only while that window shows a page: it is given one and says it shows the revision it was sent
+  (its item green). None while it is held, on its holding page or black, nor while nobody has opened it, it is still switching, it
+  could not show its page or its link dropped. No link names a health item (`clock:<link>`, `go-latency`, a `key:<id>` seen in
+  clear, `bus:hello`); each is an item still. The items run links, then windows, then health.
 - **Trimming.** A context over a count or 64 KiB is trimmed, each step only until it fits, in §6's order: the oldest recent lines;
   grey links, then the other links; commands that are not panic, air or transport, from the end; grey items, then green. Only if it
   still does not fit: amber states, then red ones, cut to 40 characters (Stagewatch's own length; §6 leaves it to the sender); then
@@ -1397,6 +1408,19 @@ GET /ws?node=9f8e7d6c&t=patterns&can=pages        ← can= lists what the link o
   of the app), `plain`, `key-in-clear`, `cannot`, `sent` (not acknowledged), `held` (acknowledged, no page open or nothing drawn),
   `open`, `shown` and `stale` (its viewer shows another revision, or could not show it). A grant's address is in no list, for any
   credential, the PIN included; nor in a frame, the context, a journal row or a log line.
+
+- **Placement claims (12.10).** An app says where it shows a window granted it with a link in its own context from
+  `@<this Stagewatch's id>/window:<name>`. Stagewatch reads it only from a context the app posted with a key bound to its id that
+  proves it now (never one Stagewatch pulled over its own playout link, which only the address proves), from an app whose grant of
+  that window has a viewer on it now (a page open on its address, or a drawing reported), following at most two `feeds` or `shows`
+  links to an item of kind `screen`, `output`, `surface` or `display`, at most eight per window, and words it as the app's claim:
+  `Patterns FOH says: Screen 2 — LED wall`. A context only claimed, pulled from an address, posted under the operator's credential,
+  or from an app that holds no grant of the window or holds it with no viewer, places nothing.
+- **The copilot** reads each window's `name`, what it is given (`showing`: a page, `holding` or `black`), its `light`, to whom it is
+  `granted`, what its holders claim (`on`) and its `state`, never a pass; and each other app's `id` and what it `can` do with a
+  window (`pages`, `window-draw`): its key-verified link's `can=` (none when that link offers none), else its hello's caps, each
+  kept only for the kind its cap row names.
+
 
 Not in this release yet: the desk and the rig hearing show apps for `window grant` (every grant is refused there until they do), the
 window's light and words over its viewers and claims, and the operator frame's `windows` block.

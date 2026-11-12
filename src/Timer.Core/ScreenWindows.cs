@@ -157,6 +157,23 @@ public sealed record GrantObserved(
     string Words,
     string AppCannot = "");
 
+/// <summary>
+/// A window as the context and the copilot read it (Show Bus §6, 12.10): its name, what it is given (<see cref="Showing"/>: a page,
+/// <see cref="ScreenWindows.Holding"/> while held or on the holding page, or <see cref="ScreenWindows.Black"/>), whether that is a page
+/// (<see cref="Page"/>), its context item (green only once the window says it shows what it was sent), to whom it is granted (the apps by their names as heard when granted, else
+/// their kind and id, "" when to none) and what its holders claim (<see cref="On"/>, each <see cref="WindowPlacement.Words"/>, "" when
+/// none). Never a token or a path to it.
+/// </summary>
+public sealed record WindowFact(string Name, string Showing, bool Page, ContextItem Item, string Granted, string On)
+{
+    /// <summary>
+    /// Whether the timer feeds the window now (D11: only while it shows a page): it is given a page and it says it shows the revision it
+    /// was sent (its item green). A window nobody has opened, one still switching, one that could not show its page or one whose link
+    /// dropped is given a page the timer does not yet, or no longer, feed.
+    /// </summary>
+    public bool Fed => Page && Item.Light == Light.Green;
+}
+
 /// <summary>A window action, the window(s) it is for ("all", a name or an id) and its argument.</summary>
 public sealed record WindowArgs(string Action, string Who, string Argument) : ShowArgs;
 
@@ -659,8 +676,41 @@ public static class ScreenWindows
                 (light, state) = (Light.Amber, $"switching to {wants} (sent, not yet shown)");
             else
                 (light, state) = (Light.Green, o.Hold ? $"holding page up ({Describe(w.Content)} ready underneath)" : $"showing {Describe(o.Content)}");
-            items.Add(new ContextItem("window:" + w.Name.ToLowerInvariant(), "screen", "Window " + w.Name, light, state));
+            items.Add(new ContextItem(ItemId(w.Name), "screen", "Window " + w.Name, light, state));
         }
         return items;
+    }
+
+    /// <summary>A window's item id in this Stagewatch's context (12.10): <c>window:</c> and its name in lower case.</summary>
+    public static string ItemId(string name) => "window:" + name.ToLowerInvariant();
+
+    /// <summary>
+    /// Whether a window is given a page now: not held, and its content neither the holding page nor black. Only while it also says it
+    /// shows that page does the timer feed it (<see cref="WindowFact.Fed"/>, the context's <c>feeds</c> link, D11).
+    /// </summary>
+    public static bool ShowsPage(ScreenWindow w) => !w.Hold && w.Content is not (Holding or Black);
+
+    /// <summary>
+    /// The windows as the context and the copilot read them, in the windows' order (<see cref="WindowFact"/>): each with its item from
+    /// <paramref name="items"/> (by <see cref="ItemId"/>; grey and unopened when none is given), its grants by name, and the
+    /// <paramref name="placements"/> that name it, at most <see cref="WindowPlacements.MaxPerWindow"/>.
+    /// </summary>
+    public static IReadOnlyList<WindowFact> Facts(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<ContextItem> items,
+        IReadOnlyList<WindowPlacement>? placements = null)
+    {
+        var byId = new Dictionary<string, ContextItem>(StringComparer.Ordinal);
+        foreach (var i in items) byId.TryAdd(i.Id, i);
+        var facts = new List<WindowFact>(windows.Count);
+        foreach (var w in windows)
+        {
+            var id = ItemId(w.Name);
+            var item = byId.GetValueOrDefault(id) ?? new ContextItem(id, "screen", "Window " + w.Name, Light.Grey, "not opened yet");
+            var granted = string.Join(", ", (w.Grants ?? []).OfType<WindowGrant>()
+                .Select(g => g.Name.Length > 0 ? g.Name : NodeBindings.Describe(g.Kind, g.Node)));
+            var name = w.Name.ToLowerInvariant();
+            var on = string.Join("; ", (placements ?? []).Where(p => p.Window == name).Take(WindowPlacements.MaxPerWindow).Select(p => p.Words));
+            facts.Add(new WindowFact(w.Name, w.Hold ? Holding : w.Content, ShowsPage(w), item, granted, on));
+        }
+        return facts;
     }
 }

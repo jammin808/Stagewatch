@@ -64,6 +64,9 @@ test('a new window shows its holding page, then the page it is given, swapped in
   await waitAttr(page, 'data-showing', 'holding');
   await waitAttr(page, 'data-link', 'ok');
   assert.equal((await page.locator('#hold .idle').innerText()).toLowerCase(), 'lobby', 'an unused window says its name, faintly');
+  // The rig builds its context once a second: wait for the window's item before reading its links.
+  const before = await until(async () => { const c = await rig.context(); return c.items.some((i) => i.id === 'window:lobby') && c; }, 3000, 'lobby an item');
+  assert.deepEqual(before.links.filter((l) => l.kind === 'feeds'), [], 'D11: the timer feeds no window on its holding page');
 
   const sent = Date.now();
   const r = await rig.run('window show lobby /clock');
@@ -76,6 +79,10 @@ test('a new window shows its holding page, then the page it is given, swapped in
   const w = await until(async () => { const x = await rig.window('lobby'); return x.inStep && x; }, 3000, 'lobby in step');
   assert.equal(w.shown.content, '/clock');
   assert.ok(w.shown.ms < 3000 && took < 5000, `swap ${w.shown.ms} ms, command to screen ${took} ms`);
+  // D11 at the rig's own context: one feeds link, to the window that says it shows its page; no link names a health item.
+  const fed = await until(async () => { const c = await rig.context(); return c.links.some((l) => l.kind === 'feeds') && c; }, 3000, 'lobby fed');
+  assert.deepEqual(fed.links.filter((l) => l.kind === 'feeds').map((l) => [l.from, l.to]), [['timer', 'window:lobby']]);
+  assert.deepEqual(fed.links.filter((l) => /^(bus:hello|key:|clock:|go-latency)/.test(l.to)), [], 'no link names a health item');
   await shot(page, 'window-clock');
 
   const again = await rig.run('window show lobby /clock');
@@ -94,6 +101,7 @@ test('hold keeps the page loaded underneath; release shows it at once without re
   assert.equal((await rig.run('window hold lobby text Back at 2pm')).ok, true);
   await waitAttr(page, 'data-hold', '1');
   assert.equal(await page.locator('#hold .words').innerText(), 'Back at 2pm');
+  await until(async () => !(await rig.context()).links.some((l) => l.kind === 'feeds'), 3000, 'D11: a held window is fed nothing');
   await shot(page, 'window-holding');
 
   const sent = Date.now();

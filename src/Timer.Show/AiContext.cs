@@ -14,10 +14,13 @@ public sealed record ScreenFact(string Id, string Name, string Page, string Devi
 /// <summary>
 /// Another show app as an AI sees it (Show Bus §6, one hop): light, headline, parts, recent lines; <see cref="Link"/> is
 /// "ws" while it follows this Stagewatch over a proven node link, and <see cref="Verified"/> what proves those facts now
-/// (key, operator, none, or "" when nothing spoke for it), so a context only claimed is read as a claim.
+/// (key, operator, none, or "" when nothing spoke for it), so a context only claimed is read as a claim. <see cref="Id"/> is its
+/// Show Bus id (what <c>window grant &lt;window&gt; &lt;app&gt;</c> names it by), and <see cref="Can"/> what it can do with a window
+/// (12.6's abilities, <c>pages</c> or <c>window-draw</c>): its key-verified node link's <c>can=</c> while it has one, else its
+/// hello's caps, each kept only for the kinds its cap row names.
 /// </summary>
 public sealed record PeerFact(string Kind, string Name, string Light, string Headline, IReadOnlyList<string> Parts, IReadOnlyList<string> Recent,
-    string Link = "", string Verified = "");
+    string Link = "", string Verified = "", string Id = "", IReadOnlyList<string>? Can = null);
 
 /// <summary>An integration's link as the copilot sees it ("why isn't vMix switching?").</summary>
 public sealed record IntegrationFact(string Name, string Health, string Status);
@@ -53,7 +56,7 @@ public sealed record CopilotFacts(
     IReadOnlyList<RundownItem> Items,
     IReadOnlyList<JournalEntry> Journal,
     IReadOnlyList<PeerFact>? Peers = null,
-    IReadOnlyList<ContextItem>? Windows = null,
+    IReadOnlyList<WindowFact>? Windows = null,
     IReadOnlyList<PlayoutFact>? Playout = null,
     PreflightResult? Preflight = null);
 
@@ -134,9 +137,14 @@ public static class AiContext
             JsonSerializer.Serialize(w, f.Screens.Select(s => new { id = s.Id, name = s.Name, page = s.Page, device = s.Device, control = s.Control, claim = s.Claim }));
             w.WritePropertyName("screen_setups");
             JsonSerializer.Serialize(w, f.ScreenSetups.Select(p => new { name = p.Name, page = p.Path }));
-            // The windows Stagewatch controls ("window show <name> <page>"): what each should show and what it says it shows.
+            // The windows Stagewatch controls ("window show <name> <page>"): what each is given (a page, holding or black), its light and
+            // what it says it shows, the show apps it is granted to and what they claim about where they show it (their words, never a
+            // fact this Stagewatch saw). Never a token or a path to one.
             w.WritePropertyName("windows");
-            JsonSerializer.Serialize(w, (f.Windows ?? Array.Empty<ContextItem>()).Select(x => new { name = x.Label.StartsWith("Window ", StringComparison.Ordinal) ? x.Label[7..] : x.Label, light = x.Light, state = x.State }));
+            JsonSerializer.Serialize(w, (f.Windows ?? Array.Empty<WindowFact>()).Select(x => new
+            {
+                name = x.Name, showing = x.Showing, light = x.Item.Light, granted = x.Granted, on = x.On, state = x.Item.State,
+            }));
             // How each link is doing, so "why isn't OBS switching?" has an answer.
             w.WritePropertyName("integrations");
             JsonSerializer.Serialize(w, f.Integrations.Select(x => new { name = x.Name, health = x.Health, status = x.Status }));
@@ -227,7 +235,7 @@ public static class AiContext
     /// proves those facts; and each id two running machines say (§2), as the desk shows it — a row of that id amber with the
     /// conflict's words before its headline, and an id only its hello names as a fact of its own, which the context does not list.
     /// </summary>
-    public static IReadOnlyList<PeerFact> PeerFacts(NetworkView view)
+    public static IReadOnlyList<PeerFact> PeerFacts(NetworkView view, IReadOnlyDictionary<string, IReadOnlyList<string>>? helloCaps = null)
     {
         var conflicts = view.Conflicts.ToDictionary(c => c.Id, StringComparer.Ordinal);
         var facts = new List<PeerFact>(view.Rows.Count + view.Conflicts.Count);
@@ -235,17 +243,32 @@ public static class AiContext
         {
             var fact = new PeerFact(r.Peer.Kind, r.Peer.Name, r.Peer.Light, r.Peer.Headline,
                 r.Context?.Items.Select(i => $"{i.Label} [{i.Light}]: {i.State}").Take(24).ToList() ?? new List<string>(),
-                r.Context?.Recent.TakeLast(8).ToList() ?? new List<string>(), r.Peer.Link, r.Peer.Verified);
+                r.Context?.Recent.TakeLast(8).ToList() ?? new List<string>(), r.Peer.Link, r.Peer.Verified, r.Peer.Id, Can(r, helloCaps));
             facts.Add(conflicts.TryGetValue(r.Peer.Id, out var c) ? fact with { Light = Light.Amber, Headline = c.Conflict + " — " + r.Peer.Headline } : fact);
         }
         var listed = view.Rows.Select(r => r.Peer.Id).ToHashSet(StringComparer.Ordinal);
         foreach (var c in view.Conflicts.Where(c => !listed.Contains(c.Id)))
             facts.Add(new PeerFact(c.Kind, c.Name.Length > 0 ? c.Name : $"{ShowNetwork.AppName(c.Kind)} {c.Id}", Light.Amber, c.Conflict,
-                Array.Empty<string>(), Array.Empty<string>()));
+                Array.Empty<string>(), Array.Empty<string>(), Id: c.Id));
         return facts;
     }
 
-    private static object PeerJson(PeerFact p) => new { app = p.Kind, name = p.Name, light = p.Light, headline = p.Headline, parts = p.Parts, recent = p.Recent, link = p.Link, verified = p.Verified };
+    /// <summary>
+    /// What a row's app can do with a window (12.6): its node link's abilities while a key bound to its id proves that link — none when
+    /// that link offers none, whatever a hello says, since delivery reads that link's <c>can=</c> alone (D3) — else its hello's caps read
+    /// as <c>can=</c> is (<see cref="WindowGrants.Offered"/>: only an ability whose cap row names its kind), none when neither says.
+    /// </summary>
+    private static IReadOnlyList<string> Can(NetworkRow r, IReadOnlyDictionary<string, IReadOnlyList<string>>? helloCaps)
+    {
+        if (r.Link is { Verified: NodeProof.Key } linked) return linked.Can ?? [];
+        return helloCaps is not null && helloCaps.TryGetValue(r.Peer.Id, out var caps) ? WindowGrants.Offered(string.Join(',', caps), r.Peer.Kind) : [];
+    }
+
+    private static object PeerJson(PeerFact p) => new
+    {
+        app = p.Kind, name = p.Name, light = p.Light, headline = p.Headline, parts = p.Parts, recent = p.Recent, link = p.Link, verified = p.Verified,
+        id = p.Id, can = p.Can ?? [],
+    };
 
     /// <summary>The cloud assistant's compact view: titles, plan, expected/actual, curfews, live remaining, the other apps.</summary>
     public static string Assistant(IReadOnlyList<RundownItem> items, ScheduleProjection p, ShowClock clock, DateTime nowUtc,

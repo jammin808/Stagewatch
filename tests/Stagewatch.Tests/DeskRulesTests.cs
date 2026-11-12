@@ -372,7 +372,12 @@ static class DeskRulesTests
     static string? Fill(string name) => name switch
     {
         "window" => "lobby",
+        "window or all" => "lobby",
         "page" => "/clock",
+        "page or setup or holding or black" => "/clock",
+        "app" => "9f8e7d6c",
+        "name" => "foyer",
+        "ms" => "500",
         "seconds" => "10",
         "dept" => "lighting",
         "cue" => "LX12",
@@ -464,9 +469,9 @@ static class DeskRulesTests
                 }
         Check(wrong.Count == 0 && lines > rows.Count * 2, $"own rows: every form of every row, every way it is written, is a line the desk takes at its row's risk or lower ({lines} lines; "
             + string.Join("; ", wrong) + ")");
-        Check(rows.All(r => VerbSyntax.Forms(r.Verb).Count > 0 && !r.Verb.Contains(" / ", StringComparison.Ordinal)) && rows.Any(r => r.Verb == "start | pause")
-              && rows.Any(r => r.Verb == "patterns end [<seconds>]"),
-            "own rows: every row has a form in §6's notation: start | pause, patterns end [<seconds>]");
+        Check(rows.All(r => VerbSyntax.Forms(r.Verb).Count > 0 && !r.Verb.Contains(" / ", StringComparison.Ordinal)) && rows.Any(r => r.Verb == "next | start | pause")
+              && rows.Any(r => r.Verb.StartsWith("patterns end [<seconds>] | ", StringComparison.Ordinal)),
+            "own rows: every row has a form in §6's notation: next | start | pause, patterns end [<seconds>] | …");
         // What the parser refuses, the notation does not offer: a flash before an urgency, an ack before a flash, words of a message unquoted.
         string[] refused = ["message hi off", "message hi ack", "message Wrap up now warn"];
         Check(refused.All(l => !ShowCommandParser.TryParse("message", McpEndpoint.Tokenize(l).Skip(1).ToList(), out _, out _) && !table.Rate(l).Listed),

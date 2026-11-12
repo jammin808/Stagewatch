@@ -150,12 +150,14 @@ public sealed partial class MainViewModel
         // id in the last one proves nothing now — and expires what no app collected before its readers below are told.
         ExpireShared();
         var links = LinkItems();
+        var windows = WindowFacts();
+        var health = HealthItems();
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
             now, _hub.Latest, _hub.ProducerStuck, links, Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
-            PlayoutRows());
+            PlayoutRows(), windows, health);
         _contextJson = ShowContext.Build(input);
         SyncPeerRows(now, view);
-        RefreshPreflight(now, view, links);
+        RefreshPreflight(now, view, [.. links, .. windows.Select(w => w.Item), .. health]);
         RefreshPlayoutConfig();
         RefreshDeskReaders();
         var hello = OwnHello;
@@ -191,7 +193,8 @@ public sealed partial class MainViewModel
 
     /// <summary>
     /// Every link this Stagewatch runs, as context items (off ones left out): each integration's by its own light, each playout link's
-    /// by its record (<see cref="ShowContext.PlayoutItems"/>: <c>link:&lt;name&gt;</c> and, while its clock is apart, <c>clock:&lt;name&gt;</c>).
+    /// by its record (<see cref="ShowContext.PlayoutItems"/>: <c>link:&lt;name&gt;</c> and, while its clock is apart, <c>clock:&lt;name&gt;</c>,
+    /// a health item no link names). Its windows (<see cref="WindowFacts"/>) and its own health (<see cref="HealthItems"/>) go apart.
     /// </summary>
     private List<ContextItem> LinkItems()
     {
@@ -205,9 +208,14 @@ public sealed partial class MainViewModel
         // 13.16.4: each playout link's light is its record's; 13.11.5: its clock apart when the offset less its error is past
         // clock.apart.ms, from its matched pongs alone (13.10.2).
         list.AddRange(ShowContext.PlayoutItems(PlayoutLinkFacts()));
-        list.AddRange(WindowItems());
+        return list;
+    }
+
+    /// <summary>This Stagewatch's own health as context items, which no link names (D11): each key seen in clear, and its hello.</summary>
+    private List<ContextItem> HealthItems()
+    {
         // 13.6.9, 13.16.5: each key seen in clear, amber, from where and when — "replace this key".
-        list.AddRange(ShowContext.ClearSeenItems(_sightings.All(), ApiKeyName));
+        var list = ShowContext.ClearSeenItems(_sightings.All(), ApiKeyName).ToList();
         if (ShowBusHello.Item(OwnHello, OwnTwin) is { } hello) list.Add(hello);   // its own health: other apps can't find it, or can't tell it from a copy
         return list;
     }
@@ -487,7 +495,13 @@ public sealed partial class MainViewModel
 
     /// <summary>
     /// What the AI sees of the other apps, from the last join (<see cref="_network"/>): the rows the context lists and each id two
-    /// machines say, as the desk shows it (<see cref="AiContext.PeerFacts"/>). Never joins again: any thread reads the published view.
+    /// machines say, as the desk shows it (<see cref="AiContext.PeerFacts"/>), each with what it can do with a window: its key-verified
+    /// link's abilities, else its hello's caps. Never joins again: any thread reads the published view and the hellos as heard.
     /// </summary>
-    private IReadOnlyList<PeerFact> PeerFacts() => AiContext.PeerFacts(_network);
+    private IReadOnlyList<PeerFact> PeerFacts()
+    {
+        var caps = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var p in NetworkPeers()) caps.TryAdd(p.Hello.Id, p.Hello.Caps ?? []);
+        return AiContext.PeerFacts(_network, caps);
+    }
 }

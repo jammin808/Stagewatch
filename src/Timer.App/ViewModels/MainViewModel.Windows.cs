@@ -45,6 +45,17 @@ public sealed partial class MainViewModel
         if (change.Effect == WindowEffect.Changed) _journal.Add(DateTime.UtcNow, JournalKind.Note, -1, "Window: " + change.Words);
     }
 
-    /// <summary>The windows as context items (Eye, AI): the same lights the Screens window shows.</summary>
-    private IReadOnlyList<ContextItem> WindowItems() => ScreenWindows.ContextItems(ControlledWindows, WindowStatus());
+    /// <summary>
+    /// The windows as the context and the copilot read them (<see cref="WindowFact"/>), from one read of the list: each window's item (the
+    /// same light the Screens window shows), what it is given, to whom it is granted, and what its holders claim about where they show it
+    /// (12.10: only from a context a key bound to the holder's id proves, while its grant has a viewer on it).
+    /// </summary>
+    private IReadOnlyList<WindowFact> WindowFacts()
+    {
+        var windows = ControlledWindows;
+        var holders = WindowPlacements.Holders(windows, _web?.GrantStatus() ?? Array.Empty<GrantObserved>());
+        var placements = WindowPlacements.From(_network.Rows.Where(r => r.Context is not null).Select(r => new HeldContext(r.Context!, r.ContextProof, r.Pulled)),
+            _nodeId, holders);
+        return ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, WindowStatus()), placements);
+    }
 }

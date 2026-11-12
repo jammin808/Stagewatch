@@ -272,7 +272,7 @@ public sealed class WebServer : IAsyncDisposable
                 var keyName = first.Link.KeyId is { } id ? keys.FirstOrDefault(k => k.Id == id)?.Name ?? "" : "";
                 return new NodeLinkFact(first.Link.Kind ?? "", first.Link.Node, first.Link.Verified, first.Link.KeyId, keyName,
                     Screens.AddressOf(first.Client.Remote), first.Client.ConnectedUtc, g.Count(), first.Link.Words,
-                    g.Count(x => x.Link.Lid is not null), g.Sum(x => x.Client.Oversize));
+                    g.Count(x => x.Link.Lid is not null), g.Sum(x => x.Client.Oversize), g.OrderBy(x => x.Client.ConnectedUtc).Last().Client.Can);
             })
             .OrderBy(n => n.Kind, StringComparer.Ordinal).ThenBy(n => n.Id ?? "", StringComparer.Ordinal).ThenBy(n => n.ConnectedUtc)
             .ToList();

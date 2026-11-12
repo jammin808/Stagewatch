@@ -5,7 +5,12 @@ using Stagewatch.Core;
 
 namespace Stagewatch.Show;
 
-/// <summary>What Stagewatch knows about the room when it builds its context (gathered on the owner thread).</summary>
+/// <summary>
+/// What Stagewatch knows about the room when it builds its context (gathered on the owner thread): <see cref="Links"/> are the links it
+/// runs (its timer follows a playout link and hears any other; an item of kind <c>health</c> among them gets no link),
+/// <see cref="Windows"/> its windows (the timer feeds each one while it shows a page) and <see cref="Health"/> its own health items, which no link
+/// names (D11).
+/// </summary>
 public sealed record ContextInput(
     string NodeId,
     string Name,
@@ -17,7 +22,9 @@ public sealed record ContextInput(
     IReadOnlyList<JournalEntry> Journal,
     ShowClock Clock,
     double GoLatencyP95Ms,
-    IReadOnlyList<PlayoutRow>? Playout = null);
+    IReadOnlyList<PlayoutRow>? Playout = null,
+    IReadOnlyList<WindowFact>? Windows = null,
+    IReadOnlyList<ContextItem>? Health = null);
 
 /// <summary>
 /// A playout link a peer or an AI may propose lines for: its name, as people read it, the peer's kind once known
@@ -81,31 +88,37 @@ public static class ShowContext
     public const string TrimmedId = "context:trimmed";
 
     /// <summary>
-    /// The verbs a peer or an AI may propose, with their risk (high is never pre-ticked by any assistant), each in Show Bus §6's notation,
-    /// so a reader rates a line by its whole form: every form of every row — a word or a quoted phrase in each value, each optional part
-    /// taken or left out, each alternative — is a line this desk's own parser takes, at a risk no lower than the desk's own rating of
-    /// it. A value the parser reads as one word is one in the notation too, but a form's last, and an option the parser reads only
-    /// after another nests in it. <c>Air</c> marks §6's panic, air and transport commands, listed first and left out last: what blacks
-    /// out every screen, what puts a page on a screen at once, and what starts, pauses or moves the show or Patterns' clip — a
-    /// department's GO among them, the call that moves a called show. The rest follow by what an operator needs most on a failing night,
-    /// a standby before messages, time and notes, because trimming leaves commands out from the end of the list.
+    /// The verbs a peer or an AI may propose, with their risk (high is never pre-ticked by any assistant): thirteen rows, each in Show Bus
+    /// §6's notation, so a reader rates a line by its whole form: every form of every row — a word or a quoted phrase in each value, each
+    /// optional part taken or left out, each alternative — is a line this desk's own parser takes, at a risk no lower than the desk's own
+    /// rating of it (<see cref="CommandRisk"/>). A value the parser reads as one word is one in the notation too, but a form's last, and an
+    /// option the parser reads only after another nests in it. Every window verb and Patterns' transport is a row: a window grant among
+    /// them, which a show app may propose only for itself. <c>Air</c> marks §6's panic, air and transport commands, listed first and left
+    /// out last: what blacks out every screen, what changes or ends what a window's screen shows, and what starts, pauses or moves the show
+    /// or Patterns' clip — a department's GO among them, the call that moves a called show. The rest follow by what an operator needs most
+    /// on a failing night, a standby before messages, time, a window's settings and notes, because trimming leaves commands out from the
+    /// end of the list.
     /// </summary>
     public static readonly IReadOnlyList<(string Verb, string Risk, string Words, bool Air)> Commands = new[]
     {
         ("blackout", "high", "Black out every screen", true),
-        ("window hold <window>", "high", "Put a window on its holding page", true),
-        ("window show <window> <page>", "high", "Put a page on a controlled browser window (the audience sees it at once)", true),
-        ("window revoke <window>", "high", "Give a window a new address (the screen on the old one goes dark)", true),
-        ("start | pause", "high", "Start or pause the timer", true),
-        ("next", "high", "Go to the next item", true),
-        ("patterns end [<seconds>]", "high", "Jump Patterns' clip to its last seconds (10 unless said)", true),
-        ("signal go all", "high", "GO every department standing by", true),
-        ("signal go <dept> <cue>", "high", "GO one department", true),
+        ("window hold|release <window or all>", "high", "Put a window on its holding page, or take it off to show what is under it", true),
+        ("window show|cue <window or all> <page or setup or holding or black>", "high",
+            "Put a page, a saved setup, the holding page or black on a controlled browser window: show puts it up at once, cue loads it behind the holding page", true),
+        ("window identify|reload|revoke|delete <window>", "high",
+            "Flash a window's name on its screen, reload it, give it a new address (the screen on the old one goes black) or delete it", true),
+        ("window grant <window> <app> | window withdraw <window or all> [<app>]", "high",
+            "Grant a window to a show app by its id (an app asks only for itself), or withdraw it (that app's screen of it goes black)", true),
+        ("next | start | pause", "high", "Go to the next item, or start or pause the timer", true),
+        ("patterns end [<seconds>] | patterns restart|play|pause|stop | patterns seek <m:ss>", "high",
+            "Patterns' clip on air: jump to its last seconds (10 unless said), restart, play, pause, stop (back to the top, held) or move to a point", true),
+        ("signal go <dept> <cue> | signal go all", "high", "GO one department, or every department standing by", true),
         ("signal standby <dept> <cue>", "review", "Stand a department by", false),
         ("message <phrase> [info|warn|crit [off|slow|fast [ack]]]", "review", "Put a message on the speaker's screen: one word, or words in double quotes (info and steady unless said; ack asks the speaker for Got it)", false),
-        ("nudge <seconds>", "review", "Add or take time from the live item", false),
-        ("delay <seconds>", "review", "Announce a delay before the next item", false),
-        ("trim <item> <seconds>", "review", "Lengthen or shorten a coming item", false),
+        ("nudge <seconds> | trim <item> <seconds> | delay <seconds>", "review",
+            "Add or take time from the live item, lengthen or shorten a coming item, or announce a delay before the next item", false),
+        ("window new <window> [<page>] | window rename <window> <name> | window loss <window or all> hold|warn | window fade <window or all> <ms>", "low",
+            "Make a window, rename one, choose what its screen shows when its link drops, or set its crossfade: nothing on a screen changes", false),
         ("note <text>", "low", "Add a line to the show log", false),
     };
 
@@ -251,8 +264,10 @@ public static class ShowContext
             items.Add(new ContextItem("message", "message", "Speaker message", f.MessageAck == "sent" ? Light.Amber : Light.Green,
                 f.MessageAck switch { "sent" => "waiting for the speaker to see it", "seen" => "seen", "done" => "acknowledged", _ => "on screen" }));
 
-        // Links (integrations, presenter PCs, other apps) as the app reports them.
+        // Links (integrations, presenter PCs, other apps) as the app reports them, then its windows, then its own health.
         items.AddRange(x.Links);
+        items.AddRange((x.Windows ?? []).Select(w => w.Item));
+        items.AddRange(x.Health ?? []);
         if (x.GoLatencyP95Ms > GoLatency.AmberMs)
             items.Add(new ContextItem("go-latency", "health", "GO to screen", Light.Amber, $"95% of GOs take {x.GoLatencyP95Ms:0} ms or less — slower than it should be"));
 
@@ -309,7 +324,7 @@ public static class ShowContext
 
         var whole = new Shape(
             items.Select(Part.Of).ToList(),
-            x.Links.Select(Sized).Select(l => Part.Of(new ContextLink("timer", l.Id, l.Kind == "playout" ? "follows" : "hears", l.Light))).ToList(),
+            Links(x).Select(Part.Of).ToList(),
             // This show's own rows alone: what another node's journal told this desk (a peer row) is never said again as Stagewatch's.
             ShowJournal.LastOwn(x.Journal, MaxRecent).Select(e => Part.Of(new DateTimeOffset(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
                 ShowBusText.Cut(string.Create(CultureInfo.InvariantCulture, $"{x.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}"), RecentChars))).ToList(),
@@ -320,6 +335,22 @@ public static class ShowContext
             && Encoding.UTF8.GetByteCount(json) <= MaxBytes)
             return json;
         return Json(Fit(whole, Encoding.UTF8.GetByteCount(Json(Shape.Empty))));
+    }
+
+    /// <summary>
+    /// The context's links, each from the timer (D11): it follows each playout link and hears every other link it runs; it feeds each
+    /// window only while that window shows a page (<see cref="WindowFact.Fed"/>: given one and saying it shows it), and nothing while it
+    /// is held, on its holding page, black, unopened, switching or cut off; and no link names a health item (<c>clock:*</c>,
+    /// <c>go-latency</c>, a key seen in clear, the hello), which is the node's own state, not a thing its timer reaches.
+    /// </summary>
+    public static IReadOnlyList<ContextLink> Links(ContextInput x)
+    {
+        var links = new List<ContextLink>();
+        foreach (var l in x.Links.Select(Sized))
+            if (l.Kind != "health") links.Add(new ContextLink("timer", l.Id, l.Kind == "playout" ? "follows" : "hears", l.Light));
+        foreach (var w in x.Windows ?? [])
+            if (w.Fed) links.Add(new ContextLink("timer", Sized(w.Item).Id, "feeds", Light.Green));
+        return links;
     }
 
     /// <summary>An item within §14's item sizes — its id and kind clipped, a word each; its label and state cut — its light one of §6's four.</summary>

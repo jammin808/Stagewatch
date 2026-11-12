@@ -416,3 +416,116 @@ public sealed class PeerContexts
         return s.Length > max ? s[..max] : s;
     }
 }
+
+/// <summary>
+/// Where a show app says it shows one of this Stagewatch's windows (Show Bus 12.10): the window (its name in lower case), the app (its
+/// node id, and its name as its context gives it, else its kind and id) and the item of its own its links reach (its id, and its label
+/// as its context lists it, else its id). Always the app's claim, never a fact this Stagewatch saw.
+/// </summary>
+public sealed record WindowPlacement(string Window, string Node, string App, string Item, string Label)
+{
+    /// <summary>12.10's words: "Patterns FOH says: Screen 2 — LED wall".</summary>
+    public string Words => App + " says: " + Label;
+}
+
+/// <summary>
+/// The placement claims this Stagewatch takes from its holders' contexts (Show Bus 12.10, D10), pure. A claim is a link of a context a
+/// key bound to its node proves now (<see cref="NodeProof.Key"/>, posted with that key: never one this Stagewatch pulled over its own
+/// playout link, which the operator-set address alone proves), from <c>@&lt;own id&gt;/window:&lt;name&gt;</c>, of a window that node
+/// holds with a viewer on it now (<see cref="Holders"/>), reaching an item of a placing kind (<see cref="PlaceKinds"/>) in at most
+/// <see cref="MaxHops"/> <c>feeds</c> or <c>shows</c> links; at most <see cref="MaxPerWindow"/> per window. Anything else — a context
+/// only claimed, pulled from an address or posted by another credential, a node that holds no grant of the window or holds it with no
+/// viewer, a longer chain — places nothing.
+/// </summary>
+public static class WindowPlacements
+{
+    /// <summary>The most claims kept for one window, from all its holders.</summary>
+    public const int MaxPerWindow = 8;
+
+    /// <summary>The most links a claim follows from the window to the item it places it on.</summary>
+    public const int MaxHops = 2;
+
+    /// <summary>The link kinds a claim follows (§6).</summary>
+    public static readonly IReadOnlyList<string> HopKinds = ["feeds", "shows"];
+
+    /// <summary>The item kinds a window is placed on (§6's kind table): what an audience or a camera sees.</summary>
+    public static readonly IReadOnlyList<string> PlaceKinds = ["screen", "output", "surface", "display"];
+
+    /// <summary>
+    /// Who may claim a placement for each window, by its name in lower case: the nodes whose grant of it has a viewer on it now
+    /// (<see cref="GrantObserved.Open"/> above 0: a page open on its address, or a drawing reported). A grant row for a window not in
+    /// <paramref name="windows"/> names nobody.
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlySet<string>> Holders(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<GrantObserved> grants)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var w in windows) names.TryAdd(w.Id, w.Name.ToLowerInvariant());
+        var holders = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var g in grants)
+        {
+            if (g.Open <= 0 || !names.TryGetValue(g.WindowId, out var name)) continue;
+            if (!holders.TryGetValue(name, out var nodes)) holders[name] = nodes = new HashSet<string>(StringComparer.Ordinal);
+            nodes.Add(g.Node);
+        }
+        return holders.ToDictionary(kv => kv.Key, kv => (IReadOnlySet<string>)kv.Value, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The claims <paramref name="contexts"/> make about this Stagewatch's windows (<paramref name="ownId"/>), in the contexts' order and
+    /// each context's links' order, each window's first <see cref="MaxPerWindow"/>, one per window, node and item.
+    /// </summary>
+    public static IReadOnlyList<WindowPlacement> From(IEnumerable<HeldContext> contexts, string? ownId, IReadOnlyDictionary<string, IReadOnlySet<string>> holders)
+    {
+        var placed = new List<WindowPlacement>();
+        if (string.IsNullOrEmpty(ownId) || holders.Count == 0) return placed;
+        var from = "@" + ownId + "/window:";
+        var perWindow = new Dictionary<string, int>(StringComparer.Ordinal);
+        var seen = new HashSet<(string, string, string)>();
+        foreach (var held in contexts)
+        {
+            var e = held.Entry;
+            if (held is not { Proof: NodeProof.Key, Pulled: false } || e.Id == ownId || e.Links.Count == 0) continue;
+            var items = new Dictionary<string, ContextItem>(StringComparer.Ordinal);
+            foreach (var i in e.Items) items.TryAdd(i.Id, i);
+            ILookup<string, ContextLink>? onward = null;
+            var app = e.Name.Length > 0 ? e.Name : NodeBindings.Describe(e.Kind, e.Id);
+            foreach (var first in e.Links)
+            {
+                if (!first.From.StartsWith(from, StringComparison.OrdinalIgnoreCase) || !Hop(first)) continue;
+                var window = first.From[from.Length..].ToLowerInvariant();
+                if (!holders.TryGetValue(window, out var nodes) || !nodes.Contains(e.Id) || perWindow.GetValueOrDefault(window) >= MaxPerWindow) continue;
+                onward ??= e.Links.Where(l => Hop(l) && !l.To.StartsWith('@')).ToLookup(l => l.From, StringComparer.Ordinal);
+                foreach (var target in Reached(items, onward, first.To))
+                {
+                    if (perWindow.GetValueOrDefault(window) >= MaxPerWindow) break;
+                    if (!seen.Add((window, e.Id, target))) continue;
+                    perWindow[window] = perWindow.GetValueOrDefault(window) + 1;
+                    placed.Add(new WindowPlacement(window, e.Id, app, target, items.TryGetValue(target, out var it) && it.Label.Length > 0 ? it.Label : target));
+                }
+            }
+        }
+        return placed;
+    }
+
+    private static bool Hop(ContextLink l) => HopKinds.Contains(l.Kind, StringComparer.Ordinal);
+
+    private static bool Places(IReadOnlyDictionary<string, ContextItem> items, string id)
+        => items.TryGetValue(id, out var i) && PlaceKinds.Contains(i.Kind, StringComparer.Ordinal);
+
+    /// <summary>
+    /// The items of the node's own a claim's first link reaches: its end when that places it, else each placing end one more hop on
+    /// (<paramref name="onward"/>: the context's hop links to its own items, by where they start).
+    /// </summary>
+    private static IEnumerable<string> Reached(IReadOnlyDictionary<string, ContextItem> items, ILookup<string, ContextLink> onward, string first)
+    {
+        if (first.StartsWith('@')) yield break;
+        if (Places(items, first))
+        {
+            yield return first;
+            yield break;
+        }
+        foreach (var next in onward[first])
+            if (Places(items, next.To))
+                yield return next.To;
+    }
+}

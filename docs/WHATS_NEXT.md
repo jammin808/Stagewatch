@@ -1178,7 +1178,25 @@ maintainer's too.
   messages and the black end (REMOTE 2.22, windows granted to show apps), and `/api/windows` lists each grant's state. The desk and
   the rig still hear no show apps for `window grant`, so every grant made there is refused: the desk's `FindApp` is SW22.5's (with the
   window's light over its viewers and claims, the operator frame's `windows` block and the journal rows), the rig's SW22.6's (with
-  `grants.e2e.cjs`). `ContextItems` still reads one row per window; `ViewerStatus()` and `GrantStatus()` wait for SW22.5 to read them.
+  `grants.e2e.cjs`). `ContextItems` still reads one row per window; `ViewerStatus()` waits for SW22.5 to read it, and `GrantStatus()`
+  is read only for the placement claims' holders (SW22.2, below).
+- **Windows in the context (SW22.2, G23, G24, G22).** The timer `follows` a playout link, `hears` any other link, and `feeds` a
+  window only while it shows a page (given one, and saying it shows it); no link names a health item (`ContextInput` gains `Windows`
+  and `Health`, appended; the desk and the rig pass their windows and health apart from their links). Thirteen command rows in §6's
+  notation carry every window verb and Patterns' transport. `WindowPlacements` (Core, pure) takes 12.10's claims from a holder's
+  context posted with its key (never one pulled over a playout link) whose grant has a viewer on it, two `feeds`/`shows` hops at
+  most, eight per window; `ScreenWindows.Facts` gives the copilot each window's showing, light, grants and claims; `PeerFact` gains
+  `Id` and `Can` (a key-verified link's `can=`, even when it offers none; else its hello's caps). The hello cap `windows` was
+  already said (2.19). Left, each with its unit:
+  - The window item's light and words over its viewers, grants and claims, and the operator frame's `windows` block: SW22.5. Until
+    then the claims reach the copilot's facts alone.
+  - No grant is made outside the tests until SW22.5 and SW22.6 hear show apps, so no claim is taken in the desk or the rig yet.
+  - §6 P4's `serves` row per grant holder is not published; no 2.22 unit names it.
+  - Patterns at its pin reads the first 12 rows of this context's commands (its brief's cap); its 32 is Patterns' PT-W3.
+  - Three of the design's rows are written whole (`nudge <seconds> | trim <item> <seconds> | delay <seconds>`, the window settings
+    row, Patterns' transport) where its `…` shorthand would offer lines this desk's parser refuses; `window show|cue` takes
+    `<window or all>`, as the parser does.
+  - The desk's readers are compiled, never seen: the maintainer's PC work.
 - **Two choices SW22.4 made where the design left room**, for SW22.5 and the papers unit to keep or change: a key is marked seen in
   clear whenever it arrives plain from another machine (SW22.1b's mark), not only while this Stagewatch offers TLS, so a plain link
   from another machine always reads `plain` first and `key-in-clear` once it comes back over TLS; and a draw grant whose key is marked

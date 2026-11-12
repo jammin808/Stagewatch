@@ -94,6 +94,7 @@ static class ShowBusTests
     {
         Pure(Check);
         ContextSizes(Check);
+        WindowsInContext(Check);
         DeskRules(Check);
         CertificateLives(Check);
         CertificateOnDisk(Check);
@@ -177,7 +178,7 @@ static class ShowBusTests
             var root = doc.RootElement;
             Check(root.GetProperty("v").GetInt32() == 1 && root.GetProperty("node").GetProperty("t").GetString() == "main"
                   && root.GetProperty("peers")[0].GetProperty("headline").GetString() == "Projector 1 mismatch"
-                  && root.GetProperty("commands").EnumerateArray().Any(c => c.GetProperty("verb").GetString() == "signal go all" && c.GetProperty("risk").GetString() == "high"),
+                  && root.GetProperty("commands").EnumerateArray().Any(c => c.GetProperty("verb").GetString() == "signal go <dept> <cue> | signal go all" && c.GetProperty("risk").GetString() == "high"),
                   "context: the §6 shape with peers one hop and the verbs with their risk");
         }
 
@@ -396,8 +397,8 @@ static class ShowBusTests
 
         // §6's order of commands.
         Check(ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air)
-              && new[] { "blackout", "next", "start | pause", "signal go all", "signal go <dept> <cue>" }.All(v => ShowContext.Commands.Any(c => c.Verb == v && c.Air)),
-            "context: its panic, air and transport commands come first, blackout, next, start | pause and a department's GO among them ("
+              && new[] { "blackout", "next | start | pause", "signal go <dept> <cue> | signal go all" }.All(v => ShowContext.Commands.Any(c => c.Verb == v && c.Air)),
+            "context: its panic, air and transport commands come first, blackout, next | start | pause and a department's GO among them ("
             + string.Join(", ", ShowContext.Commands.TakeWhile(c => c.Air).Select(c => c.Verb)) + ")");
 
         // Within its sizes, whole.
@@ -645,6 +646,161 @@ static class ShowBusTests
                 return $"{name} touched while some {before} were kept";
         }
         return null;
+    }
+
+    /// <summary>
+    /// Windows in the context (D11, G23, G24, Show Bus 12.10): the timer feeds a window only while it shows a page and names no health
+    /// item; the thirteen rows in §6's notation rate as their rows; placement claims only from a key-verified holder with a viewer on its
+    /// grant, at most two hops and eight per window; and what the copilot reads of the windows and the apps.
+    /// </summary>
+    static void WindowsInContext(Action<bool, string> Check)
+    {
+        var t0 = new DateTime(2026, 10, 10, 19, 0, 0, DateTimeKind.Utc);
+        const string own = "3f9c2a1b7d0e", pat = "9f8e7d6c", pm = "pm5e6f7a";
+        var lobby = new ScreenWindow { Id = "w1", Name = "Lobby", Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 3,
+            Grants = [new WindowGrant { Node = pat, Kind = "patterns", Name = "Patterns FOH", How = ScreenWindows.HowPage, Token = ScreenWindows.NewToken() },
+                      new WindowGrant { Node = pm, Kind = "playmap", Name = "", How = ScreenWindows.HowDraw }] };
+        var foyer = new ScreenWindow { Id = "w2", Name = "Foyer", Token = ScreenWindows.NewToken(), Content = "/viewer", Hold = true, Revision = 2 };
+        var hall = new ScreenWindow { Id = "w3", Name = "Hall", Token = ScreenWindows.NewToken(), Content = ScreenWindows.Black, Revision = 2 };
+        var stage = new ScreenWindow { Id = "w4", Name = "Stage", Token = ScreenWindows.NewToken(), Content = ScreenWindows.Holding, Revision = 1 };
+        IReadOnlyList<ScreenWindow> windows = [lobby, foyer, hall, stage];
+        var observed = windows.Select(w => new WindowObserved(w.Id, 1, w.Revision, w.Content, w.Hold, 40, t0, "", "", "")).ToList();
+        var facts = ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, observed));
+        Check(facts.Select(f => f.Page).SequenceEqual([true, false, false, false]) && facts.Select(f => f.Showing).SequenceEqual(["/clock", "holding", "black", "holding"])
+              && facts[0].Granted == "Patterns FOH, playmap " + pm && facts[0].On == "" && facts[1].Granted == ""
+              && facts.All(f => f.Item.Light == Light.Green && f.Item.Id == ScreenWindows.ItemId(f.Name)),
+            "windows in the context: a window is given a page only while not held and showing neither the holding page nor black; its grants by name");
+
+        // D11: the timer follows a playout link, hears any other, feeds a window that shows a page, and no link names a health item.
+        var health = new[] { new ContextItem("key:k1", "health", "API key 'Patterns'", Light.Amber, "seen in clear"), new ContextItem("bus:hello", "health", "Show network hello", Light.Amber, "can't go out") };
+        var input = new ContextInput(own, "Hall A", t0, new ShowSnapshot { Title = "Keynote" }, false,
+            [new ContextItem("link:patterns", "playout", "Patterns", Light.Green, "VT1: 0:42 left"), new ContextItem("link:osc", "link", "OSC", Light.Green, "listening"),
+             new ContextItem("clock:patterns", "health", "Clock vs Patterns", Light.Amber, "CLOCKS APART")],
+            [], [], ShowClock.For("UTC"), GoLatency.AmberMs + 100, null, facts, health);
+        var (_, _, items) = ShowContext.Assess(input);
+        using (var doc = JsonDocument.Parse(ShowContext.Build(input)))
+        {
+            var links = doc.RootElement.GetProperty("links").EnumerateArray()
+                .Select(l => (From: l.GetProperty("from").GetString(), To: l.GetProperty("to").GetString(), Kind: l.GetProperty("kind").GetString(), Light: l.GetProperty("light").GetString())).ToList();
+            Check(links.SequenceEqual([("timer", "link:patterns", "follows", Light.Green), ("timer", "link:osc", "hears", Light.Green), ("timer", "window:lobby", "feeds", Light.Green)]),
+                "windows in the context (G23): one feeds link for a window that shows a page; none for a held, black or holding window, a clock, a key, the hello or go-latency ("
+                + string.Join(", ", links.Select(l => $"{l.From} -{l.Kind}-> {l.To}")) + ")");
+            var ids = doc.RootElement.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetString()).ToList();
+            Check(new[] { "window:lobby", "window:foyer", "window:hall", "window:stage", "key:k1", "bus:hello", "go-latency", "clock:patterns" }.All(ids.Contains)
+                  && items.Select(i => i.Id).SkipWhile(i => i != "link:patterns").Take(8).SequenceEqual(
+                      ["link:patterns", "link:osc", "clock:patterns", "window:lobby", "window:foyer", "window:hall", "window:stage", "key:k1"]),
+                "windows in the context: every window and health item is still an item, in the order links, windows, health");
+        }
+        // D11 says "shows": a window given a page that has not said it shows it (unopened, switching, failed, cut off) is not fed yet.
+        var opened = new List<WindowObserved>(observed);
+        var unopened = ScreenWindows.Facts([lobby], ScreenWindows.ContextItems([lobby], []))[0];
+        var switching = ScreenWindows.Facts([lobby], ScreenWindows.ContextItems([lobby], [opened[0] with { Revision = 2 }]))[0];
+        var cutOff = ScreenWindows.Facts([lobby], ScreenWindows.ContextItems([lobby], [opened[0] with { Connected = 0 }]))[0];
+        Check(facts[0].Fed && new[] { unopened, switching, cutOff }.All(f => f.Page && !f.Fed && f.Item.Light != Light.Green) && !facts[1].Fed,
+            "windows in the context: a window is fed only once it says it shows the page it was given");
+        foreach (var notYet in new[] { unopened, switching, cutOff })
+            using (var doc = JsonDocument.Parse(ShowContext.Build(input with { Windows = [notYet] })))
+                Check(doc.RootElement.GetProperty("links").EnumerateArray().All(l => l.GetProperty("kind").GetString() != "feeds"),
+                    $"windows in the context: no feeds link while the window is {notYet.Item.Light} ({notYet.Item.State})");
+        using (var doc = JsonDocument.Parse(ShowContext.Build(input with { Windows = null, Health = null })))
+            Check(doc.RootElement.GetProperty("links").EnumerateArray().All(l => l.GetProperty("kind").GetString() != "feeds" && l.GetProperty("to").GetString() != "clock:patterns"),
+                "windows in the context: a context with no windows feeds nothing, and a health item among the links still gets none");
+
+        // The thirteen rows in §6's notation, each rated through its own table by its row.
+        var table = VerbTable.Compile(ShowContext.Commands.Select(c => new PeerCommand(c.Verb, c.Risk, c.Words)));
+        var rated = new (string Line, string Risk)[]
+        {
+            ("window grant lobby 9f8e7d6c", "high"), ("window withdraw all", "high"), ("window withdraw lobby \"Patterns FOH\"", "high"), ("window rename lobby foyer", "low"),
+            ("window new lobby", "low"), ("window loss all warn", "low"), ("window fade lobby 500", "low"), ("window cue lobby /clock", "high"), ("window release all", "high"),
+            ("window identify lobby", "high"), ("window revoke lobby", "high"), ("window delete lobby", "high"), ("pause", "high"), ("next", "high"),
+            ("patterns seek 1:30", "high"), ("patterns stop", "high"), ("patterns end", "high"), ("nudge 30", "review"), ("trim 3 -60", "review"), ("delay 120", "review"),
+            ("signal go all", "high"), ("signal standby lighting LX12", "review"), ("note hello there", "low"),
+        };
+        var wrong = rated.Where(r => table.Rate(r.Line) is not { Listed: true } v || v.Risk != r.Risk).Select(r => $"{r.Line}: {table.Rate(r.Line).Risk}").ToList();
+        Check(ShowContext.Commands.Count == 13 && wrong.Count == 0,
+            "windows in the context: thirteen rows; every window verb and Patterns' transport rates through them (grant high, rename low, pause high, nudge review) ("
+            + string.Join("; ", wrong) + ")");
+        // The parser's own list of window actions (the words its refusal of an empty action names), each one the parser takes.
+        var parserActions = ScreenWindows.Actions[(ScreenWindows.Actions.IndexOf(" takes ", StringComparison.Ordinal) + 7)..]
+            .Replace(" or ", ", ", StringComparison.Ordinal).Split(", ", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var rowActions = ShowContext.Commands.Where(c => c.Verb.StartsWith("window ", StringComparison.Ordinal)).SelectMany(c => VerbSyntax.Forms(c.Verb))
+            .Select(f => f.Split(' ')[1]).SelectMany(a => a.Split('|')).Distinct().ToList();
+        Check(parserActions.Length >= 14 && rowActions.Order(StringComparer.Ordinal).SequenceEqual(parserActions.Order(StringComparer.Ordinal))
+              && parserActions.All(a => ShowCommandParser.TryParseLine($"window {a} lobby 9f8e7d6c", out _, out var e) || !e.Contains("? It takes", StringComparison.Ordinal))
+              && !ShowCommandParser.TryParseLine("window frobnicate lobby", out _, out var unknown) && unknown.Contains("? It takes", StringComparison.Ordinal),
+            "windows in the context: the rows name every window action the parser takes (" + string.Join(", ", parserActions) + ")");
+
+        // 12.10: placement claims, from a key-verified holder whose grant has a viewer on it.
+        string Context(string id, string name, string items, string links)
+            => "{\"v\":1,\"node\":{\"t\":\"patterns\",\"id\":\"" + id + "\",\"name\":\"" + name + "\"},\"light\":\"green\",\"headline\":\"\",\"items\":[" + items + "],\"links\":[" + links + "]}";
+        string Item(string id, string kind, string label) => $"{{\"id\":\"{id}\",\"kind\":\"{kind}\",\"label\":\"{label}\",\"light\":\"green\",\"state\":\"\"}}";
+        string Link(string from, string to, string kind = "feeds") => $"{{\"from\":\"{from}\",\"to\":\"{to}\",\"kind\":\"{kind}\",\"light\":\"green\"}}";
+        var chain = Context(pat, "Patterns FOH", Item("source:web:1", "source", "Lobby page") + "," + Item("screen:2", "screen", "Screen 2 — LED wall"),
+            Link("@" + own + "/window:lobby", "source:web:1") + "," + Link("source:web:1", "screen:2", "shows"));
+        HeldContext Held(string json, NodeProof proof) => new(PeerContexts.Parse(json, "10.0.0.5", t0)!, proof);
+        GrantObserved Grant(string node, int open) => new(lobby.Id, node, "patterns", "Patterns FOH", ScreenWindows.HowPage, true, "tls", true, open, open > 0 ? "open" : "held", "");
+        var holders = WindowPlacements.Holders(windows, [Grant(pat, 1), new GrantObserved("gone", pm, "playmap", "", ScreenWindows.HowDraw, true, "tls", true, 1, "open", "")]);
+        var placed = WindowPlacements.From([Held(chain, NodeProof.Key)], own, holders);
+        Check(holders.Count == 1 && holders["lobby"].SetEquals([pat])
+              && placed is [{ Window: "lobby", Node: pat, App: "Patterns FOH", Item: "screen:2", Label: "Screen 2 — LED wall" } p] && p.Words == "Patterns FOH says: Screen 2 — LED wall",
+            "placements: a key-verified holder's two hops reach its screen, worded as its claim: Patterns FOH says: Screen 2 — LED wall");
+        Check(ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, observed), placed)[0].On == "Patterns FOH says: Screen 2 — LED wall",
+            "placements: the window's facts carry the claim");
+        var other = chain.Replace(pat, "77aa77aa", StringComparison.Ordinal);
+        var direct = Context(pat, "Patterns FOH", Item("screen:1", "output", "Out 1"), Link("@" + own + "/window:Lobby", "screen:1", "shows"));
+        var far = Context(pat, "Patterns FOH", Item("a", "source", "") + "," + Item("b", "layer", "") + "," + Item("screen:3", "screen", "Screen 3"),
+            Link("@" + own + "/window:lobby", "a") + "," + Link("a", "b") + "," + Link("b", "screen:3"));
+        var wrongKinds = Context(pat, "Patterns FOH", Item("screen:4", "screen", "Screen 4"), Link("@" + own + "/window:lobby", "screen:4", "hears") + "," + Link("@" + own + "/window:lobby", "@" + own));
+        Check(WindowPlacements.From([Held(chain, NodeProof.Key) with { Pulled = true }], own, holders).Count == 0
+              && WindowPlacements.From([Held(chain, NodeProof.Key) with { Pulled = false }], own, holders).Count == 1,
+            "placements: none from a context pulled over this Stagewatch's own playout link (the address alone proves it), one from the same context posted with the key");
+        Check(WindowPlacements.From([Held(chain, NodeProof.None), Held(chain, NodeProof.Operator)], own, holders).Count == 0
+              && WindowPlacements.From([Held(other, NodeProof.Key)], own, holders).Count == 0
+              && WindowPlacements.From([Held(chain, NodeProof.Key)], own, WindowPlacements.Holders(windows, [Grant(pat, 0)])).Count == 0
+              && WindowPlacements.From([Held(chain, NodeProof.Key)], "aaaaaaaaaaaa", holders).Count == 0
+              && WindowPlacements.From([Held(far, NodeProof.Key)], own, holders).Count == 0
+              && WindowPlacements.From([Held(wrongKinds, NodeProof.Key)], own, holders).Count == 0
+              && WindowPlacements.From([Held(direct, NodeProof.Key)], own, holders) is [{ Item: "screen:1", Label: "Out 1" }],
+            "placements: none from an unverified or operator-proved context, a non-holder, a holder with no viewer, another node's window, three hops or a hears link; one hop to an output is one");
+        var many = Context(pat, "Patterns FOH", string.Join(",", Enumerable.Range(0, 12).Select(i => Item("display:" + i, "display", "D" + i))),
+            string.Join(",", Enumerable.Range(0, 12).Select(i => Link("@" + own + "/window:lobby", "display:" + i, "shows"))));
+        Check(WindowPlacements.From([Held(many, NodeProof.Key), Held(chain, NodeProof.Key)], own, holders) is { Count: WindowPlacements.MaxPerWindow } eight
+              && eight.Select(x => x.Item).SequenceEqual(Enumerable.Range(0, WindowPlacements.MaxPerWindow).Select(i => "display:" + i)),
+            "placements: at most eight per window, the first in the contexts' order");
+
+        // PeerContexts keeps 400 links and 200 items.
+        var big = Context(pat, "Patterns FOH", string.Join(",", Enumerable.Range(0, 250).Select(i => Item("i" + i, "screen", "S"))),
+            string.Join(",", Enumerable.Range(0, 450).Select(i => Link("i" + (i % 250), "@" + own + "/window:lobby"))));
+        Check(PeerContexts.Parse(big, "10.0.0.5", t0) is { Items.Count: PeerContexts.MaxItems, Links.Count: PeerContexts.MaxLinks, LinksDropped: 50 },
+            "placements: a peer's context is read for its first 200 items and 400 links, the rest counted");
+
+        // What the copilot reads: the windows with what they show, their grants and the claims; the apps with their ids and abilities.
+        var copilot = AiContext.Copilot(new CopilotFacts(t0, ShowClock.For("UTC"), "{}"u8.ToArray(), "{}"u8.ToArray(), [], [], [], 0, OverrunModel.Learn([]), [], [], null,
+            ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, observed), placed)));
+        using (var doc = JsonDocument.Parse(copilot))
+        {
+            var w0 = doc.RootElement.GetProperty("windows")[0];
+            Check(w0.GetProperty("name").GetString() == "Lobby" && w0.GetProperty("showing").GetString() == "/clock" && w0.GetProperty("light").GetString() == Light.Green
+                  && w0.GetProperty("granted").GetString() == "Patterns FOH, playmap " + pm && w0.GetProperty("on").GetString() == "Patterns FOH says: Screen 2 — LED wall"
+                  && doc.RootElement.GetProperty("windows")[1].GetProperty("showing").GetString() == "holding"
+                  && windows.All(w => !copilot.Contains(w.Token, StringComparison.Ordinal)) && !copilot.Contains(lobby.Grants[0].Token, StringComparison.Ordinal),
+                "ai: the copilot reads each window's name, what it shows, its light, its grants and its holders' claims, never a pass");
+        }
+        var view = ShowNetwork.Summaries([new HeardNode("playmap", pm, "PlayMap Stage left", "10.0.0.12", 1), new HeardNode("patterns", "11bb11bb", "Patterns Back", "10.0.0.13", 1)], [],
+            [new NodeLinkFact("patterns", pat, NodeProof.Key, "k1", "Patterns", "10.0.0.5", t0, 1, null, Can: [ScreenWindows.CanPages])], own, t0);
+        var caps = new Dictionary<string, IReadOnlyList<string>> { [pm] = ["timer", "window-draw", "pages"], ["11bb11bb"] = ["window-draw"] };
+        var peers = AiContext.PeerFacts(view, caps);
+        Check(peers.Single(f => f.Id == pat).Can is [ScreenWindows.CanPages] && peers.Single(f => f.Id == pm).Can is [ScreenWindows.CanDraw]
+              && peers.Single(f => f.Id == "11bb11bb").Can is { Count: 0 } && AiContext.PeerFacts(view).Single(f => f.Id == pm).Can is { Count: 0 },
+            "ai: each app's id and what it can do with a window: its key-verified link's can=, else its hello's caps, kept only for its kind");
+        var bare = ShowNetwork.Summaries([new HeardNode("patterns", pat, "Patterns FOH", "10.0.0.5", 1)], [],
+            [new NodeLinkFact("patterns", pat, NodeProof.Key, "k1", "Patterns", "10.0.0.5", t0, 1, null, Can: [])], own, t0);
+        Check(AiContext.PeerFacts(bare, new Dictionary<string, IReadOnlyList<string>> { [pat] = ["pages", "window-draw"] }).Single(f => f.Id == pat).Can is { Count: 0 },
+            "ai: a key-verified link that offers nothing gives the copilot nothing, whatever an unproved hello says (delivery reads the link alone)");
+        var apps = AiContext.Copilot(new CopilotFacts(t0, ShowClock.For("UTC"), "{}"u8.ToArray(), "{}"u8.ToArray(), [], [], [], 0, OverrunModel.Learn([]), [], [], peers));
+        using (var doc = JsonDocument.Parse(apps))
+            Check(doc.RootElement.GetProperty("other_apps").EnumerateArray().Any(a => a.GetProperty("id").GetString() == pat && a.GetProperty("can")[0].GetString() == ScreenWindows.CanPages),
+                "ai: other_apps carry each app's id and abilities, last in each row");
     }
 
     /// <summary>The shared approval queue's rules (Show Bus §11), pure.</summary>
