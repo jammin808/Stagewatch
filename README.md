@@ -12,11 +12,12 @@ Pro countdown timer and show-calling tool for corporate events. Windows 10/11. P
 - [`docs/LICENSING.md`](docs/LICENSING.md) — trial / tiers / master serial / threat model
 - [`docs/COMPANION.md`](docs/COMPANION.md) — BitFocus Companion module spec
 - [`docs/POWERPOINT.md`](docs/POWERPOINT.md) — installing the PowerPoint add-in
-- [`docs/REMOTE.md`](docs/REMOTE.md) — browser pages, windows Stagewatch controls (`/w/<token>`), show apps on `/ws` (node links, one key per app), Show Bus 1.3's changes (2.19), HTTP API, WebSocket, OSC, MCP, running order
+- [`docs/REMOTE.md`](docs/REMOTE.md) — browser pages, windows Stagewatch controls (`/w/<token>`), show apps on `/ws` (node links, one key per app), Show Bus 1.3's changes (2.19), playout links to Patterns and PlayMap (2.20), the approval desk for every app, `peer` and `desk`, ready for doors and the show network report (2.21), what each route needs, HTTP API, WebSocket, OSC, MCP, running order
 - [`docs/NODES.md`](docs/NODES.md) — Stagewatch's node page, written from the code and held to it by the suite: the hello it says and what it hears, presenter PCs, reading and driving it, each show app's link, the Patterns link, its numbers
 - [`docs/SHOWBUS.md`](docs/SHOWBUS.md) — Show Bus 1.3, the contract between Stagewatch, Patterns, PlayMap and AGMessage (this tree holds the master)
 - [`docs/ECOSYSTEM.md`](docs/ECOSYSTEM.md) — why the four apps share one contract, and where it is going
-- [`docs/FEATURES.md`](docs/FEATURES.md) — what's new in 2.0 and how to use it
+- [`docs/FEATURES.md`](docs/FEATURES.md) — what's new in each release (2.21 with 2.20 first) and how to use it
+- [`docs/WHATS_NEXT.md`](docs/WHATS_NEXT.md) — each release's upgrade notes, how it is released, and what it did not do
 
 ## Solution layout
 
@@ -38,9 +39,11 @@ tools/
   BusCarrierProbe/    lab line LB-1: which carrier finds apps on one machine with no network (docs/WHATS_NEXT.md)
   showbus/            Show Bus 1.3's scripted peer, which every tree that copies the contract carries (docs/SHOWBUS.md §13.20)
   showbus-copies.sh   the copies check: holds each tree the contract's Landed line names to this master (§14.5)
+  interop/            the interop lane: the siblings' pins, their builds and the one-kernel LAN (docs/BUILD.md)
   setup-dev.sh, test.sh   the Linux bench: install, then every test lane (docs/BUILD.md)
 tests/
   Stagewatch.Tests/   the suite (dotnet run); e2e/ browser workflows (Playwright); UiSmoke/, PageShot/ smoke
+  interop/            the interop lane's driver: the four real apps against each other (tools/test.sh interop)
 installer/
   Stagewatch.iss      Inno Setup script
 ```
@@ -51,6 +54,9 @@ installer/
 pwsh tools\release.ps1              # bump patch versions, test, publish, package the Companion module, build the installer
 pwsh tools\release.ps1 -Bump minor  # or -Version 3.0.0 -ModuleVersion 3.0.0, or -NoBump
 ```
+
+The next release is 2.21.0, carrying 2.20 with it (`pwsh tools\release.ps1 -Version 2.21.0 -ModuleVersion 2.21.0`); `docs/WHATS_NEXT.md`
+says what goes first and what the PC checks are.
 
 ## Build (TL;DR)
 
@@ -92,6 +98,7 @@ Details: [`docs/LICENSING.md`](docs/LICENSING.md).
 | End-of-show forecast, curfew trim suggestions, producer assistant | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Multi-room dashboard, cue lights (Art-Net / sACN / Hue), LTC, time-server drift check | ✅ | ❌ | ❌ | ❌ | ✅ |
 | vMix VT countdowns, speech pacing, full printable report, MCP | ✅ | ❌ | ❌ | ❌ | ✅ |
+| Playout links: Patterns desks and PlayMap nodes driven from the running order, the VT chip and Companion | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Machines per licence | — | — | 1 | 1 | 2 (main + backup) |
 | Watermark "StageWatch by Ben Rohleder" on every output | ❌ | ✅ | ❌ | ❌ | ❌ |
 

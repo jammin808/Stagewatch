@@ -8,8 +8,53 @@ runs on the same single show loop as 1.x.
 The running order, remotes, Companion, PowerPoint, Q&A, triggers, rehearsal ghost and the CSV report are **Pro**.
 The crew loop and show kit are **Production**: acknowledged cues, departments, green-room calls and pocket buzz,
 the end-of-show forecast and curfew trim suggestions (producer assistant), the multi-room dashboard, cue lights,
-LTC and the time-server drift check, vMix VT countdowns, speech pace, the full printable report and MCP.
+LTC and the time-server drift check, vMix VT countdowns and Patterns and PlayMap playout links, speech pace, the full
+printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
+
+## 2.21 (with 2.20): playout links, one desk for every app, ready for doors, one report
+
+2.20 and 2.21 come as one release. WHATS_NEXT.md has the upgrade notes, and REMOTE.md every change on the wire.
+
+- **Drive Patterns and PlayMap from the running order (Production).** Settings → Integrations → **Playout links** keeps up to 8
+  links, each to a Patterns desk or a PlayMap node: **Find** lists the ones on the network, and the 2.17 *Patterns video* box is
+  link `patterns` now. The VT countdown follows the clip of the link that feeds it; the VT chip's right-click plays, pauses,
+  stops, restarts, jumps to the last 10 s or seeks it, each entry greyed with the reason it would be refused. **Edit running order
+  → Playout** gives an item up to 4 cues, picked from what each peer lists: its GO goes when the item starts, a PlayMap one
+  optionally *together* at one instant on every linked node's clock, and a standby when the item loads, if you ask for one (on
+  PlayMap it shows its first frame on air; on Patterns it moves the desk's own standby). Right-click a row for *Cue playout now*
+  and *GO playout now*.
+- **Every playout press says what really happened.** A press's answer is the peer's own: applied, refused in its words, or
+  accepted and then its final answer — never "done" on a send. The show log has one row per command and per change of a link's
+  state, and a GO's effect is looked for in the peer's own state ("seen" or "not seen").
+- **PlayMap over TLS.** A link to a PlayMap node uses its encrypted door where the node offers one, pins its certificate, and is
+  never dialled in clear again; a changed certificate stays refused until you compare it on the node's own screen and type 8 hex
+  of it (the node's Show network row, or the status line's right-click).
+- **Only someone who proves it drives another app's air.** OSC and Companion buttons on another PC need that PC's address in
+  Settings → Remote → **May drive other show apps**; with no PIN, so do HTTP and WebSocket clients without a control key. An AI's
+  line for another app is always a proposal you approve.
+- **HTTP triggers can carry a secret** (Settings → Triggers → *Secret*), sent only to this PC or over HTTPS to a certificate you
+  trusted; their answer is read and shown (below).
+- **One desk for every show app.** Stagewatch's approval queue now rates another app's proposal by that app's own list of verbs,
+  read only from a context that proves its app, and refuses a line it would have cut (over 2048 characters), one holding a key or a
+  window's address, or one for an app that is not collecting its approved lines. You can send any app a line it lists yourself:
+  right-click its row in Producer → Show network (or its **…** button) → **Send a line to <app>…**, where the dialog shows the
+  form that takes your line, its risk as you type, and whether the app is collecting; up to six of its verbs are on the menu, such
+  as AGMessage's `notice`. Approve or reject what other apps and their AIs propose in **Copilot**, on the Showcaller page (a high
+  one by a second press) or by `desk approve|reject <id>`; an unticked step is never approved, and Approve is greyed, with the
+  reason, while the app is not collecting. Over the
+  wire, `peer <app> <line>` sends a line with the PIN or a control key, and its receipt is the app's answer.
+- **Ready for doors.** One verdict for the room, once a second, with a reason per node: an app you set up (a playout link's peer,
+  a node key's app) that is gone is red; one only heard that leaves is amber, and amber never blocks. It is on the Show network's
+  header (with **Copy the preflight**), the Showcaller page's chip, `GET /api/preflight`, MCP's `get_preflight`, and the Companion
+  module's `network_ready` with its preset.
+- **One report.** The show report has a **show network** section: what other apps' own journals told Stagewatch, through contexts
+  that prove their app, each line with its node, its own time and how it came; and its AI section lists every decision at the
+  desk. **Network CSV** on the Showcaller page (or `report network`) saves those lines as `network.csv`.
+- **Companion**: *Playout* actions for the clip on air, a GO and a cue on each link, with each press's answer in
+  `$(stagewatch:playout_answer)`; *Ready for doors* variables, feedback and preset.
+- Not walked on Windows yet: every desk change above compiles and has UI smoke checks that have not been run; WHATS_NEXT.md says
+  what the release did not do.
 
 ## 2.19: Show Bus 1.3
 

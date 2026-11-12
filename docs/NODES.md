@@ -197,6 +197,15 @@ Rules (game netcode, on purpose):
   a key, a window's address or a filled secret — and a proposal's own `risk` can only raise its rating, from the target itself under
   its key. The desk records each app's last collect and approves nothing for an app that has not asked in 15 s. REMOTE.md's 2.16
   section has the shapes, and its 2.21 section the desk's rules.
+- **A person's line, and a person's decision (2.21).** `peer <app> <line>` puts one line the app's verified table lists on the
+  queue, born approved (`decidedBy` a role word), for the app to collect as any approved proposal; `desk approve|reject` decides
+  one by its id. Both come only with the PIN or a control key over HTTP or a WebSocket (with no PIN set, from this PC or a listed
+  address), never from an app's node key, an agent or a proposal; the receipt is the app's own answer, with
+  `refs.sharedProposal`. A show app that collects sees nothing new: a person's line arrives as an approved proposal.
+- **Ready for doors and the show network report (2.21).** `GET /api/preflight` (read scope) judges every node a person set up or
+  this Stagewatch hears, from what each publishes: a node's own red light is red there, and amber never blocks. The show report lists the
+  `recent` lines of contexts that prove their node, under that node's name, its own clock and the road they came by, as a
+  sample; each node's own journal stays the record (REMOTE.md, 2.21).
 - **MCP:** `POST /mcp` (JSON-RPC; the PIN or an MCP key). By default an AI agent's `run_command` becomes a proposal the operator
   approves: the person stays in the loop.
 - **Screens, windows and show apps.** A *screen* is any browser showing Stagewatch: `GET /api/screens` (PIN) lists them, and `screen
@@ -484,6 +493,9 @@ From Stagewatch's side; AGMessage's own `docs/NODES.md` is its reference.
   `/api/context` on connect and every 5 s.
 - **Proposals:** it proposes a message for the speaker's screen to Stagewatch's approval queue (`POST /api/proposals`, target
   `main`), and collects the approved lines aimed at it — its one verb is `notice <text>` — runs them and reports each result.
+  From 2.21 an operator sends it a notice straight from the desk (the Show network row's *Send a line* or its `notice` quick verb,
+  or `peer agmessage notice <text>`), born approved; it runs once AGMessage collects it, and the sender's receipt is AGMessage's
+  answer. Stagewatch refuses the send while AGMessage has not collected in 15 s.
 
 ## 7. PlayMap
 

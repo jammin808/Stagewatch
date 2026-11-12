@@ -991,6 +991,152 @@ running app on a network: two copies of one install for the conflict, an old cer
   browser: Xvfb, Mesa and Playwright join with the rows that need one. Its actions are named by version, as the rest of
   `ci.yml`, not by commit.
 
+## Playout links and one desk (2.20 and 2.21) — the units, upgrade notes, the release, and what this release did not do
+
+2.20 (Train 3: every link honest from its own end — Stagewatch's playout links to Patterns desks and PlayMap nodes) and 2.21
+(Train 4: one desk for every app, one verdict for the room, one report) ship as **one release, 2.21.0**: the owner's answer
+S-releases lets two adjacent trains merge from 2.20 on, and 2.20's own last units (the VT rows, SW20.13) waited on Patterns'
+Round 94. REMOTE.md's 2.20 and 2.21 sections have every change on the wire (its "2.20 and 2.21" section says where each is and
+what each route needs), FEATURES.md says what operators see, and the *Since then* notes in 2.19's list above say, unit by unit,
+what each did and what it left. This section is the release's own. **The head these papers land on holds 2.20 and 2.21 and
+nothing of 2.22**: no unit of Train 5 (windows for peers, release B of the desk, the rig answering LINK) has started here.
+
+### The units
+
+Each is one commit on this branch (`git log --oneline` names it `2.20 SW20.k: …` or `2.21 SW21.k: …`).
+
+| Unit | Commit | What landed | What it left |
+|---|---|---|---|
+| SW20.1 | 71cc31a | Playout links as a list: settings schema 2 (at most 8; link `patterns` the 2.17 keys' mirror), `PlayoutCue` on running-order items, the `playout` verb, `JournalKind.Playout`, timed clock samples | the gate, dialling by transport and node, and every reader: later units of 2.20 |
+| SW20.2 | 080112a | `PlayoutGate`: who may drive another app's air, at the OSC, Companion TCP, HTTP, WebSocket and MCP doors (**May drive playout**); an AI's playout line always a proposal | — |
+| SW20.3 | 8484dcf | Find hears PlayMap's hello; 13.6.8's proof; words each peer reads back; a STATE past 256 KiB read in part and shown amber | its counts' readers (SW20.4a, SW20.5) |
+| SW20.4a | 42c6ad8 | The link on the PeerLink core at level 0: `s<n>-<inst>` ids, 32 in flight, 13.12.3's outcomes, matched pongs, a jittered redial | LINK is offered by no link (SW23.1) |
+| SW20.4b | 37be730 | Each connection's writer lane; a refused proof's hold kept across a restart (`playout-links.json`); the show log's rows; `PatternsLink` retired | *Link again now* (13.16.6) is on no surface |
+| SW20.5 | af5c7d6 | The link set and `PlayoutDirector` (desk and rig): local refusals from the peer's own facts, a receipt the peer's answer completes (`final` follow-up), the effect looked for in STATE, every reader of a link's record; rig `--playout` | an AI's line is a desk proposal, never handed to the peer's own approvals |
+| SW20.6 | 2ac9cf3 | PlayMap over pinned TLS (`playmap.lines.v1` on its `https` door); any pin dials TLS only; a changed certificate trusted only by 8+ hex typed on the desk | nothing on the desk forgets a pin |
+| SW20.7 | 308ca94 | Running-order cues and a GO at one instant on a fit clock (`together`, `INDEX`, `CUE LIST`); rig `--cue` | no real PlayMap or Patterns has run a cue; a Patterns GO is never timed until its wire offers TLS |
+| SW20.8 | 532569a | HTTP triggers authenticate: a secret goes only to this PC or a pinned HTTPS server, with a request id, and the answer is read | a trigger target's certificate is trusted from the status line, not Settings |
+| SW20.9 | 1dc5ff8 | A body over 64 KiB is `413` with its size, drained so its sender reads it; an unreadable `Content-Length` is `400` | a chunked body with no length is still read as none; 1 MiB and 10 s are the design's, not measured |
+| SW20.10 | b256a9f | The rig's message signals (`refs.messageId`, the frame's `messageAck`, `ack`), `message.e2e.cjs` | what a show app may put on the stage (its urgency and flash) |
+| SW20.11 | 51c2dfb | The desk for playout (PC work): Settings → Playout links, May drive playout, trigger secrets, the cue editor, the VT chip's and running-order rows' menus, Help | none of it walked; *Cue playout now* and *GO playout now* have no grammar form |
+| SW20.12 | 355f5c9 | The Companion module drives the playout links: three actions, `vt_link`, every press's answer read back | no deck has loaded the definitions; GO and cue take ids typed, not picked |
+| SW20.13 | b49dd8d | The VT rows against the real apps (S4.1–S4.4); the rig's own token per link and its `links` line | Patterns' pin stays at round 91 (below); no cue and no TLS carrier against the real apps |
+| SW21.1 | 057e918 | The verb table: a line rated by whole forms of a verified table, in bounded steps; `PeerContexts` the one home of the reader's numbers | three PlayMap lines rate review where PlayMap says high, until its context lists its written-in rows (its PM-0) |
+| SW21.2 | 5490c89 | The desk's rules: run-tagged ids (`p<n>-<run>`), lines refused never cut (2048), the desk's own `from` refused, a target's self-raise, each target's last collect | — |
+| SW21.3 | 14b3b2f | The desk as one service: `DeskService`, `CommandRisk.Of` in Core, the shared-approve tick, the receipt stack, the desk's own journal rows (`JournalKind.Desk`) | — |
+| SW21.4 | 838d04c | `peer <app> <line>` and `desk approve\|reject` on HTTP and a WebSocket, with receipts (`refs.sharedProposal`); the list renamed **May drive other show apps**; `GET /api/help` the grammar people read (`PersonHelp`) | Companion TCP and OSC refuse both (release B) |
+| SW21.5 | 972b8c7 | The desk's readers: the operator frame's `desk`, config `peers`, the context's `collects`, the Showcaller page's panel | the page shows the oldest proposal only; the module reads neither field |
+| SW21.6 | 53ddbf0 | The desk's door (PC work): the Show network row's menu and … button, the send dialog with live risk, greyed approvals, help | none of it walked |
+| SW21.7 | ab474da | One report: verified peers' lines with their node, own time and road; every desk decision; `network.csv` | MCP's `get_report` and the module's report give html or csv only; the desk has no button for `network.csv` |
+| SW21.8 | 3efd401 | One preflight: ready for doors, with a reason per node, on every door; the rig's | the `desk` check; window grants as configured nodes |
+| SW21.9 | ce8efad | The lane's desk, stuck and doors rows; the show laptop on the Show Bus; the offline laptop | S3.5 and S3.7 (release B's MCP target), S3.1, S3.2 and S3.8 (AGMessage's key) |
+| SW21.9m | 7c8b738 | A mends unit 2.21 added: the suite's timing races mended at their cause, and two product races its sweep found — Companion's two writers to one client's queue, OSC feedback's first frame | checks that sleep before reading a command's effect |
+| merge | b6f454e | The default branch's lockout fix: a valid key's request clears no count | — |
+
+### Upgrade notes
+
+- **Settings move to schema 2, and a rollback keeps link `patterns` only.** The 2.17 *Patterns video* settings become playout link
+  `patterns` (the same host, port, token and next-on-end), and a 2.21 save still writes the 2.17 keys as that link's mirror. A
+  Stagewatch older than 2.20 reads only those keys: its next save drops the other playout links, a rule's trigger secret and
+  the May drive other show apps list, and a show file it saves keeps no running-order cue (`playout` on an item). Started again
+  on 2.21, link `patterns` takes what the older one wrote, its keys winning where they differ from the mirror; the rest is set
+  up again. The playout links' holds and pins (`playout-links.json`) and the trigger targets' pins (`trigger-pins.json`) sit
+  beside the settings, and an older Stagewatch ignores both.
+- **Another app's air is driven only by someone who proves it.** `playout` and `patterns` over OSC or Companion TCP from another
+  machine are refused until its address is listed in **Settings → Remote → May drive other show apps** (`remote.playoutFrom`);
+  over HTTP or a WebSocket with no PIN set, likewise unless it brings a control key; an AI's line is always a proposal, even with
+  agents allowed to act directly. A vMix, Stream Deck or Companion button on another PC that drove Patterns stops until it is
+  listed (REMOTE.md, "Who may drive another app's air").
+- **A Patterns pause or stop the desk would refuse is refused here first**, in Patterns' words and with nothing sent: a playlist
+  item's or a stinger's clip, until that desk's `video.pausable` / `video.stoppable` say otherwise (Patterns' Round 94 sends them).
+- **HTTP triggers with a secret** go only to this PC or over HTTPS to a certificate trusted on the desk: a rule with one aimed at
+  plain HTTP on another machine cannot be saved and is refused as it fires. A `?pin=` in an address still works, with a warning.
+- **Bodies over 64 KiB** are answered `413` with their size (they closed the connection before), and a `Content-Length` that is not
+  one decimal number `400`.
+- **The approval desk.** Proposal ids carry the desk's run (`p17-k3m9`), and an id of an earlier run is `404`, never another
+  proposal; a line over 2048 characters, or one holding a control or invisible character, a key, a window's address or a filled
+  secret, is refused `400` where 2.20 cut it at 400 characters; a proposal posted with an MCP key, or naming the desk's own kind or
+  id as its `from`, is `403`; an unticked step is never approved; nothing is approved for an app that has not collected in 15 s
+  (it stays pending, and says why). The desk's decisions are rows of their own in the show log and the report.
+- **The list May drive playout is named May drive other show apps**; the settings file's `remote.playoutFrom` is unchanged.
+- **A valid key no longer clears the wrong-PIN count** (the lockout fix merged with 2.21): five wrong PINs from a browser on the show
+  PC hold that PC's keyed apps off Stagewatch for the rest of the minute (2.18's notes above say how).
+- **New fields at the ends of old objects**: the operator frame ends with `desk`, then `network`; `/api/config` and Companion's
+  `CONFIG` end with `playoutLinks`, then `peers`; the frame's `playout` row ends with `link` and `node`; the context's `peers`
+  rows end with `collects`; a receipt may carry `refs.sharedProposal`, a string. No public frame carries `desk` or `network`.
+
+### The release (the maintainer's, on the PC)
+
+```pwsh
+pwsh tools\smoke.ps1                                           # the PC checks below
+pwsh tools\release.ps1 -Version 2.21.0 -ModuleVersion 2.21.0   # app, module, installer and release date move together
+```
+
+The tree's versions still read 2.16.0 (`src/Timer.App/Timer.App.csproj`, `companion-module/package.json`): no release has been
+made since 2.16, and nothing here bumps a version or makes a tag. By the owner's answers, 2.18 and 2.19 are each released first,
+on their own last commits as their sections above say (and 2.17 before them if it goes on its own); 2.20 has no release of its
+own, and 2.21.0, released from the commit that carries this section, carries both trains. The Companion module changed in both
+(2.20's playout actions, 2.21's ready-for-doors variables, feedback and preset) and takes 2.21.0 with the app. A tag waits for
+CI's interop job beside the other jobs (the owner's answer S-interop-gate), and that job fails at its first step until the
+maintainer makes `SIBLINGS_READ_TOKEN` (*The interop lane in CI*, above).
+
+**The PC checks** (`pwsh tools\smoke.ps1`): none of the desk's 2.20 or 2.21 work has been seen in the running app. UiSmoke's checks
+for it compile here and were never run: SW20.11's (the playout links list, the cue editor, the running-order rows' menus, the VT
+chip's), SW21.3's (an unticked shared proposal stays pending), SW21.6's (the Show network row's menu, the send dialog and the greyed
+Approve) and SW21.8's (the Show network header's verdict and
+*Copy the preflight*). The six Windows-only checks of the suite (`Bench.OnWindows`) run only there: the temp fence's file held by
+another handle, the machine id (WMI), report file names, the Slides agent's real loop (PowerPoint), a trigger secret protected at
+rest (DPAPI), and a crafted master licence file rejected. A deck loading the module's playout actions in Companion itself is the
+maintainer's too.
+
+### What this release did not do
+
+- **Never seen running: every WPF desk walk-through** — SW20.11's Settings (Playout links, May drive other show apps, trigger
+  secrets), cue editor and row and VT chip menus; SW21.3's Copilot words for an unticked or refused approval; SW21.6's door (the
+  Show network row's menu and … button, the send dialog, the greyed Approve); SW21.8's header verdict, its tooltip and *Copy the
+  preflight*. WPF compiles on Linux and is never claimed as seen; `pwsh tools\smoke.ps1`, the six Windows-only checks and the
+  release itself (`tools\release.ps1` on the PC) are the maintainer's and were not run here.
+- **What the interop lane proves, and what it does not.** At the pins `tools/interop/siblings.json` holds — Patterns 5a8ad8f8 (its
+  round 91's papers, Round 91.6), PlayMap 952940b5, AGMessage d0e39617 (0.5.0) — the real apps pass every row in the lane on this
+  bench: 32 on the LAN, 5 on the show laptop, 3 on the offline laptop. They hold discovery, contexts both ways under each app's
+  own key, the rig's verdict on PlayMap's node link, Stagewatch's playout links driving the real Patterns bench and PlayMap
+  engine (S4.1–S4.4) with PlayMap following Patterns (S4.5), the desk's rows (S3.3, S3.4, S7.3), the stuck rows (S6.2a, S6.2b),
+  the doors (S6.3, S8.1–S8.4), loss and recovery (S6.1, S6.1b), nobody counted toward a lockout (S7.4) and no secret anywhere a
+  run keeps (S7.1). **The LAN rows prove against Patterns at round 91's pin, not a newer Patterns.** From its Round 93.2 Patterns'
+  desk holds its node key from a Stagewatch on another machine until that Stagewatch proves itself (LINK, which the rig does not
+  answer yet) or a person presses Trust beside its fingerprint on the desk's Nodes page, which neither Patterns' bench nor the rig
+  can press; at Patterns' Round 94 head (fa5d76b9) ten LAN rows that pass at 5a8ad8f fail for that one reason, while S0.1 and the
+  VT rows S4.1–S4.4 were run there green as well (S4.1 reading the clip's `pausable`). SW20.13's entry above names the rows and
+  what moves the pin (a bench control line that presses Trust, or the rig answering LINK, SW22.1a–c). Not proved: AGMessage's
+  keyed rows (S2.2, S2.5, S3.1, S3.2, S3.8 and S7.3's AGMessage leg, SW-INT-AG), PlayMap letting go of a gone Patterns' blackout
+  (S6.4, S6.7) and AGMessage's stuck row (S6.2c), each waiting on its app; discovery with no network (S1b.2, Show Bus 1.4); PlayMap
+  proposing (S3.6); windows (S5.*) and the MCP desk rows (S3.5, S3.7), which are 2.22's; a cue, or the TLS carrier, against a real
+  app; and anything of Windows, a GPU, a real display or a real network: the lane runs on one Linux kernel. CI's interop job has
+  not run on GitHub yet (it needs the token above); what it proves is what the bench run proves, at the same pins.
+- **Release B waits for 2.22** (Train 5: SW22.8–SW22.10). Release A, this one, gives a person the desk — `peer` and `desk` on the
+  doors that prove a person (HTTP and a WebSocket, with the PIN or a control key), the readers, the door on the desk, the rules
+  and the matcher. Release B hands the same desk to the doors that carry no credential and to models: Companion TCP and OSC
+  through the gate with an `ACCESS` line per connection and the module's `peer_line`, `desk_approve` and `desk_reject` (SW22.8);
+  the copilot planning steps for other apps, a person deciding each (SW22.9); and MCP's `run_command` target, a string
+  `get_proposal` and `get_context` for a peer (SW22.10). It waits because the plan of record splits the two (cross-app-proposals
+  decision 18): a model's view of another app is governed by need — its verb heads first (2,840 bytes for PlayMap), its whole
+  table (199 rows, 32,843 bytes) only when the request names it — and a door that carries no credential needs the gate's address
+  rule and the deck's own answer before it may send another app a line; and a train's release closes before the next train's
+  units start (rule R1), so release B is Train 5's. Until then those doors refuse both verbs in words, and the copilot and MCP
+  never see them (`Help` leaves them out). The lane's S3.5 and S3.7 move with it (SW22.11).
+- **Words owed to the contract.** Show Bus 1.3 §3 words `refs` as naming what was made "by number"; 2.21's receipts carry
+  `refs.sharedProposal` as a string. 1.3 is final and its body hash-pinned, so the words are asked of Show Bus 1.4's edit, not
+  made here. The contract's Landed line now names Patterns' and PlayMap's copies of 1.3, which hold the master (`bash
+  tools/showbus-copies.sh`); AGMessage's 1.3 copy has not landed.
+- **The agent brief's lines** that name `Copilot.Classify` as a new command's risk (the table is `CommandRisk.Of` now) and would
+  name `PersonHelp` are the maintainer's to change.
+- **Left as named in the units' entries above**, among them: G20's notice as a trigger action of its own (a Command trigger's `peer
+  agmessage notice <text>` sends it today); G49's *Link all* (declined by the owner for now); the preflight's `desk` check; the
+  AI's facts without `collects`; `network.csv` on MCP, the module and a desk button; the copilot still cutting its own steps at 400
+  characters (release B); Find still listening on Patterns' 9700 beacon; and the asks of Patterns and AGMessage (an `APPLY` title
+  without invisible characters and a refused proposal settled; a 2048-character line and invisible characters left out) and the
+  finding for PlayMap's and Stagewatch's owners (an early STATE counted malformed).
+
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 
 Show Bus 1.3 names no carrier that finds apps on one machine with no network (`docs/SHOWBUS.md` §2): there a typed

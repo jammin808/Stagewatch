@@ -31,9 +31,9 @@ re-time anything themselves.
 ## 2. Show Bus v1: the one contract every node speaks
 
 *Now specified exactly in `docs/SHOWBUS.md` (Show Bus 1.3, final 2026-10-26, which names PlayMap as the `playmap` kind).
-Each app carries it in a release of its own: Stagewatch 2.19 carries 1.3; Patterns, PlayMap and AGMessage each take their
-copy of 1.3 in a release of theirs, and until then Patterns and AGMessage keep their copies of 1.2 and PlayMap implements 1.2
-(its `docs/SHOWBUS-NODE.md`). The contract's header names the trees whose copies have landed. Show Bus 1.1 (2026-10-10) was
+Each app carries it in a release of its own: Stagewatch 2.19 carries 1.3; Patterns' copy of 1.3 (its Round 92.4) and PlayMap's
+(Mapper's PM-4) have landed and hold the master, and AGMessage keeps its copy of 1.2 until it takes 1.3 in a release of its own.
+The contract's header names the trees whose copies have landed (Stagewatch, Patterns and Mapper since 2.21's papers). Show Bus 1.1 (2026-10-10) was
 first implemented by Stagewatch 2.15, Patterns round 87 and AGMessage 0.3; 1.2 (2026-10-11) by Stagewatch 2.16, Patterns
 round 88 and AGMessage 0.4. This section is the original plan.*
 
@@ -63,7 +63,9 @@ It's small enough to adopt in a day per node, and every piece already exists som
    Stagewatch has this now; AGMessage and Patterns adopt the same shape.
 6. **Journal:** every node appends what happened, and who decided, to its own log with the shared `seq`/time
    fields. One merged journal is then the show report, the evidence of what the AI suggested, and the training
-   data.
+   data. *Built (Stagewatch 2.21) as one report, not one journal:* each node keeps its own journal as the record, and
+   Stagewatch's report adds a sample of the lines verified peers' contexts carry, each with its node, its own time and its
+   road, beside every decision at the desk (`docs/REMOTE.md`, "One report").
 
 ## 3. The low-latency, can't-fall-over architecture (from games)
 
@@ -98,6 +100,12 @@ proposes into one approval queue.
 
   The steps run in order with one undo, and each shows its simulated consequence (Stagewatch's recovery simulator)
   before anything runs.
+
+  *Built so far (Stagewatch 2.21, release A):* one queue for every app, on Stagewatch's desk. A proposal for another app is
+  rated by that app's own verified table of verbs; a person sends any app a line it lists (`peer`, or the Show network row's
+  menu) and decides any proposal (`desk`, Copilot, the Showcaller page), each with a receipt that is the app's own answer.
+  The copilot planning steps for other apps, MCP proposing to them and the Companion and OSC doors are release B, Stagewatch
+  2.22.
 - **Context, not commands.** Each node publishes what the AI may read through its manifest and MCP. The brain
   reasons over the merged state and journals, never over a screen-scrape.
 - **Explain the problem across the network.** "Why is the VT countdown blank?" can be answered by checking every
@@ -120,13 +128,16 @@ proposes into one approval queue.
   and AGMessage's rooms are created from one agenda (Stagewatch already drafts running orders from any agenda text).
 - **One setup pass:**
   1. Discovery lists every node.
-  2. "Link all" exchanges scoped keys with one approval per node.
+  2. "Link all" exchanges scoped keys with one approval per node. *Not built: the owner declined it for now; each app is
+     given a node key of its own in Settings → Remote, and the Show network says which key speaks for which app.*
   3. A **preflight** checks clocks, links, keys and screens across the network, and turns green only when the whole
-     system is ready.
+     system is ready. *Built (Stagewatch 2.21): "ready for doors", one verdict a second with a reason per node, read-only,
+     on its own doors (`GET /api/preflight`, the operator frame, MCP, Companion, the Showcaller page, the desk). A node someone
+     set up that is gone is red; one only heard that leaves is amber, and amber never blocks.*
 - **One control surface:** a single Companion module and Stream Deck profile drives all nodes through the bus.
   Stagewatch's module is the template.
 - **One report:** the merged journal becomes the client's show report: timings, what played, what the board asked,
-  what the AI suggested and who approved it.
+  what the AI suggested and who approved it. *Built (2.21) from verified contexts, as §2's journal item says.*
 
 ## 6. Why this leads
 
@@ -148,9 +159,12 @@ proposes into one approval queue.
    - Patterns adds `seq`, fractional seconds, `VIDEO PLAY/PAUSE/SEEK` and a 9928 hello.
    - AGMessage moves to scoped API keys for its own integrations.
 3. **Then**
-   - The cross-node approval queue in Stagewatch's copilot (MCP clients for Patterns and AGMessage).
-   - Merged journals and report.
-   - One preflight.
+   - Playout links from Stagewatch to Patterns desks and PlayMap nodes, with receipts that are the peer's own answer and a GO at
+     one instant (Stagewatch 2.20).
+   - The cross-node approval queue: release A, a person's desk for every app (Stagewatch 2.21); release B, the copilot and MCP
+     proposing to other apps and the Companion and OSC doors (Stagewatch 2.22).
+   - ~~Merged journals~~ One report from verified peers' lines (Stagewatch 2.21).
+   - One preflight, "ready for doors" (Stagewatch 2.21).
 4. **Later**
    - Ecosystem failover.
    - Chaos rehearsal.
@@ -163,7 +177,10 @@ proposes into one approval queue.
   AGMessage). Keep the bus spec and its conformance tests independent of all of them, and give each node a tiny adapter:
   Show Bus 1.3 does this with vectors in its own text and one scripted peer that every tree runs against itself (§13.20).
   Beside them, Stagewatch's interop lane runs the four real apps against each other at pinned commits, on one LAN and one
-  show laptop (`tools/test.sh interop`; `docs/BUILD.md`, "The interop lane", says what it proves and what it does not).
+  show laptop (`tools/test.sh interop`; `docs/BUILD.md`, "The interop lane", says what it proves and what it does not). At
+  2.21 it runs 40 rows green — the desk, the doors and Stagewatch's playout links among them — against Patterns at its round
+  91's pin, PlayMap and AGMessage 0.5.0; a newer Patterns holds its key from a Stagewatch on another machine until a person
+  presses Trust, which the lane cannot do yet (`docs/WHATS_NEXT.md`, 2.20 and 2.21).
 - **Security drift.** Auth is only as strong as the weakest node. Use the same key model and lockouts everywhere,
   and send nothing secret on discovery.
 - **Code signing** is still deferred. SmartScreen warnings will cost trust at venues, so sign before a wider

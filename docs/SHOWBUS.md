@@ -20,15 +20,16 @@ its own carries 1.3, and offers LINK only once its tree passes §13.20. §8's St
 1.3, does not keep of it, and this tree already keeps every rule of 1.3 that 2.19 brings. No node holds or draws a granted window
 yet. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote documentation (Stagewatch
 `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, PlayMap `docs/SHOWBUS-NODE.md`, AGMessage `docs/NODES.md`) shows how its endpoints
-implement this. This one is the master. Patterns and AGMessage keep copies of 1.2, and PlayMap none, until each tree's copy of 1.3
-lands and the Landed line below names it. The body — from `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line
-ends and one final LF — hashes to the SHA-256 the Body line below prints, which Stagewatch's own test pins, so every edit to it is
-deliberate. A copy holds the same body, prints the same Body line and copies the scripted peer byte for byte, its own tree's test
-holding both hashes; `tools/showbus-copies.sh` in this tree holds the trees the Landed line names to this master (§14.5).*
+implement this. This one is the master. Patterns' copy of 1.3 (its Round 92.4) and PlayMap's (Mapper's PM-4) have landed,
+and the Landed line below names them; AGMessage keeps its copy of 1.2 until its tree's copy of 1.3 lands and the Landed line
+names it. The body — from `## 1. Rules every node follows` to the end, UTF-8 without a BOM, LF line ends and one final LF —
+hashes to the SHA-256 the Body line below prints, which Stagewatch's own test pins, so every edit to it is deliberate. A copy
+holds the same body, prints the same Body line and copies the scripted peer byte for byte, its own tree's test holding both hashes;
+`tools/showbus-copies.sh` in this tree holds the trees the Landed line names to this master (§14.5).*
 
 *Body SHA-256 (§14): 9ca83889a3735eba9dd948a53be3045b9cd1855c68a3682d5e734adf8f901fd5.*
 
-*Landed (§14): Stagewatch.*
+*Landed (§14): Stagewatch, Patterns, Mapper.*
 
 Everything here works **on the local network with no internet and no AI**. The only parts that need the internet are
 the language models (drafting, summaries, answering questions) and AGMessage's optional Cloudflare tunnel for people

@@ -106,6 +106,7 @@ button is recording.
 | `UNDO`, `REDO`, `ENDOFSHOW <HH:MM\|clear>`, `LOOP <off\|n\|forever>`, `SCREEN RELOAD\|DISCONNECT [screen]` | 2.10. Module: *Undo the last live edit*, *Redo*, *Running order: show ends at*, *Running order: loop*, *Screens: reload / disconnect* |
 | `WINDOW NEW\|SHOW\|CUE\|HOLD\|RELEASE\|IDENTIFY\|RELOAD\|LOSS\|FADE\|RENAME\|REVOKE\|DELETE …` | Windows Stagewatch controls (2.17; see REMOTE.md). Module: *Windows: show a page* (show or cue), *Windows: holding page* (on, toggle, words, image), *Windows: release*, *Windows: identify*; presets *holding page on every window (toggle)* and *identify all*. No window feedbacks yet: the module's frame doesn't carry windows |
 | `PLAYOUT [<link>] END [secs]\|RESTART\|PLAY\|PAUSE\|STOP\|SEEK <m:ss>`, `PLAYOUT <link> GO\|CUE …`, `PATTERNS …` | The clip on air, a PlayMap node's playlist items and a Patterns desk's cues over Stagewatch's playout links (2.20; see REMOTE.md), from this PC or an address in May drive other show apps. Module (2.20): *Playout: the clip on air*, *Playout: GO*, *Playout: cue* and the *Patterns* actions, each sent with a request id; `vt_link`, `vt_source` and `playout_answer`; the *Playout: The VT comes from…* feedback; the *Playout links* presets (below) |
+| `PEER <app> <line>`, `DESK APPROVE\|REJECT …` | Not in this release (2.21): refused whoever sends them, `ERROR @c1 peer is sent over HTTP or a WebSocket (with the PIN or a control key) — Companion TCP does not take it in this release`. Companion TCP carries no credential; its door through the gate, an `ACCESS` line per connection and the module's *peer* and *desk* actions are release B (Stagewatch 2.22) |
 | `STATE`, `SUBSCRIBE [JSON]`, `UNSUBSCRIBE`, `PING`, `QUIT` | Session |
 
 **Screen commands reach browsers only (2.18).** `SCREEN IDENTIFY|RELOAD|DISCONNECT|GO` with no screen, or `all`, reach
@@ -166,6 +167,12 @@ option is unticked, while there is no verdict, so a key is never left looking re
 preset is green only from a verdict that says ready, with the count of amber rows under it (green includes rows to look
 at, as the page's chip and the desk's line say), amber with none, red with the count of red rows. The reasons are not on
 the deck: they are the desk's Show network header, the Showcaller page and `GET /api/preflight`.
+
+**The approval desk (2.21).** The operator frame on `SNAPSHOT` ends with `desk` (`pending`, `next`, `apps`) before `network`, and
+`CONFIG` ends with `peers` (the show apps a line could go to: id, name, kind) after `playoutLinks`. The module reads neither yet,
+and has no action that sends `PEER` or `DESK`: deciding another app's proposal from a deck (`desk_approve` with a second press for
+a high one, `desk_reject`, `desk_pending` and `desk_waiting`) comes with release B. Until then a proposal is decided at the desk's
+Copilot window, on the Showcaller page or over HTTP or a WebSocket (docs/REMOTE.md, 2.21).
 
 Bad input gets `ERROR <reason>` and the connection stays open.
 

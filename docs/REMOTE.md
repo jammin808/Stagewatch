@@ -26,8 +26,8 @@ multi-room beacon behind `/rooms` and the acknowledged-cue loop on the role page
 | MCP | `POST http://<pc>:9924/mcp` | PIN (`Authorization: Bearer <pin>` or `X-Stagewatch-Pin`) | AI assistants and Patterns tools reading and driving the show |
 | HTTP API | `http://<pc>:9924/api/...` | PIN | vMix, Companion "generic HTTP", Stream Deck, scripts |
 | WebSocket | `ws://<pc>:9924/ws` | PIN for control; a node key for a show app | Custom dashboards that want live state; show apps following the timer as node links (2.18) |
-| OSC (UDP) | port 9925, **off by default** | none; `playout` and `patterns` only from this PC or a listed address (2.20) | QLab, lighting desks, TouchOSC |
-| Companion TCP | port 9923 | none; `playout` and `patterns` only from this PC or a listed address (2.20) | Bitfocus Companion module (see COMPANION.md) |
+| OSC (UDP) | port 9925, **off by default** | none; `playout` and `patterns` only from this PC or a listed address (2.20); `peer` and `desk` not in this release (2.21) | QLab, lighting desks, TouchOSC |
+| Companion TCP | port 9923 | none; `playout` and `patterns` only from this PC or a listed address (2.20); `peer` and `desk` not in this release (2.21) | Bitfocus Companion module (see COMPANION.md) |
 
 The PIN is generated on first run and shown in Settings → Remote. Five wrong PINs from one address lock that
 address out for a minute. A link with `?pin=1234` (e.g. `http://<pc>:9924/control?pin=1234`) logs in directly.
@@ -41,7 +41,7 @@ other devices connect. Untick "Allow other devices on the network" to keep every
 |---|---|
 | Anyone on the network | The display frame (no speaker notes); with `detail=1`, the agenda timings, room status and *moderated* questions — never assistant advice or raw audience submissions |
 | A crew page opened with its crew link | The same, plus confirming ("Got it") the cues sent to **its** target. Links: Showcaller page → Crew links, or `GET /api/crew-links` (PIN). Settings → Remote → *New crew links* revokes them all. The show log records the confirming device's address |
-| PIN | Control, `/producer`, `/report`, `/api/report.csv`, `/api/state?detail=1&pin=…` (full operator frame), `/mcp` |
+| PIN | Control, `/producer`, `/report`, `/api/report.csv`, `/api/report/network.csv`, `/api/preflight`, `/api/state?detail=1&pin=…` (full operator frame), `/mcp`. A key opens what its scope allows (*What each route needs*, under 2.20 and 2.21) |
 
 Every WebSocket gets a `{"type":"beat"}` at least every 2 s. The pages treat 6 s of silence as a dead link: the
 screen dims under a **NOT CONNECTED** banner (never a confident stale time) and reconnects.
@@ -99,11 +99,13 @@ One grammar is shared by every transport — HTTP, WebSocket, OSC and the Compan
 | `question` | `<text> [name]` | Audience question (**no PIN**; rate-limited per device) |
 | `q` | `<id> approve\|star\|live\|answered\|dismiss`, `q next`, `q clear` | Moderate Q&A |
 | `rehearse` / `listen` | `[on\|off]` | Record slide timings from PowerPoint / follow the speaker through their script |
-| `report` | `[html\|csv]` | Save the planned-vs-actual report |
+| `report` | `[html\|csv\|network]` | Save the planned-vs-actual report, its CSV, or the show network's lines as `network.csv` (2.21) |
 | `note` | `<text>` | Log a note in the show report |
 | `playout` | `[<link>] end [seconds]` · `[<link>] restart\|play\|pause\|stop` · `[<link>] seek <m:ss>` | The clip on air on a playout link's peer, a Patterns desk or a PlayMap node (Settings → Integrations → Playout links; 2.20): its last seconds (10 unless said), back to its top, play, pause, stop (back to its top, held) or a point. `<link>` is the link's name; with none, the only link switched on, else the link feeding the VT countdown |
 | `playout` | `<link> go <playlist> [item] [together]` · `<link> cue <playlist> <item>` (a PlayMap node) · `<link> go <cue>` · `<link> cue <cue>` (a Patterns desk) | Start a playlist's item (its next one when none is named) or load one, its first frame on air at once; GO a cue (the desk's own standby decides) or stand one by. Never guessed between two links (2.20). `together`: at an instant on the node's own clock (`AT`) when that clock is fit for it, else at once — the receipt says which (see *A GO at one instant* below) |
 | `patterns` | `end [seconds]` · `restart\|play\|pause\|stop` · `seek <m:ss>` | As `playout`, on link `patterns`, else the only link |
+| `peer` | `<app> <line>` | Send one line another show app lists, born approved by you (2.21; HTTP and a WebSocket only, with the PIN or a control key). See *A person's line to another app* below |
+| `desk` | `approve <id> [high]` · `approve next` · `reject <id>\|next [why]` | Decide a proposal on the shared approval queue (2.21; as `peer`) |
 | `playout` | `<link> trust <8+ hex of its certificate>` | Refused on every transport, whoever sends it (2.20): trusting a playout link's certificate is a person's choice on the Stagewatch desk, beside its fingerprint (right-click its node on the Show network, or the status line). In the grammar only so that it is refused in words, never as unknown |
 
 ### HTTP
@@ -120,8 +122,10 @@ Arguments can also go in the query string: `value` (or `text`, `slot`, `seconds`
 ```
 
 Read-only, no PIN: `/api/state` (current frame, JSON; add `?detail=1` for the running-order projection, advice,
-Q&A and rooms), `/api/config` (presets, quick messages, running order, departments, cue ladders), `/api/help`
-(command list), `/report` and `/api/report.csv` (planned vs actual), `/api/qr?text=…` (QR code, SVG).
+Q&A and rooms), `/api/config` (presets, quick messages, running order, departments, cue ladders), both behind the viewing code
+when one is set, `/api/help` (the command list people read, `peer` and `desk` among it) and `/api/qr?text=…` (QR code, SVG).
+The PIN or any key: `/report` and `/api/report.csv` (planned vs actual), `/api/report/network.csv` (2.21), `/api/context` and
+`/api/preflight` (2.21). Every route's need is in *What each route needs* (2.20 and 2.21, below).
 
 `ack` and `question` need no PIN — speaker tablets and audience phones send them. Questions are rate-limited
 (one every 10 s, 20 an hour per device).
@@ -246,6 +250,8 @@ and when it will now finish. Leave it blank and the plan starts when the first i
 | `get_running_order` | Planned / expected / actual for every item |
 | `run_command` | One command line from the grammar above, e.g. `trim 7 -180` |
 | `get_report` | The planned-vs-actual report as CSV |
+| `get_proposal` | What became of a proposal `run_command` made (by its number) |
+| `get_context` | The room in one JSON (Show Bus §6): `GET /api/context`'s |
 | `get_preflight` | The room's verdict, 'ready for doors', with a row per check (2.21, below): `GET /api/preflight`'s JSON, by its rule |
 
 Use the Remote PIN as `Authorization: Bearer <pin>`. Commands run through the same single input path as a
@@ -1124,8 +1130,8 @@ its rate, which has its own count per key (600 requests a minute, 429 with `Retr
 ### Show Bus 1.3, its kit and the copies
 
 - **1.3 is final.** `docs/SHOWBUS.md`'s header prints its body's SHA-256 on a line of its own, and names on its Landed line the
-  trees whose copies hold it: Stagewatch alone today. Patterns, PlayMap and AGMessage each take a copy in a release of their own;
-  `tools/showbus-copies.sh` compares the trees the Landed line names (§14.5).
+  trees whose copies hold it: Stagewatch's, and since 2.21's papers Patterns' (its Round 92.4) and PlayMap's (Mapper's PM-4);
+  AGMessage takes its copy in a release of its own. `tools/showbus-copies.sh` compares the trees the Landed line names (§14.5).
 - **The PeerLink kit** is in this tree: Stagewatch's core (`src/Timer.Core/PeerLink.cs`), every vector in §13's block, and the
   scripted peer (`tools/showbus/peerlink-peer.mjs`, pinned by §14's `peerlink.peer.sha256`), with which the suite runs §13.20's
   scenarios. **Nothing on the wire speaks it yet:** `/ws` node links prove a bearer key or the operator's credential as in 2.18,
@@ -1138,3 +1144,73 @@ its rate, which has its own count per key (600 requests a minute, 429 with `Retr
 - The certificate: 825 days in all; one an older Stagewatch made is replaced once, so its fingerprint changes once.
 - Wrong view passes: their own count, with their own words and, for a window page, `429`; a right PIN or key no longer clears it.
 - The context: within §14's sizes, commands in a new order, long fields cut, and `context:trimmed` when something is left out.
+
+## 2.20 and 2.21: playout links, one desk, one preflight, one report
+
+2.20 and 2.21 ship as one release, 2.21.0 (WHATS_NEXT.md has its upgrade notes, its units and what it did not do). Where each
+change is on this page:
+
+| Change | Section |
+|---|---|
+| The `playout` verb (a link's clip on air, a PlayMap playlist's GO and CUE, a Patterns desk's cues), `patterns` on link `patterns` | *Commands*, above |
+| Who may drive another app's air: OSC and Companion TCP from this PC or a listed address only; HTTP, a WebSocket and MCP with the PIN or a key, or with no PIN set from this PC or a listed address | "Who may drive another app's air (2.20)" |
+| A playout line's receipt completed by its peer's answer, the `final` follow-up on a WebSocket and Companion | "A playout line's receipt is its peer's answer (2.20)" |
+| `together`, the running order's cues | "A GO at one instant, and the running order's cues (2.20)" |
+| HTTP triggers that carry a secret | "HTTP triggers that carry a secret (2.20)" |
+| A request body over 64 KiB answered `413` | *HTTP*, above |
+| A proposal's risk read from another app's verified table | "How the desk rates another app's line (2.21)" |
+| Ids with the desk's run, lines refused never cut, the desk's own `from` refused, collection watched | "The desk's rules (2.21)" |
+| `peer <app> <line>` and `desk approve\|reject`, their receipts, the operator frame's `desk`, config `peers`, the Showcaller page's desk | "A person's line to another app, and a person's decision (2.21)" |
+| `GET /api/preflight`, the operator frame's `network`, MCP `get_preflight` | "One preflight: ready for doors (2.21)" |
+| The report's show network section and `network.csv` | *One report*, below |
+| What each route needs | *What each route needs*, below |
+
+### What each route needs
+
+A **read** key reads; a **control** key reads and drives the show; a **node** key is another show app's (it reads, puts a
+message on the stage, and posts its own context and proposals, for the one app it speaks for); an **mcp** key reads and opens
+`/mcp`. The PIN opens everything. With no PIN set, a route that asks for one is open, except the lines that drive another app
+(`playout`, `patterns`, `peer`, `desk`), which then come only from this PC, a listed address or a control key. A key goes in
+`Authorization: Bearer swk_…` or `X-Stagewatch-Pin`, never in an address but under `?pin=` (Show Bus §8.1's named exemption).
+
+| Route | Needs |
+|---|---|
+| The pages (`/viewer`, `/audience`, `/clock`, …), `GET /api/state` (the public frame; `?detail=1` the public detail), `GET /api/config`, `GET /api/layouts[/<name>]`, `/ws` to view | nothing but the viewing code, when one is set. With the PIN or any key, `/api/state?detail=1` is the operator frame, which ends with `desk`, then `network` (2.21) |
+| `GET /api/help` (the grammar people read, `peer` and `desk` among it), `GET /api/qr`, `GET /api/holding/<id>`, `/tls`, `/tls.cer`, `/custom.css` | nothing |
+| `ack` and `question` (`/api/ack/…`, `/api/question/…`, and on any socket) | nothing (a crew page confirms its own cues with its crew link; questions are rate-limited) |
+| `/report`, `/api/report.csv`, `/api/report/network.csv` (2.21), `GET /api/context`, `GET /api/preflight` (2.21), `GET /api/screens`, `GET /api/windows`, `GET /api/proposals?from=<node>`, `GET /api/proposals/<id>` | read: the PIN or any key. `/api/windows` lists a window's address only for the PIN or a control key; `/api/deptnotes` takes a department's crew link too |
+| `POST /api/peers/context`, `POST /api/proposals`, `GET /api/proposals?target=<id>&state=approved`, `POST /api/proposals/<id>/result`, `message` and `clearmessage` | node: a node key (speaking for its own node only), a control key or the PIN. An MCP key posts no proposal (`403`, 2.21); a node key runs no other verb |
+| Every other `/api/<verb>`, `/api/crew-links`, `POST /api/layouts/…`, `/api/holding/upload`, `/api/slides/feed`, `/api/slides/script`, `/ws?role=control` | control: a control key or the PIN |
+| `playout` and `patterns` lines (2.20) | control, and the playout gate: with no PIN set, this PC, a listed address or a control key (over MCP an MCP key, and an AI's line is always a proposal); over OSC and Companion TCP, which carry no credential, this PC or a listed address only |
+| `peer` and `desk` lines (2.21), `GET\|POST /api/peer/…`, `/api/desk/…` | the PIN Stagewatch asks for, or a control key — never a node, read or MCP key; with no PIN set, this PC or a listed address. Not over Companion TCP, OSC or MCP in this release |
+| `POST /mcp` | mcp: an MCP key or the PIN |
+
+Unknown or revoked keys are `401` and counted nowhere; a key over its 600 requests a minute is `429`. Five wrong PINs from an
+address lock it out of the PIN and every key for the rest of a minute, and a valid key clears nothing of that count (2.10's API
+keys, 2.19's wrong passes).
+
+### One report: the show network (2.21)
+
+The show report (`/report`, the desk's **Show report**, `report` on the wire) adds what verified peers' own journals told this
+Stagewatch, beside its own rows, and every desk decision:
+
+- **The show network section** lists, in the order heard, the lines from each other app's context `recent` — only from a context
+  that proves its node: posted under the key bound to it, under the operator's credential while no key speaks for that id, or
+  read by this Stagewatch's own playout link. A forged id, or a context that proves nothing, adds no line. Each line keeps when this
+  Stagewatch first heard it, the node (by the name this desk gives it) and its kind, the line's time on the node's own clock (never
+  shifted), and the road it came by (`node key '<name>'`, `the link '<name>'`, `the operator's credential` — never an address).
+  A node's first post gives one row that it joins, never its backlog; a list that shares nothing with the one before gives one row
+  that lines may be missing; at most 32 nodes are followed at once. A line that holds a key or a window's address is left out, and a
+  row says so. Peer lines are a sample; each node's own journal is the record, and the section says so.
+- **The AI section** lists every desk decision — proposed, sent, approved, not approved, rejected, the outcome — beside the copilot's
+  notes, a rejection included.
+- **`GET /api/report/network.csv`** (read scope, cross-origin, as `/api/report.csv`; `404 "no report"` from a host that keeps none)
+  is the same lines as CSV: a first line `# peer lines are a sample; each node's own journal is the record`, then
+  `Time,Node,Kind,Node id,Node time,Via,Text`, with a cell another app wrote that opens with `=`, `+`, `-` or `@` written behind an
+  apostrophe. `report network` saves it beside the report's own files; the Showcaller page links it.
+- Every time in the report, its CSVs and the context's `recent` is written in the invariant culture. Stagewatch's own context
+  `recent`, the copilot's recent lines and an AI summary's input take Stagewatch's own rows alone: another app's lines reach a model
+  only as that app's own facts.
+
+Not in this release: MCP's `get_report` and the Companion module's report action give the HTML or CSV report only, and the desk has
+no button for `network.csv` (`report network` on the wire, or the Showcaller page's link).
