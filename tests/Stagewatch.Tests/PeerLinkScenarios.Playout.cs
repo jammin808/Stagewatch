@@ -383,12 +383,15 @@ static partial class PeerLinkScenarios
         var waiting = link.InFlight;
         var thirtyThird = link.EndIn(10);
         var all = await peer.Wait(e => Ev(e, "command") && Str(e, "id") == ids[^1]);
+        // Each second's move waits on the pong to the link's latest ping read by the link: the link pings every 2 s, so its latest
+        // ping is at most 1 s old and heard within 1 s exactly when that pong is in. The wait is the event; its bound only fails it.
+        var paced = true;
         for (var t = 1000L; t <= PeerLink.ReceiptFinalMs; t += 1000)
         {
             await Step(clock, 1000);
-            await PlayoutLinkTests.Until(() => link.RecordNow().HeardMs <= 1000, 2000);
+            paced &= await PlayoutLinkTests.Until(() => link.RecordNow().HeardMs <= 1000);
         }
-        var stillWaits = link.OutcomeOf(ids[0]) is null && link.InFlight == PeerLink.InflightMax && link.Connected;
+        var stillWaits = paced && link.OutcomeOf(ids[0]) is null && link.InFlight == PeerLink.InflightMax && link.Connected;
         await Step(clock, 1);
         var past = ids.All(id => link.OutcomeOf(id) == PeerOutcome.Unconfirmed);
         // The evaluator's next run says each outcome to the desk.

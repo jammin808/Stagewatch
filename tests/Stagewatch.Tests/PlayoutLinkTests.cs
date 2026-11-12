@@ -31,6 +31,7 @@ static class PlayoutLinkTests
 
     public static async Task Run(Action<bool, string> Check)
     {
+        Missed.Clear();
         await PairingRules(Check);
         await Desk11(Check);
         await OlderDeskOnThisPc(Check);
@@ -53,7 +54,14 @@ static class PlayoutLinkTests
         await KeptStore(Check);
         await Journal(Check);
         await Flapping(Check);
+        Check(Missed.IsEmpty, $"playout waits: every event a step waited on came ({string.Join("; ", Missed)})");
     }
+
+    /// <summary>
+    /// The waits whose event never came (<see cref="PingSettled"/>, <see cref="RedialArmed"/>): the group's last check fails on any, so
+    /// a wait never quietly falls back to a real while.
+    /// </summary>
+    static readonly ConcurrentQueue<string> Missed = new();
 
     // ------------------------------------------------------------------ helpers
 
@@ -204,6 +212,13 @@ static class PlayoutLinkTests
         int _taken;
 
         public ConcurrentQueue<string> Heard { get; } = new();
+
+        /// <summary>
+        /// Each line heard with how many lines answered it, put here once those answers are written: what a test waits on to know
+        /// the desk has read a line and said all it will say to it.
+        /// </summary>
+        public ConcurrentQueue<(string Line, int Answers)> Answered { get; } = new();
+
         public int Port { get; }
         public volatile bool Closing;
         public Func<IReadOnlyList<string>> Greeting { get; set; } = () => [];
@@ -248,7 +263,13 @@ static class PlayoutLinkTests
                 for (var l = await reader.ReadLineAsync(_stop.Token); l is not null; l = await reader.ReadLineAsync(_stop.Token))
                 {
                     Heard.Enqueue(l);
-                    foreach (var a in Answer(l)) Say(writer, a);
+                    var said = 0;
+                    foreach (var a in Answer(l))
+                    {
+                        Say(writer, a);
+                        said++;
+                    }
+                    Answered.Enqueue((l, said));
                 }
             }
             catch (Exception e) when (e is IOException or ObjectDisposedException or OperationCanceledException or InvalidOperationException)
@@ -828,16 +849,50 @@ static class PlayoutLinkTests
     static async Task<bool> Paired(PlayoutLink link) => await Until(() => link.Pairing == PlayoutPairing.Paired && link.Video is { File: "asked.mp4" });
 
     /// <summary>
-    /// The clock moved on by <paramref name="ms"/>, a ping's answer (if any) let in before the next move: the evaluator runs once at each
-    /// step of <paramref name="step"/> ms, and the step waits until the link has heard the desk at that moment, or a short real while.
+    /// The clock moved on by <paramref name="ms"/> in steps of <see cref="PlayoutLink.PingEvery"/>, each step's ping answered before
+    /// the next move: the evaluator pings once at each step, and the step waits on <see cref="PingSettled"/> — the desk's answer read by
+    /// the link — never on a real while, which a loaded machine outlasts. False, and named in <see cref="Missed"/>, when a step's ping
+    /// never settled.
     /// </summary>
-    static async Task Live(LinkClock clock, PlayoutLink link, long ms, long step = 2000)
+    static async Task<bool> Live(LinkClock clock, PlayoutLink link, FakeDesk desk, long ms)
     {
+        var step = (long)PlayoutLink.PingEvery.TotalMilliseconds;
+        var settled = true;
         for (var moved = 0L; moved < ms; moved += step)
         {
+            var mark = desk.Answered.Count;
             clock.Advance(Math.Min(step, ms - moved));
-            await Until(() => link.RecordNow().HeardMs == 0, 300);
+            settled &= await PingSettled(clock, link, desk, mark);
         }
+        return settled;
+    }
+
+    /// <summary>
+    /// The ping the link wrote at this moment — stamped with the clock's wall time, which does not move while this waits — read by the
+    /// desk after its <paramref name="mark"/>th line, and, when the desk answered it, that answer read by the link (it heard the desk at
+    /// this moment). The events a sample needs, in order: a check that reads the link's samples after this reads them settled. An event
+    /// that never comes is named in <see cref="Missed"/>.
+    /// </summary>
+    static async Task<bool> PingSettled(LinkClock clock, PlayoutLink link, FakeDesk desk, int mark)
+    {
+        var ping = "PING " + clock.WallMs.ToString(CultureInfo.InvariantCulture);
+        int? answers = null;
+        var read = await Until(() => (answers = desk.Answered.Skip(mark).Where(a => a.Line == ping).Select(a => (int?)a.Answers).FirstOrDefault()) is not null);
+        var heard = read && (answers == 0 || await Until(() => link.RecordNow().HeardMs == 0));
+        if (!heard) Missed.Enqueue($"the desk read '{ping}' ({read}) and the link read its answer ({heard})");
+        return heard;
+    }
+
+    /// <summary>
+    /// The link's redial wait is armed on the clock. A link shows itself down before it sets that wait, so a move of the clock made
+    /// between the two is one the wait never counts, and the redial it was meant to bring never comes. A wait never armed is named in
+    /// <see cref="Missed"/>.
+    /// </summary>
+    static async Task<bool> RedialArmed(LinkClock clock)
+    {
+        var armed = await Until(() => clock.OneShotWaiting);
+        if (!armed) Missed.Enqueue("the link armed its redial or hold wait on the clock");
+        return armed;
     }
 
     /// <summary>
@@ -888,7 +943,7 @@ static class PlayoutLinkTests
         Check(paired && sent.All(x => x is null) && refused == "32 commands are waiting on Patterns's answers" && written && link.InFlight == 32
               && desk.Heard.Count(l => l.EndsWith(" VIDEO RESTART", StringComparison.Ordinal)) == 32 && answers.IsEmpty,
               $"playout in flight: 32 commands wait, the 33rd is not sent, with 13.12.8's words, and none is evicted ({refused}; {link.InFlight})");
-        await Live(clock, link, 30_000);
+        await Live(clock, link, desk, 30_000);
         var waiting = link.InFlight;
         clock.Advance(1);
         var settled = link.InFlight;
@@ -922,6 +977,7 @@ static class PlayoutLinkTests
               && link.State == PeerLinkState.Down && link.Record.Attempt == 1,
               $"playout drops: a command written before the link dropped is unconfirmed — it may have run — never failed ({a})");
         var refused = link.EndIn(10);
+        await RedialArmed(clock);
         clock.Advance(PeerLink.RedialWait(0, 0.5));
         var back = await Paired(link);
         await Task.Delay(200);
@@ -1023,6 +1079,7 @@ static class PlayoutLinkTests
                 break;
             }
             waits.Add(wait);
+            await RedialArmed(clock);
             clock.Advance(wait - 1);
             await Task.Delay(50);
             soon &= desk.Taken == taken;
@@ -1037,16 +1094,18 @@ static class PlayoutLinkTests
         // A pairing that ends within 10 s resets nothing; one that stays up 10 s starts the count over.
         desk.Closing = false;
         offset = 0;
+        await RedialArmed(clock);
         clock.Advance(last ?? 0);
         var again = await Paired(link);
-        await Live(clock, link, 8000);
+        await Live(clock, link, desk, 8000);
         desk.Drop();
         await Until(() => !link.Connected);
         var short8 = link.RecordNow();
+        await RedialArmed(clock);
         clock.Advance(Math.Max(0, short8.NextMs ?? 0));
         var again2 = await Paired(link);
-        await Live(clock, link, 10_000);
-        await Live(clock, link, 2000);
+        await Live(clock, link, desk, 10_000);
+        await Live(clock, link, desk, 2000);
         desk.Drop();
         await Until(() => !link.Connected);
         var stable = link.RecordNow();
@@ -1142,7 +1201,7 @@ static class PlayoutLinkTests
         using var link = Link(desk.Port, Token, time: clock, inst: NewInst(), jitter: () => 0.5);
         link.Start();
         var paired = await Paired(link);
-        await Live(clock, link, 2000);
+        await Live(clock, link, desk, 2000);
         var sampled = link.RecordNow().Samples == 1;
         clock.StepWall(PlayoutLink.WallStepMs);
         var within = link.RecordNow().Samples == 1;
@@ -1150,17 +1209,18 @@ static class PlayoutLinkTests
         var ahead = link.RecordNow().Samples == 0;
         clock.Advance(PlayoutLink.CheckEvery.Ticks / TimeSpan.TicksPerMillisecond);
         var shown = link.Clock is null && link.ClockOffset is null && !link.ClockApart;
-        await Live(clock, link, 2000);
+        await Live(clock, link, desk, 2000);
         var again = link.RecordNow().Samples == 1;
         clock.StepWall(-5000);
         var back = link.RecordNow().Samples == 0;
         Check(paired && sampled && within && ahead && shown && again && back,
               $"playout clock: a step of this PC's wall clock either way empties the window, a move of {PlayoutLink.WallStepMs} ms does not (13.11.7) ({sampled}, {within}, {ahead}, {shown}, {again}, {back})");
 
-        await Live(clock, link, 2000);
+        await Live(clock, link, desk, 2000);
         var before = link.RecordNow().Samples;
         desk.Drop();
         await Until(() => !link.Connected);
+        await RedialArmed(clock);
         clock.Advance(PeerLink.RedialWait(0, 0.5));
         var relinked = await Paired(link);
         var fresh = link.RecordNow().Samples;
@@ -1182,14 +1242,15 @@ static class PlayoutLinkTests
         link.Logged += lines.Enqueue;
         link.Start();
         var paired = await Paired(link);
-        await Live(clock, link, 4000);
+        await Live(clock, link, desk, 4000);
         var none = lines.IsEmpty;
+        var mark = desk.Answered.Count;
         clock.Advance(3000);
         var first = lines.ToList();
-        await Until(() => link.RecordNow().HeardMs == 0, 300);
+        await PingSettled(clock, link, desk, mark);
         clock.Advance(2500);
         var folded = lines.Count == 1 && link.State == PeerLinkState.Live;
-        await Live(clock, link, 60_000);
+        await Live(clock, link, desk, 60_000);
         clock.Advance(2500);
         var all = lines.ToList();
         Check(paired && none && first is ["Patterns link: this PC paused for 3 s — Patterns pinged at once, and not called down for the pause"] && folded
@@ -1210,6 +1271,7 @@ static class PlayoutLinkTests
         link.Start();
         var shown = await Until(() => !link.Connected && link.State == PeerLinkState.Down && link.Status.Contains(busy, StringComparison.Ordinal));
         var first = (link.Health, link.Status, Record: link.RecordNow());
+        await RedialArmed(clock);
         clock.Advance(first.Record.NextMs ?? 0);
         var again = await Until(() => desk.Taken == 2 && !link.Connected && link.RecordNow().Attempt == 2);
         await Task.Delay(100);
@@ -1298,6 +1360,7 @@ static class PlayoutLinkTests
               && link.Status.StartsWith($"Patterns: a write to 127.0.0.1:{desk.Port} did not finish in 10 s — dialling again in", StringComparison.Ordinal)
               && link.State == PeerLinkState.Down,
               $"playout lane: past the write deadline the evaluator ends the connection and says why; the command being written is unconfirmed, the one behind it not-sent, and only the first has a row for the show log ({restart}; {end}; {link.Status})");
+        await RedialArmed(clock);
         clock.Advance(PeerLink.RedialWait(0, 0.5));
         var back = await Paired(link);
         await Task.Delay(200);
@@ -1412,7 +1475,7 @@ static class PlayoutLinkTests
         using (var again = Make(run2, "ZZ99YY88", first))
         {
             again.Start();
-            await Task.Delay(200);
+            await RedialArmed(clock);   // the hold's wait, armed from the start: the moves below count from it
             var rec = again.RecordNow();
             var still = again.State == PeerLinkState.Held && again.Health == LinkHealth.Error && rec is { NextMs: 40_000, Refusal: "key" } && desk.Taken == taken;
             clock.Advance(40_000 - 1);
@@ -1556,7 +1619,7 @@ static class PlayoutLinkTests
               && link.State == PeerLinkState.Live
               && quick[0].Line("Patterns") == peer + ": live → down — Patterns closed the connection — dialling again in 0.5 s (attempt 1)",
               $"playout log: a drop and the redial are a row each, the peer's address in each; the link live again, said a moment before, is no row of its own ({string.Join(" | ", quick.Select(r => r.Line("Patterns")))})");
-        await Live(clock, link, 62_000);
+        await Live(clock, link, desk, 62_000);
         var folded = await Until(() => rows.Count == 5);
         var summary = rows.Last();
         Check(folded && summary is { Folded: 1, From: PeerLinkState.Connecting, To: PeerLinkState.Live } && summary.FoldedMs >= PlayoutLink.RepeatSummaryEvery.TotalMilliseconds
@@ -1568,7 +1631,7 @@ static class PlayoutLinkTests
         link.Restart();
         var id = PeerLink.RequestId(PlayoutLink.IdPrefix, 1, inst);
         await Until(() => desk.Heard.Any(l => l.StartsWith("@" + id + " ", StringComparison.Ordinal)));
-        await Live(clock, link, 30_000);
+        await Live(clock, link, desk, 30_000);
         clock.Advance(1);
         clock.Advance(PlayoutLink.CheckEvery.Ticks / TimeSpan.TicksPerMillisecond);
         var unconfirmed = await Until(() => answers.Count == 1);
@@ -1654,7 +1717,7 @@ static class PlayoutLinkTests
             }
             if (stale && live) flaps++;
         }
-        await Live(clock, link, 62_000);   // a quiet minute: the last summary is said
+        await Live(clock, link, desk, 62_000);   // a quiet minute: the last summary is said
         var said = rows.Skip(2).ToList();
         var own = said.Where(r => r.Folded == 0).ToList();
         var summaries = said.Where(r => r.Folded > 0).ToList();

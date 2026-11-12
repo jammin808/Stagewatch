@@ -147,23 +147,17 @@ public sealed class CompanionServer : IAsyncDisposable
     private void OnMessageChanged(MessageState m)
         => BroadcastV1($"MESSAGE {CompanionProtocol.EscapeQuoted(m.Text)} urgency={m.Urgency} flash={m.Flash}");
 
-    /// <summary>Owner thread, at most ~1/s. Serialize once, enqueue to every JSON subscriber.</summary>
+    /// <summary>
+    /// The hub's worker, at most ~1/s. Serialize once, hand to every JSON subscriber, which takes the frame only if it is newer than
+    /// the last it was sent (<see cref="Client.Push"/>).
+    /// </summary>
     private void OnSnapshot(ShowSnapshot s)
     {
         var clients = Snapshot();
         if (!clients.Any(c => c.JsonMode && c.Subscribed)) return;
         var line = SnapshotLine(s);
         var config = ConfigLine(s.ConfigVersion);
-        foreach (var c in clients)
-        {
-            if (!c.JsonMode || !c.Subscribed) continue;
-            if (c.ConfigVersionSent != s.ConfigVersion)
-            {
-                c.ConfigVersionSent = s.ConfigVersion;
-                c.Enqueue(config);
-            }
-            c.Enqueue(line);
-        }
+        foreach (var c in clients) c.Push(s, line, config);
     }
 
     /// <summary>Companion gets the detail frame: projected running order, advice, Q&amp;A and rooms drive its keys.</summary>
@@ -197,7 +191,18 @@ public sealed class CompanionServer : IAsyncDisposable
 
         public bool Subscribed { get; private set; } = true; // default-on after connect
         public bool JsonMode { get; private set; }
-        public int ConfigVersionSent { get; set; } = -1;
+
+        /// <summary>
+        /// Two writers put frames on this client's queue: the hub's worker pushing each published frame, and this client's reader
+        /// answering SUBSCRIBE, SNAPSHOT, CONFIG or STATE with the newest. Both go through this lock and <see cref="_seqSent"/>, so the
+        /// frames queued here only ever move forward: a push of a frame no newer than one already queued is dropped, and an answer
+        /// reads the newest frame inside the lock, where every frame pushed before it is no newer. The client's last SNAPSHOT is
+        /// always the newest published, with no frame twice — never an older one queued after a newer, which a paused show would
+        /// leave on a deck's keys as if it were current.
+        /// </summary>
+        private readonly Lock _frames = new();
+        private long _seqSent = -1;
+        private int _configVersionSent = -1;
 
         public Client(TcpClient tcp, CompanionServer server)
         {
@@ -307,15 +312,45 @@ public sealed class CompanionServer : IAsyncDisposable
             Enqueue($"STATE mode={e.Mode} state={e.State} preset={e.CurrentPresetSlot?.ToString() ?? "-"}");
         }
 
-        private void SendJson(bool includeConfig)
+        /// <summary>A published frame for a JSON subscriber, with its CONFIG first when the config moved; none it was already sent.</summary>
+        public void Push(ShowSnapshot s, string line, string config)
         {
-            var snap = _server._bridge.Snapshots.Latest;
-            if (includeConfig)
+            lock (_frames)
             {
-                ConfigVersionSent = snap.ConfigVersion;
-                Enqueue(_server.ConfigLine(snap.ConfigVersion));
+                if (!JsonMode || !Subscribed || s.Seq.Value <= _seqSent) return;
+                if (_configVersionSent != s.ConfigVersion)
+                {
+                    _configVersionSent = s.ConfigVersion;
+                    Enqueue(config);
+                }
+                Enqueue(line);
+                _seqSent = s.Seq.Value;
             }
-            Enqueue(SnapshotLine(snap));
+        }
+
+        /// <summary>
+        /// The newest frame, as an answer: read and queued under the frames' lock, so no push lands between the two. A JSON subscriber
+        /// whose config moved gets that CONFIG first even when it asked for the frame alone: the answer moves <see cref="_seqSent"/> past
+        /// the push that would have carried it, so a frame is never queued to a subscriber without the config it was published with.
+        /// </summary>
+        private void SendJson(bool includeConfig, bool subscribe = false)
+        {
+            lock (_frames)
+            {
+                if (subscribe)
+                {
+                    Subscribed = true;
+                    JsonMode = true;
+                }
+                var snap = _server._bridge.Snapshots.Latest;
+                if (includeConfig || (JsonMode && Subscribed && _configVersionSent != snap.ConfigVersion))
+                {
+                    _configVersionSent = snap.ConfigVersion;
+                    Enqueue(_server.ConfigLine(snap.ConfigVersion));
+                }
+                Enqueue(SnapshotLine(snap));
+                _seqSent = Math.Max(_seqSent, snap.Seq.Value);
+            }
         }
 
         private string? _rid;
@@ -424,15 +459,12 @@ public sealed class CompanionServer : IAsyncDisposable
                     SendJson(includeConfig: true);
                     break;
                 case "SUBSCRIBE":
-                    Subscribed = true;
-                    if (t.Count >= 2 && t[1].Equals("JSON", StringComparison.OrdinalIgnoreCase))
-                    {
-                        JsonMode = true;
-                        SendJson(includeConfig: true);
-                    }
+                    // A JSON subscriber is one from the moment its first frame is read, in the same hold of the frames' lock.
+                    if (t.Count >= 2 && t[1].Equals("JSON", StringComparison.OrdinalIgnoreCase)) SendJson(includeConfig: true, subscribe: true);
+                    else lock (_frames) Subscribed = true;
                     break;
                 case "UNSUBSCRIBE":
-                    Subscribed = false;
+                    lock (_frames) Subscribed = false;
                     break;
                 case "PING":
                     // The link answering isn't proof the show is: if the show thread has stopped turning over, say so,

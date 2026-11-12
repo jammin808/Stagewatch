@@ -2032,6 +2032,27 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     Check(pushed.StartsWith("SNAPSHOT ") && pushed.Contains("04:59"), "companion: pushed frame, no CONFIG when unchanged");
     bridge.Snapshots.Publish(new ShowSnapshot { Text = "04:58", Seconds = 298, ConfigVersion = 2 });
     Check((await Line()).StartsWith("CONFIG ") && (await Line()).Contains("04:58"), "companion: CONFIG re-sent on config change");
+    // The two writers to one subscriber, ordered by hand: the hub's worker is held inside its push of 04:57 (config 3, read on the
+    // worker), 04:56 is published behind it, and the reader answers SNAPSHOT while the push waits. The answer carries the moved
+    // config before the newest frame; the held push and the one behind it then add nothing, so the next line is the next frame.
+    using (var hold = new ManualResetEventSlim())
+    {
+        bridge.ConfigHeld.Reset();
+        bridge.HoldNextConfigRead = hold;
+        bridge.Snapshots.Publish(new ShowSnapshot { Text = "04:57", Seconds = 297, ConfigVersion = 3 });
+        var held = bridge.ConfigHeld.Wait(TimeSpan.FromSeconds(5));
+        bridge.Snapshots.Publish(new ShowSnapshot { Text = "04:56", Seconds = 296, ConfigVersion = 3 });
+        await writer.WriteLineAsync("SNAPSHOT");
+        var answered = new List<string>();
+        for (int i = 0; i < 5 && !(answered.LastOrDefault() ?? "").StartsWith("SNAPSHOT "); i++) answered.Add(await Line());
+        hold.Set();
+        Check(held && answered.Count == 2 && answered[0].StartsWith("CONFIG ") && answered[1].Contains("\"text\":\"04:56\""),
+            "companion: an answer carries the config the newest frame moved to (" + string.Join(" | ", answered.Select(l => l.Split(' ')[0])) + ")");
+        bridge.Snapshots.Publish(new ShowSnapshot { Text = "04:55", Seconds = 295, ConfigVersion = 3 });
+        var next = await Line();
+        Check(next.StartsWith("SNAPSHOT ") && next.Contains("\"text\":\"04:55\""),
+            "companion: a push no newer than the answer adds nothing, no older frame after a newer (" + (next.Length > 60 ? next[..60] : next) + ")");
+    }
 
     await writer.WriteLineAsync("PING 42");
     Check((await LineStarting("PONG")) == "PONG 42", "companion: PING token echoed");
@@ -2188,8 +2209,21 @@ sealed class FakeBridge : Stagewatch.Companion.ICompanionBridge
     public void Execute(ShowCommand command) { lock (Commands) Commands.Add(command); }
     /// <summary>The apps the config lists (a desk's peers), as a test sets them; null for a host that keeps no desk.</summary>
     public IReadOnlyList<(string Id, string Name, string Kind)>? Peers { get; set; }
-    public RemoteConfig GetRemoteConfig() => new(
-        new[] { (1, "One", 60) }, Array.Empty<(string, string, MessageUrgency, FlashRate)>(), new[] { ("Opening", (string?)null, 300) }, Peers: Peers);
+    /// <summary>
+    /// A gate the next config read waits on (a test holds the hub's worker inside a push with it); <see cref="ConfigHeld"/> is set once
+    /// that read is waiting. Only one read takes the gate, so every later read, the reader's answers among them, goes straight through.
+    /// </summary>
+    public ManualResetEventSlim? HoldNextConfigRead;
+    public ManualResetEventSlim ConfigHeld { get; } = new();
+    public RemoteConfig GetRemoteConfig()
+    {
+        if (Interlocked.Exchange(ref HoldNextConfigRead, null) is { } gate)
+        {
+            ConfigHeld.Set();
+            gate.Wait(TimeSpan.FromSeconds(10));
+        }
+        return new(new[] { (1, "One", 60) }, Array.Empty<(string, string, MessageUrgency, FlashRate)>(), new[] { ("Opening", (string?)null, 300) }, Peers: Peers);
+    }
     public void LoadPreset(int slot, bool autoStart) { }
     public void SetMessage(string text, MessageUrgency urgency, FlashRate flash) { lock (Messages) Messages.Add((text, urgency, flash)); }
     public void SetFlash(FlashRate rate) { }

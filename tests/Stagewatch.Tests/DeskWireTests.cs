@@ -421,6 +421,10 @@ static class DeskWireTests
                 await Task.Delay(20);
             }
         });
+        // The app's first ask, recorded by the desk, before any line is sent: the desk refuses a line for an app that has not asked
+        // since it started, and the loop above is started, not yet run, when Task.Run returns.
+        var collecting = await PlayoutLinkTests.Until(() => b.Desk.Queue.LastCollect("pm1") is not null);
+        Check(collecting, "peer http: PlayMap has asked for its approved lines before the first line is sent");
         int Ran(string line) { lock (ran) return ran.Count(l => l == line); }
         // The desk journals on the server's threads and the app's: the rows are read under their lock.
         bool Row(Func<DeskRow, bool> has) { lock (b.Rows) return b.Rows.Any(has); }

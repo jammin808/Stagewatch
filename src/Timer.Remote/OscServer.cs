@@ -161,18 +161,22 @@ public sealed class OscServer : IDisposable
         try { CommandRejected?.Invoke("OSC: " + error); } catch { }
     }
 
-    /// <summary>Called on the owner thread at most once per visible change. Sends deltas only.</summary>
+    /// <summary>
+    /// The hub's worker, at most once per visible change, and once when feedback starts, with the newest frame: two callers that can
+    /// overlap. Deltas only, each computed and sent under the feedback lock, and only for a frame newer than the last sent — so the
+    /// first full frame, read before a newer one was published, never lands after that newer one and leaves the device on it.
+    /// </summary>
     private void OnPublished(ShowSnapshot s)
     {
         var target = _feedback;
         var sender = _sender;
         if (target is null || sender is null) return;
 
-        List<(string, object)> changes;
         lock (_feedbackLock)
         {
             var p = _lastSent;
-            changes = new List<(string, object)>(12);
+            if (p is not null && s.Seq.Value <= p.Seq.Value) return;
+            var changes = new List<(string, object)>(12);
             if (p is null || p.Text != s.Text) changes.Add(("/stagewatch/time", s.Text));
             if (p is null || p.Seconds != s.Seconds) changes.Add(("/stagewatch/seconds", (int)Math.Clamp(s.Seconds, int.MinValue, int.MaxValue)));
             if (p is null || p.State != s.State) changes.Add(("/stagewatch/state", s.State.ToString().ToLowerInvariant()));
@@ -190,15 +194,14 @@ public sealed class OscServer : IDisposable
                 changes.Add(("/stagewatch/progress", progress));
             }
             _lastSent = s;
+            if (changes.Count == 0) return;
+            try
+            {
+                var bytes = OscCodec.EncodeBundle(changes);
+                sender.Send(bytes, bytes.Length, target);
+            }
+            catch (Exception ex) when (ex is SocketException or ObjectDisposedException) { }
         }
-        if (changes.Count == 0) return;
-
-        try
-        {
-            var bytes = OscCodec.EncodeBundle(changes);
-            sender.Send(bytes, bytes.Length, target);
-        }
-        catch (Exception ex) when (ex is SocketException or ObjectDisposedException) { }
     }
 
     /// <summary>

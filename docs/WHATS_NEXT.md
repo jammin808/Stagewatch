@@ -816,6 +816,41 @@ running app on a network: two copies of one install for the conflict, an old cer
     2.22's windows for peers, Xvfb, Mesa and Playwright joining the job with them; PlayMap's windows rows (S5.2, S5.3) with
     its PeerLink work; and AGMessage's desk, stuck and re-offer rows and one contract across the four copies (S1.3b, S3.1,
     S3.2, S3.8, S6.5, S7.2) with AGMessage's next releases. A release waits only on the rows in the lane.
+- **The suite's timing races (SW21.9m).** Two checks failed once each in 2.21's whole runs on a loaded machine: each read two
+  events as ordered that nothing ordered.
+  - *Companion's push checks* ("pushed frame, no CONFIG when unchanged", "CONFIG re-sent on config change"). The product was
+    wrong: the hub's worker pushing a frame and the client's reader answering `SUBSCRIBE JSON` (or `SNAPSHOT`, `CONFIG`,
+    `STATE`) with the newest frame were two unordered writers to one client's queue, so a late push repeated 05:00 and could
+    queue an older frame after a newer one, leaving a paused show's deck on a stale time. Both now take the client's frames
+    lock: a push no newer (`Seq`) than the last frame queued is dropped; an answer reads the newest frame in the lock, carries
+    the CONFIG a JSON subscriber has not had, and SUBSCRIBE turns JSON on in that hold. The two checks were left as they were;
+    a new check holds the worker inside its push and fences the order (the moved CONFIG in the answer, no older frame after).
+  - *"playout clock: a new connection starts with no sample"* (`PlayoutLinkTests`). The test was wrong: `Live` gave the desk's
+    pong 300 ms of real time before the samples were read, and the clock was moved by the redial wait before the link had
+    armed it; the link promised neither order. `Live` and the self-gap check now wait on the desk answering the ping stamped
+    with that moment's wall clock and the link reading it (`FakeDesk.Answered`, `PingSettled`); each move by a redial or hold
+    wait first waits for the wait to be armed (`RedialArmed`; Holds' 200 ms sleep stood for it). A wait whose event never
+    comes fails as a check of its own.
+  - *Found by the sweep, same shape:* OSC feedback sent its first full frame from the resolving thread beside the hub's
+    worker, outside its lock, so an older frame could land after a newer; it now sends under the lock, only a newer `Seq`
+    (the product was wrong). The playout scenario's per-second pong waits after the 32 silent commands ignored a 2 s bound;
+    they now fold into its check. DeskWireTests' peer HTTP checks sent their first line beside a stand-in PlayMap started on
+    `Task.Run`, before its first ask, and the desk rightly refused a line for an app that had not asked (four checks failed
+    once under load here); the test was wrong and now waits on the desk's recorded ask (`LastCollect`).
+  - *Read and left:* the WebSocket push (one sender per socket, reading the newest frame when woken); the WebSocket and OSC
+    feedback checks in Program.cs, `CompanionV2Tests` and DeskWireTests' Companion lines (each reads past a repeat or reads
+    after its first frame); `WebV2Tests` (reads wait on the frame with `WaitFor`/`WaitForAfter`); `ShowBusTests`,
+    `PlayoutGateTests` and `WindowTests` (one publish before any client, read back from `Latest`); `PlayoutTlsTests` and
+    the scenarios' S11 steps (absence checks; pongs off, timers fire inside `Advance`); the flapping check's 50 ms ping
+    wait (a miss moves the clock 250 ms more, the count stays); the redial moves in PlayoutDirectorTests and the scenarios
+    (already wait on the armed timer); tests/e2e (waits on frames and events). Left for a later unit: checks that sleep a
+    while before reading a command's effect (Companion's verb routing 300 ms, OSC's commands 80 ms, CompanionV2's MESSAGE
+    200 ms).
+  - Proof: each race was put in by a hook and taken out again (the worker 1 s late, a newer OSC frame between the first
+    frame's read and send, the desk's pongs 500 ms late, the redial armed 300 ms late, the stand-in PlayMap's first ask 1 s
+    late): the old code failed under each and the mended code passed. Those hooks are gone; besides the new Companion check,
+    the existing checks fail only under load. The Companion v2 block and PlayoutLinkTests then ran 20 rounds in a row beside
+    a busy loop on every core, and the whole suite four more after the last mend.
 - **The agent brief's doctrine line** spoke of one lockout; since 2.19 there are two counts (wrong PINs; wrong view passes).
   *Since then:* the maintainer accepted the drafted words (below), and the brief says so.
 
