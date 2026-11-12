@@ -124,7 +124,8 @@ tools/test.sh help            # what each lane does, and the variables a person 
   input: `stall <ms>`
   stops its show thread that long, as a stuck show (`stalled`, then `running`); `auth` reads the lockout tables, each
   address in its open minute (`addresses` for wrong PINs, `viewPasses` for wrong window addresses, viewing codes and
-  crew links, so a check that nothing is locked out reads both); `heard` reads its hello table, the hellos it hears with
+  crew links, `proofs` for wrong LINK proofs per address and key id, so a check that nothing is locked out reads all
+  three); `heard` reads its hello table, the hellos it hears with
   `--bus` and nothing else (each id's kind, address, age and conflict mark); `nodes` reads its own record of the show
   apps' node links on `/ws` (each by the id it named, what speaks for that id, key, operator or none, the key that admitted
   it by its id, never its secret, and its words for one it verifies none; a socket that only claims an id is not one);

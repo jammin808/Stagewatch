@@ -128,6 +128,9 @@ public sealed partial class MainViewModel
     /// <summary>IShowContext: this Stagewatch's own Show Bus id, from the settings snapshot (any thread may read it).</summary>
     public string? OwnNodeId => _store.Snapshot.NodeId;
 
+    /// <summary>IShowContext: this process's hello inst, which the /ws acceptor's PeerLink verdict names (any thread may read it).</summary>
+    public string? OwnInst => _inst;
+
     /// <summary>A show app's name as it told this Stagewatch (hello or context), or null. Show thread.</summary>
     private string? PeerNameOf(string id) => _network.Rows.FirstOrDefault(r => r.Peer.Id == id && r.Named)?.Peer.Name;
 

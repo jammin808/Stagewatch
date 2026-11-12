@@ -854,15 +854,15 @@ sealed class CoreConnector : IAsyncDisposable
 }
 
 /// <summary>
-/// The kit's stand-in acceptor, on <c>/ws</c> with its side calls or on a <c>line</c>, where Stagewatch's /ws acceptor will stand once
-/// it speaks LINK (SW22.1a–c). What it reads goes through the core's parsers (PeerLink.ParseLinkMessage, ParseLinkLine), every proof,
+/// The kit's stand-in acceptor, on <c>/ws</c> with its side calls or on a <c>line</c>, for the acceptor's rows Stagewatch's /ws acceptor
+/// does not run yet (it takes them over with SW22.1b–c). What it reads goes through the core's parsers (PeerLink.ParseLinkMessage, ParseLinkLine), every proof,
 /// lid and S it checks or makes is the core's, made with the K it holds for the kid, a side call's session is the core's CheckSession
 /// (an S in clear from another machine included), and the commands it runs go through the core's receipt store, PeerReceipts — so
 /// what runs against it is the scripted peer's connector end against the core's parsers, proofs, session check and store. Its
 /// decisions are the kit's, not Stagewatch's: the K it takes for a kid it does not know, a fresh snonce for each connection, the
 /// verdict and its words, one proof a connection, a refused socket kept as a public viewer, what it answers a command (applied, or
 /// refused for the verb <c>REFUSE</c>) and how it carries a receipt on each carrier. It answers no ping with a pong and keeps no
-/// wrong-proof table, no unpaired bound and no reply bound: those are the /ws acceptor's (SW22.1a; the reply bound SW22.1c).
+/// wrong-proof table, no unpaired bound and no reply bound: those are the /ws acceptor's (WebServer; the reply bound SW22.1c).
 /// </summary>
 sealed class CoreAcceptor : IAsyncDisposable
 {

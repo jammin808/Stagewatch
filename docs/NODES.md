@@ -231,6 +231,9 @@ section has every message and refusal.
 - Each sends its own **node key** as `Authorization: Bearer swk_…`. A control key, or the PIN when this Stagewatch asks for one,
   also proves it (verified `operator`) while no key speaks for that id. A read key, an MCP key, a PIN on a Stagewatch with no PIN
   set, or nothing makes it only a claim: it stays in Screens, flagged, never reached by "all".
+- An app may instead prove its node key with LINK (`&link=1` and no `Authorization` header; Show Bus 13.6.5): it hears an offer
+  first, sends one link message with its proof, and hears the verdict with the server's proof and the link's id, so the key never
+  crosses the network. From another machine only over TLS. REMOTE.md's 2.22 section has every message and refusal.
 - `cid` and `page` are ignored when `node` is there; a Stagewatch older than 2.18 ignores `node` and lists each install under its
   own `cid`, which it keeps only at `cid.min` to `cid.max` (6 to 32) letters, digits, `-` or `_` (so PlayMap keeps the `cid` it
   sends today, `playmap-<id>` for a shorter id).

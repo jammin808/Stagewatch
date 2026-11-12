@@ -29,6 +29,10 @@ static class NodeTests
         Keys(Check);
         Gate(Check);
         BadRequests(Check);
+        LinkRequests(Check);
+        LinkDecisions(Check);
+        LinkMessages(Check);
+        ProofTable(Check);
         Links(Check);
         Rechecks(Check);
         Targets(Check);
@@ -1006,6 +1010,179 @@ static class NodeTests
               "links: a good node link passes, and a socket that names no node is never refused here");
     }
 
+    /// <summary>
+    /// A socket that asks for LINK (13.6.5) names its node, carries no header credential and needs an id of this Stagewatch's for the
+    /// transcript: each is a 400 before the upgrade, counted nowhere.
+    /// </summary>
+    static void LinkRequests(Action<bool, string> Check)
+    {
+        Check(NodeLinks.BadRequest(Query("link=1"), null, "abc123abc123") == NodeLinks.LinkNamesNode
+              && NodeLinks.BadRequest(Query("link=1&cid=lobby01"), null, "abc123abc123") == NodeLinks.LinkNamesNode,
+              "links: LINK with no node is a 400");
+        Check(NodeLinks.BadRequest(Query("node=9f8e7d6c&t=patterns&link=1"), "Bearer swk_x", "abc123abc123") == NodeLinks.LinkWithHeader
+              && NodeLinks.BadRequest(Query("node=9f8e7d6c&t=patterns&link=1"), "ShowBus lid=0, s=0", "abc123abc123") == NodeLinks.LinkWithHeader,
+              "links: LINK with any Authorization header is a 400 — the key is proved in the link message, never sent");
+        Check(NodeLinks.BadRequest(Query("node=9f8e7d6c&t=patterns&link=1"), null, null) == NodeLinks.LinkNoOwnId
+              && NodeLinks.BadRequest(Query("node=9f8e7d6c&t=patterns&link=1"), null, "abc") == NodeLinks.LinkNoOwnId,
+              "links: LINK to a Stagewatch with no id the transcript can name (6–40 characters) is a 400");
+        Check(NodeLinks.BadRequest(Query("node=9f8e7d6c&t=patterns&link=1"), null, "abc123abc123") is null
+              && NodeLinks.BadRequest(Query("node=9f8e7d6c&t=patterns&link=1&pin=1"), null, "abc123abc123") == NodeLinks.PinInUrl,
+              "links: a LINK socket that names its node passes, and keeps every node link's rule");
+    }
+
+    const string LinkSecret = "swk_abcdefghijkmnpqrstuvwxyz234567";
+    const string LinkOwn = "3f9c2a1b7d0e";
+    const string Snonce = "00112233445566778899aabbccddeeff";
+    const string Cnonce = "ffeeddccbbaa99887766554433221100";
+    const string Tls = "tls:sha256:03e9b152ca42518c28128f36def699be8aea5eec11bb9d5afc18a314f8c3eb04";
+
+    static ApiKey LinkKey(string secret, string id = "kS", ApiKeyScope scope = ApiKeyScope.Node)
+        => new() { Id = id, Name = "Patterns FOH", Scope = scope, Hash = Convert.ToHexStringLower(PeerLink.KeyK(secret)) };
+
+    static JsonElement LinkMessage(object message) => JsonDocument.Parse(JsonSerializer.Serialize(message)).RootElement.Clone();
+
+    /// <summary>
+    /// The acceptor's decision against §13.20's <c>ws</c> proof row: the connector's proof for a key in force links, answered with the
+    /// row's server proof, lid and session; a wrong proof for it is refused in 13.6.3's words and counted for that kid; an unknown kid is
+    /// refused in the same words and counted nowhere; a locked pair is refused before its proof is checked; a proof that is not 64 hex
+    /// is a wrong proof; a client that is not the query's, and a misshapen field, are malformed; an offer below 1 is version.
+    /// </summary>
+    static void LinkDecisions(Action<bool, string> Check)
+    {
+        var keys = new[] { LinkKey("swk_other0000000000000000000000000", "kO"), LinkKey(LinkSecret) };
+        var k = PeerLink.KeyK(LinkSecret);
+        var kid = PeerLink.Kid(k);
+        const string LinkQuery = "node=9f8e7d6c&t=patterns&link=1";
+        object Message(string proof, string? withKid = null, string id = "9f8e7d6c")
+            => new { type = "link", client = new { t = "patterns", id }, cnonce = Cnonce, kid = withKid ?? kid, proof };
+        LinkDecision Decide(object message, IReadOnlyList<ApiKey>? with = null, string query = LinkQuery, Func<string, int>? locked = null,
+            string node = "9f8e7d6c", string kind = "patterns")
+            => LinkAcceptor.Decide(query, node, kind, LinkMessage(message), LinkOwn, Snonce, Tls, with ?? keys, locked ?? (_ => 0));
+
+        // §13.20's ws row: K is SHA-256 of the key, which is what Stagewatch already keeps as the key's hash.
+        const string ClientProof = "a462d48f46a2cabe1d99d6ef1a96f3169621a2190beaec047a27686f8f1162e5";
+        var ok = Decide(Message(ClientProof));
+        Check(kid == "52f6be8e5259dfef" && ok is { Ok: true, Class: null, CountKid: null } && ok.Key?.Id == "kS"
+              && ok.Proof == "834bb29b51465d4d8cc839836a78188b25600016eb4407bd978ba6f2fd7d09d3" && ok.Lid == "b4da667a1f3077c9"
+              && ok.Session == "fbba9238fff6768a7de911312c792bfe5c2f9c120df31fa0afd263f8bca2c797",
+              "links: LINK's ws row — the connector's proof for a key in force links, answered with the row's server proof, lid and session");
+
+        var wrong = Decide(Message("834bb29b51465d4d8cc839836a78188b25600016eb4407bd978ba6f2fd7d09d3"));
+        var unknown = Decide(Message(ClientProof), with: [LinkKey("swk_other0000000000000000000000000", "kO")]);
+        var forged = Decide(Message(ClientProof, withKid: "0123456789abcdef"));
+        Check(wrong is { Ok: false, Class: "refused", CountKid: "52f6be8e5259dfef", Key: null, Proof: null, Session: null } && wrong.Words == PeerLink.ProofWords
+              && wrong.RetrySeconds == NodeLinks.RetrySeconds,
+              "links: a wrong proof for a key in force is refused in 13.6.3's words, retry 60, and counted for its kid — nothing of the link is made");
+        Check(unknown is { Ok: false, Class: "refused", CountKid: null } && unknown.Words == wrong.Words && forged is { Ok: false, Class: "refused", CountKid: null }
+              && Decide(Message(ClientProof, withKid: "code")) is { Ok: false, Class: "refused", CountKid: null },
+              "links: an unknown kid (and the word code: Stagewatch holds no code) is refused in the same words and counted nowhere");
+        var asked = new List<string>();
+        var locked = Decide(Message(ClientProof), locked: x => { asked.Add(x); return 42; });
+        Check(locked is { Ok: false, Class: "locked", RetrySeconds: 42, CountKid: null } && locked.Words == LinkAcceptor.ProofsLocked && asked.SequenceEqual([kid]),
+              "links: a pair the wrong-proof table locks is refused, class locked, for the rest of its minute — even the right proof, never checked");
+        Check(Decide(Message("A462D48F46A2CABE1D99D6EF1A96F3169621A2190BEACEC047A27686F8F1162E5")) is { Class: "refused", CountKid: "52f6be8e5259dfef" }
+              && Decide(Message("a462")) is { Class: "refused", CountKid: "52f6be8e5259dfef" },
+              "links: a proof that is not 64 lowercase hex is a wrong proof, counted for its kid (13.6.4)");
+        Check(Decide(Message(ClientProof, id: "7a7a7a7a")) is { Class: "malformed", CountKid: null } && Decide(new { type = "link" }) is { Class: "malformed" }
+              && Decide(new { type = "auth", client = new { t = "patterns", id = "9f8e7d6c" }, cnonce = Cnonce, kid, proof = ClientProof }) is { Class: "malformed" }
+              && Decide(Message(ClientProof), query: "node=9f8e7d6c&t=patterns&link=1&link=1") is { Class: "malformed" }
+              && Decide(Message(ClientProof), query: "node=9f8e7d6c&t=patterns&link=0") is { Class: "version", Words: LinkAcceptor.VersionWords }
+              && LinkAcceptor.Decide(LinkQuery, "9f8e7d6c", "patterns", LinkMessage(new[] { 1 }), LinkOwn, Snonce, Tls, keys, _ => 0) is { Class: "malformed", Words: LinkAcceptor.MalformedWords },
+              "links: a client that is not the query's, a missing field, another type, a query said twice or not an object is malformed; an offer below 1 is version — none counted");
+        Check(Decide(Message(ClientProof)) is { Ok: true } && LinkAcceptor.Decide(LinkQuery, "9f8e7d6c", "patterns", LinkMessage(Message(ClientProof)), LinkOwn, Snonce, "plain", keys, _ => 0) is { Ok: false, CountKid: "52f6be8e5259dfef" },
+              "links: the proof is bound to the certificate the acceptor showed: the same proof over another bind is a wrong proof");
+        // The server reads its query one way (case-insensitive, decoded, the last value) and the transcript another (as it came): a
+        // client must equal both, so the id a verdict names and a binding takes is the one the proof covered.
+        Check(Decide(Message(ClientProof), query: LinkQuery + "&NODE=7a7a7a7a", node: "7a7a7a7a") is { Class: "malformed", CountKid: null }
+              && Decide(Message(ClientProof), query: LinkQuery + "&T=messenger", kind: "messenger") is { Class: "malformed", CountKid: null }
+              && Decide(Message("a462"), query: LinkQuery + "&%6Eode=7a7a7a7a", node: "7a7a7a7a") is { Class: "malformed", CountKid: null }
+              && Decide(Message(ClientProof), node: null!) is { Class: "malformed" },
+              "links: a client that the raw query names but the server's reading of it does not (NODE=, T=, an encoded key) is malformed, counted nowhere");
+        var printed = $"{ok}";
+        Check(!printed.Contains(ok.Session!, StringComparison.Ordinal) && !printed.Contains(ok.Proof!, StringComparison.Ordinal) && printed.Contains(ok.Lid!, StringComparison.Ordinal),
+              $"links: a decision printed into a line names its lid but never its session credential or the acceptor's proof (13.19) ({printed})");
+        Check(LinkAcceptor.KeyOf(keys, kid)?.Id == "kS" && LinkAcceptor.KeyOf(keys, "code") is null && LinkAcceptor.KeyOf([new ApiKey { Id = "x", Hash = "zz" }], kid) is null,
+              "links: a kid names the key in force whose hash it is made from; a misshapen stored hash names none");
+    }
+
+    /// <summary>What a LINK socket hears, byte for byte (13.6.5): the offer, the verdict with LINK's fields appended, the refusal.</summary>
+    static void LinkMessages(Action<bool, string> Check)
+    {
+        Check(Encoding.UTF8.GetString(LinkAcceptor.Offer(LinkOwn, Snonce, Tls))
+              == "{\"type\":\"link\",\"v\":1,\"speaks\":1,\"server\":{\"t\":\"main\",\"id\":\"3f9c2a1b7d0e\"},\"snonce\":\"00112233445566778899aabbccddeeff\",\"bind\":\"" + Tls + "\"}",
+              "links: a LINK socket's first message is the offer: type link, v, speaks, the server's kind and id, the snonce and the bind");
+        var linked = new WsLink { Class = WsClass.Node, Node = "9f8e7d6c", Kind = "patterns", Verified = NodeProof.Key, Scope = "node", KeyId = "kS", Lid = "b4da667a1f3077c9" };
+        Check(Encoding.UTF8.GetString(LinkAcceptor.Verdict(linked, "834b", "b4da667a1f3077c9", [], "a41f09c2", 2000))
+              == "{\"type\":\"auth\",\"ok\":true,\"scope\":\"node\",\"node\":{\"t\":\"patterns\",\"id\":\"9f8e7d6c\",\"verified\":\"key\"},"
+                 + "\"proof\":\"834b\",\"lid\":\"b4da667a1f3077c9\",\"level\":1,\"can\":[],\"inst\":\"a41f09c2\",\"beatMs\":2000}",
+              "links: the verdict is §7.1's with proof, lid, level, can, inst and beatMs appended, in that order");
+        var shared = linked with { Verified = NodeProof.None, Words = "this key speaks for patterns pat1" };
+        Check(Encoding.UTF8.GetString(LinkAcceptor.Verdict(shared, "834b", "b4da667a1f3077c9", ["final"], "a41f09c2", 2000))
+              .Contains("\"verified\":\"none\"},\"words\":\"this key speaks for patterns pat1\",\"proof\":\"834b\"", StringComparison.Ordinal),
+              "links: a verdict whose id is not verified keeps §7.1's words before LINK's fields");
+        Check(Encoding.UTF8.GetString(LinkAcceptor.Refusal("refused", PeerLink.ProofWords, 60))
+              == "{\"type\":\"auth\",\"ok\":false,\"error\":\"" + PeerLink.ProofWords + "\",\"class\":\"refused\",\"retry\":60}"
+              && Encoding.UTF8.GetString(LinkAcceptor.Refusal("locked", "x", 0)).EndsWith("\"retry\":1}", StringComparison.Ordinal),
+              "links: a refusal is type auth, ok false, the error, the class and a retry of at least a second");
+        Check(Encoding.UTF8.GetString(LinkAcceptor.Refusal("refused", PeerLink.ProofWords, 60, view: true))
+              == "{\"type\":\"auth\",\"ok\":false,\"error\":\"" + PeerLink.ProofWords + "\",\"class\":\"refused\",\"retry\":60,\"view\":true}",
+              "links: a refusal the viewing code closes after carries view at its end, its class and words unchanged");
+    }
+
+    /// <summary>
+    /// The wrong-proof table (13.5.6): per (device, kid), five in a minute lock the pair for the rest of that minute and no other pair;
+    /// the count stops at the limit; only the minute's end frees it.
+    /// </summary>
+    static void ProofTable(Action<bool, string> Check)
+    {
+        var table = new WrongProofs(WebServer.WrongProofsPerMinute);
+        var a = System.Net.IPAddress.Parse("10.0.0.5");
+        var b = System.Net.IPAddress.Parse("10.0.0.6");
+        for (var i = 0; i < WebServer.WrongProofsPerMinute - 1; i++) table.Count(a, "52f6be8e5259dfef", 1_000 + i);
+        Check(table.LockedFor(a, "52f6be8e5259dfef", 2_000) == 0 && table.Of(a, "52f6be8e5259dfef", 2_000) == WebServer.WrongProofsPerMinute - 1,
+              "proofs: four wrong proofs lock nothing");
+        table.Count(a, "52f6be8e5259dfef", 2_000);
+        table.Count(a, "52f6be8e5259dfef", 2_500);
+        Check(table.LockedFor(a, "52f6be8e5259dfef", 2_000) == 59 && table.LockedFor(a, "52f6be8e5259dfef", 60_999) == 1 && table.Of(a, "52f6be8e5259dfef", 3_000) == WebServer.WrongProofsPerMinute
+              && table.LockedFor(a, "bb3f97d01c274e15", 2_000) == 0 && table.LockedFor(b, "52f6be8e5259dfef", 2_000) == 0,
+              "proofs: the fifth in the pair's minute locks that pair, to the minute's end and no further, and no other kid or device");
+        Check(table.LockedFor(a, "52f6be8e5259dfef", 61_000) == 0 && table.Open(61_000).Count == 0 && table.Open(2_000) is [{ Kid: "52f6be8e5259dfef", Count: 5 }],
+              "proofs: the minute's end frees the pair, and the table lists only open minutes");
+        table.Count(b, "52f6be8e5259dfef", 3_000);
+        Check(table.Of(b, "52f6be8e5259dfef", 3_000) == 1 && table.Of(b, "52f6be8e5259dfef", 63_000) == 0 && table.Of(a, "52f6be8e5259dfef", 3_000) == WebServer.WrongProofsPerMinute,
+              "proofs: each pair keeps a minute of its own");
+
+        // Proofs checked together: each holds a place before it is checked, so wrong proofs and proofs in flight never pass the limit.
+        var c = System.Net.IPAddress.Parse("10.0.0.7");
+        const string ProofKid = "52f6be8e5259dfef";
+        for (var i = 0; i < WebServer.WrongProofsPerMinute - 2; i++) table.Count(c, ProofKid, 10_000);
+        var places = Enumerable.Range(0, 4).Select(_ => table.Reserve(c, ProofKid, 10_000)).ToList();
+        Check(places.SequenceEqual([0, 0, 60, 60]) && table.Open(10_000).Single(p => p.Device.Equals(c)).Count == WebServer.WrongProofsPerMinute - 2,
+              $"proofs: with three counted, two proofs may be checked at once and the next two are refused unchecked for the minute's rest ({string.Join(",", places)})");
+        table.Settle(c, ProofKid, 11_000, wrong: false);
+        Check(table.Of(c, ProofKid, 11_000) == WebServer.WrongProofsPerMinute - 2 && table.Reserve(c, ProofKid, 11_000) == 0,
+              "proofs: a right proof gives its place back and clears nothing");
+        table.Settle(c, ProofKid, 11_000, wrong: true);
+        table.Settle(c, ProofKid, 11_000, wrong: true);
+        Check(table.LockedFor(c, ProofKid, 11_000) == 59 && table.Reserve(c, ProofKid, 11_000) == 59 && table.Of(c, ProofKid, 11_000) == WebServer.WrongProofsPerMinute,
+              "proofs: settled wrong, the places become counts and lock the pair to its minute's end");
+        var d = System.Net.IPAddress.Parse("10.0.0.8");
+        Check(table.Reserve(d, ProofKid, 20_000) == 0 && table.Open(20_000).All(p => !p.Device.Equals(d)) && table.Of(d, ProofKid, 20_000) == 0,
+              "proofs: a place in flight alone counts nothing and is not listed");
+        table.Settle(d, ProofKid, 20_000, wrong: false);
+        table.Settle(d, ProofKid, 20_000, wrong: false);
+        Check(table.Reserve(d, ProofKid, 20_000) == 0 && table.Of(d, ProofKid, 20_000) == 0, "proofs: a settle with no place held gives nothing back twice");
+        table.Settle(d, ProofKid, 90_000, wrong: true);
+        Check(table.Of(d, ProofKid, 90_000) == 1 && table.Open(90_000).Single(p => p.Device.Equals(d)).AgeMs == 0,
+              "proofs: the first wrong proof after a place starts the pair's minute when it is counted");
+
+        // The PIN's table answers how long a device stays locked out, which a LINK refused for it says as its retry.
+        var pins = new WrongGuesses(5);
+        for (var i = 0; i < 5; i++) pins.Count(a, 1_000);
+        Check(pins.LockedFor(a, 1_000) == 60 && pins.LockedFor(a, 60_500) == 1 && pins.LockedFor(a, 61_000) == 0 && pins.LockedFor(b, 1_000) == 0,
+              "proofs: the PIN table's lock says the seconds left in its minute, and nothing for a device it does not lock");
+    }
+
     /// <summary>The admission matrix: what each credential makes of a socket that names a node, and of one that names none.</summary>
     static void Links(Action<bool, string> Check)
     {
@@ -1155,6 +1332,28 @@ static class NodeTests
         Check(back.Link is { Verified: NodeProof.Key, Words: null } && Text(back.Message).Contains("\"verified\":\"key\"", StringComparison.Ordinal)
               && !Text(back.Message).Contains("words", StringComparison.Ordinal),
               "recheck: moved back by the operator, the link hears it is verified by key again");
+
+        // A socket LINK verified never hears a second verdict (13.6.5): what would move its verdict refuses its link (13.5.5) — class
+        // binding for a key that no longer speaks for its id, refused for a key revoked — and it is a public viewer with no lid. A
+        // binding that comes to hold its id makes it verified and tells it nothing.
+        var linked = back.Link with { Lid = "b4da667a1f3077c9" };
+        nodes.Rebind("k2", "patterns", "pat1");
+        var rebound = NodeLinks.Recheck(linked, keys, nodes, hash, null);
+        Check(rebound is { Close: false, Link: { Lid: null, KeyId: null, Class: WsClass.Claim, OperatorRead: false, Verified: NodeProof.None } }
+              && Text(rebound.Message) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"patterns pat1 speaks with its own key\",\"class\":\"binding\",\"retry\":60}",
+              $"recheck: a LINK socket whose key's binding moves off its id is refused, class binding, and keeps no lid — never a second verdict ({Text(rebound.Message)})");
+        Check(NodeLinks.Recheck(rebound.Link, keys, nodes, hash, null) is { Message: null } quiet && ReferenceEquals(quiet.Link, rebound.Link),
+              "recheck: a LINK socket refused for its binding hears nothing more");
+        var linkedNone = moved.Link with { Lid = "b4da667a1f3077c9" };
+        nodes.Rebind("k1", "patterns", "pat1");
+        Check(NodeLinks.Recheck(linkedNone, keys, nodes, hash, null) is { Message: null, Link: { Verified: NodeProof.Key, Lid: "b4da667a1f3077c9", Words: null } },
+              "recheck: a LINK socket whose key comes to speak for its id is verified by key, and hears no second verdict");
+        var revokedLink = NodeLinks.Recheck(linked, keys.Where(k => k.Id != "k1").ToArray(), nodes, hash, null);
+        var revokedView = NodeLinks.Recheck(linked, keys.Where(k => k.Id != "k1").ToArray(), nodes, hash, needsView);
+        Check(revokedLink is { Close: false, Link: { Lid: null, KeyId: null, Class: WsClass.Claim } }
+              && Text(revokedLink.Message) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"this key was revoked\",\"class\":\"refused\",\"retry\":60}"
+              && revokedView.Close && Text(revokedView.Message) == "{\"type\":\"auth\",\"ok\":false,\"error\":\"this key was revoked\",\"class\":\"refused\",\"retry\":60,\"view\":true}",
+              $"recheck: a LINK socket whose key is revoked is refused, class refused, retry 60, and keeps no lid; where the viewing code shuts it out the refusal says view and it closes ({Text(revokedView.Message)})");
 
         // A key revoked: one refusal, the public frame; a node link becomes a claim. Only the viewing code closes.
         var noK1 = keys.Where(k => k.Id != "k1").ToArray();

@@ -642,6 +642,12 @@ public interface IShowContext
     string? OwnNodeId => null;
 
     /// <summary>
+    /// This process's hello <c>inst</c> (Show Bus §2), new at every start, which a PeerLink verdict names (13.6.6); null when the node
+    /// says none, and the acceptor then names one of its own for its run.
+    /// </summary>
+    string? OwnInst => null;
+
+    /// <summary>
     /// The room's preflight as this node last built it (<see cref="PreflightWire.Write"/>), or null when it keeps none. Any
     /// thread may read it. A door never serves it as it is: <see cref="PreflightWire.Served"/> answers for a stuck show thread
     /// and for a verdict gone stale. It is never an item of <see cref="ContextJson"/>: this node's own light stays one hop.

@@ -16,15 +16,15 @@ using Stagewatch.Core;
 /// key is PlayoutLink's (SW23.1).
 /// </para>
 /// <para>
-/// The acceptor's rows (S1–S3, S8–S10, S12's emitting, S14–S18, S20) are not Stagewatch's yet: its /ws acceptor speaks LINK with
-/// SW22.1a–c, which take them over. Until then <see cref="CoreAcceptor"/>, the kit's stand-in, answers the peer's connector with the
-/// core's parsers, proofs, session check and receipt store, so what those checks hold is the peer's connector end — honest, or an
-/// attacker's — against the core's crypto, CheckSession and PeerReceipts; an acceptor's own decisions are the stand-in's. What has no
-/// part in the core yet — an acceptor's wrong-proof table, its unpaired bound, its reply bound, its Host and Origin checks, its stuck
-/// beat — is checked here as the peer's attack on the wire, and named with the unit that brings it. So S16 and S20, S15's slow reader
-/// and S12's emitting half run no Stagewatch code yet (<see cref="PeerOnly"/>; the master's header says so beside
-/// <see cref="OnCore"/>). Stagewatch offers no enrolment and runs no forwarder, so S21's acceptor half and S20's forwarder are not its
-/// rows.
+/// The acceptor's rows are Stagewatch's /ws acceptor's. Its LINK runs S1–S3, S8–S10, S15's oversize message and S16 against a real
+/// <see cref="Stagewatch.Remote.WebServer"/> (PeerLinkScenarios.Acceptor.cs): the offer first, the verdict's fields, its own wrong-proof
+/// table per (address, kid) with unknown kids uncounted, a fresh snonce and one proof a socket, the session door, the unpaired bound on
+/// the injected clock, and Host and Origin checked before loopback is trusted. The rows it takes over later (S12's emitting half, S14,
+/// S15's reply bound, S17, S18, S20) are answered meanwhile by <see cref="CoreAcceptor"/>, the kit's stand-in, with the core's parsers,
+/// proofs, session check and receipt store, so what those checks hold is the peer's connector end — honest, or an attacker's — against
+/// the core's crypto, CheckSession and PeerReceipts; an acceptor's own decisions there are the stand-in's. S20, S15's slow reader and S12's
+/// emitting half run no Stagewatch code yet (<see cref="PeerOnly"/>; the master's header says so beside <see cref="OnCore"/>). Stagewatch
+/// offers no enrolment and runs no forwarder, so S21's acceptor half and S20's forwarder are not its rows.
 /// </para>
 /// <para>
 /// The carriers of Stagewatch's own links take these scenarios over as they land on the core: PlayoutLink, the desk's link to Patterns,
@@ -86,13 +86,13 @@ static partial class PeerLinkScenarios
     /// The scenarios this group runs against Stagewatch's PeerLink core — its connector, or the core behind the kit's stand-in. The
     /// master's header names them as what this tree runs against its core.
     /// </summary>
-    static readonly int[] OnCore = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 21, 22];
+    static readonly int[] OnCore = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22];
 
     /// <summary>
-    /// The scenarios that run no Stagewatch code yet, only the peer's attack on the wire, until Stagewatch's /ws acceptor speaks LINK
-    /// (SW22.1a–c). The master's header names them so, with S15's slow reader and S12's emitting half, which are halves of rows above.
+    /// The scenarios that run no Stagewatch code yet, only the peer's attack on the wire, until Stagewatch's /ws acceptor takes them over.
+    /// The master's header names them so, with S15's slow reader and S12's emitting half, which are halves of rows above.
     /// </summary>
-    static readonly int[] PeerOnly = [16, 20];
+    static readonly int[] PeerOnly = [20];
 
     /// <summary>Every connector the scenarios made, for S19's capture of what the core published.</summary>
     static readonly List<CoreConnector> Every = [];
@@ -167,6 +167,7 @@ static partial class PeerLinkScenarios
         await S20(Check, script, kit);
         await S21(Check, script, kit);
         await S22(Check, script, kit);
+        await WsAcceptor(Check, script, kit);
         await Playout(Check, script, kit);
         await S19(Check, script, kit);
     }
@@ -197,7 +198,7 @@ static partial class PeerLinkScenarios
         Check(OnCore.Concat(PeerOnly).Order().SequenceEqual(Enumerable.Range(1, 22)) && OnCore.Intersect(PeerOnly).Any() == false,
             "peerlink scenarios: each of S1–S22 runs against the core or checks only the peer's attack, never both");
         Check(header.Contains("this tree runs " + onCore + " with it against its PeerLink core", StringComparison.Ordinal)
-              && header.Contains(peerOnly + " run only the peer's attack", StringComparison.Ordinal)
+              && header.Contains(peerOnly + (PeerOnly.Length == 1 ? " runs" : " run") + " only the peer's attack", StringComparison.Ordinal)
               && !header.Contains(" come with the rest of the conformance kit", StringComparison.Ordinal),
             $"peerlink scenarios: the master's header says this tree runs {onCore} with the scripted peer against its core, and that {peerOnly} run only the peer's attack");
         PeerNumbers(Check, text, script);
@@ -732,7 +733,7 @@ static partial class PeerLinkScenarios
         }
 
         // ws, the peer connecting: its connector end against the core's parsers, proofs and session check, behind the kit's stand-in
-        // acceptor. The acceptor's own half of S1 (a command run and answered, a ping answered with a pong) is the /ws acceptor's: SW22.1a.
+        // acceptor. The acceptor's own half of S1 (a command run and answered, a ping answered with a pong) is the /ws acceptor's: PeerLinkScenarios.Acceptor.cs.
         {
             await using var acceptor = Stand(PeerCarrier.Ws, kit.B, [(PeerLink.KeyK(Swk), Kid(Swk), "key")]);
             await using var peer = Peer(script);
@@ -832,7 +833,7 @@ static partial class PeerLinkScenarios
         // The peer connecting, on ws and on line, to the kit's stand-in acceptor: it proves a wrong code (S2) and an unknown key (S3), and
         // the core's proof check refuses both. What these hold is the peer's connector end: it reads a refusal as it came, keeps a ws
         // socket as a public viewer, and is ended on a line. The acceptor's half — its words, its refusal, and the wrong-proof table that
-        // counts per (address, kid) and leaves an unknown kid uncounted — is the /ws acceptor's: SW22.1a.
+        // counts per (address, kid) and leaves an unknown kid uncounted — is the /ws acceptor's: PeerLinkScenarios.Acceptor.cs.
         var acceptorWords = new List<string>();
         foreach (var (s, secret, code) in new[] { ("S2", WrongCode, true), ("S3", Stranger, false) })
         {

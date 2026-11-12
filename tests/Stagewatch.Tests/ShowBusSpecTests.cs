@@ -289,9 +289,6 @@ static class ShowBusSpecTests
         ("its Patterns link proves at level 0 only", "SW23.1", "it answers NONCE with AUTH-PROOF and runs no LINK",
             () => Source("src/Timer.Integrations/PlayoutLink.cs") is { } link && link.Contains("\"@pa AUTH-PROOF \"", StringComparison.Ordinal)
                   && link.Contains("OffersLink = false", StringComparison.Ordinal) && !Regex.IsMatch(link, @"""(?:@l\d+ )?LINK ")),
-        ("its `/ws` speaks no LINK", "SW22.1a", "a node link proves a bearer key or the operator's credential, §7.1",
-            () => Source("src/Timer.Core/NodeLinks.cs") is { } links && !links.Contains("snonce", StringComparison.Ordinal)
-                  && Source("src/Timer.Remote/WebServer.cs") is { } server && !server.Contains("snonce", StringComparison.Ordinal)),
         ("13.6.9's mark on a key seen in clear", "SW22.1b", "it takes a key sent in clear from another machine as it takes any other, and marks nothing",
             SeenInClearAsToday),
         ("12.2's page rule for a page opened with a viewing code or a crew link", "not scheduled",
@@ -1632,6 +1629,11 @@ static class ShowBusSpecTests
         Keeps((long)WebServer.ReceiptWait.TotalMilliseconds == n.Of("receipt.deadline.ms"), "a receipt says accepted when the command is not applied within it", "receipt.deadline.ms");
         Keeps((long)WebServer.HeartbeatEvery.TotalMilliseconds == n.Of("link.beat.ms"), "/ws sends a frame or a beat at least that often", "link.beat.ms");
         Keeps(WebServer.MaxWsMessageBytes == n.Of("link.ws.in.bytes"), "/ws takes a message that long", "link.ws.in.bytes");
+        Keeps(WebServer.WrongProofsPerMinute == n.Of("peerlink.wrong.proofs.per.minute") && WrongProofsLock(n.Of("peerlink.wrong.proofs.per.minute")),
+            "/ws's wrong-proof table locks a (device, kid) pair at that many wrong LINK proofs in its minute, and no other pair", "peerlink.wrong.proofs.per.minute");
+        Keeps(WebServer.UnpairedPerAddress == n.Of("peerlink.unpaired.per.address") && PeerLink.HandshakeMs == n.Of("peerlink.handshake.ms"),
+            "/ws holds that many link= sockets of one device that have not finished LINK, each closed when it has not within peerlink.handshake.ms "
+            + "(PeerLinkScenarios holds both on an injected clock)", "peerlink.unpaired.per.address");
         var ping = (long)PlayoutLink.PingEvery.TotalMilliseconds;
         Keeps(ping >= n.Of("ping.min.ms") && ping <= n.Of("ping.max.ms"), "its playout link pings within that span once it is paired", "ping.min.ms", "ping.max.ms");
         Keeps(OnTheCore() && PeerLink.StaleMs == n.Of("link.stale.ms") && PeerLink.DropMs == n.Of("link.drop.ms")
@@ -1960,6 +1962,43 @@ static class ShowBusSpecTests
         var lines = new List<(int Kept, long Size, bool Whole)>();
         new PlayoutLineReader().Feed(data, (line, size, whole) => lines.Add((line.Length, size, whole)));
         return lines.Count == 2 && lines[0] == ((int)bytes, bytes, true) && lines[1] == ((int)bytes, bytes + 1, false);
+    }
+
+    /// <summary>
+    /// Whether Stagewatch's /ws speaks LINK (13.6.5): the acceptor's decision takes the client proof a connector makes for a key in force,
+    /// answers with the server proof and the lid, and refuses a wrong one in 13.6.3's words, counting it for a key in force alone; and the
+    /// server sends the offer before anything else and decides by it.
+    /// </summary>
+    static bool LinkKept()
+    {
+        const string Secret = "swk_abcdefghijkmnpqrstuvwxyz23456789";
+        var k = PeerLink.KeyK(Secret);
+        var kid = PeerLink.Kid(k);
+        var keys = new[] { new ApiKey { Id = "kS", Scope = ApiKeyScope.Node, Hash = Convert.ToHexStringLower(k) } };
+        const string Snonce = "00112233445566778899aabbccddeeff", Cnonce = "ffeeddccbbaa99887766554433221100", Bind = "plain";
+        var t = PeerLink.Transcript("ws", 1, 1, "main:abc123abc123", "patterns:9f8e7d6c", kid, Snonce, Cnonce, Bind)!;
+        JsonElement Message(string proof) => JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            type = "link", client = new { t = "patterns", id = "9f8e7d6c" }, cnonce = Cnonce, kid, proof,
+        })).RootElement.Clone();
+        var ok = LinkAcceptor.Decide("node=9f8e7d6c&t=patterns&link=1", "9f8e7d6c", "patterns", Message(PeerLink.ClientProof(k, t)), "abc123abc123", Snonce, Bind, keys, _ => 0);
+        var wrong = LinkAcceptor.Decide("node=9f8e7d6c&t=patterns&link=1", "9f8e7d6c", "patterns", Message(PeerLink.ServerProof(k, t)), "abc123abc123", Snonce, Bind, keys, _ => 0);
+        var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
+        return ok is { Ok: true } && ok.Proof == PeerLink.ServerProof(k, t) && ok.Lid == PeerLink.Lid(t) && ok.Key?.Id == "kS"
+               && wrong is { Ok: false, Class: "refused", CountKid: var counted } && counted == kid && wrong.Words == PeerLink.ProofWords
+               && server.Contains("LinkAcceptor.Offer(", StringComparison.Ordinal) && server.Contains("LinkAcceptor.Decide(", StringComparison.Ordinal);
+    }
+
+    /// <summary>Whether the wrong-proof table locks a pair at <paramref name="limit"/> wrong proofs in its minute, and only that pair.</summary>
+    static bool WrongProofsLock(long limit)
+    {
+        var table = new WrongProofs((int)limit);
+        var a = System.Net.IPAddress.Parse("10.0.0.5");
+        for (var i = 0; i < limit - 1; i++) table.Count(a, "52f6be8e5259dfef", 1000);
+        var before = table.LockedFor(a, "52f6be8e5259dfef", 1000);
+        table.Count(a, "52f6be8e5259dfef", 1000);
+        return before == 0 && table.LockedFor(a, "52f6be8e5259dfef", 1000) == 60 && table.LockedFor(a, "bb3f97d01c274e15", 1000) == 0
+               && table.LockedFor(System.Net.IPAddress.Parse("10.0.0.6"), "52f6be8e5259dfef", 1000) == 0 && table.LockedFor(a, "52f6be8e5259dfef", 61_000) == 0;
     }
 
     /// <summary>
@@ -2874,6 +2913,11 @@ static class ShowBusSpecTests
         Check(notKept.Contains("verified peers' `recent` in its report (today its report holds its own journal alone) —", StringComparison.Ordinal) && PeerRecentKept(),
             "showbus spec: Stagewatch keeps what §8's row names it without: verified peers' recent in its report — a line told by a context that proves its node "
             + "is heard once, journalled as a peer row and listed in the show network and network.csv with its road; a context that proves nothing adds no row");
+        // Kept since SW22.1a, its words in the frozen row still standing: its /ws speaks LINK (13.6.5) — the offer first, then one link
+        // message decided by the core's proofs, the verdict's fields, a wrong-proof table of its own.
+        Check(notKept.Contains("its `/ws` speaks no LINK (today a node link proves a bearer key or the operator's credential, §7.1)", StringComparison.Ordinal) && LinkKept(),
+            "showbus spec: Stagewatch keeps what §8's row names as its /ws speaking no LINK: a link= socket hears the offer first, its link message is decided "
+            + "by the core's proofs, and the verdict carries proof, lid, level, can, inst and beatMs");
         foreach (var (what, unit, today, differs) in WordsNotKeptYet)
         {
             Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),
@@ -3022,7 +3066,11 @@ static class ShowBusSpecTests
         var handler = Method(server, "private async Task HandleConnectionAsync(") ?? "";
         int At(string text) => handler.IndexOf(text, StringComparison.Ordinal);
         var refused = Math.Max(At("if (req.LengthUnreadable)"), At("if (req.Oversize > 0)"));
-        var first = new[] { At("RequireHttps &&"), At("await HandleWebSocketAsync(stream, req, remote, ct);"), At("await RouteAsync(stream, req, remote, ct);") };
+        var first = new[]
+        {
+            At("CheckSession(req, remote, secure, showBus)"), At("RequireHttps &&"), At("await HandleWebSocketAsync(stream, req, remote, secure, ct);"),
+            At("await RouteAsync(stream, req, remote, ct);"),
+        };
         return whole.Length == bytes && Read(whole) is ({ } kept, 0) && kept.Length == bytes
                && over.Length == bytes + 1 && half.Length + 1 < bytes && Read(over) is ({ Length: 0 }, var declared) && declared == bytes + 1
                && said.Contains(bytes.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)

@@ -99,6 +99,12 @@ public sealed record WsLink
 
     /// <summary>"patterns 9f8e7d6c" for a claim (what it claims to be), "" for anything else.</summary>
     public string Claim => Class == WsClass.Claim ? NodeBindings.Describe(Kind, Node ?? "") : "";
+
+    /// <summary>
+    /// The link's id (Show Bus 13.6.2) when its socket asked for LINK (<c>link=</c>) and its proof verified; null on any other socket.
+    /// Not a secret.
+    /// </summary>
+    public string? Lid { get; init; }
 }
 
 /// <summary>What admission made of a socket: its link, the one message it hears before any frame (or none), and whether it closes after it.</summary>
@@ -110,8 +116,11 @@ public sealed record WsRecheck(WsLink Link, byte[]? Message, bool Close);
 /// <summary>
 /// One show app's link on /ws, as Screens' neighbours read it: grouped by the id it named (or by its key when it named
 /// none). <see cref="Id"/> is null for a key that names no node id; <see cref="Verified"/> is what speaks for the id.
+/// <see cref="Linked"/> counts its sockets that LINK verified (Show Bus 13.6), and <see cref="Oversize"/> the messages past /ws's bound
+/// they sent and stayed up for (13.14).
 /// </summary>
-public sealed record NodeLinkFact(string Kind, string? Id, NodeProof Verified, string? KeyId, string KeyName, string Address, DateTime ConnectedUtc, int Links, string? Words);
+public sealed record NodeLinkFact(string Kind, string? Id, NodeProof Verified, string? KeyId, string KeyName, string Address, DateTime ConnectedUtc, int Links, string? Words,
+    int Linked = 0, int Oversize = 0);
 
 /// <summary>
 /// Who is on /ws (Show Bus §7.1): a browser screen, a claim, or a show app's node link. A socket that names a node
@@ -132,6 +141,9 @@ public static class NodeLinks
     public const string BadId = "a node id is 1-40 letters, digits, - or _";
     public const string BadKind = "a node link names its kind (t=patterns, playmap, messenger…)";
     public const string OwnId = "that's this Stagewatch";
+    public const string LinkNamesNode = "a LINK socket names its node: node= and t=";
+    public const string LinkWithHeader = "a LINK socket proves its key in its link message and carries no Authorization header";
+    public const string LinkNoOwnId = "this Stagewatch has no node id to link under";
 
     public const string NoKey = "no key — the id is only claimed";
     public const string ReadKey = "a read key reads; only a node key speaks for a node";
@@ -148,6 +160,14 @@ public static class NodeLinks
     /// </summary>
     public static string? BadRequest(IReadOnlyDictionary<string, string> query, string? authorization, string? ownId)
     {
+        // A socket that asks for LINK (Show Bus 13.6.5) names its node, proves in its link message alone, and needs an id of this
+        // Stagewatch's to put in the transcript.
+        if (query.ContainsKey("link"))
+        {
+            if (!query.ContainsKey("node")) return LinkNamesNode;
+            if (!string.IsNullOrEmpty(authorization)) return LinkWithHeader;
+            if (!PeerLink.IsId(ownId)) return LinkNoOwnId;
+        }
         if (!query.TryGetValue("node", out var node)) return null;
         if (query.ContainsKey("win") || IsWindowScheme(authorization)) return WindowNotNode;
         if (query.ContainsKey("pin")) return PinInUrl;
@@ -267,9 +287,31 @@ public static class NodeLinks
     /// proven speaks for its id again (<see cref="NodeBindings.SpeakAgain"/>): a key bound to nothing binds to a free id as
     /// its admission would have, and a verdict that moved is sent again, so a link is verified by key only while its key's
     /// binding holds its id, and by the operator only while no key does. Nothing closes unless the viewing code now refuses
-    /// it: <paramref name="viewRefusal"/> is why it may not view without its credential, or null when it may.
+    /// it: <paramref name="viewRefusal"/> is why it may not view without its credential, or null when it may. A socket LINK
+    /// verified is never sent a second verdict: what would move its verdict refuses its link instead (<see cref="LinkMoved"/>).
     /// </summary>
     public static WsRecheck Recheck(WsLink link, IReadOnlyList<ApiKey> keys, NodeBindings bindings, string pinHashNow, string? viewRefusal)
+    {
+        var r = RecheckProof(link, keys, bindings, pinHashNow, viewRefusal);
+        return link.Lid is null || ReferenceEquals(r.Link, link) ? r : LinkMoved(link, r.Link, viewRefusal);
+    }
+
+    /// <summary>
+    /// A socket LINK verified hears one verdict (Show Bus 13.6.5), so a credential change never sends it another. Its key revoked, or its
+    /// binding no longer holding its id, refuses the link (13.5.5): the refused verdict with its class — <c>refused</c> for a key no longer
+    /// in force, <c>binding</c> for a key that no longer speaks for that id — and the socket a public viewer with no lid, so its session
+    /// credential ends with it; the viewing code, when it now shuts the socket out, closes it after that refusal. A binding that comes to
+    /// hold its id makes it verified and tells it nothing.
+    /// </summary>
+    private static WsRecheck LinkMoved(WsLink was, WsLink now, string? viewRefusal)
+    {
+        if (now.KeyId is not null && now.Verified != NodeProof.None) return new WsRecheck(now, null, false);
+        var (cls, words) = now.KeyId is null ? ("refused", KeyRevoked) : ("binding", now.Words ?? NoKey);
+        var refused = Demote(was) with { KeyId = null, Lid = null };
+        return new WsRecheck(refused, LinkAcceptor.Refusal(cls, words, RetrySeconds, view: viewRefusal is not null), Close: viewRefusal is not null);
+    }
+
+    private static WsRecheck RecheckProof(WsLink link, IReadOnlyList<ApiKey> keys, NodeBindings bindings, string pinHashNow, string? viewRefusal)
     {
         var same = new WsRecheck(link, null, false);
         if (link.KeyId is { } keyId && !keys.Any(k => k.Id == keyId))

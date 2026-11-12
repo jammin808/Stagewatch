@@ -100,8 +100,8 @@ static class PeerLinkVectors
     static readonly (string Row, string Whose)[] NotInCore =
     [
         ("peerlink.key.bits.min", "the key maker, ApiKeys: ShowBusSpecTests holds it"),
-        ("peerlink.unpaired.per.address", "the /ws acceptor's unfinished connections: SW22.1a"),
-        ("peerlink.wrong.proofs.per.minute", "the /ws acceptor's wrong-proof table: SW22.1a"),
+        ("peerlink.unpaired.per.address", "the /ws acceptor's unfinished link= sockets, WebServer.UnpairedPerAddress: ShowBusSpecTests holds it"),
+        ("peerlink.wrong.proofs.per.minute", "the /ws acceptor's wrong-proof table, WebServer.WrongProofsPerMinute: ShowBusSpecTests holds it"),
         ("peerlink.hold.disconnect.ms", "a hold for an acceptor operator's disconnect, which no verdict or message names yet: not scheduled"),
         ("peerlink.cert.probe.ms", "13.8.3's MAY probe of a changed certificate: Stagewatch's carriers make none, no dial while refused (PeerLinkScenarios S6); not scheduled"),
         ("peerlink.peer.sha256", "the scripted peer's own hash, not a number the core keeps: PeerLinkScenarios holds the peer to it"),

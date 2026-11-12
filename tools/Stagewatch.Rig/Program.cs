@@ -99,10 +99,11 @@ using Stagewatch.Show;
 //   stall <ms>   1-30000: the show thread is blocked that long, so every link hears the real stuck beat; answered twice,
 //                → {"rig":"stalled","ms":…,"at":<unix ms>} as it stops, {"rig":"running","at":<unix ms>} as it turns over
 //                (stopping the rig ends a stall early: its running line comes as the rig stops)
-//   auth         the lockout tables as they stand (WebServer.AuthFailures, ViewPassFailures), no secret in them →
-//                {"rig":"auth","at":<unix ms>,"addresses":[{"address","failures","windowAgeMs"}],"viewPasses":[…the same]}:
-//                each device whose one-minute window is still open, the PIN's (wrong PINs) and the view passes' (wrong window
-//                addresses, viewing codes and crew links)
+//   auth         the lockout tables as they stand (WebServer.AuthFailures, ViewPassFailures, ProofFailures), no secret in them →
+//                {"rig":"auth","at":<unix ms>,"addresses":[{"address","failures","windowAgeMs"}],"viewPasses":[…the same],
+//                "proofs":[{"address","kid","failures","windowAgeMs"}]}: each device (each device and key id for proofs) whose
+//                one-minute window is still open, the PIN's (wrong PINs), the view passes' (wrong window addresses, viewing codes
+//                and crew links) and LINK's (wrong proofs for a key in force)
 //   heard        the hellos it hears on the Show Bus (--bus) as its hello table holds them, hellos alone (a node link or a posted
 //                context adds nothing), no secret in them → {"rig":"heard","at":<unix ms>,"bus":<port, 0 without --bus>,
 //                "listening":true|false,"peers":[{"t","id","address","addresses":[…],"ageS","conflict":"…"|null}]}
@@ -796,8 +797,9 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     /// <summary>
     /// <c>auth</c>: the web server's lockout tables as they stand, read off the show thread (a stalled show still answers): each
-    /// device whose one-minute window is open, with its count and the window's age — wrong PINs (<c>addresses</c>) and wrong view
-    /// passes (<c>viewPasses</c>). Addresses and counts only, never what was guessed.
+    /// device whose one-minute window is open, with its count and the window's age — wrong PINs (<c>addresses</c>), wrong view
+    /// passes (<c>viewPasses</c>) and wrong LINK proofs per key id (<c>proofs</c>). Addresses, key ids and counts only, never what was
+    /// guessed.
     /// </summary>
     private object Lockout()
     {
@@ -810,6 +812,8 @@ sealed class Rig : ICompanionBridge, IDisposable
             at = UnixMs(),
             addresses = Rows(web?.AuthFailures() ?? Array.Empty<AuthFailureCount>()),
             viewPasses = Rows(web?.ViewPassFailures() ?? Array.Empty<AuthFailureCount>()),
+            proofs = (web?.ProofFailures() ?? Array.Empty<ProofFailureCount>())
+                .Select(f => new { address = f.Address, kid = f.Kid, failures = f.Count, windowAgeMs = f.WindowAgeMs }),
         };
     }
 
@@ -1384,6 +1388,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     public string? ContextJson() => _context;
     public string? PreflightJson() => _preflightJson;
     public string? OwnNodeId => _nodeId;
+    public string? OwnInst => _inst;
     public IReadOnlyList<ApiKey> ApiKeys => _apiKeys;
     public NodeBindings Nodes => _nodes;
 

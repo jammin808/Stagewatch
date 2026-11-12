@@ -63,6 +63,48 @@ public sealed class WebServer : IAsyncDisposable
     /// a key or a right view pass never lets a device go on guessing, and wrong view passes never lock out the PIN or a key.
     /// </summary>
     private readonly WrongGuesses _passGuesses = new(WrongViewPassesPerMinute);
+
+    /// <summary>Show Bus §14 <c>peerlink.wrong.proofs.per.minute</c>: wrong LINK proofs a (device, kid) pair may give in a minute (13.5.6).</summary>
+    public const int WrongProofsPerMinute = 5;
+
+    /// <summary>
+    /// Show Bus §14 <c>peerlink.unpaired.per.address</c>: <c>link=</c> sockets one device may hold that have not finished LINK; one more
+    /// is answered 429 before its upgrade (13.6.3).
+    /// </summary>
+    public const int UnpairedPerAddress = 4;
+
+    /// <summary>The words a device holding <see cref="UnpairedPerAddress"/> unfinished LINK sockets hears for one more.</summary>
+    public const string LinkBusy = "too many links from this device have not finished proving themselves — wait";
+
+    /// <summary>
+    /// The words for a <c>link=</c> socket in clear that is not local (13.3.2, 13.3.4): another machine links only over TLS, so no
+    /// session credential can ride a plain side call.
+    /// </summary>
+    public const string LinkNeedsTls = "another machine links to this Stagewatch only over TLS (wss://) — turn HTTPS on in Settings → Remote";
+
+    /// <summary>
+    /// Wrong LINK proofs per (device, kid), a table of its own (Show Bus 13.5.6): only a key in force is counted, never an unknown kid,
+    /// and it locks out no PIN, viewing code, view pass, other key or browser.
+    /// </summary>
+    private readonly WrongProofs _proofGuesses = new(WrongProofsPerMinute);
+
+    /// <summary>Per device: its <c>link=</c> sockets upgraded or about to be that have not finished LINK (13.6.3).</summary>
+    private readonly ConcurrentDictionary<IPAddress, int> _unpaired = new();
+
+    /// <summary>
+    /// Every live verified LINK socket by its lid, with its session credential S (13.7.1): made with the verdict, gone with the socket,
+    /// and ended at once when its S comes in clear from another machine.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, LinkSession> _sessions = new(StringComparer.Ordinal);
+
+    private sealed record LinkSession(string Session, WsClient Client)
+    {
+        /// <summary>Never the session credential (13.19): a log line or an exception that names a session says only its socket.</summary>
+        public override string ToString() => "LinkSession { " + Client.Link.Lid + " }";
+    }
+
+    /// <summary>This server's own inst, named in a verdict when the node says none (Show Bus §2's shape: 8 lowercase hex).</summary>
+    private readonly string _ownInst = RandomNumberGenerator.GetHexString(8, lowercase: true);
     /// <summary>Per API key: requests this minute, when the minute started, and when it was last used.</summary>
     private readonly ConcurrentDictionary<string, (int Count, long WindowStartMs, DateTime LastUtc)> _keyUse = new();
     private readonly SemaphoreSlim _connectionSlots = new(MaxConnections, MaxConnections);
@@ -100,6 +142,29 @@ public sealed class WebServer : IAsyncDisposable
     public TimeProvider PreflightClock { get; init; } = TimeProvider.System;
 
     public bool IsRunning => _listener is not null;
+
+    /// <summary>
+    /// The clock LINK is timed on: the deadline of a <c>link=</c> socket's one link message (§14 <c>peerlink.handshake.ms</c>) and the
+    /// minutes of the wrong-proof table. The system's, or a manual one that reaches them without waiting. Fixed when the server is made.
+    /// </summary>
+    public TimeProvider LinkClock { get; init; } = TimeProvider.System;
+
+    private long LinkNowMs => (long)LinkClock.GetElapsedTime(0, LinkClock.GetTimestamp()).TotalMilliseconds;
+
+    /// <summary>The inst a PeerLink verdict names (13.6.6): the node's hello inst, or this server's own.</summary>
+    private string Inst => _control.OwnInst is { Length: 8 } inst && PeerLink.IsHex(inst, 8) ? inst : _ownInst;
+
+    /// <summary>
+    /// Whether a request is from this machine as a PeerLink acceptor may trust it (13.1, 13.3.4): its socket's address is loopback, its
+    /// Host names this server there, and no page of another site sent it — a rebound name, a forwarder's port or a foreign Origin is
+    /// another machine's.
+    /// </summary>
+    private bool IsLocal(HttpRequest req, IPAddress remote)
+    {
+        var host = req.Headers.GetValueOrDefault("host");
+        return IsThisPc(remote) && PlayoutGate.NamesThisPc(host, Port)
+               && !PlayoutGate.OtherSite(req.Headers.GetValueOrDefault("origin"), host, req.Headers.GetValueOrDefault("sec-fetch-site"));
+    }
 
     /// <summary>
     /// This install's certificate (Show Bus §10). With one, the port also speaks TLS: a connection whose first byte is a
@@ -180,7 +245,8 @@ public sealed class WebServer : IAsyncDisposable
                 var first = g.OrderBy(x => x.Client.ConnectedUtc).First();
                 var keyName = first.Link.KeyId is { } id ? keys.FirstOrDefault(k => k.Id == id)?.Name ?? "" : "";
                 return new NodeLinkFact(first.Link.Kind ?? "", first.Link.Node, first.Link.Verified, first.Link.KeyId, keyName,
-                    Screens.AddressOf(first.Client.Remote), first.Client.ConnectedUtc, g.Count(), first.Link.Words);
+                    Screens.AddressOf(first.Client.Remote), first.Client.ConnectedUtc, g.Count(), first.Link.Words,
+                    g.Count(x => x.Link.Lid is not null), g.Sum(x => x.Client.Oversize));
             })
             .OrderBy(n => n.Kind, StringComparer.Ordinal).ThenBy(n => n.Id ?? "", StringComparer.Ordinal).ThenBy(n => n.ConnectedUtc)
             .ToList();
@@ -466,6 +532,16 @@ public sealed class WebServer : IAsyncDisposable
                 return;
             }
 
+            // A session credential (13.7.1) is checked before anything else reads the request: one that came in clear from another
+            // machine has been read on the path, so its link ends whatever the rest of the request is; one that is not a live link's is
+            // 401 with relink. A live link's S passes this door and the route then reads the request as one with no other credential.
+            if (req.Headers.GetValueOrDefault("authorization") is { } showBus && showBus.TrimStart().StartsWith("ShowBus", StringComparison.OrdinalIgnoreCase)
+                && CheckSession(req, remote, secure, showBus) is { } refusal)
+            {
+                await WriteAsync(stream, 401, "application/json", refusal, ct, cors: true);
+                return;
+            }
+
             // Require HTTPS: plain requests from other machines go to the encrypted address (the certificate pages stay
             // reachable, so a screen can fetch the certificate it needs to trust).
             if (!secure && RequireHttps && !IPAddress.IsLoopback(remote) && req.Path is not ("/tls" or "/tls.cer"))
@@ -478,7 +554,7 @@ public sealed class WebServer : IAsyncDisposable
 
             if (req.Path == "/ws" && req.IsWebSocketUpgrade)
             {
-                await HandleWebSocketAsync(stream, req, remote, ct);
+                await HandleWebSocketAsync(stream, req, remote, secure, ct);
                 return;
             }
             await RouteAsync(stream, req, remote, ct);
@@ -883,6 +959,13 @@ public sealed class WebServer : IAsyncDisposable
     /// to see that a peer's honest dialling locked nothing out.
     /// </summary>
     public IReadOnlyList<AuthFailureCount> AuthFailures() => FailuresIn(_pinGuesses);
+
+    /// <summary>
+    /// The wrong-proof table as it stands (Show Bus 13.5.6): every (device, kid) pair with wrong LINK proofs in its open minute, on
+    /// <see cref="LinkClock"/>, the oldest first. A copy that holds no secret; reading it counts nothing.
+    /// </summary>
+    public IReadOnlyList<ProofFailureCount> ProofFailures()
+        => _proofGuesses.Open(LinkNowMs).Select(p => new ProofFailureCount(Screens.AddressOf(p.Device), p.Kid, p.Count, p.AgeMs)).ToList();
 
     /// <summary>
     /// The contexts posted to /api/peers/context and refused 413 within <see cref="PeerContexts.KeepFor"/> of
@@ -1625,6 +1708,9 @@ public sealed class WebServer : IAsyncDisposable
             var r = NodeLinks.Recheck(link, _control.ApiKeys, _control.Nodes, NodeLinks.PinHash(_pin()), ViewRefusalWithoutCredential(client));
             if (ReferenceEquals(r.Link, link)) return;
             client.Link = r.Link;
+            // A LINK socket refused by the change has no lid any more: its session credential ends now (13.5.5, 13.7).
+            if (link.Lid is { } lid && r.Link.Lid is null && _sessions.TryGetValue(lid, out var held) && ReferenceEquals(held.Client, client))
+                _sessions.TryRemove(new KeyValuePair<string, LinkSession>(lid, held));
             if (r.Message is not null) client.Post(r.Message, r.Close);
         }
         client.Signal();   // its send loop says so now, and sends the frame its new access reads
@@ -1644,15 +1730,88 @@ public sealed class WebServer : IAsyncDisposable
         return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(given), Encoding.UTF8.GetBytes(code)) ? null : WrongViewCode;
     }
 
-    private async Task HandleWebSocketAsync(Stream stream, HttpRequest req, IPAddress remote, CancellationToken ct)
+    /// <summary>
+    /// A session credential on a side call (13.7.1), checked by the core against the live, verified LINK socket its lid names: null when it
+    /// passes; otherwise the 401 body, <c>{"ok":false,"error",…,"relink":true}</c>. A right S that came in clear from another machine is
+    /// refused and its link ended at once: its socket is aborted and its S forgotten. A wrong one ends nothing, for a lid is no secret.
+    /// </summary>
+    private byte[]? CheckSession(HttpRequest req, IPAddress remote, bool secure, string authorization)
+    {
+        var check = PeerLink.CheckSession(authorization, lid => _sessions.TryGetValue(lid, out var s) ? s.Session : null, !secure && !IsLocal(req, remote));
+        if (check.Ends is { } gone && _sessions.TryRemove(gone, out var ended)) ended.Client.Socket.Abort();
+        return check.Status == 200 ? null : JsonSerializer.SerializeToUtf8Bytes(new { ok = false, error = check.Words, relink = check.Relink });
+    }
+
+    /// <summary>
+    /// One device's place among its unfinished <c>link=</c> sockets (13.6.3), held from before the upgrade until the socket's link message
+    /// is answered or the socket ends, whichever comes first; given back once.
+    /// </summary>
+    private sealed class UnpairedHold(ConcurrentDictionary<IPAddress, int> table, IPAddress device)
+    {
+        private int _held;
+
+        /// <summary>Takes a place when fewer than <see cref="UnpairedPerAddress"/> are held for the device; false, holding nothing, otherwise.</summary>
+        public bool Take()
+        {
+            while (true)
+            {
+                var now = table.GetOrAdd(device, 0);
+                if (now >= UnpairedPerAddress) return false;
+                if (table.TryUpdate(device, now + 1, now))
+                {
+                    Volatile.Write(ref _held, 1);
+                    return true;
+                }
+            }
+        }
+
+        public void Release()
+        {
+            if (Interlocked.Exchange(ref _held, 0) == 0) return;
+            while (true)
+            {
+                if (!table.TryGetValue(device, out var now)) return;
+                if (now <= 1 ? table.TryRemove(new KeyValuePair<IPAddress, int>(device, now)) : table.TryUpdate(device, now - 1, now)) return;
+            }
+        }
+    }
+
+    private async Task HandleWebSocketAsync(Stream stream, HttpRequest req, IPAddress remote, bool secure, CancellationToken ct)
+    {
+        var unpaired = new UnpairedHold(_unpaired, remote);
+        try { await HandleWebSocketAsync(stream, req, remote, secure, unpaired, ct); }
+        finally { unpaired.Release(); }
+    }
+
+    private async Task HandleWebSocketAsync(Stream stream, HttpRequest req, IPAddress remote, bool secure, UnpairedHold unpaired, CancellationToken ct)
     {
         // A socket that names a node and asks for what a node link can't be (a window's, a PIN in the URL, control, a bad
-        // id or kind, this Stagewatch's own id) is refused before the upgrade and before any credential, window address or
-        // viewing code is checked, so it is never counted.
+        // id or kind, this Stagewatch's own id), or asks for LINK with a header credential or no node, is refused before the
+        // upgrade and before any credential, window address or viewing code is checked, so it is never counted.
         if (NodeLinks.BadRequest(req.Query, req.Headers.GetValueOrDefault("authorization"), _control.OwnNodeId) is { } bad)
         {
             await WriteJsonError(stream, 400, bad, ct);
             return;
+        }
+
+        // A socket that asks for LINK (13.6.5): in clear only from this machine, Host and Origin checked before loopback is trusted;
+        // and no more of them unfinished from one device than the bound, the next answered before its upgrade. Nothing is counted.
+        var linkAsked = req.Query.ContainsKey("link");
+        var bind = "plain";
+        if (linkAsked)
+        {
+            if (!secure && !IsLocal(req, remote))
+            {
+                await WriteJsonError(stream, 403, LinkNeedsTls, ct);
+                return;
+            }
+            if (!unpaired.Take())
+            {
+                await WriteAsync(stream, 429, "application/json", JsonSerializer.SerializeToUtf8Bytes(new { ok = false, error = LinkBusy }), ct, cors: true,
+                    extra: "Retry-After: " + (PeerLink.HandshakeMs / 1000).ToString(CultureInfo.InvariantCulture) + "\r\n");
+                return;
+            }
+            if (secure && Fingerprint is { } fp) bind = "tls:" + fp;
         }
         // Keys, the PIN or bindings that change from here on are checked again once this socket is listed.
         var credentialsSeen = Volatile.Read(ref _credentialsVersion);
@@ -1693,6 +1852,18 @@ public sealed class WebServer : IAsyncDisposable
             KeepAliveInterval = TimeSpan.FromSeconds(15)
         });
         var detail = req.Query.GetValueOrDefault("detail") is "1" or "true";
+
+        // LINK (13.6.5): the offer first, then the socket's one link message within peerlink.handshake.ms, judged before anything of
+        // the show is sent. A socket that sends none in time is closed; a verdict makes its credential the key it proved, a refusal
+        // leaves it a public viewer. Its place among the device's unfinished sockets is given back once it is answered.
+        LinkDecision? linkVerdict = null;
+        if (linkAsked)
+        {
+            try { linkVerdict = await LinkHandshakeAsync(ws, req, remote, bind, ct); }
+            finally { unpaired.Release(); }
+            if (linkVerdict is null) return;
+            credential = linkVerdict.Ok ? WsCredential.Key(linkVerdict.Key!.Id, linkVerdict.Key.Scope) : WsCredential.KeyRefused(linkVerdict.Words, linkVerdict.RetrySeconds);
+        }
         if (winToken is not null && window is null)
         {
             // Revoked, deleted or never made: the screen says so and stops trying. Locked out: it tries again later.
@@ -1716,6 +1887,21 @@ public sealed class WebServer : IAsyncDisposable
             // view now. Any other screen is checked as it always was (its ?pin= or key included).
             admission = NodeLinks.Admit(req.Query, credential, pinAsked, NodeLinks.PinHash(pin),
                 () => wantsControl || nodeAsked ? ViewPass(req, remote) : CheckView(req, remote), browserId, _control.Nodes, DateTime.UtcNow);
+            // A LINK socket's first message is its verdict with LINK's fields, or its refusal with LINK's class (13.6.5); a refused
+            // one the viewing code shuts out hears that refusal marked view before it closes.
+            if (linkVerdict is { Ok: false } r && admission.Close)
+                admission = admission with { First = LinkAcceptor.Refusal(r.Class ?? "refused", r.Words, r.RetrySeconds, view: true) };
+            else if (linkVerdict is { } l && !admission.Close)
+            {
+                var link = admission.Link with { Lid = l.Ok ? l.Lid : null };
+                admission = admission with
+                {
+                    Link = link,
+                    First = l.Ok
+                        ? LinkAcceptor.Verdict(link, l.Proof!, l.Lid!, [], Inst, (int)HeartbeatEvery.TotalMilliseconds)
+                        : LinkAcceptor.Refusal(l.Class!, l.Words, l.RetrySeconds),
+                };
+            }
         }
         var client = new WsClient(ws, window is not null || detail, remote, admission.Link)
         {
@@ -1739,6 +1925,9 @@ public sealed class WebServer : IAsyncDisposable
             catch { }
             return;
         }
+        // The session is held before the socket is listed, so a credential change that refuses the link once it is listed ends it too.
+        (string Lid, LinkSession? Held) session = linkVerdict is { Ok: true, Lid: { } lid0, Session: { } s0 } ? (lid0, new LinkSession(s0, client)) : ("", null);
+        if (session.Held is not null) _sessions[session.Lid] = session.Held;
         _sockets.TryAdd(client, 0);
         try
         {
@@ -1763,6 +1952,101 @@ public sealed class WebServer : IAsyncDisposable
         finally
         {
             _sockets.TryRemove(client, out _);
+            if (session.Held is not null) _sessions.TryRemove(new KeyValuePair<string, LinkSession>(session.Lid, session.Held));
+        }
+    }
+
+    /// <summary>
+    /// LINK on a <c>link=</c> socket (13.6.3, 13.6.5): the offer with a fresh snonce, then the one link message, read within
+    /// peerlink.handshake.ms on <see cref="LinkClock"/>, decided by <see cref="LinkAcceptor.Decide"/>. A device locked out by wrong PINs
+    /// proves no key; a pair the wrong-proof table locks is refused before its proof is checked; a known kid's wrong proof is counted, an
+    /// unknown kid's never; a right proof clears no count and spends one use of its key. Null when no link message came in time, or the
+    /// socket ended first.
+    /// </summary>
+    private async Task<LinkDecision?> LinkHandshakeAsync(WebSocket ws, HttpRequest req, IPAddress remote, string bind, CancellationToken ct)
+    {
+        var ownId = _control.OwnNodeId!;
+        var snonce = RandomNumberGenerator.GetHexString(PeerLink.NonceBytes * 2, lowercase: true);
+        using (var sendCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+        {
+            sendCts.CancelAfter(SendTimeout);
+            await ws.SendAsync(LinkAcceptor.Offer(ownId, snonce, bind), WebSocketMessageType.Text, true, sendCts.Token);
+        }
+        if (await ReadLinkMessageAsync(ws, ct) is not { } bytes) return null;
+        JsonElement message;
+        try
+        {
+            using var doc = JsonDocument.Parse(bytes);
+            message = doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return LinkDecision.Refused("malformed", LinkAcceptor.MalformedWords);
+        }
+        if (_pinGuesses.LockedFor(remote, Environment.TickCount64) is var pinsHeld and > 0) return LinkDecision.Refused("locked", PinsLocked, pinsHeld);
+        var now = LinkNowMs;
+        var keys = _control.ApiKeys;
+        // A key in force's proof holds a place in its pair before it is checked and settles it after, so proofs checked together never
+        // pass the limit; an unknown kid holds and counts nothing.
+        string? held = null;
+        LinkDecision? d = null;
+        try
+        {
+            d = LinkAcceptor.Decide(req.RawQuery, req.Query.GetValueOrDefault("node"), req.Query.GetValueOrDefault("t"), message, ownId, snonce, bind, keys, kid =>
+            {
+                if (LinkAcceptor.KeyOf(keys, kid) is null) return 0;
+                var locked = _proofGuesses.Reserve(remote, kid, now);
+                if (locked == 0) held = kid;
+                return locked;
+            });
+        }
+        finally
+        {
+            if (held is not null) _proofGuesses.Settle(remote, held, now, wrong: d?.CountKid == held);
+            else if (d?.CountKid is { } counted) _proofGuesses.Count(remote, counted, now);
+        }
+        if (!d.Ok || d.Key is not { } key) return d;
+        return Spend(key.Id) is { } over ? LinkDecision.Refused("busy", over.Error, over.RetryAfter) : d;
+    }
+
+    /// <summary>
+    /// The one link message, or null when none came within peerlink.handshake.ms on <see cref="LinkClock"/> (the read is then cancelled,
+    /// which ends the socket) or the socket closed first. A message past <see cref="MaxWsMessageBytes"/>, or one that is not text, is read
+    /// to its end and handed on as empty, which no decision takes.
+    /// </summary>
+    private async Task<byte[]?> ReadLinkMessageAsync(WebSocket ws, CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var read = ReadOneAsync(ws, cts.Token);
+        var deadline = Task.Delay(TimeSpan.FromMilliseconds(PeerLink.HandshakeMs), LinkClock, cts.Token);
+        var first = await Task.WhenAny(read, deadline);
+        await cts.CancelAsync();
+        if (first == read) return await read;
+        try { await read; }
+        catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or ObjectDisposedException or IOException)
+        {
+            // The deadline cancelled the read: the socket ends unanswered, as 13.6.3 asks.
+        }
+        return null;
+
+        static async Task<byte[]?> ReadOneAsync(WebSocket ws, CancellationToken ct)
+        {
+            var buffer = new byte[MaxWsMessageBytes];
+            var count = 0;
+            var over = false;
+            WebSocketReceiveResult r;
+            do
+            {
+                if (count >= buffer.Length)
+                {
+                    over = true;
+                    count = 0;
+                }
+                r = await ws.ReceiveAsync(new ArraySegment<byte>(buffer, count, buffer.Length - count), ct);
+                if (r.MessageType == WebSocketMessageType.Close) return null;
+                count += r.Count;
+            } while (!r.EndOfMessage);
+            return over || r.MessageType != WebSocketMessageType.Text ? [] : buffer.AsSpan(0, count).ToArray();
         }
     }
 
@@ -1847,18 +2131,31 @@ public sealed class WebServer : IAsyncDisposable
         {
             var count = 0;
             WebSocketReceiveResult r;
+            var oversize = false;
             do
             {
                 if (count >= buffer.Length)
                 {
-                    await client.Socket.CloseAsync(WebSocketCloseStatus.MessageTooBig, "too big", ct);
-                    return;
+                    // A verified LINK socket skips a message past the bound to its end, counts it and stays up (13.14); any other
+                    // socket is closed.
+                    if (client.Link.Lid is null)
+                    {
+                        await client.Socket.CloseAsync(WebSocketCloseStatus.MessageTooBig, "too big", ct);
+                        return;
+                    }
+                    oversize = true;
+                    count = 0;
                 }
                 r = await client.Socket.ReceiveAsync(new ArraySegment<byte>(buffer, count, buffer.Length - count), ct);
                 if (r.MessageType == WebSocketMessageType.Close) return;
                 count += r.Count;
             } while (!r.EndOfMessage);
 
+            if (oversize)
+            {
+                client.CountOversize();
+                continue;
+            }
             if (r.MessageType != WebSocketMessageType.Text) continue;
             var reply = HandleWsMessage(client, buffer.AsSpan(0, count));
             if (reply is not null) await client.SendTextAsync(reply, ct);
@@ -2035,6 +2332,13 @@ public sealed class WebServer : IAsyncDisposable
         /// <summary>One message a credential change left for the send loop (latest wins), and whether the socket closes after it.</summary>
         public sealed record Posted(byte[] Json, bool Close);
 
+        private int _oversize;
+
+        /// <summary>Messages past <see cref="MaxWsMessageBytes"/> this LINK socket sent and was not closed for (13.14).</summary>
+        public int Oversize => Volatile.Read(ref _oversize);
+
+        public void CountOversize() => Interlocked.Increment(ref _oversize);
+
         public void Post(byte[] json, bool close) => Volatile.Write(ref _posted, new Posted(json, close));
 
         public Posted? TakePosted() => Interlocked.Exchange(ref _posted, null);
@@ -2127,6 +2431,8 @@ internal sealed class HttpRequest
     public string Method { get; private init; } = "";
     public string Path { get; private init; } = "/";
     public IReadOnlyDictionary<string, string> Query { get; private init; } = new Dictionary<string, string>();
+    /// <summary>The query as it came, after its <c>?</c> and undecoded ("" with none): what a LINK socket's link message is checked against.</summary>
+    public string RawQuery { get; private init; } = "";
     public IReadOnlyDictionary<string, string> Headers { get; private init; } = new Dictionary<string, string>();
     /// <summary>Request body (POST), capped at 64 KB. Empty for GET, and for a request whose body is <see cref="Oversize"/>.</summary>
     public byte[] Body { get; private init; } = Array.Empty<byte>();
@@ -2309,6 +2615,7 @@ internal sealed class HttpRequest
             Method = start[0].ToUpperInvariant(),
             Path = path,
             Query = query,
+            RawQuery = q >= 0 ? target[(q + 1)..] : "",
             Headers = headers,
             Body = body,
             DeferredLength = deferred,

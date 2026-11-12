@@ -154,7 +154,7 @@ test('auth reads the lockout tables: three wrong PINs are 127.0.0.1 with 3, the 
   plain = await make({});
   const auth = () => plain.control('auth', (j) => j.rig === 'auth');
   const first = await auth();
-  assert.deepEqual([first.addresses, first.viewPasses], [[], []]);
+  assert.deepEqual([first.addresses, first.viewPasses, first.proofs], [[], [], []]);
   assert.equal(typeof first.at, 'number');
 
   for (let i = 0; i < 3; i++) await fetch(plain.base + '/api/note?text=x', { headers: { 'X-Stagewatch-Pin': '0000' } });

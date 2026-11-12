@@ -1091,8 +1091,8 @@ its rate, which has its own count per key (600 requests a minute, 429 with `Retr
   own pages.
 - **Why five.** A window's address is 130 random bits, so for windows the count stops noise, not guessing; a crew link key is 40
   bits and a viewing code is what the operator typed, and for those it is what stops a guesser.
-- PeerLink's wrong proofs will count in a table of their own, per address and key (Show Bus 13.5.6), once this Stagewatch's `/ws`
-  speaks LINK, in a later release; it does not yet.
+- PeerLink's wrong proofs count in a table of their own, per address and key (Show Bus 13.5.6, "A node link proves itself" below):
+  they never lock out a PIN, a view pass or a browser, and nothing here counts them.
 
 ### The hello (Show Bus 1.3 §2)
 
@@ -1214,3 +1214,67 @@ Stagewatch, beside its own rows, and every desk decision:
 
 Not in this release: MCP's `get_report` and the Companion module's report action give the HTML or CSV report only, and the desk has
 no button for `network.csv` (`report network` on the wire, or the Showcaller page's link).
+
+## 2.22: show apps prove themselves on /ws (LINK)
+
+### A node link proves itself
+
+A show app may prove its node key on `/ws` instead of sending it (Show Bus 13.6.5): nothing secret crosses the network, and the proof
+is bound to the certificate it saw, so another machine between the two cannot pass it on. The bearer node link of 2.18 still works.
+
+```
+GET /ws?node=9f8e7d6c&t=patterns&link=1 HTTP/1.1      ← no Authorization header
+Upgrade: websocket
+```
+
+1. Before anything else the socket hears the offer: `{"type":"link","v":1,"speaks":1,"server":{"t":"main","id":"<this Stagewatch's
+   id>"},"snonce":"<32 hex>","bind":"tls:sha256:<its certificate>"}` (`"bind":"plain"` on this machine without TLS). The snonce is
+   new on every socket.
+2. The app sends one link message within 10 s (`peerlink.handshake.ms`): `{"type":"link","client":{"t","id"},"cnonce","kid","proof"}`,
+   its `client` the query's `node` and `t`, `kid` the node key's (13.5.1), `proof` the client proof over the transcript (13.6.1–2).
+   A socket that sends none in time is closed.
+3. It hears the verdict, then frames as any node link: §7.1's verdict with LINK's fields after it —
+   `{"type":"auth","ok":true,"scope":"node","node":{"t":"patterns","id":"9f8e7d6c","verified":"key"},"proof":"<the server proof>",
+   "lid":"<16 hex>","level":1,"can":[],"inst":"<8 hex>","beatMs":2000}`. The app checks `proof` before it takes anything; `lid`
+   names the link; `can` lists no feature yet. Or it hears a refusal, `{"type":"auth","ok":false,"error",…,"class",…,"retry":60}`,
+   and the socket stays a public viewer.
+
+| `class` | When | Counted |
+|---|---|---|
+| `refused` | the proof does not verify: a wrong key, an unknown kid, or another machine between the two — always in the same words, `the proof did not verify: a wrong key, or another machine between us` | only for a key in force, per (address, kid) |
+| `locked` | five wrong proofs for that key from that address in a minute (`too many wrong proofs for this key from this device — wait a minute`, `retry` the rest of the minute), or the address locked out by wrong PINs (`too many wrong PINs — wait a minute`, `retry` the rest of that minute) | no |
+| `malformed` | not one link message of that shape, or a `client` that is not the query's — as it came, and as this Stagewatch reads it (so `NODE=` or an encoded `node` beside `node=` refuses it) | no |
+| `version` | `link=0` | no |
+| `busy` | the key over its rate (`retry` its `Retry-After`) | no |
+| `binding` | on a link already verified: its key no longer speaks for its id, because the operator or another key's first use bound that id elsewhere | no |
+
+- **One proof a socket, one verdict a link.** A second link message after the verdict is no command
+  (`{"type":"error","error":"missing cmd"}`) and links nothing more; a link message sent again on a new socket meets a new snonce and
+  is refused. A verified link never hears a second `ok:true`: when its key is revoked (`refused`, `this key was revoked`) or its
+  binding moves off its id (`binding`), it hears the refusal once, `retry` 60, stays a public viewer and its S ends at once (13.5.5).
+- **Its own wrong-proof table.** Wrong proofs count per (address, kid), apart from the PIN's and the view passes' tables; an unknown
+  kid counts nowhere; only the minute's end frees a pair, never a right proof. A proof holds its pair's place while it is checked, so
+  proofs sent at once from one address for one key never pass five between them. A right proof spends one use of its key's rate. The
+  rig's `auth` line lists the table (`proofs`); the desk does not show it yet.
+- **With a viewing code set** a right proof opens it as a key does; a refused one hears its refusal with `"view":true` at its end, and
+  then the socket closes, as any screen without the code.
+- **Only over TLS from another machine.** A `link=` socket in clear is taken only from this machine: its address loopback, its
+  `Host` naming this Stagewatch there, and no other site's `Origin`; any other is refused 403 before the upgrade, `another machine
+  links to this Stagewatch only over TLS (wss://) — turn HTTPS on in Settings → Remote`.
+- **Refused before the upgrade (400), counted nowhere:** `link=` with no `node` (`a LINK socket names its node: node= and t=`), with
+  an `Authorization` header (`a LINK socket proves its key in its link message and carries no Authorization header`), or on a
+  Stagewatch with no id to name. Every node link's other refusals (2.18) still hold.
+- **At most four unfinished** `link=` sockets per address (`peerlink.unpaired.per.address`): the next is answered 429 before its
+  upgrade, `Retry-After: 10`.
+- **A message past 4 KiB** on a verified link is skipped to its end and counted, and the link stays up; on any other socket it still
+  closes it.
+- **Side calls.** A request carrying `Authorization: ShowBus lid=<16 hex>, s=<64 hex>` is checked first against the live link its lid
+  names (13.7.1): not a live link's, or a wrong S, is 401 `{"ok":false,"error":…,"relink":true}`; a right S in clear from another
+  machine is refused the same way and its link ended at once. A live link's S passes this door; the routes read the request as one
+  with no other credential until S speaks for its key there (a later 2.22 unit).
+
+Not in this release yet: S on the context, proposal, message and result routes; a key seen in clear; `final`, `receipts` and
+`stuck` in `can`; a first LINK whose key speaks for another node refused as `binding` (today it links with `"verified":"none"` and
+the binding's words, as on a bearer node link); the `open` answer of 13.6.7 (a Stagewatch with no keys refuses every LINK as
+`refused` today); and the desk, context and AI facts reading the wrong-proof table (which the rig's `auth` line lists) and each node
+link's LINK-verified and oversize counts (which only the server's own node list holds).
