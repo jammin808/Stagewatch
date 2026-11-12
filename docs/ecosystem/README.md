@@ -21,28 +21,31 @@ Every repository's work is on the session's designated working branch (the same 
 lifted all three pauses on 2026-11-11 ("Resume and continue StageWatch, Patterns, and PlayMap"); each landed unit is pushed as
 it lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.21 under way
+### Stagewatch — 2.21's code landed; its papers wait on Patterns Round 94
 
 - Landed: 2.17 (controlled windows), 2.18 (Train 1's harms), 2.19 (Show Bus 1.3 final, the PeerLink kit, hello 1.3, the
   interop lane `tools/test.sh interop` with CI's interop job), the brief's four lines, the temp-folder fence, 2.20 SW20.1–SW20.12
-  (playout links on the PeerLink core), 2.21 SW21.1 (the verb table), SW21.2 (the desk's rules) and SW21.3 (the desk as one
-  service, `CommandRisk.Of` in Core), the last at `14b3b2f`. `main` was merged in at `b6f454e` (its lockout fix: a valid key
-  clears no count); the merge's WHATS_NEXT names one interop row not yet built.
-- Next, in order: SW21.4 (release A grammar: `peer <app> <line>`, `desk approve|reject <id>` with receipts), SW21.5 (readers),
-  SW21.7 (one report), SW21.8 (one preflight, "ready for doors"), SW21.6 (the desk, WPF — compiled here, walked on the PC),
-  SW21.9 (interop desk rows); then SW20.13 (the VT interop rows S4.1–S4.4, once Patterns Round 94's papers are pushed), then
-  SW20.14 and SW21.10 as one set of papers (the owner's S-releases answer: 2.20 and 2.21 ship as one release); then Train 5
-  (SW22.1a … SW22.10).
-- Template: `workflows/train4-stagewatch-lean.js` (drop the units `git log` already names as `2.21 SW21.k: …`).
+  (playout links on the PeerLink core) and 2.21 SW21.1–SW21.9 (the verb table, the desk's rules, the desk as one service,
+  `peer`/`desk` on the wire, the readers, one report, one preflight, the desk's door in WPF, the lane's desk rows), the last at
+  `ce8efad`. `main` was merged in at `b6f454e` (its lockout fix: a valid key clears no count); the merge's WHATS_NEXT names
+  one interop row not yet built.
+- Next, in order: the suite's two timing races named in SW21.3's and SW21.7's commits (a mend unit of its own); SW20.13 (the
+  VT interop rows S4.1–S4.4, once Patterns Round 94's papers are pushed); SW20.14 and SW21.10 as one set of papers (the
+  owner's S-releases answer: 2.20 and 2.21 ship as one release); then Train 5 (SW22.1a … SW22.12), no unit of it before
+  those papers, so the release is cut on a head that holds 2.21 and nothing of 2.22.
+- Template: `workflows/train4-stagewatch-lean.js` (set its unit list; drop the units `git log` already names).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
 ### Patterns — Round 94 under way
 
-- Landed and pushed: Rounds 89–93 (Round 93 is the plan's P92, closed at `b57410d`; the tag table's next row is round 93's) and
-  Round 94.0 (PLAN §112's opening, `d44bc93`).
-- Next: Round 94 = the plan's P93 (94.1 one speaker message; 94.2 playlist hold; 94.3 `VIDEO … ON <key>`; 94.4 papers), then
-  Round 95 = the plan's P94 (the Eye's NETWORK band: 95.0 opening, 95.1, 95.2, 95.3 papers). Round 96 (the plan's P95) waits
-  on Stagewatch's SW22.1b and SW22.4.
+- Landed and pushed: Rounds 89–93 (Round 93 is the plan's P92, closed at `b57410d`; the tag table's next row is round 93's),
+  Round 94.0 (PLAN §112's opening), 94.1 (one speaker message), 94.2 (a playlist item and a stinger's clip held) and 94.3
+  (`VIDEO … ON <key>`), the last at `66fd5c5`.
+- Next: Round 94.4, a mends unit this round inserted for what 94.2's and 94.3's whole runs found (a STAGE CLEAR that does not
+  reach the Stagewatch a receipt bound; "not sent" said for a call that may have arrived; a test's wait under load; a STATE
+  push after the control wire's long-line refusal), then 94.5, the round's papers (the plan's P93.4). Then Round 95 = the
+  plan's P94 (the Eye's NETWORK band: 95.0 opening, 95.1, 95.2, 95.3 papers). Round 96 (the plan's P95) waits on Stagewatch's
+  SW22.1b and SW22.4.
 - Template: `workflows/patterns-rounds-lean.js` (its units carry both plan and round numbers; drop the ones `git log` names).
 
 ### PlayMap (repo Mapper) — waiting on round 3's integration pass
@@ -87,6 +90,8 @@ what 0.5.x landed against `agmessage-handoff.md`, then plan Train 9 (AG-2…) on
    - `artifacts/interop` (the interop lane's sibling clones and builds) is kept between runs;
    - a round's opening is one stage; a round's papers are a writer and one check-and-commit stage; code units keep all three;
    - pushes, CI reads, merges and this guide's updates are done by hand, not as a run.
+   - since 2026-11-12 the session that orchestrates and the work stages run on different models (the owner's choice); the
+     templates take the work stages' model and effort at launch (`args.work`, `args.light`), never from the file.
 5. Tests make temporary paths only through each tree's fence (Patterns `tests/Shared/TempRun.cs`, Stagewatch
    `tests/Stagewatch.Tests/Scratch.cs`); give a run its own TMPDIR under the tree's ignored output folder.
 
