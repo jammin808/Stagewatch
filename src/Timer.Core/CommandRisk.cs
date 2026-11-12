@@ -39,6 +39,9 @@ public static class CommandRisk
             ShowCommandKind.Peer or ShowCommandKind.Desk => LineRisk.High,
             ShowCommandKind.Screen when text.StartsWith("save", StringComparison.Ordinal) => LineRisk.Low,
             ShowCommandKind.Screen when text.StartsWith("name", StringComparison.Ordinal) => LineRisk.Low,
+            // Granting a window hands another app an address it shows on its own screens, and withdrawing one ends that: each a person's
+            // choice, named here so no rule below ever lowers it.
+            ShowCommandKind.Window when c.Get<WindowArgs>().Action is "grant" or "withdraw" => LineRisk.High,
             // A window's name, its link-loss choice and its fade change nothing on screen now; everything else does.
             ShowCommandKind.Window => c.Get<WindowArgs>().Action is "new" or "rename" or "loss" or "fade" ? LineRisk.Low : LineRisk.High,
             // An extra timer is invisible until it's on stage; putting it on (or taking it off) changes the speaker's screen.

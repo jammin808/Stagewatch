@@ -38,7 +38,7 @@ public sealed partial class MainViewModel
     {
         var director = Windowing;
         director.Web = _web;
-        var change = director.Run(args, ScreenPresetPath, Settings.Holding.Images);
+        var change = director.Run(args, ScreenPresetPath, Settings.Holding.Images, ((IShowScreens)this).FindApp);
         if (!change.Ok) { Refuse(change.Words); return; }
         StatusLine = change.Words;
         // The show log says what the room's screens were given (never their addresses).

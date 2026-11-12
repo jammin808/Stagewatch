@@ -159,6 +159,228 @@ static class WindowTests
         Check(ShowCommandParser.TryParse("window", new[] { "show", "lobby", "/clock" }, out var line, out _) && line.Kind == ShowCommandKind.Window
               && Stagewatch.Show.ShowContext.Commands.Any(v => v.Verb.StartsWith("window show", StringComparison.Ordinal)),
               "windows: the context lists window verbs for peers and AI, with their risk");
+
+        Grants(Check);
+    }
+
+    // ---------------------------------------------------------------- grants (Show Bus §12.4): one window to one show app
+    static readonly ShowApp Foh = new("patterns", "9f8e7d6c", "Patterns FOH", ["pages"], true);
+    static readonly ShowApp Stage = new("playmap", "1a2b3c4d", "PlayMap Stage left", ["window-draw"], true);
+    static readonly ShowApp Office = new("agmessage", "5e6f7a8b", "AGMessage Office", [], true);
+    static readonly ShowApp FohB = new("patterns", "7e6d5c4b", "Patterns FOH", ["pages"], false);
+
+    static WindowContext Heard(params ShowApp[] apps) => Ctx() with
+    {
+        FindApp = want => ScreenWindows.FindApp(apps, want),
+        NowUtc = () => new DateTime(2026, 11, 12, 10, 0, 0, DateTimeKind.Utc),
+    };
+
+    static WindowChange Line(IReadOnlyList<ScreenWindow> list, string line, WindowContext ctx)
+        => ShowCommandParser.TryParseLine(line, out var cmd, out var error)
+            ? ScreenWindows.Apply(list, cmd.Get<WindowArgs>(), ctx) : WindowChange.Refused(list, "parse: " + error);
+
+    static void Grants(Action<bool, string> Check)
+    {
+        var heard = Heard(Foh, Stage, Office);
+        IReadOnlyList<ScreenWindow> list = new[]
+        {
+            new ScreenWindow { Id = "wa", Name = "lobby", Token = ScreenWindows.NewToken(), Content = "/clock", Revision = 3 },
+            new ScreenWindow { Id = "wb", Name = "foyer", Token = ScreenWindows.NewToken(), Revision = 1 },
+        };
+
+        // ---- the grammar: a grant names one window and an app, a withdraw names its window or all; neither defaults to every window
+        Check(ShowCommandParser.TryParseLine("window grant lobby 9f8e7d6c", out var c, out _) && c.Get<WindowArgs>() is { Action: "grant", Who: "lobby", Argument: "9f8e7d6c" }
+              && ShowCommandParser.TryParseLine("window withdraw all", out c, out _) && c.Get<WindowArgs>() is { Action: "withdraw", Who: "all", Argument: "" }
+              && ShowCommandParser.TryParseLine("WINDOW GRANT lobby \"Patterns FOH\"", out c, out _) && c.Get<WindowArgs>() is { Action: "grant", Argument: "Patterns FOH" }
+              && ShowCommandParser.TryParseLine("window withdraw lobby 1a2b3c4d", out c, out _) && c.Get<WindowArgs>() is { Action: "withdraw", Who: "lobby", Argument: "1a2b3c4d" },
+              "grants: window grant lobby <app> and window withdraw all parse typed, a quoted name whole");
+        foreach (var (bad, words) in new[] { ("window grant all 9f8e7d6c", "Grant one window at a time"), ("window grant lobby", "window grant takes a window and a show app"),
+                                             ("window grant", "window grant takes a window and a show app"), ("window withdraw", "window withdraw takes a window (or all)") })
+            Check(!ShowCommandParser.TryParseLine(bad, out _, out var err) && err.StartsWith("window: " + words, StringComparison.Ordinal),
+                  $"grants: \"{bad}\" is refused with words ({words})");
+        Check(ShowCommandParser.Help.Contains("window grant <window> <app> | window withdraw <window|all> [app]", StringComparison.Ordinal),
+              "grants: the help line names grant and withdraw");
+
+        // ---- risk: a person's choice, never pre-ticked
+        foreach (var high in new[] { "window grant lobby 9f8e7d6c", "window withdraw lobby", "window withdraw all 9f8e7d6c" })
+            Check(Stagewatch.Integrations.Copilot.Check(high) is { } hc && Stagewatch.Integrations.Copilot.Classify(hc) == Stagewatch.Integrations.CopilotRisk.High
+                  && CommandRisk.OfLine(high).Risk == "high", $"grants: '{high}' is high for the copilot and every rater");
+
+        // ---- grant: how from what the app offers; an address of its own for a page, none for a drawing
+        var r = Line(list, "window grant lobby 9f8e7d6c", heard);
+        var page = r.Windows[0].Grants.SingleOrDefault();
+        Check(r is { Ok: true, Effect: WindowEffect.Changed } && page is { Node: "9f8e7d6c", Kind: "patterns", Name: "Patterns FOH", How: ScreenWindows.HowPage }
+              && ScreenWindows.ValidToken(page.Token) && page.Token != r.Windows[0].Token && page.MadeUtc == new DateTime(2026, 11, 12, 10, 0, 0, DateTimeKind.Utc)
+              && r.Windows[0].Revision == 3 && r.Touched.SequenceEqual(["wa"]) && list[0].Grants.Count == 0
+              && r.Words == "lobby granted to Patterns FOH (9f8e7d6c) as a page — it takes the address when it links with its node key",
+              "grants: an app that shows pages is granted the window as a page, with an address of its own; the window's revision and the caller's list stay");
+        list = r.Windows;
+        r = Line(list, "window grant lobby \"PlayMap Stage left\"", heard);
+        Check(r.Ok && r.Windows[0].Grants.Count == 2 && r.Windows[0].Grants[1] is { Node: "1a2b3c4d", How: ScreenWindows.HowDraw, Token: "" }
+              && r.Words.Contains("to draw", StringComparison.Ordinal),
+              "grants: an app that draws windows, named by its name, is granted the window to draw, with no address");
+        var two = r.Windows;
+        var unverified = Line(list, "window grant foyer 7e6d5c4b", Heard(Foh, FohB));
+        Check(unverified.Ok && unverified.Words.EndsWith("(it says it shows pages; checked when it links)", StringComparison.Ordinal),
+              "grants: an app known only by what it says is granted, worded as its claim");
+
+        // Refusals: each leaves the list as it was, by reference.
+        (string Line, WindowContext Ctx, string Words)[] refusals =
+        [
+            ("window grant lobby 0000aaaa", heard, "No show app called \"0000aaaa\" on the show network (heard: Patterns FOH 9f8e7d6c, PlayMap Stage left 1a2b3c4d, AGMessage Office 5e6f7a8b)"),
+            ("window grant lobby \"Patterns FOH\"", Heard(Foh, FohB), "\"Patterns FOH\" names 2 show apps — use its id (9f8e7d6c, 7e6d5c4b)"),
+            ("window grant lobby 9f8e7d6c", heard, "lobby is already granted to Patterns FOH"),
+            ("window grant lobby 5e6f7a8b", heard, "AGMessage Office can't show a window: it offers neither pages nor window-draw"),
+            ("window grant lobby 9f8e7d6c", Ctx(), "No show app called \"9f8e7d6c\" on the show network (this Stagewatch hears none)"),
+            ("window grant nobody 9f8e7d6c", heard, "No window called \"nobody\""),
+        ];
+        foreach (var (line, ctx, words) in refusals)
+        {
+            var refused = Line(list, line, ctx);
+            Check(!refused.Ok && ReferenceEquals(refused.Windows, list) && refused.Words == words, $"grants: '{line}' is refused, nothing changed: {words} (got: {refused.Words})");
+        }
+        var many = Enumerable.Range(0, ScreenWindows.MaxGrants).Select(i => new ShowApp("patterns", "app" + i, "App " + i, ["pages"], true)).ToArray();
+        var fifth = new ShowApp("patterns", "app9", "App 9", ["pages"], true);
+        IReadOnlyList<ScreenWindow> full = list;
+        foreach (var app in many) full = Line(full, "window grant foyer " + app.Id, Heard([.. many, fifth])).Windows;
+        var over = Line(full, "window grant foyer app9", Heard([.. many, fifth]));
+        Check(full[1].Grants.Count == ScreenWindows.MaxGrants && !over.Ok && ReferenceEquals(over.Windows, full)
+              && over.Words == $"foyer is granted to {ScreenWindows.MaxGrants} show apps already — withdraw one first",
+              $"grants: a window takes at most {ScreenWindows.MaxGrants} grants; the fifth is refused");
+        Check(ScreenWindows.Tokens(full).Count() == 2 + ScreenWindows.MaxGrants + 1 && ScreenWindows.Tokens(full).Distinct().Count() == ScreenWindows.Tokens(full).Count(),
+              "grants: every pass is distinct, and Tokens lists every window's and every page grant's");
+
+        // ---- Find and Via
+        var lobby = two[0];
+        Check(ScreenWindows.Find(two, lobby.Token) is { Via: "" } main && main.Window == lobby
+              && ScreenWindows.Find(two, lobby.Grants[0].Token) is { Via: "9f8e7d6c" } granted && granted.Window == lobby
+              && ScreenWindows.ByToken(two, lobby.Grants[0].Token) == lobby && ScreenWindows.Find(two, ScreenWindows.NewToken()) is null
+              && ScreenWindows.Find(two, "") is null && ScreenWindows.Find(two, "lobby") is null,
+              "grants: Find names the pass an address came by — the window's own, or a page grant's node — and ByToken finds the window by either");
+
+        // ---- withdraw
+        r = Line(two, "window withdraw lobby 1a2b3c4d", heard);
+        Check(r.Ok && r.Windows[0].Grants.Select(g => g.Node).SequenceEqual(["9f8e7d6c"]) && r.Words == "lobby withdrawn from PlayMap Stage left"
+              && two[0].Grants.Count == 2, "grants: withdrawing one app ends only its grant (a drawing: no address to stop)");
+        var oldGrant = lobby.Grants[0].Token;
+        r = Line(two, "window withdraw lobby \"Patterns FOH\"", heard);
+        Check(r.Ok && r.Windows[0].Grants.Count == 1 && ScreenWindows.Find(r.Windows, oldGrant) is null && ScreenWindows.Find(r.Windows, lobby.Token) is { Via: "" }
+              && r.Words == "lobby withdrawn from Patterns FOH: its granted address stopped working",
+              "grants: withdrawing a page grant by its name stops its address and only its address");
+        r = Line(two, "window withdraw all", heard);
+        Check(r.Ok && r.Windows.All(w => w.Grants.Count == 0) && r.Touched.SequenceEqual(["wa"]) && r.Words.StartsWith("lobby withdrawn from 2 show apps", StringComparison.Ordinal),
+              "grants: withdraw all ends every grant of every window");
+        foreach (var (line, words) in new[] { ("window withdraw foyer", "foyer isn't granted to anyone"), ("window withdraw lobby 0000aaaa", "lobby isn't granted to 0000aaaa"),
+                                              ("window withdraw all 0000aaaa", "No window is granted to 0000aaaa"), ("window withdraw foyer 9f8e7d6c", "foyer isn't granted to Patterns FOH") })
+        {
+            var refused = Line(two, line, heard);
+            Check(!refused.Ok && ReferenceEquals(refused.Windows, two) && refused.Words == words, $"grants: '{line}' is refused, nothing changed: {words} (got: {refused.Words})");
+        }
+
+        var noWho = ScreenWindows.Apply(two, new WindowArgs("withdraw", " ", ""), heard);
+        Check(!noWho.Ok && ReferenceEquals(noWho.Windows, two) && noWho.Words == "window withdraw takes a window (or all)",
+              "grants: a withdraw that names no window is refused in Core too, whichever door built it — every grant ends only when all is said");
+        var twins = Line(Line(list, "window grant foyer 9f8e7d6c", Heard(Foh, FohB)).Windows, "window grant lobby 7e6d5c4b", Heard(Foh, FohB)).Windows;
+        var ambiguous = Line(twins, "window withdraw all \"Patterns FOH\"", Heard(Foh, FohB));
+        var byId = Line(twins, "window withdraw all 7e6d5c4b", Heard(Foh, FohB));
+        Check(twins.Sum(w => w.Grants.Count) == 3 && !ambiguous.Ok && ReferenceEquals(ambiguous.Windows, twins)
+              && ambiguous.Words == "\"Patterns FOH\" names 2 show apps — use its id (9f8e7d6c, 7e6d5c4b)"
+              && byId.Ok && byId.Words == "lobby withdrawn from Patterns FOH: its granted address stopped working"
+              && byId.Windows.SelectMany(w => w.Grants).Select(g => g.Node).OrderBy(n => n, StringComparer.Ordinal).All(n => n == "9f8e7d6c"),
+              "grants: a withdraw by a name two apps' grants share is refused, naming their ids; by its id it ends that app's grant alone");
+        Check(Line(list, "window grant foyer 9f8e7d6c", heard with { FindApp = _ => AppLookup.Found(Foh with { Id = "not an id!" }) })
+                  is { Ok: false, Words: "Patterns FOH has no valid Show Bus id" },
+              "grants: an app heard with no valid Show Bus id is refused with words that say so");
+        Check(!ShowCommandParser.TryParseLine("window grant lobby \"" + new string('n', ScreenWindows.MaxAppName + 1) + "\"", out _, out var longErr)
+              && longErr.EndsWith($"a show app's name is at most {ScreenWindows.MaxAppName} characters — name it by its id", StringComparison.Ordinal),
+              "grants: an app word longer than a name is refused with its limit");
+
+        // ---- revoke rotates every pass; delete ends the grants
+        r = Line(two, "window revoke lobby", heard);
+        var after = r.Windows[0];
+        Check(r.Ok && after.Token != lobby.Token && after.Grants[0].Token != lobby.Grants[0].Token && ScreenWindows.ValidToken(after.Grants[0].Token)
+              && after.Grants[1].Token == "" && after.Grants.Select(g => g.Node).SequenceEqual(["9f8e7d6c", "1a2b3c4d"])
+              && ScreenWindows.Find(r.Windows, lobby.Token) is null && ScreenWindows.Find(r.Windows, lobby.Grants[0].Token) is null
+              && ScreenWindows.Find(r.Windows, after.Grants[0].Token) is { Via: "9f8e7d6c" }
+              && r.Words.EndsWith("and the one granted app's address too", StringComparison.Ordinal),
+              "grants: revoke gives the window and each page grant a new address, keeps the grants, and the old addresses find nothing");
+        r = Line(two, "window delete lobby", heard);
+        Check(r.Ok && r.Windows.Count == 1 && ScreenWindows.Find(r.Windows, lobby.Grants[0].Token) is null && r.Words.EndsWith("and its 2 grants ended", StringComparison.Ordinal),
+              "grants: deleting a window ends its grants and their addresses");
+
+        // ---- copies: a reader's list never changes under it
+        var copy = two[0].Clone();
+        copy.Grants[0].Name = "changed";
+        copy.Grants.Clear();
+        Check(two[0].Grants.Count == 2 && two[0].Grants[0].Name == "Patterns FOH", "grants: Clone copies the grants deep");
+
+        // ---- kept in settings: what loading drops
+        var good = ScreenWindows.NewToken();
+        var saved = new List<ScreenWindow>
+        {
+            new()
+            {
+                Id = "wa", Name = "lobby", Token = ScreenWindows.NewToken(), Grants =
+                [
+                    new() { Node = "9f8e7d6c", Kind = "patterns", Name = "Patterns FOH", How = "page", Token = good },
+                    new() { Node = "bad id!", How = "page", Token = ScreenWindows.NewToken() },
+                    new() { Node = "aa000001", How = "page", Token = "short" },
+                    new() { Node = "aa000002", How = "draw", Token = ScreenWindows.NewToken() },
+                    new() { Node = "9f8e7d6c", How = "draw" },
+                    new() { Node = "aa000003", How = "lend" },
+                    new() { Node = "aa000004", How = "page", Token = good },
+                    new() { Node = "1a2b3c4d", Kind = "playmap", How = "draw", Name = new string('n', 90) },
+                    new() { Node = "aa000005", How = "draw" },
+                    new() { Node = "aa000006", How = "draw" },
+                    new() { Node = "aa000007", How = "draw" },
+                ],
+            },
+            new() { Id = "wb", Name = "foyer", Token = ScreenWindows.NewToken(), Grants = null! },
+        };
+        var kept = ScreenWindows.Kept(saved);
+        Check(kept[0].Grants.Select(g => g.Node).SequenceEqual(["9f8e7d6c", "1a2b3c4d", "aa000005", "aa000006"]) && kept[0].Grants[1].Name.Length == ScreenWindows.MaxAppName
+              && kept[1].Grants.Count == 0 && saved[0].Grants.Count == 11 && !ReferenceEquals(kept[0], saved[0]),
+              "grants: loading drops a bad id, a bad or reused token, a draw grant with a token, a second grant to one node, an unknown how and a fifth grant, on copies");
+        var director = new Stagewatch.Remote.WindowDirector(saved, _ => { });
+        Check(director.Windows[0].Grants.Count == ScreenWindows.MaxGrants && director.Run(new WindowArgs("grant", "foyer", "9f8e7d6c"), _ => null, []) is { Ok: false } noApps
+              && noApps.Words.Contains("this Stagewatch hears none", StringComparison.Ordinal)
+              && director.Run(new WindowArgs("grant", "foyer", "9f8e7d6c"), _ => null, [], id => ScreenWindows.FindApp([Foh], id)) is { Ok: true }
+              && director.Windows[1].Grants.Single().Node == "9f8e7d6c",
+              "grants: the director keeps what loading keeps, refuses a grant when it hears no apps, and grants through the app finder it is given");
+        // A hand-edited file: a missing grant beside a whole one, and two windows with one address.
+        var shared = ScreenWindows.NewToken();
+        var odd = System.Text.Json.JsonSerializer.Deserialize<List<ScreenWindow>>(
+            "[{\"id\":\"wa\",\"name\":\"lobby\",\"token\":\"" + shared + "\",\"rev\":2,\"grants\":[null,{\"node\":\"9f8e7d6c\",\"how\":\"draw\"}]},"
+            + "{\"id\":\"wb\",\"name\":\"foyer\",\"token\":\"" + shared + "\",\"rev\":5,\"grants\":[null]}]")!;
+        var oddKept = ScreenWindows.Kept(odd);
+        var oddDirector = new Stagewatch.Remote.WindowDirector(odd, _ => { });
+        Check(oddKept.Count == 2 && oddKept[0].Grants.Single().Node == "9f8e7d6c" && oddKept[1].Grants.Count == 0
+              && oddKept[0].Token == shared && oddKept[1].Token != shared && ScreenWindows.ValidToken(oddKept[1].Token) && oddKept[1].Revision == 6
+              && odd[0].Clone().Grants.Count == 1 && oddDirector.Windows.Count == 2 && oddDirector.Windows[0].Grants.Count == 1
+              && ScreenWindows.ByToken(oddDirector.Windows, shared)?.Name == "lobby",
+              "grants: loading skips a missing grant and keeps the rest; a window whose address another holds first keeps itself under a new address");
+        Check(System.Text.Json.JsonSerializer.Serialize(new AppSettings().Remote).Contains("\"windows\"", StringComparison.Ordinal)
+              && !typeof(ShowFile).GetProperties().Any(p => p.PropertyType == typeof(List<ScreenWindow>)),
+              "grants: they are kept with the windows in this PC's settings, never in a show file");
+
+        // ---- the proposal fence: an app asks a window only for itself; the operator's credential may ask for any app
+        var nodes = new NodeBindings();
+        var desk = new ProposalDesk(() => "desk01", nodes, "k3m9");
+        string Body(string fromId, string line) => System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["from"] = new { t = "patterns", id = fromId, name = "" }, ["target"] = new { t = "main", id = "", name = "" }, ["line"] = line, ["reason"] = "",
+        });
+        var t0 = new DateTime(2026, 11, 12, 10, 0, 0, DateTimeKind.Utc);
+        var other = desk.Submit(Body("pat1", "window grant lobby pat2"), NodeCredential.Key("kP"), (_, _) => "high", t0);
+        Check(other is (null, ProposalDesk.ForItselfOnly, false) && nodes.NodeOf("kP") is null
+              && desk.Submit(Body("pat1", "win grant lobby \"Patterns FOH\""), NodeCredential.Key("kP"), (_, _) => "high", t0).Error == ProposalDesk.ForItselfOnly,
+              "grants: a node key proposing a window for another app is refused before it binds — 'a show app may ask a window only for itself'");
+        Check(desk.Submit(Body("pat1", "window grant lobby pat1"), NodeCredential.Key("kP"), (_, _) => "high", t0).Proposal is { Line: "window grant lobby pat1" }
+              && desk.Submit(Body("pat3", "window grant lobby pat2"), NodeCredential.Operator, (_, _) => "high", t0).Proposal is { Line: "window grant lobby pat2" }
+              && desk.Submit(Body("pat1", "window withdraw lobby pat2"), NodeCredential.Key("kP"), (_, _) => "high", t0).Proposal is not null,
+              "grants: an app's own ask is taken; the PIN's ask for any app is taken; the fence is grant's alone");
+        Check(ProposalDesk.GrantedApp("window grant lobby pat2") == "pat2" && ProposalDesk.GrantedApp("window show lobby /clock") is null
+              && ProposalDesk.GrantedApp("note window grant lobby x") is null, "grants: the fence reads a line as the desk's grammar does");
     }
 
     // ---------------------------------------------------------------- the server: addresses, the link, reports

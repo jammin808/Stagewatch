@@ -14,14 +14,14 @@ public sealed class WindowDirector
     private readonly Func<string> _newToken;
     private readonly Func<string> _newId;
 
-    /// <param name="initial">The windows as saved (copied: the caller's objects are never shared with readers).</param>
+    /// <param name="initial">The windows as saved, made whole by <see cref="ScreenWindows.Kept"/> (a malformed window or grant is
+    /// dropped, a window whose address another holds first gets a new one) and copied: the caller's objects are never shared with readers.</param>
     /// <param name="save">Owner thread: keep the new list (the app writes it to its settings).</param>
     public WindowDirector(IEnumerable<ScreenWindow> initial, Action<IReadOnlyList<ScreenWindow>> save, Func<string>? newToken = null, Func<string>? newId = null)
     {
-        _windows = initial.Where(w => ScreenWindows.ValidName(w.Name) && ScreenWindows.ValidToken(w.Token) && w.Id.Length > 0)
-            .GroupBy(w => w.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.First().Clone()).ToList();
-        _save = save;
         _newToken = newToken ?? ScreenWindows.NewToken;
+        _windows = ScreenWindows.Kept(initial, _newToken);
+        _save = save;
         _newId = newId ?? ScreenWindows.NewId;
     }
 
@@ -31,11 +31,15 @@ public sealed class WindowDirector
     /// <summary>Thread-safe: the windows now.</summary>
     public IReadOnlyList<ScreenWindow> Windows => _windows;
 
-    /// <summary>Owner thread. Refused (with the reason) when it would change nothing; otherwise applied, saved and pushed.</summary>
-    public WindowChange Run(WindowArgs args, Func<string, string?> setupPath, IReadOnlyList<HoldingImage> images)
+    /// <summary>
+    /// Owner thread. Refused (with the reason) when it would change nothing; otherwise applied, saved and pushed. <paramref name="findApp"/>
+    /// finds the show app a <c>window grant</c> names (<see cref="IShowScreens.FindApp"/>); without it every grant is refused, since this
+    /// Stagewatch then hears no show app.
+    /// </summary>
+    public WindowChange Run(WindowArgs args, Func<string, string?> setupPath, IReadOnlyList<HoldingImage> images, Func<string, AppLookup>? findApp = null)
     {
         var current = _windows;
-        var change = ScreenWindows.Apply(current, args, new WindowContext(setupPath, images, _newToken, _newId));
+        var change = ScreenWindows.Apply(current, args, new WindowContext(setupPath, images, _newToken, _newId, findApp));
         if (!change.Ok) return change;
         switch (change.Effect)
         {

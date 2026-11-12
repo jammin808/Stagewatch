@@ -484,7 +484,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             Contexts = _peerContexts,
             Network = () => _network,
             Linked = target => PlayoutLinks.PulledFor(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>(), target),
-            WindowTokens = () => _windows.Windows.Select(w => w.Token),
+            WindowTokens = () => ScreenWindows.Tokens(_windows.Windows),
             KeyName = id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name,
             Fresh = o.DeskFresh ?? ProposalDesk.CollectFresh,
             RunHere = RunApprovedHere,
@@ -1131,7 +1131,7 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     private (bool, string) WindowCommand(WindowArgs a)
     {
-        var change = _windows.Run(a, ScreenPresetPath, Settings.Holding.Images);
+        var change = _windows.Run(a, ScreenPresetPath, Settings.Holding.Images, ((IShowScreens)this).FindApp);
         if (change.Effect == WindowEffect.Changed) Journal(JournalKind.Note, -1, "Window: " + change.Words);
         return (change.Ok, change.Words);
     }

@@ -790,11 +790,25 @@ One grammar on every transport (HTTP `/api/window/...`, WebSocket, OSC `/stagewa
 | `window identify\|reload <window\|all>` | Name on the window for 6 s / reload it (it comes back to what it showed). Refused for a window nobody has open |
 | `window loss <window\|all> <hold\|warn>` | When the link drops: the holding page (audience screens; the default) or dimmed with NOT CONNECTED (crew screens). Never a confident stale clock |
 | `window fade <window\|all> <ms>` | Crossfade between pages, 0 (cut) to 5000 |
-| `window rename <window> <name>` · `window revoke <window\|all>` · `window delete <window>` | Rename; a new address (the old one stops at once, and a screen on it says so); delete (one at a time) |
+| `window rename <window> <name>` · `window revoke <window\|all>` · `window delete <window>` | Rename; a new address (the old one stops at once, and a screen on it says so), and a new one for each of its page grants; delete (one at a time), ending its grants |
+| `window grant <window> <app>` | Grant one window (never `all`) to one show app, named by its Show Bus id or by a name no other app has (quoted). A page when the app shows pages (`pages`), with an address of its own; else a drawing when it draws windows (`window-draw`), with none; an app that offers neither is refused. At most 4 apps per window. Show Bus §12.4 |
+| `window withdraw <window\|all> [app]` | End the window's grants (or every window's), to every app or to the one named. A bare `window withdraw` is refused. A page grant's address stops at once; the window's own address is untouched |
 
 A command that would change nothing is refused with the reason (`lobby already shows /clock`), and a receipt says so.
-The copilot rates `show`, `cue`, `hold`, `release`, `identify`, `reload`, `revoke` and `delete` high (they change what
-the room sees) and `new`, `rename`, `loss` and `fade` low.
+The copilot rates `show`, `cue`, `hold`, `release`, `identify`, `reload`, `revoke`, `delete`, `grant` and `withdraw` high
+(they change what the room sees) and `new`, `rename`, `loss` and `fade` low.
+
+**Grants (2.22, in Core).** Grants are kept with the windows in this PC's settings (`remote.windows[].grants`, at most 4,
+each `{node, t, name, how, token, made}`), never in a show file; loading drops a grant with a bad node id, a `how` that is
+neither `page` nor `draw`, a page grant whose token is not valid or is another pass's, a draw grant with a token, a second
+grant to one node and a fifth; a window whose address another window holds first keeps itself under a new address.
+A bare `window withdraw` is refused in Core too, and a withdraw by a name two apps' grants share is refused, naming their
+ids. A proposal (§11) whose line is `window grant <window> <app>` is refused under any credential
+but the operator's unless `<app>` is its own `from.id`: "a show app may ask a window only for itself". The app a grant names is
+looked up among the show apps this Stagewatch hears; until the desk and the rig hear them for grants (a later 2.22 unit),
+every grant is refused with "No show app called … (this Stagewatch hears none)". Delivery of a grant's address to its app's
+key-verified link, and the black end on a withdrawn, revoked or deleted grant's address, are the web server's, in a later
+2.22 unit: until then a grant's address travels nowhere.
 
 ### What a window does
 

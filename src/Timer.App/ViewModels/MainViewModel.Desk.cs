@@ -23,7 +23,7 @@ public sealed partial class MainViewModel
             Contexts = _peerContexts,
             Network = () => _network,
             Linked = LinkedContext,
-            WindowTokens = () => ControlledWindows.Select(w => w.Token),
+            WindowTokens = () => ScreenWindows.Tokens(ControlledWindows),
             KeyName = ApiKeyName,
             ShowTime = utc => ShowClock.ToShow(utc).ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
             RunHere = RunApprovedHere,

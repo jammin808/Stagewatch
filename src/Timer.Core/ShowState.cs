@@ -634,6 +634,12 @@ public interface IShowScreens
 
     /// <summary>The controlled windows: an immutable copy, swapped whole on every change.</summary>
     IReadOnlyList<ScreenWindow> Windows => Array.Empty<ScreenWindow>();
+
+    /// <summary>
+    /// The show app a <c>window grant</c> names, by its Show Bus id or a name no other app has, as this Stagewatch hears the show network
+    /// (<see cref="ScreenWindows.FindApp"/>); or why none. By default it hears no show apps, so every grant is refused.
+    /// </summary>
+    AppLookup FindApp(string idOrName) => AppLookup.Missing(ScreenWindows.NoApp(idOrName.Trim(), []));
 }
 
 /// <summary>
@@ -797,6 +803,7 @@ public static class ShowCommandParser
         "window new <name> [page] | window show <window|all> <page|setup|holding|black> | window cue <window|all> <page> | " +
         "window hold <window|all> [toggle|text <words>|image <n|name|off>] | window release <window|all> | window identify|reload <window|all> | " +
         "window loss <window|all> <hold|warn> | window fade <window|all> <ms> | window rename <window> <name> | window revoke <window|all> | window delete <window> | " +
+        "window grant <window> <app> | window withdraw <window|all> [app] | " +
         "signal <message|standby|go|call|nudge> <target> [text] [noack] | signal clear <target|id> | signal resend <id> | " +
         "ack <id> [seen|done] [name] | trim <item> <±seconds> | delay <seconds|mm:ss|clear> | catchup | preview [on|off] | " +
         "ladder <id|default> | format <standard|calm|progress> | question <text> [name] | " +
@@ -1145,10 +1152,15 @@ public static class ShowCommandParser
                     var action = Arg(0).ToLowerInvariant();
                     var who = Arg(1);
                     var rest = string.Join(' ', args.Skip(2)).Trim();
-                    if (action.Length == 0) throw new FormatException("window takes new, show, cue, hold, release, identify, reload, loss, fade, rename, revoke or delete");
-                    if (action is not ("new" or "show" or "cue" or "hold" or "release" or "identify" or "reload" or "loss" or "fade" or "rename" or "revoke" or "delete"))
-                        throw new FormatException($"window {action}? It takes new, show, cue, hold, release, identify, reload, loss, fade, rename, revoke or delete");
+                    if (action.Length == 0) throw new FormatException(ScreenWindows.Actions);
+                    if (action is not ("new" or "show" or "cue" or "hold" or "release" or "identify" or "reload" or "loss" or "fade" or "rename" or "revoke" or "delete" or "grant" or "withdraw"))
+                        throw new FormatException($"window {action}? It takes new, show, cue, hold, release, identify, reload, loss, fade, rename, revoke, delete, grant or withdraw");
                     if (who.Length == 0 && action is "new" or "rename" or "delete") throw new FormatException($"window {action} takes a window name");
+                    // A grant names its one window and its app; a withdraw names its window or all: neither defaults to every window.
+                    if (action == "grant" && (who.Length == 0 || rest.Length == 0)) throw new FormatException("window grant takes a window and a show app (its id, or its name in quotes)");
+                    if (action == "grant" && who.Equals("all", StringComparison.OrdinalIgnoreCase)) throw new FormatException("Grant one window at a time");
+                    if (action == "withdraw" && who.Length == 0) throw new FormatException("window withdraw takes a window (or all)");
+                    if (action is "grant" or "withdraw" && rest.Length > ScreenWindows.MaxAppName) throw new FormatException($"a show app's name is at most {ScreenWindows.MaxAppName} characters — name it by its id");
                     if (who.Length > 40 || (who.Length > 0 && !ScreenWindows.ValidName(who))) throw new FormatException("a window is named with letters, digits, - and _ (or all)");
                     if (action is "show" or "cue" && rest.Length == 0) throw new FormatException($"window {action} takes a window and what to show: a page (/clock), a setup, holding or black");
                     if (rest.Length > 400) throw new FormatException("that's longer than a window command takes");

@@ -211,7 +211,6 @@ static class ShowBusSpecTests
     [
         ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
         ("receipt.final.ms", "SW22.1c", "its receipts carry no `final`, `repeat`, `lateMs` or `frame`", _ => ReceiptTailAsToday()),
-        ("window.grants", "SW22.3", "it grants no window, so no grant's address travels", _ => GrantsAsToday()),
     ];
 
     /// <summary>Whether a unit ends its entry in 2.19, the release that carries 1.3: then the header names it, else §8's Stagewatch row.</summary>
@@ -1720,6 +1719,8 @@ static class ShowBusSpecTests
         Keeps(ScreenWindows.TokenLength == n.Of("window.token.chars") && ScreenWindows.Max == n.Of("window.max")
               && tokens.All(x => x.Length == n.Of("window.token.chars") && x.All(symbols.Contains)),
             "its window addresses are that many of those symbols, and it keeps that many windows at most", "window.token.chars", "window.token.alphabet", "window.max");
+        Keeps(GrantsKept(n.Of("window.grants")),
+            "its windows each take that many grants at most, a page grant with an address of its own, an app asking only for itself", "window.grants");
         ViewPassCode(Keeps, n);
 
         foreach (var (row, unit, today, differs) in NotKeptYet)
@@ -2933,6 +2934,12 @@ static class ShowBusSpecTests
               && SeenInClearKept(),
             "showbus spec: Stagewatch keeps what §8's row names it without: 13.6.9's mark on a key seen in clear — marked once from where and when, saved on "
             + "the key, amber in the context, no grant, and marked before any answer");
+        // Kept since SW22.3, its words in the frozen row still standing: grants, as Core's model and the desk's fence (which link a
+        // grant's address travels on is the web server's, held by §12.5's checks once it delivers one).
+        Check(notKept.Contains("`window.grants` (today it grants no window, so no grant's address travels) — ends with grants (§12)", StringComparison.Ordinal)
+              && GrantsKept(n.Of("window.grants")),
+            "showbus spec: Stagewatch keeps what §8's row names as window.grants: a window takes that many grants at most, a page grant has an "
+            + "address of its own, and an app asks a window only for itself");
         // Kept since SW22.1a, its words in the frozen row still standing: its /ws speaks LINK (13.6.5) — the offer first, then one link
         // message decided by the core's proofs, the verdict's fields, a wrong-proof table of its own.
         Check(notKept.Contains("its `/ws` speaks no LINK (today a node link proves a bearer key or the operator's credential, §7.1)", StringComparison.Ordinal) && LinkKept(),
@@ -3037,13 +3044,27 @@ static class ShowBusSpecTests
     }
 
     /// <summary>
-    /// Whether Stagewatch still grants no window: no type of Core, Show or Remote is named for a grant, and a window keeps no
-    /// <c>Grants</c> of its own, so no grant's address can travel.
+    /// §12.4's grants, kept as a model: a window takes at most <c>window.grants</c> grants, one app each, the next refused with the
+    /// reason; a page grant has an address of its own, which finds its window by the app's id; a draw grant has none; and a proposal under
+    /// an app's key that asks a window for another app is refused in §12.4's words.
     /// </summary>
-    static bool GrantsAsToday()
-        => new[] { typeof(ScreenWindow).Assembly, typeof(ShowContext).Assembly, typeof(WebServer).Assembly }.Distinct()
-               .SelectMany(a => a.GetTypes()).All(t => !t.Name.Contains("Grant", StringComparison.Ordinal))
-           && typeof(ScreenWindow).GetProperty("Grants") is null;
+    static bool GrantsKept(long max)
+    {
+        var apps = Enumerable.Range(0, (int)max + 1).Select(i => new ShowApp("patterns", "app" + i.ToString(CultureInfo.InvariantCulture), "", ["pages"], true))
+            .Append(new ShowApp("playmap", "pm1", "", ["window-draw"], true)).ToList();
+        var ctx = new WindowContext(_ => null, [], ScreenWindows.NewToken, ScreenWindows.NewId, id => ScreenWindows.FindApp(apps, id));
+        IReadOnlyList<ScreenWindow> list = [new ScreenWindow { Id = "wa", Name = "lobby", Token = ScreenWindows.NewToken() }];
+        var drawn = ScreenWindows.Apply(list, new WindowArgs("grant", "lobby", "pm1"), ctx);
+        foreach (var app in apps.Take((int)max)) list = ScreenWindows.Apply(list, new WindowArgs("grant", "lobby", app.Id), ctx).Windows;
+        var over = ScreenWindows.Apply(list, new WindowArgs("grant", "lobby", apps[(int)max].Id), ctx);
+        var desk = new ProposalDesk(() => "desk01", new NodeBindings());
+        var asked = desk.Submit("{\"from\":{\"t\":\"patterns\",\"id\":\"app0\",\"name\":\"\"},\"target\":{\"t\":\"main\",\"id\":\"\",\"name\":\"\"},\"line\":\"window grant lobby app1\",\"reason\":\"\"}",
+            NodeCredential.Key("kA"), (_, _) => "high", new DateTime(2026, 11, 12, 10, 0, 0, DateTimeKind.Utc));
+        return ScreenWindows.MaxGrants == max && list[0].Grants.Count == max && !over.Ok && ReferenceEquals(over.Windows, list)
+               && list[0].Grants.All(g => g.How == ScreenWindows.HowPage && ScreenWindows.Find(list, g.Token)?.Via == g.Node)
+               && drawn.Windows[0].Grants is [{ How: ScreenWindows.HowDraw, Token: "" }]
+               && asked.Error == "a show app may ask a window only for itself";
+    }
 
     /// <summary>
     /// Whether the one door a peer's context comes through keeps <c>context.bytes</c> in UTF-8 bytes: HttpRequest, WebServer's

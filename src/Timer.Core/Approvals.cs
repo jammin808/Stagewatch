@@ -205,6 +205,10 @@ public sealed class ProposalDesk
         if (LineFence.Check(raw, WindowTokens?.Invoke()) is { } fenced) return (null, fenced, false);
         var line = raw.Trim();
         if (toDesk && PersonVerb(line) is { } verb) return (null, $"{verb} is a person's at this desk — never a proposal", false);
+        // Show Bus §12.4: an app asks a window only for itself. Only the operator's credential may propose a grant to another app; any
+        // other proposal naming an app that is not its own from is refused before any key speaks for it.
+        if (toDesk && credential.Proof != NodeProof.Operator && GrantedApp(line) is { } app && !app.Equals(from.Id, StringComparison.Ordinal))
+            return (null, ForItselfOnly, false);
         if (never?.Invoke(target, line) is { } notProposed) return (null, notProposed, false);
         // Spoken for only once the proposal is whole and there is room for it, so a malformed proposal, a line that fills a secret or a
         // full desk binds no key. The room is checked again when it is queued: two proposals racing for the last place can leave the
@@ -530,6 +534,14 @@ public sealed class ProposalDesk
         var r = Str(n, 16).ToLowerInvariant();
         return r is "low" or "review" or "high" ? r : null;
     }
+
+    /// <summary>Why a proposal under a show app's key that asks a window for another app is refused (Show Bus §12.4).</summary>
+    public const string ForItselfOnly = "a show app may ask a window only for itself";
+
+    /// <summary>The app a <c>window grant &lt;window&gt; &lt;app&gt;</c> line names, as this desk's grammar reads it; null for any other line.</summary>
+    public static string? GrantedApp(string line)
+        => ShowCommandParser.TryParseLine(line, out var cmd, out _) && cmd.Kind == ShowCommandKind.Window && cmd.Get<WindowArgs>() is { Action: "grant" } a
+            ? a.Argument.Trim() : null;
 
     /// <summary>The line's first word when it is a person's verb at this desk (<see cref="PersonVerbs"/>), else null.</summary>
     private static string? PersonVerb(string line)

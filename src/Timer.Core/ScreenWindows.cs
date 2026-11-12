@@ -32,9 +32,71 @@ public sealed class ScreenWindow
     [JsonPropertyName("fadeMs")] public int FadeMs { get; set; }
     /// <summary>Rises with every change the window must act on; the window reports the revision it shows.</summary>
     [JsonPropertyName("rev")] public int Revision { get; set; }
+    /// <summary>
+    /// The show apps this window is granted to, at most <see cref="ScreenWindows.MaxGrants"/>, each by its own node id. Kept with this
+    /// PC's settings like the window itself, never in a show file; a page grant's token is a pass of its own (Show Bus §12.4).
+    /// </summary>
+    [JsonPropertyName("grants")] public List<WindowGrant> Grants { get; set; } = new();
 
-    public ScreenWindow Clone() => (ScreenWindow)MemberwiseClone();
+    /// <summary>
+    /// A copy that shares nothing with this one, its grants included (a missing grant, as a hand-edited file can hold, is not
+    /// copied): readers hold copies while the owner edits.
+    /// </summary>
+    public ScreenWindow Clone()
+    {
+        var copy = (ScreenWindow)MemberwiseClone();
+        copy.Grants = (Grants ?? new()).OfType<WindowGrant>().Select(g => g.Clone()).ToList();
+        return copy;
+    }
 }
+
+/// <summary>
+/// One window granted to one show app (Show Bus §12.4): the app by its Show Bus id, kind and name as heard when the grant was made,
+/// and how it holds the window, fixed then. A page grant (<see cref="ScreenWindows.HowPage"/>) has an address of its own, its
+/// <see cref="Token"/>, made as a window's is: withdrawing that app stops only that address. A draw grant
+/// (<see cref="ScreenWindows.HowDraw"/>) holds no address, so its token is empty.
+/// </summary>
+public sealed class WindowGrant
+{
+    /// <summary>The app's Show Bus id: the only node whose key-verified link may take this grant.</summary>
+    [JsonPropertyName("node")] public string Node { get; set; } = "";
+    /// <summary>The app's kind (its hello's <c>t</c>), as heard when the grant was made.</summary>
+    [JsonPropertyName("t")] public string Kind { get; set; } = "";
+    /// <summary>The app's name as heard when the grant was made, for the operator's words.</summary>
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    /// <summary><see cref="ScreenWindows.HowPage"/> or <see cref="ScreenWindows.HowDraw"/>.</summary>
+    [JsonPropertyName("how")] public string How { get; set; } = "";
+    /// <summary>A page grant's own pass (its address is /w/&lt;token&gt;); "" for a draw grant.</summary>
+    [JsonPropertyName("token")] public string Token { get; set; } = "";
+    [JsonPropertyName("made")] public DateTime MadeUtc { get; set; }
+
+    public WindowGrant Clone() => (WindowGrant)MemberwiseClone();
+}
+
+/// <summary>
+/// A show app a window may be granted to, as this Stagewatch hears it: its kind and Show Bus id, its name, what it says it can do
+/// (<see cref="Can"/>: the abilities its node link offers, its <c>can=</c>, when it is linked; else its hello's caps), and whether a
+/// key bound to its id proves the link those abilities came from (<see cref="Verified"/>). A grant made on an app that is not verified
+/// is worded as its claim, checked when it links.
+/// </summary>
+public sealed record ShowApp(string Kind, string Id, string Name, IReadOnlyList<string> Can, bool Verified)
+{
+    /// <summary>How the operator's words name it: its name, else its kind and id.</summary>
+    public string Label => Name.Length > 0 ? Name : NodeBindings.Describe(Kind, Id);
+}
+
+/// <summary>An app looked up by the id or name a <c>window grant</c> line gives: the app, or why none is meant (words for the operator).</summary>
+public sealed record AppLookup(ShowApp? App, string Error)
+{
+    public static AppLookup Found(ShowApp app) => new(app, "");
+    public static AppLookup Missing(string error) => new(null, error);
+}
+
+/// <summary>
+/// The window an address opens, and by which of its passes: <see cref="Via"/> is "" for the window's own address, else the node id of
+/// the page grant whose address it is.
+/// </summary>
+public readonly record struct WindowHit(ScreenWindow Window, string Via);
 
 /// <summary>What a window says it shows (it reports after each swap), as the server last heard it.</summary>
 public sealed record WindowObserved(
@@ -52,12 +114,17 @@ public sealed record WindowObserved(
 /// <summary>A window action, the window(s) it is for ("all", a name or an id) and its argument.</summary>
 public sealed record WindowArgs(string Action, string Who, string Argument) : ShowArgs;
 
-/// <summary>What a window command needs from outside the window list (owner thread).</summary>
+/// <summary>
+/// What a window command needs from outside the window list (owner thread). <see cref="FindApp"/> finds the show app a grant names
+/// (null: this Stagewatch hears none, so every grant is refused); <see cref="NowUtc"/> stamps a grant (null: the system clock).
+/// </summary>
 public sealed record WindowContext(
     Func<string, string?> SetupPath,
     IReadOnlyList<HoldingImage> Images,
     Func<string> NewToken,
-    Func<string> NewId);
+    Func<string> NewId,
+    Func<string, AppLookup>? FindApp = null,
+    Func<DateTime>? NowUtc = null);
 
 /// <summary>What a window command does once applied.</summary>
 public enum WindowEffect { None, Changed, Identify, Reload }
@@ -78,6 +145,21 @@ public static class ScreenWindows
     public const string Holding = "holding", Black = "black";
     public const string LossHold = "hold", LossWarn = "warn";
     public const int Max = 64, MaxHoldText = 200, MaxFadeMs = 5000;
+
+    /// <summary>The most show apps one window is granted to (Show Bus §14, <c>window.grants</c>).</summary>
+    public const int MaxGrants = 4;
+
+    /// <summary>How an app holds a granted window: it opens the window's page in a browser of its own (ability <see cref="CanPages"/>).</summary>
+    public const string HowPage = "page";
+
+    /// <summary>How an app holds a granted window: it draws the content itself and holds no address (ability <see cref="CanDraw"/>).</summary>
+    public const string HowDraw = "draw";
+
+    /// <summary>The abilities (Show Bus §2 caps, a node link's <c>can=</c>) that let an app hold a window.</summary>
+    public const string CanPages = "pages", CanDraw = "window-draw";
+
+    /// <summary>The longest app name a grant keeps.</summary>
+    public const int MaxAppName = 60;
 
     /// <summary>No 0/o or 1/l: a token read aloud or off a phone is typed right.</summary>
     private const string Alphabet = "abcdefghijkmnpqrstuvwxyz23456789";
@@ -105,18 +187,106 @@ public static class ScreenWindows
 
     public static bool ValidName(string? name) => ScreenPreset.ValidName(name);
 
-    /// <summary>The window an address belongs to, or null. Every window is compared in constant time, so the time taken
-    /// says nothing about how close a guess was.</summary>
-    public static ScreenWindow? ByToken(IReadOnlyList<ScreenWindow> windows, string? token)
+    /// <summary>
+    /// The window an address belongs to, and by which pass (<see cref="WindowHit.Via"/>: "" for the window's own address, else the
+    /// node id of the page grant whose address it is), or null. Every window's token and every page grant's are compared, each in
+    /// constant time and none skipped once one matches, so the time taken says nothing about how close a guess was or which pass it hit.
+    /// </summary>
+    public static WindowHit? Find(IReadOnlyList<ScreenWindow> windows, string? token)
     {
         if (!ValidToken(token)) return null;
         var given = Encoding.ASCII.GetBytes(token!);
-        ScreenWindow? hit = null;
+        WindowHit? hit = null;
         foreach (var w in windows)
-            if (w.Token.Length == TokenLength && CryptographicOperations.FixedTimeEquals(given, Encoding.ASCII.GetBytes(w.Token)))
-                hit = w;
+        {
+            if (Same(given, w.Token)) hit = new WindowHit(w, "");
+            foreach (var g in w.Grants ?? [])
+                if (g is { How: HowPage } && Same(given, g.Token)) hit = new WindowHit(w, g.Node);
+        }
         return hit;
+
+        static bool Same(byte[] given, string token)
+            => token.Length == TokenLength && CryptographicOperations.FixedTimeEquals(given, Encoding.ASCII.GetBytes(token));
     }
+
+    /// <summary>The window an address belongs to, by any of its passes (<see cref="Find"/>), or null.</summary>
+    public static ScreenWindow? ByToken(IReadOnlyList<ScreenWindow> windows, string? token) => Find(windows, token)?.Window;
+
+    /// <summary>Every pass the windows hold: each window's token and each of its page grants' — what a line must never carry.</summary>
+    public static IEnumerable<string> Tokens(IReadOnlyList<ScreenWindow> windows)
+        => windows.SelectMany(w => (w.Grants ?? []).Where(g => g is { Token.Length: > 0 }).Select(g => g.Token).Prepend(w.Token));
+
+    /// <summary>
+    /// The windows as this PC's settings keep them, made whole: a window with a bad name, token or id, or a name another window took
+    /// first, is dropped; a window whose address another window holds first keeps everything but that address, and gets a new one
+    /// (<paramref name="newToken"/>, else <see cref="NewToken"/>), so one pass opens exactly one window; and of its grants only those that
+    /// hold everything a grant must are kept (<see cref="KeptGrants"/>), every token unique across them all. Copies: the caller's objects
+    /// are never shared.
+    /// </summary>
+    public static List<ScreenWindow> Kept(IEnumerable<ScreenWindow?>? saved, Func<string>? newToken = null)
+    {
+        var windows = (saved ?? []).Where(w => w is not null && ValidName(w.Name) && ValidToken(w.Token) && !string.IsNullOrEmpty(w.Id))
+            .GroupBy(w => w!.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.First()!.Clone()).ToList();
+        var taken = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var w in windows)
+        {
+            if (taken.Add(w.Token)) continue;
+            string token;
+            do token = (newToken ?? NewToken)(); while (!ValidToken(token) || !taken.Add(token));
+            w.Token = token;
+            w.Revision++;
+        }
+        foreach (var w in windows) w.Grants = KeptGrants(w.Grants, taken);
+        return windows;
+    }
+
+    /// <summary>
+    /// A window's grants as loading keeps them: at most <see cref="MaxGrants"/>, one per node, each with a valid Show Bus id and a
+    /// <c>how</c> of page or draw; a page grant with a valid token no other pass has (<paramref name="taken"/>, which gains it), a draw
+    /// grant with none. Anything else is dropped, never repaired: a grant is the operator's act, made again by a person.
+    /// </summary>
+    private static List<WindowGrant> KeptGrants(List<WindowGrant>? grants, HashSet<string> taken)
+    {
+        var kept = new List<WindowGrant>();
+        foreach (var g in grants ?? [])
+        {
+            if (kept.Count >= MaxGrants) break;
+            if (g is null || !NodeBindings.ValidId(g.Node) || kept.Any(k => k.Node == g.Node)) continue;
+            g.Kind ??= ""; g.Name ??= ""; g.Token ??= "";
+            var ok = g.How switch
+            {
+                HowPage => ValidToken(g.Token) && taken.Add(g.Token),
+                HowDraw => g.Token.Length == 0,
+                _ => false,
+            };
+            if (!ok) continue;
+            if (!NodeBindings.ValidId(g.Kind)) g.Kind = "";
+            if (g.Name.Length > MaxAppName) g.Name = g.Name[..MaxAppName];
+            kept.Add(g);
+        }
+        return kept;
+    }
+
+    /// <summary>
+    /// The one show app <paramref name="idOrName"/> names among <paramref name="heard"/>: by its Show Bus id, else by a name no other app
+    /// has (case aside). Refused with words naming what was heard: no app by that id or name, or a name two apps share.
+    /// </summary>
+    public static AppLookup FindApp(IReadOnlyList<ShowApp> heard, string idOrName)
+    {
+        var want = idOrName.Trim();
+        if (want.Length == 0) return AppLookup.Missing("window grant takes a window and a show app (its id, or its name in quotes)");
+        if (heard.FirstOrDefault(a => a.Id.Equals(want, StringComparison.Ordinal)) is { } byId) return AppLookup.Found(byId);
+        var named = heard.Where(a => a.Name.Equals(want, StringComparison.OrdinalIgnoreCase) || a.Label.Equals(want, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (named.Count == 1) return AppLookup.Found(named[0]);
+        if (named.Count > 1) return AppLookup.Missing($"\"{want}\" names {named.Count} show apps — use its id ({string.Join(", ", named.Select(a => a.Id))})");
+        return AppLookup.Missing(NoApp(want, heard));
+    }
+
+    /// <summary>The words for an app nobody heard, naming those that were (the first few).</summary>
+    public static string NoApp(string want, IReadOnlyList<ShowApp> heard)
+        => $"No show app called \"{want}\" on the show network ("
+           + (heard.Count == 0 ? "this Stagewatch hears none" : "heard: " + string.Join(", ", heard.Take(8).Select(a => a.Label + " " + a.Id)) + (heard.Count > 8 ? ", …" : ""))
+           + ")";
 
     /// <summary>Pages that need the PIN, and the server's own routes, are not window content.</summary>
     private static readonly string[] NotContent = { "/w/", "/api/", "/mcp", "/tls", "/p/", "/ws", "/control", "/producer", "/showcaller", "/designer", "/report" };
@@ -201,6 +371,13 @@ public static class ScreenWindows
 
         switch (action)
         {
+            case "grant":
+                return Grant(current, list, a, ctx, all ? null : hits[0]);
+            case "withdraw":
+                // Every window's grants end only when all is said: a withdraw that names no window is refused, whichever door built it.
+                if (a.Who.Trim().Length == 0) return WindowChange.Refused(current, "window withdraw takes a window (or all)");
+                return Withdraw(current, list, hits, label, all, a.Argument.Trim(), ctx);
+
             case "identify":
                 return new WindowChange(true, $"Identifying {label}", current, ids, WindowEffect.Identify);
             case "reload":
@@ -294,21 +471,115 @@ public static class ScreenWindows
 
             case "revoke":
             {
-                foreach (var w in hits) { w.Token = ctx.NewToken(); w.Revision++; }
-                return Done($"New address for {label}: the old one stopped working", hits);
+                // Every pass of the window changes at once: its own address and each page grant's. A grant's app keeps its grant (its new
+                // address is its link's to carry); nobody's copy of an old one opens anything.
+                var pages = 0;
+                foreach (var w in hits)
+                {
+                    w.Token = NewPass(list, ctx);
+                    foreach (var g in w.Grants.Where(g => g.How == HowPage)) { g.Token = NewPass(list, ctx); pages++; }
+                    w.Revision++;
+                }
+                return Done($"New address for {label}: the old one stopped working"
+                            + (pages == 0 ? "" : pages == 1 ? ", and the one granted app's address too" : $", and the {pages} granted apps' addresses too"), hits);
             }
 
             case "delete":
             {
                 if (all) return WindowChange.Refused(current, "Delete windows one at a time");
                 list.Remove(hits[0]);
-                return new WindowChange(true, $"Window {hits[0].Name} deleted: its address stopped working", list, ids, WindowEffect.Changed);
+                var granted = hits[0].Grants.Count;
+                return new WindowChange(true, $"Window {hits[0].Name} deleted: its address stopped working"
+                                              + (granted == 0 ? "" : granted == 1 ? ", and its grant ended" : $", and its {granted} grants ended"), list, ids, WindowEffect.Changed);
             }
         }
-        return WindowChange.Refused(current, "window takes new, show, cue, hold, release, identify, reload, loss, fade, rename, revoke or delete");
+        return WindowChange.Refused(current, Actions);
 
         WindowChange Done(string words, IReadOnlyList<ScreenWindow> touched) => new(true, words, list, touched.Select(t => t.Id).ToList(), WindowEffect.Changed);
     }
+
+    /// <summary>Why an unknown <c>window</c> action is refused: the actions there are.</summary>
+    public const string Actions = "window takes new, show, cue, hold, release, identify, reload, loss, fade, rename, revoke, delete, grant or withdraw";
+
+    /// <summary>A token no window or grant in <paramref name="list"/> holds: a pass opens exactly one thing.</summary>
+    private static string NewPass(IReadOnlyList<ScreenWindow> list, WindowContext ctx)
+    {
+        var taken = Tokens(list).ToHashSet(StringComparer.Ordinal);
+        string token;
+        do token = ctx.NewToken(); while (taken.Contains(token));
+        return token;
+    }
+
+    /// <summary>
+    /// <c>window grant &lt;window&gt; &lt;app&gt;</c>: one window to one show app (Show Bus §12.4). The app is found by its id or a name no
+    /// other app has (<see cref="WindowContext.FindApp"/>); how it holds the window is chosen now from what it offers — a page when it
+    /// shows pages, else a drawing when it draws windows — and an app that offers neither is refused. A page grant gets an address of its
+    /// own; a draw grant none. Refused, nothing changed: all windows, an unknown or ambiguous app, one already granted the window, a
+    /// window granted to <see cref="MaxGrants"/> apps already. The grant changes nothing the window shows, so its revision stays.
+    /// </summary>
+    private static WindowChange Grant(IReadOnlyList<ScreenWindow> current, List<ScreenWindow> list, WindowArgs a, WindowContext ctx, ScreenWindow? window)
+    {
+        if (window is null) return WindowChange.Refused(current, "Grant one window at a time");
+        var want = a.Argument.Trim();
+        if (want.Length == 0) return WindowChange.Refused(current, "window grant takes a window and a show app (its id, or its name in quotes)");
+        var found = ctx.FindApp?.Invoke(want) ?? AppLookup.Missing(NoApp(want, []));
+        if (found.App is not { } app) return WindowChange.Refused(current, found.Error);
+        if (!NodeBindings.ValidId(app.Id)) return WindowChange.Refused(current, $"{app.Label} has no valid Show Bus id");
+        if (window.Grants.FirstOrDefault(g => g.Node == app.Id) is { } held)
+            return WindowChange.Refused(current, $"{window.Name} is already granted to {GrantLabel(held)}");
+        if (window.Grants.Count >= MaxGrants)
+            return WindowChange.Refused(current, $"{window.Name} is granted to {MaxGrants} show apps already — withdraw one first");
+        var can = app.Can ?? [];
+        var how = can.Contains(CanPages, StringComparer.Ordinal) ? HowPage : can.Contains(CanDraw, StringComparer.Ordinal) ? HowDraw : null;
+        if (how is null) return WindowChange.Refused(current, $"{app.Label} can't show a window: it offers neither {CanPages} nor {CanDraw}");
+        var name = app.Name.Length > MaxAppName ? app.Name[..MaxAppName] : app.Name;
+        var grant = new WindowGrant
+        {
+            Node = app.Id, Kind = NodeBindings.ValidId(app.Kind) ? app.Kind : "", Name = name, How = how,
+            Token = how == HowPage ? NewPass(list, ctx) : "", MadeUtc = (ctx.NowUtc ?? (() => DateTime.UtcNow))(),
+        };
+        window.Grants.Add(grant);
+        var label = $"{app.Label} ({app.Id})";
+        var words = how == HowPage
+            ? $"{window.Name} granted to {label} as a page — it takes the address when it links with its node key"
+            : $"{window.Name} granted to {label} to draw — it draws the window when it links with its node key";
+        if (!app.Verified) words += how == HowPage ? " (it says it shows pages; checked when it links)" : " (it says it draws windows; checked when it links)";
+        return new WindowChange(true, words, list, new[] { window.Id }, WindowEffect.Changed);
+    }
+
+    /// <summary>
+    /// <c>window withdraw &lt;window|all&gt; [app]</c>: ends the named window's grants (or every window's), to every app or to the one
+    /// named by its id or the name its grant was made with. A page grant's address stops at once. Refused, nothing changed, when no
+    /// such grant is there, or when a name (not an id) matches grants to more than one app: the words never name one app while two
+    /// grants end.
+    /// </summary>
+    private static WindowChange Withdraw(IReadOnlyList<ScreenWindow> current, List<ScreenWindow> list, IReadOnlyList<ScreenWindow> hits, string label, bool all, string app,
+        WindowContext ctx)
+    {
+        bool ById(WindowGrant g) => g.Node.Equals(app, StringComparison.Ordinal);
+        bool Named(WindowGrant g) => app.Length == 0 || ById(g) || g.Name.Equals(app, StringComparison.OrdinalIgnoreCase)
+                                     || GrantLabel(g).Equals(app, StringComparison.OrdinalIgnoreCase);
+        var ended = hits.SelectMany(w => w.Grants.Where(Named).Select(g => (Window: w, Grant: g))).ToList();
+        if (ended.Count == 0)
+        {
+            // The app as the operator knows it: its heard name when this Stagewatch hears it, else the word typed.
+            var whom = app.Length == 0 ? "anyone" : ctx.FindApp?.Invoke(app).App?.Label ?? app;
+            return WindowChange.Refused(current, all && hits.Count != 1 ? $"No window is granted to {whom}" : $"{label} isn't granted to {whom}");
+        }
+        var nodes = ended.Select(e => e.Grant.Node).Distinct(StringComparer.Ordinal).ToList();
+        if (app.Length > 0 && nodes.Count > 1 && !ended.Any(e => ById(e.Grant)))
+            return WindowChange.Refused(current, $"\"{app}\" names {nodes.Count} show apps — use its id ({string.Join(", ", nodes)})");
+        foreach (var (w, g) in ended) w.Grants.Remove(g);
+        var touched = ended.Select(e => e.Window).Distinct().ToList();
+        var from = nodes.Count == 1 ? GrantLabel(ended[0].Grant) : $"{nodes.Count} show apps";
+        var what = touched.Count == 1 ? touched[0].Name : $"{touched.Count} windows";
+        var pages = ended.Count(e => e.Grant.How == HowPage);
+        return new WindowChange(true, $"{what} withdrawn from {from}" + (pages == 0 ? "" : pages == 1 ? ": its granted address stopped working" : ": their granted addresses stopped working"),
+            list, touched.Select(t => t.Id).ToList(), WindowEffect.Changed);
+    }
+
+    /// <summary>A grant's app as the operator's words name it: the name it was granted under, else its kind and id.</summary>
+    public static string GrantLabel(WindowGrant g) => g.Name.Length > 0 ? g.Name : NodeBindings.Describe(g.Kind, g.Node);
 
     private static (string Head, string Tail) SplitFirst(string s)
     {
