@@ -93,8 +93,9 @@ dotnet run --project src/Timer.App -c Debug
   smoke mode (`screens-windows`), but nobody has looked at them in the running app; the Windows job's screenshot is the
   first look. The browser side ran in headless Chromium only: a real TV browser, an OBS or vMix browser input and a
   signage player are untested.
-- **No window feedbacks in Companion.** The module's frame doesn't carry windows, so a key can't light when a window is
-  holding or lost. Adding a compact `windows` block to the detail frame (at the end) would do it.
+- **No window feedbacks in Companion.** *Since then (2.22, SW22.5 and SW22.7):* the operator frame ends with a compact
+  `windows` block, and the module lights keys from it (*Windows: A window is…*, *Windows: Holding page is up*,
+  `windows_open`, `windows_attention`; docs/COMPANION.md).
 - **No QR for a window's address.** Copy address is the way today; a QR on the Windows tab would suit phones and tablets.
 - **Window content is a page path.** A saved setup is resolved when the command runs (editing the setup later doesn't
   move the window). Patterns and PlayMap could take a window address as a browser source; nothing there does yet.
@@ -1172,9 +1173,9 @@ maintainer's too.
   SW22.1a/b do the same for a LINK socket. AGMessage 0.5.1 dials as such a node link and marks itself connected, and confirms a
   first-use pin, only on `{"type":"auth","ok":true}` or an authenticated 200 (its `app/lib/nodes.js`). A browser socket that names
   no node still gets the public frame in silence, as a screen should. The gap row is closed by what landed, not by this unit's code.
-- **The Companion module's comments lag** (`companion-module/src/connection.ts` says a `final` follow-up comes only after an accepted
-  that waits on another node). Any command the show thread had not run within the deadline now gets one; `parseReceipt` reads it
-  either way. The words move with the module's next change, and its tests.
+- **The Companion module's comments lagged** (`companion-module/src/connection.ts` said a `final` follow-up comes only after an
+  accepted that waits on another node). Any command the show thread had not run within the deadline gets one too; `parseReceipt`
+  reads it either way. *Since then (SW22.7):* the comments say both.
 - **Window grants reach their apps (SW22.4); the desk makes them (SW22.5); so does the rig (SW22.6).** The web server delivers
   `grants`, the draw messages and the black end (REMOTE 2.22, windows granted to show apps), and `/api/windows` lists each grant's
   state. The desk and the rig hear the show network's apps for `window grant` (`ShowNetwork.Apps`); the rig builds the window items
@@ -1207,6 +1208,10 @@ maintainer's too.
     unit refuses (12.4 lets a door that authenticates nobody refuse or queue). Until SW22.8's gate queues a grant from Companion TCP
     and OSC as a §11 proposal for a person to approve, SW22.7's grant side answers with the refusal's words and its withdraw side
     works; the master plan's "SW22.7 depends on SW22.5" holds for withdraw and the feedbacks, and its grant side waits on SW22.8.
+    *Since then (SW22.7):* so it landed. The press goes with a request id and its refusal is a line in the module's log, in
+    Stagewatch's words; `companion-module/test/window-lines.tsv` holds them from both ends (the suite sends every window line the
+    module presses to a real Companion server and expects that file's door row; the module's tests show that row's words on the
+    log), so SW22.8 changes the grant's one door row. No preset grants a window until then.
   - A Show Bus §11 proposal approved at the desk names its app by its Show Bus id alone (the host hears an approved line as
     `DeskOrigin.Proposal`), so a node not itself heard can no longer grant an app that merely has its id as a name (SW22.3's gap
     closed); `FindApp(idOnly)` and `DeskOrigin.Proposal` on the approved line are each tested, the WPF step between them
@@ -1216,7 +1221,12 @@ maintainer's too.
     greyed.
   - The frame's `windows` and the window items are rebuilt once a second with the context, and the Screens window reads the same
     facts on its own refresh (viewers, grants, placements): no measurement this round.
-  - The Companion module's `window_grant`, `window_state`, `window_holding` and variables are SW22.7's.
+  - The Companion module's `window_grant`, `window_state`, `window_holding` and variables are SW22.7's. *Since then (SW22.7):*
+    landed (docs/COMPANION.md, 2.22). The module reads `granted` as names joined by ", ", so an app's name that holds ", " matches
+    only as the whole of the field; the feedback matches the name Screens → Windows shows (an app granted with no name shows as
+    `<kind> <id>`), never a bare Show Bus id typed in its options; the 64 lines awaiting an answer are shared by playout and window
+    presses, so a burst of withdraws can forget a playout press still waiting, with no `lost` said for it; and with no `windows` block (no window, or a Stagewatch before 2.22) the counts read 0, not
+    unknown. Companion itself has not loaded the new definitions: the maintainer's PC work, not run.
   - The WPF desk (the Granted to column, the menus, the button, the Show network entry, the help tip) is compiled here and never
     seen: a desk walk-through, and the UI smoke's new checks, are the maintainer's PC work, not run.
 - **Windows in the context (SW22.2, G23, G24, G22).** The timer `follows` a playout link, `hears` any other link, and `feeds` a

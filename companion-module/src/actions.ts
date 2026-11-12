@@ -107,6 +107,40 @@ export function playoutStartLine(action: 'cue' | 'go', link: string, playlist: s
 	return { line: `${head} ${action} ${words.join(' ')}${together ? ' together' : ''}` }
 }
 
+/** The longest show app's name a window line takes (ScreenWindows.MaxAppName): a longer one is named by its id. */
+export const MAX_APP_NAME = 60
+
+/**
+ * A show app as a window line names it: its Show Bus id bare (1–40 of letters, digits, - and _), any other name quoted — the whole of
+ * it is the app, as Stagewatch reads the words after the window — or null when it is empty, longer than Stagewatch takes, or holds a
+ * control character.
+ */
+export function showAppWord(v: string): string | null {
+	const t = v.trim()
+	if (t.length < 1 || t.length > MAX_APP_NAME || /[\u0000-\u001f\u007f-\u009f]/.test(t)) return null
+	return /^[A-Za-z0-9_-]{1,40}$/.test(t) ? t : quote(t)
+}
+
+/**
+ * `WINDOW GRANT <window> <app>` or `WINDOW WITHDRAW <window|all> [<app>]`, or why not (nothing is sent). A grant names one window and
+ * one show app, never every window; a withdraw names its window, or every window when it is empty, and its app only when one is given.
+ * Whether the app is heard, may show a window, or already holds it is Stagewatch's to say, in the receipt the log shows.
+ */
+export function windowGrantLine(what: string, window: string, app: string): { line: string } | { error: string } {
+	const who = windowName(window)
+	if (who === null) return { error: 'Windows: a window name uses letters, digits, - and _' }
+	if (what !== 'grant' && what !== 'withdraw') return { error: `Windows: "${what}" is not grant or withdraw` }
+	const named = app.trim()
+	const word = named === '' ? '' : showAppWord(named)
+	if (word === null) return { error: `Windows: a show app is named by its Show Bus id or its name, at most ${MAX_APP_NAME} characters with no control character` }
+	if (what === 'grant') {
+		if (who.toLowerCase() === 'all') return { error: 'Windows: grant one window at a time — name it' }
+		if (word === '') return { error: 'Windows: a grant names the show app — its Show Bus id or its name' }
+		return { line: `WINDOW GRANT ${who} ${word}` }
+	}
+	return { line: word === '' ? `WINDOW WITHDRAW ${who}` : `WINDOW WITHDRAW ${who} ${word}` }
+}
+
 /** The link dropdown: none named first (Stagewatch picks: the only link, else for the clip on air the VT's), then the config's links by their peers' names. */
 export function playoutLinkChoices(links: PlayoutLinkInfo[] | undefined, none: string): DropdownChoice[] {
 	return [{ id: '', label: none }, ...(links ?? []).map((l) => ({ id: l.name, label: l.label && l.label !== l.name ? `${l.name} — ${l.label}` : l.name }))]
@@ -944,6 +978,31 @@ export function UpdateActions(self: ModuleInstance): void {
 				const who = windowName(str(ev.options.window))
 				if (who === null) return self.log('warn', 'Windows: a window name uses letters, digits, - and _')
 				send(`WINDOW IDENTIFY ${who}`)
+			},
+		},
+		// ---- 2.22: a window granted to a show app (Show Bus 12.4); every press goes with a request id, so Stagewatch's answer is in the log
+		window_grant: {
+			name: 'Windows: grant to a show app, or withdraw',
+			description:
+				"Grant one window to a show app on the show network (a Patterns desk shows it as a page, a PlayMap node draws it), or withdraw a window's grants. A grant is a person's act: Companion TCP authenticates nobody, so Stagewatch refuses a grant from a button and says so in the log — grant it at Stagewatch's desk (Screens → Windows). A withdraw runs from here, and Stagewatch's answer is in the log too.",
+			options: [
+				{
+					type: 'dropdown',
+					id: 'what',
+					label: 'Grant or withdraw',
+					default: 'withdraw',
+					choices: [
+						{ id: 'grant', label: 'Grant (one window, one app)' },
+						{ id: 'withdraw', label: 'Withdraw' },
+					],
+				},
+				{ type: 'textinput', id: 'window', label: 'Window name (empty = all windows, for a withdraw only)', default: 'lobby', useVariables: true },
+				{ type: 'textinput', id: 'app', label: 'Show app: its Show Bus id or its name (empty = every app, for a withdraw only)', default: '', useVariables: true },
+			],
+			callback: (ev) => {
+				const r = windowGrantLine(str(ev.options.what, 'withdraw'), str(ev.options.window), str(ev.options.app))
+				if ('error' in r) return self.log('warn', r.error)
+				self.sendWithReceipt(r.line)
 			},
 		},
 		live_undo: {

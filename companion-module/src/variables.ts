@@ -99,6 +99,9 @@ const STATIC: Record<string, string> = {
 	network_ready: "Ready for doors? yes / no / unknown — Stagewatch's one verdict over every show app, link and window (unknown: not connected, Stagewatch stuck, or no verdict)",
 	network_red: 'Preflight rows that are red: each one blocks the doors (empty while unknown)',
 	network_amber: 'Preflight rows that are amber: to look at, never blocking (empty while unknown)',
+	// 2.22
+	windows_open: 'Windows Stagewatch controls that a screen has opened (any light but grey: grey is a window nobody has opened yet)',
+	windows_attention: 'Windows amber or red: switching to what it was sent, link lost, or could not show it',
 	playout_answer: 'The latest answer to a playout press: applied, accepted, final …, refused — with its words (an earlier press\'s answer names its line)',
 	hard_out: 'Next curfew and how the show is tracking against it',
 	hard_out_margin: 'Time to spare (+) or over (-) at the next curfew',

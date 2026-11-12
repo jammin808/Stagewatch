@@ -507,7 +507,7 @@ ${v('standing_by')} SB`, { size: '14', bgcolor: COLORS.darkgrey }),
 		simple('windows_hold_toggle', 'Windows: holding page on every window (toggle)', {
 			style: style('HOLD\nWINDOWS', { size: '14', bgcolor: COLORS.darkgrey }),
 			steps: press('window_hold', { window: '', how: 'toggle', value: '' }),
-			feedbacks: [],
+			feedbacks: [{ feedbackId: 'window_holding', options: { window: '' }, style: { bgcolor: COLORS.violet, color: COLORS.white, text: 'HOLDING\nWINDOWS' } }],
 			keywords: ['windows', 'holding', 'hold', 'standby', 'audience', 'screens'],
 		}),
 		simple('windows_identify', 'Windows: identify all', {
@@ -515,6 +515,41 @@ ${v('standing_by')} SB`, { size: '14', bgcolor: COLORS.darkgrey }),
 			steps: press('window_identify', { window: '' }),
 			feedbacks: [],
 			keywords: ['windows', 'identify', 'find', 'tv', 'obs', 'vmix'],
+		}),
+		// 2.22: a window's light on a key. The press toggles its holding page; amber needs a look (switching, link lost, could not
+		// show), green shows what it was sent, violet holds. Grey (dark) is a window nobody has opened.
+		simple('window_lobby', 'Windows: lobby — its light, press for the holding page (toggle)', {
+			style: style('LOBBY', { size: '14', bgcolor: COLORS.darkgrey }),
+			steps: press('window_hold', { window: 'lobby', how: 'toggle', value: '' }),
+			feedbacks: [
+				{ feedbackId: 'window_state', options: { window: 'lobby', state: 'green', app: '' }, style: { bgcolor: COLORS.green, color: COLORS.white, text: 'LOBBY\n✓' } },
+				{ feedbackId: 'window_holding', options: { window: 'lobby' }, style: { bgcolor: COLORS.violet, color: COLORS.white, text: 'LOBBY\nHOLD' } },
+				{ feedbackId: 'window_state', options: { window: 'lobby', state: 'attention', app: '' }, style: { bgcolor: COLORS.amber, color: COLORS.black, text: 'LOBBY\n△' } },
+			],
+			keywords: ['windows', 'window', 'lobby', 'light', 'state', 'holding', 'tv'],
+		}),
+		simple('windows_attention', 'Windows: how many need a look (display)', {
+			style: style(`WINDOWS\n${v('windows_open')} open`, { size: '14', bgcolor: COLORS.darkgrey }),
+			steps: [],
+			feedbacks: [
+				{ feedbackId: 'window_state', options: { window: '', state: 'attention', app: '' }, style: { bgcolor: COLORS.amber, color: COLORS.black, text: `WINDOWS\n${v('windows_attention')} △` } },
+			],
+			keywords: ['windows', 'attention', 'lost', 'amber', 'status'],
+		}),
+		// A withdraw ends what the app shows of the window at once, so it runs on a 1 s hold, never a tap. Lit while lobby is granted.
+		simple('window_withdraw_lobby', "Windows: withdraw lobby's grants (hold 1 s)", {
+			style: style('WITHDRAW\nLOBBY\nhold', { size: '7', bgcolor: COLORS.darkgrey }),
+			steps: [
+				{
+					down: [],
+					up: [],
+					[HOLD_MS]: { options: { runWhileHeld: true }, actions: [{ actionId: 'window_grant', options: { what: 'withdraw', window: 'lobby', app: '' } }] },
+				},
+			],
+			feedbacks: [
+				{ feedbackId: 'window_state', options: { window: 'lobby', state: 'granted', app: '' }, style: { bgcolor: COLORS.blue, color: COLORS.white, text: 'WITHDRAW\nLOBBY\n■ granted' } },
+			],
+			keywords: ['windows', 'grant', 'withdraw', 'patterns', 'playmap', 'show app'],
 		}),
 		simple('ltc_chase', 'LTC in: timer follows timecode (toggle)', {
 			style: style(`LTC
@@ -711,7 +746,8 @@ ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
 		{
 			id: 'outputs',
 			name: 'Outputs, NDI & 3D',
-			description: 'Open, key or close the speaker output and switch NDI — lit while active. Greyed when the licence doesn\'t include it.',
+			description:
+				"Open, key or close the speaker output and switch NDI — lit while active. Greyed when the licence doesn't include it. The windows Stagewatch controls: holding page, identify, a window's light (the lobby key: rename the window in its options), how many need a look, and withdrawing a window's grants (hold 1 s).",
 			definitions: outputs,
 		},
 		{

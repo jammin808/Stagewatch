@@ -1,5 +1,5 @@
 import { combineRgb, type CompanionFeedbackDefinitions, type DropdownChoice } from '@companion-module/base'
-import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, networkReady, standingBy, vtFrom } from './state.js'
+import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, networkReady, standingBy, vtFrom, windowHolding, windowIs, type WindowStateWant } from './state.js'
 import type ModuleInstance from './main.js'
 
 // Every callback reads the cached frame only: no I/O, constant time.
@@ -632,6 +632,40 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				const ready = networkReady(s())
 				return ready === 'no' || (ready === 'unknown' && fb.options.unknown !== false)
 			},
+		},
+		window_state: {
+			type: 'boolean',
+			name: 'Windows: A window is…',
+			description:
+				"A window Stagewatch controls, by its light over every screen showing it: green while it shows what it was sent, amber while it switches, lost its link or could not show it, grey while nobody has opened it (no window light is red today; Red is kept for the Show Bus light set) — or granted to a show app, matched by the name Screens → Windows shows in its Granted to column (an app granted with no name shows as its kind and id), not by its Show Bus id. With no window named, true while any window is. A Stagewatch that sends no windows (before 2.22), or none to send, lights nothing.",
+			defaultStyle: { bgcolor: COLORS.amber, color: COLORS.black },
+			options: [
+				{ type: 'textinput', id: 'window', label: 'Window name (empty = any window)', default: 'lobby' },
+				{
+					type: 'dropdown',
+					id: 'state',
+					label: 'Is',
+					default: 'attention',
+					choices: [
+						{ id: 'green', label: 'Green: shows what it was sent' },
+						{ id: 'attention', label: 'Needs a look (amber, or red should a later light use it)' },
+						{ id: 'amber', label: 'Amber' },
+						{ id: 'red', label: 'Red (no window light is red today)' },
+						{ id: 'grey', label: 'Grey: nobody has opened it' },
+						{ id: 'granted', label: 'Granted to a show app' },
+					],
+				},
+				{ type: 'textinput', id: 'app', label: 'Granted to (the name in Screens → Windows\' Granted to column, not the id; empty = any app)', default: '', isVisibleExpression: "$(options:state) == 'granted'" },
+			],
+			callback: (fb) => windowIs(s(), String(fb.options.window ?? ''), String(fb.options.state ?? 'attention') as WindowStateWant, String(fb.options.app ?? '')),
+		},
+		window_holding: {
+			type: 'boolean',
+			name: 'Windows: Holding page is up',
+			description: 'True while the window shows its holding page (its page loaded underneath). With no window named, true while every window does.',
+			defaultStyle: { bgcolor: COLORS.violet, color: COLORS.white },
+			options: [{ type: 'textinput', id: 'window', label: 'Window name (empty = every window)', default: '' }],
+			callback: (fb) => windowHolding(s(), String(fb.options.window ?? '')),
 		},
 		preview: {
 			type: 'boolean',

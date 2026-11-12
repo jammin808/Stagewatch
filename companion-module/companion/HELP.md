@@ -89,6 +89,15 @@ When you change the running order or presets in Stagewatch, the keys, dropdowns 
 
 (Replace `stagewatch` with your connection's label.)
 
+### New in 2.22: windows on keys, and windows granted to show apps
+
+Stagewatch 2.22 sends each window it controls with the frame — its light, whether it holds, and the show apps it is granted to — so a key can follow it. It never sends a window's address.
+
+- **Feedbacks:** *Windows: A window is…* — green (shows what it was sent), needs a look (amber: switching, link lost, or could not show it), amber, red, grey (nobody has opened it yet), or granted to a show app (any, or one by the name Stagewatch's Screens → Windows shows in its Granted to column — the app's name, or its kind and id when it had none — never its bare Show Bus id); with no window named, any window. No window light is red today: *red*, and red in *needs a look* and `windows_attention`, are kept for the Show Bus light set. *Windows: Holding page is up* — the window shows its holding page; with no window named, every window does.
+- **Variables:** `windows_open` (windows a screen has opened: any light but grey) and `windows_attention` (windows that need a look: amber, or red should a later light use it). With no window, or from a Stagewatch older than 2.22, both are 0; they are empty while not connected.
+- **Action:** *Windows: grant to a show app, or withdraw* — `WINDOW GRANT <window> <app>` or `WINDOW WITHDRAW <window|all> [<app>]`, the app by its Show Bus id or its name. Each press goes with a request id, and Stagewatch's answer is a line in this connection's log. **A grant from a button is refused today:** a grant is a person's act, and Companion TCP proves nobody's, so Stagewatch answers `refused — window grant is a person's act — Companion TCP authenticates nobody: grant it at the desk (Screens → Windows), or over HTTP or a WebSocket with the PIN or a control key`. Grant at Stagewatch's desk; a withdraw runs from here.
+- **Presets** (in *Outputs, NDI & 3D*): *lobby* — the window's light on the key (green, violet while holding, amber when it needs a look), press to toggle its holding page; change the window in its options. *How many need a look* — amber while any window does. *Withdraw lobby's grants* — runs only on a 1 s hold, lit blue while lobby is granted. *Holding page on every window* is now violet while every window holds. No preset grants a window.
+
 ### New in 2.21: ready for doors
 
 Stagewatch 2.21 judges the whole room once a second — every show app it was set up with or can hear, its own links and its windows — and says one thing: ready for doors, or not, and why.

@@ -9,7 +9,7 @@ import {
 } from '@companion-module/base'
 import { UpdateActions } from './actions.js'
 import { DEFAULT_PORT, GetConfigFields, type ModuleConfig } from './config.js'
-import { answerShown, receiptWords, StagewatchConnection, type LinkStatus, type Receipt } from './connection.js'
+import { routeReceipt, StagewatchConnection, type LinkStatus, type Receipt } from './connection.js'
 import { UpdateFeedbacks } from './feedbacks.js'
 import { UpdatePresets } from './presets.js'
 import {
@@ -114,9 +114,24 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.log('debug', `→ @${id} ${line}`)
 	}
 
+	/**
+	 * Send a line with a request id so Stagewatch's receipt — what it did, or why not — reaches this connection's log as every
+	 * receipt does (a window grant or withdraw: a refusal at Companion's door is said in Stagewatch's own words). Its answer never
+	 * reaches `playout_answer`. Dropped, never queued, while offline.
+	 */
+	sendWithReceipt(line: string): void {
+		const id = this.#conn?.request(line) ?? null
+		if (id === null) {
+			this.log('warn', `Not connected to Stagewatch — "${line}" was not sent`)
+			return
+		}
+		this.log('debug', `→ @${id} ${line}`)
+	}
+
 	#onReceipt(r: Receipt): void {
-		this.log(r.kind === 'answered' && r.ok ? 'info' : 'warn', `${r.line}: ${receiptWords(r)}`)
-		this.#setPlayoutAnswer(answerShown(r, this.#latestPlayout))
+		const to = routeReceipt(r, this.#latestPlayout)
+		this.log(to.log.level, to.log.text)
+		if (to.answer !== null) this.#setPlayoutAnswer(to.answer)
 	}
 
 	#setPlayoutAnswer(words: string): void {

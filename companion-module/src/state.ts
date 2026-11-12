@@ -145,6 +145,26 @@ export interface Snapshot {
 	rundown?: string
 	rundowns?: string[]
 	notesVersion?: number
+	/**
+	 * 2.22: the windows Stagewatch controls, as the operator's frame carries them (Show Bus 12.10) — last in the frame, and only while
+	 * there is a window: a frame without it has none (or comes from a Stagewatch before 2.22). Never a token or a path.
+	 */
+	windows?: WindowInfo[]
+}
+
+/**
+ * One window Stagewatch controls (the detail frame's `windows`): its light over its viewers (green, amber, red or grey — grey is a
+ * window nobody has opened yet), whether it shows what it was sent (`inStep`: green), whether it holds, what it is given (a page,
+ * `holding` or `black`), the show apps it is granted to (their names alone, joined by ", "; "" for none) and what its holders claim.
+ */
+export interface WindowInfo {
+	name: string
+	light: string
+	inStep: boolean
+	hold: boolean
+	showing: string
+	granted: string
+	on: string
 }
 
 /** One extra (aux) timer: it runs beside the show without changing it. */
@@ -222,6 +242,53 @@ export function vtFrom(s: Snapshot | null, from: string, runningOnly = false, la
 	if (from === 'vmix') return link === '' && p.source === 'vMix'
 	if (from === '') return link !== '' || p.source !== 'vMix'
 	return link === from
+}
+
+/** The windows a frame carries, each with a name and a light; anything else in the block is left out, never guessed at. */
+export function windowsOf(s: Snapshot | null): WindowInfo[] {
+	const w = s?.windows
+	if (!Array.isArray(w)) return []
+	return w.filter((x): x is WindowInfo => !!x && typeof x === 'object' && typeof x.name === 'string' && x.name !== '' && typeof x.light === 'string')
+}
+
+/** The windows a feedback names: one by its name (case as Stagewatch matches it, ignored), or every window for "". */
+function windowsNamed(s: Snapshot | null, name: string): WindowInfo[] {
+	const want = name.trim().toLowerCase()
+	const all = windowsOf(s)
+	return want === '' ? all : all.filter((w) => w.name.toLowerCase() === want)
+}
+
+/** Whether a window is granted to `app` (a name as the frame carries it, case ignored), or to any show app for "". */
+export function grantedTo(w: WindowInfo, app: string): boolean {
+	const granted = typeof w.granted === 'string' ? w.granted : ''
+	if (granted === '') return false
+	const want = app.trim().toLowerCase()
+	if (want === '') return true
+	return granted.toLowerCase() === want || granted.split(', ').some((g) => g.toLowerCase() === want)
+}
+
+/** What `window_state` asks of a window: its light, amber-or-red (`attention`), or granted to a show app. */
+export type WindowStateWant = 'green' | 'amber' | 'red' | 'grey' | 'attention' | 'granted'
+
+const isAttention = (light: string): boolean => light === 'amber' || light === 'red'
+
+/**
+ * Whether the window called `name` is in the state `want` (for `granted`, granted to `app`, or to any app for ""); with `name` "",
+ * whether any window is. A window the frame does not carry is in no state: no frame, or a Stagewatch that sends no windows, lights
+ * nothing.
+ */
+export function windowIs(s: Snapshot | null, name: string, want: WindowStateWant, app = ''): boolean {
+	return windowsNamed(s, name).some((w) => {
+		if (want === 'granted') return grantedTo(w, app)
+		if (want === 'attention') return isAttention(w.light)
+		return w.light === want
+	})
+}
+
+/** Whether the window called `name` shows its holding page; with `name` "", whether every window does (and there is one). */
+export function windowHolding(s: Snapshot | null, name: string): boolean {
+	const ws = windowsNamed(s, name)
+	return ws.length > 0 && ws.every((w) => w.hold === true)
 }
 
 /** Licence features Companion can check (keys sent by Stagewatch in CONFIG). */
@@ -332,6 +399,9 @@ export const FEEDBACK_IDS = [
 	'vt_link',
 	// 2.21
 	'network_not_ready',
+	// 2.22
+	'window_state',
+	'window_holding',
 ] as const
 export type FeedbackId = (typeof FEEDBACK_IDS)[number]
 
@@ -489,6 +559,9 @@ export function deriveVariables(s: Snapshot | null, connected: boolean, config: 
 		network_ready: networkReady(s),
 		network_red: networkReady(s) === 'unknown' ? '' : (s.network?.red ?? 0),
 		network_amber: networkReady(s) === 'unknown' ? '' : (s.network?.amber ?? 0),
+		// ---- the windows Stagewatch controls (2.22): opened on a screen (any light but grey), and amber or red
+		windows_open: windowsOf(s).filter((w) => w.light !== 'grey').length,
+		windows_attention: windowsOf(s).filter((w) => isAttention(w.light)).length,
 		// ---- schedule recovery
 		hard_out: s.hardOut ?? '',
 		hard_out_margin: s.hardOutMargin == null ? '' : signed(s.hardOutMargin),
@@ -598,6 +671,7 @@ export function feedbacksAffected(prev: Snapshot | null, next: Snapshot | null, 
 	if (!same(prev.slides, next.slides)) add('pace')
 	if (!same(prev.playout, next.playout)) add('vt_running', 'vt_link')
 	if (!same(prev.network, next.network)) add('network_not_ready')
+	if (!same(prev.windows, next.windows)) add('window_state', 'window_holding')
 	if (prev.preview !== next.preview) add('preview')
 	if (prev.qaPending !== next.qaPending || prev.qaQueued !== next.qaQueued) add('qa_waiting')
 	if (!same(prev.timings, next.timings)) add('item_late')

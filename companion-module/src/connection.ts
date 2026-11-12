@@ -7,8 +7,9 @@
 //    reconnect would be dangerous mid-show. A press while offline is dropped and logged.
 //  * Inbound data is reassembled into lines with a hard length cap.
 //  * A line sent with a request id (`@c<n> …`, request()) is answered by Stagewatch's own receipt: `OK @id <stage> [words]` or
-//    `ERROR @id <words>`, and after an `accepted` that waits on another node its one follow-up, the word `final` after the id, within
-//    30 s of the send. Each answer is a 'receipt' event naming the line it answers. A line still waiting when the socket closes — no
+//    `ERROR @id <words>`, and after an `accepted` its one follow-up, the word `final` after the id, within 30 s of the send: the other
+//    node's final word when the line waited on one, or Stagewatch's own once its show thread ran a line it had not run within its
+//    deadline. Each answer is a 'receipt' event naming the line it answers. A line still waiting when the socket closes — no
 //    answer yet, or an `accepted` within FINAL_WAIT_MS of its send — is one 'receipt' of kind `lost`, never a success the module did
 //    not hear; one older than that is forgotten without a word, for no answer to it could still come.
 
@@ -36,7 +37,10 @@ export interface Receipt {
 	ok: boolean
 	/** `accepted` or `applied` on an OK; "" on an ERROR, on a bare `OK @id`, and on `lost`. */
 	stage: string
-	/** The follow-up after an `accepted` that waited on another node: that node's final word, or Stagewatch's own. */
+	/**
+	 * The follow-up after an `accepted`: the other node's final word when the line waited on one, else Stagewatch's own (the line ran
+	 * after its deadline, or the node gave no final word).
+	 */
 	final: boolean
 	/** Stagewatch's words: the effect, or why not. */
 	words: string
@@ -403,6 +407,32 @@ export function receiptWords(r: Receipt): string {
 			: 'no answer — the link to Stagewatch dropped first, so it may or may not have run (look at Stagewatch)'
 	const head = (r.final ? 'final ' : '') + (r.ok ? r.stage || 'ok' : 'refused')
 	return r.words ? `${head} — ${r.words}` : head
+}
+
+/**
+ * A receipt as the connection's log says it — the line it answers, then its words — and at what level: `info` for an answer that ran
+ * or was taken, `warn` for a refusal and for an answer lost with the link. Every line sent with a request id is logged so, a window's as
+ * a playout link's.
+ */
+export function receiptLog(r: Receipt): { level: 'info' | 'warn'; text: string } {
+	return { level: r.kind === 'answered' && r.ok ? 'info' : 'warn', text: `${r.line}: ${receiptWords(r)}` }
+}
+
+/** Whether a line drives a playout link's air (`PLAYOUT …`, `PATTERNS …`): only those answers reach `playout_answer`. */
+export function isPlayoutLine(line: string): boolean {
+	return /^(PLAYOUT|PATTERNS)(\s|$)/i.test(line)
+}
+
+/**
+ * Where a receipt goes: the log always (receiptLog), and `playout_answer` only for a playout link's line (`answer` is null for any
+ * other line, a window's included, so its answer never reads as a playout press's). `latest` is the id the latest playout press went
+ * with, or null.
+ */
+export function routeReceipt(
+	r: Receipt,
+	latest: string | null,
+): { log: { level: 'info' | 'warn'; text: string }; answer: string | null } {
+	return { log: receiptLog(r), answer: isPlayoutLine(r.line) ? answerShown(r, latest) : null }
 }
 
 /**

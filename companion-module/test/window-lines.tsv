@@ -1,0 +1,31 @@
+# The window grant lines the Companion module sends, held to Stagewatch from both ends. The module's tests press window_grant with
+# each row's options and expect exactly the line, sent with a request id (test/module.test.mjs); Stagewatch's suite reads each line as
+# its Companion server does (tokenized, then ShowCommandParser) and expects the window action, the window and the app, then sends every
+# press line to a real Companion server with a request id and expects the door row's answer (CompanionV2Tests). A door row says what
+# Companion TCP's door does with a line of that action: refused, with Stagewatch's words exactly (the module's log shows them after
+# "refused —"), or passes on to the show thread, whose receipt is the show's. A refuse row is a press the module answers in its log
+# with those first words, sending nothing.
+#
+# A grant is a person's act (Show Bus 12.4) and Companion TCP authenticates nobody, so its door refuses it today. When Companion's
+# door queues a grant as a proposal for a person to approve (SW22.8), the grant's door row is the one row that changes.
+#
+# door<TAB>action<TAB>refused|passes<TAB>words (refused only)
+# press<TAB>action<TAB>options (JSON)<TAB>line<TAB>window action<TAB>window<TAB>app
+# refuse<TAB>action<TAB>options (JSON)<TAB>the log's first words
+door	grant	refused	window grant is a person's act — Companion TCP authenticates nobody: grant it at the desk (Screens → Windows), or over HTTP or a WebSocket with the PIN or a control key
+door	withdraw	passes
+press	window_grant	{"what":"grant","window":"lobby","app":"9f8e7d6c"}	WINDOW GRANT lobby 9f8e7d6c	grant	lobby	9f8e7d6c
+press	window_grant	{"what":"grant","window":" stage-left_2 ","app":" pm-1a2b "}	WINDOW GRANT stage-left_2 pm-1a2b	grant	stage-left_2	pm-1a2b
+press	window_grant	{"what":"grant","window":"lobby","app":"Patterns FOH"}	WINDOW GRANT lobby "Patterns FOH"	grant	lobby	Patterns FOH
+press	window_grant	{"what":"grant","window":"lobby","app":"FOH \"A\""}	WINDOW GRANT lobby "FOH \"A\""	grant	lobby	FOH "A"
+press	window_grant	{"what":"withdraw","window":"lobby","app":""}	WINDOW WITHDRAW lobby	withdraw	lobby	
+press	window_grant	{"what":"withdraw","window":"","app":""}	WINDOW WITHDRAW all	withdraw	all	
+press	window_grant	{"what":"withdraw","window":"lobby","app":"9f8e7d6c"}	WINDOW WITHDRAW lobby 9f8e7d6c	withdraw	lobby	9f8e7d6c
+press	window_grant	{"what":"withdraw","window":"","app":"PlayMap Stage left"}	WINDOW WITHDRAW all "PlayMap Stage left"	withdraw	all	PlayMap Stage left
+refuse	window_grant	{"what":"grant","window":"","app":"9f8e7d6c"}	Windows: grant one window at a time
+refuse	window_grant	{"what":"grant","window":"ALL","app":"9f8e7d6c"}	Windows: grant one window at a time
+refuse	window_grant	{"what":"grant","window":"lobby","app":""}	Windows: a grant names the show app
+refuse	window_grant	{"what":"grant","window":"Lobby TV","app":"9f8e7d6c"}	Windows: a window name uses letters
+refuse	window_grant	{"what":"withdraw","window":"lobby","app":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}	Windows: a show app is named by its Show Bus id or its name
+refuse	window_grant	{"what":"grant","window":"lobby","app":"FOH\tA"}	Windows: a show app is named by its Show Bus id or its name
+refuse	window_grant	{"what":"revoke","window":"lobby","app":""}	Windows: "revoke" is not grant or withdraw

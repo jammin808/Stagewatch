@@ -500,8 +500,10 @@ function fakeInstance(showConfig, configHeard = true) {
 		feedbacks: {},
 		presets: null,
 		structure: null,
+		answered: [],
 		sendPlayout: (line) => self.sent.push(line),
 		sendCommand: (line) => self.commands.push(line),
+		sendWithReceipt: (line) => self.answered.push(line),
 		log: (level, text) => self.logs.push([level, text]),
 		setActionDefinitions: (d) => (self.actions = d),
 		setFeedbackDefinitions: (d) => (self.feedbacks = d),
@@ -920,4 +922,195 @@ test('2.21 network_ready follows the frame\'s network, reads unknown with no ver
 	assert.ok(key && key.style.text === 'DOORS\nREADY\n$(stagewatch:network_amber) amber')
 	assert.deepEqual(key.feedbacks.map((f) => [f.feedbackId, f.options.unknown]), [['network_not_ready', true], ['network_not_ready', false]])
 	assert.ok(key.feedbacks[1].style.text.includes('$(stagewatch:network_red)'))
+})
+
+// ---------------------------------------------------------------- 2.22: windows granted to show apps, their lights on keys
+
+import { isPlayoutLine, receiptLog, routeReceipt } from '../dist/connection.js'
+
+/** test/window-lines.tsv, the file Stagewatch's suite reads too: door, press and refuse rows. */
+function windowRows() {
+	const text = readFileSync(new URL('./window-lines.tsv', import.meta.url), 'utf8')
+	return text.split(/\r?\n/).filter((l) => l.length > 0 && !l.startsWith('#')).map((l) => l.split('\t'))
+}
+
+const WINDOWS = [
+	{ name: 'lobby', light: 'green', inStep: true, hold: false, showing: '/clock', granted: 'Patterns FOH, PlayMap Stage left', on: 'Patterns FOH says: Screen 2 — LED wall' },
+	{ name: 'foyer', light: 'amber', inStep: false, hold: true, showing: 'holding', granted: '', on: '' },
+	{ name: 'green-room', light: 'grey', inStep: false, hold: true, showing: '/viewer', granted: 'PlayMap Stage left', on: '' },
+]
+
+test('2.22 window_grant: every press sends exactly its line with a request id, every refusal sends nothing and says why', async () => {
+	const { UpdateActions } = await import('../dist/actions.js')
+	const rows = windowRows()
+	const presses = rows.filter((r) => r[0] === 'press')
+	assert.ok(presses.length >= 6 && rows.filter((r) => r[0] === 'refuse').length >= 5)
+	for (const r of rows) {
+		if (r[0] === 'door') continue
+		const self = fakeInstance(LICENSED)
+		UpdateActions(self)
+		const action = self.actions[r[1]]
+		assert.ok(action, `action ${r[1]} is defined`)
+		action.callback({ options: JSON.parse(r[2]) })
+		assert.deepEqual([self.commands, self.sent], [[], []], `${r[1]} ${r[2]} goes only with a request id, and never as a playout press`)
+		if (r[0] === 'press') {
+			assert.deepEqual(self.answered, [r[3]], `${r[1]} ${r[2]}`)
+			assert.equal(r.length, 7, `press row ${r[3]} has its window action, window and app`)
+		} else {
+			assert.equal(r[0], 'refuse')
+			assert.deepEqual(self.answered, [], `${r[1]} ${r[2]} sends nothing`)
+			assert.ok(self.logs.some(([level, text]) => level === 'warn' && text.startsWith(r[3])), `${r[1]} ${r[2]} logs "${r[3]}…" (${JSON.stringify(self.logs)})`)
+		}
+	}
+	// A grant names one window and one app; a withdraw with no window names every window. The default press is the withdraw.
+	const self = fakeInstance(LICENSED)
+	UpdateActions(self)
+	const what = self.actions.window_grant.options.find((o) => o.id === 'what')
+	assert.deepEqual([what.default, what.choices.map((c) => c.id)], ['withdraw', ['grant', 'withdraw']])
+	assert.ok(presses.some((r) => r[3].startsWith('WINDOW GRANT ')) && presses.some((r) => r[3] === 'WINDOW WITHDRAW all'))
+})
+
+test("2.22 window_grant's answer: a grant is refused at Companion's door in Stagewatch's words on the log; a withdraw passes; neither touches playout_answer", async () => {
+	const rows = windowRows()
+	const doors = Object.fromEntries(rows.filter((r) => r[0] === 'door').map((r) => [r[1], r]))
+	assert.deepEqual(Object.keys(doors).sort(), ['grant', 'withdraw'])
+	// Today a grant is a person's act Companion TCP refuses (Show Bus 12.4); when its door queues it as a proposal, its door row changes.
+	assert.equal(doors.grant[2], 'refused')
+	assert.match(doors.grant[3], /^window grant is a person's act — Companion TCP authenticates nobody/)
+	assert.equal(doors.withdraw[2], 'passes')
+	const presses = rows.filter((r) => r[0] === 'press')
+	const received = []
+	// A Stagewatch whose Companion door answers as the door rows say (Stagewatch's suite sends the same lines to its real server and
+	// holds the refusal to these words); a line that passes is answered as its show thread would: applied.
+	const srv = await fakeServer(
+		answering(received, (line) => {
+			const id = line.slice(1, line.indexOf(' '))
+			const door = doors[line.split(' ')[2].toLowerCase()]
+			return door[2] === 'refused' ? [`ERROR @${id} ${door[3]}`] : [`OK @${id} applied lobby's grants withdrawn`]
+		}),
+	)
+	const c = new StagewatchConnection('127.0.0.1', srv.port, FAST)
+	try {
+		c.start()
+		await waitFor(c, 'status', (s) => s.kind === 'connected')
+		for (const r of presses) {
+			const id = c.request(r[3])
+			const got = await waitFor(c, 'receipt', (x) => x.id === id)
+			// The module's own routing (ModuleInstance's receipt handler calls routeReceipt and does what it says).
+			const to = routeReceipt(got, id)
+			const log = to.log
+			if (doors[r[4]][2] === 'refused') {
+				assert.deepEqual([got.kind, got.ok, got.line], ['answered', false, r[3]])
+				assert.deepEqual(log, { level: 'warn', text: `${r[3]}: refused — ${doors[r[4]][3]}` }, 'the refusal on the log, in its words')
+			} else {
+				assert.deepEqual([got.ok, got.stage], [true, 'applied'])
+				assert.deepEqual(log, { level: 'info', text: `${r[3]}: applied — lobby's grants withdrawn` })
+			}
+			assert.equal(isPlayoutLine(got.line), false, `${r[3]}: its answer is the log's, never playout_answer's`)
+			assert.equal(to.answer, null, `${r[3]}: playout_answer is left as it was`)
+		}
+		assert.deepEqual(received, presses.map((r, i) => `@c${i + 1} ${r[3]}`), 'each line went once, with its request id')
+	} finally {
+		c.destroy()
+		await srv.close()
+	}
+	for (const line of ['PLAYOUT stage-left go pl1 it1', 'PATTERNS PAUSE', 'playout pause']) assert.equal(isPlayoutLine(line), true, line)
+	for (const line of ['WINDOW GRANT lobby 9f8e7d6c', 'PLAYOUTS x', 'NEXT']) assert.equal(isPlayoutLine(line), false, line)
+	assert.deepEqual(receiptLog({ id: 'c9', line: 'WINDOW WITHDRAW all', kind: 'lost', ok: false, stage: '', final: false, words: '', wasAccepted: false }).level, 'warn')
+	// A playout press's answer still reaches playout_answer: bare for the latest press, with its line for an earlier one.
+	const played = { id: 'c3', line: 'PLAYOUT stage-left go pl1 it1', kind: 'answered', ok: true, stage: 'applied', final: false, words: 'cued', wasAccepted: false }
+	assert.deepEqual(routeReceipt(played, 'c3'), { log: receiptLog(played), answer: receiptWords(played) })
+	assert.equal(routeReceipt(played, 'c4').answer, `${played.line}: ${receiptWords(played)}`)
+})
+
+test("2.22 windows: the variables, window_state and window_holding follow the frame's windows block, and nothing lights without it", async () => {
+	const st = await import('../dist/state.js')
+	const { UpdateFeedbacks } = await import('../dist/feedbacks.js')
+	const framed = snap({ windows: WINDOWS })
+	// The variables: opened on a screen (any light but grey), and amber or red.
+	const v = st.deriveVariables(framed, true)
+	assert.deepEqual([v.windows_open, v.windows_attention], [2, 1])
+	for (const [what, s] of [
+		['a frame with no window (or from before 2.22)', snap()],
+		['a block that is not a list', snap({ windows: { lobby: 1 } })],
+		['rows that are not windows', snap({ windows: [null, { light: 'red' }, { name: '', light: 'red' }, { name: 'x' }] })],
+	]) {
+		const none = st.deriveVariables(s, true)
+		assert.deepEqual([none.windows_open, none.windows_attention], [0, 0], what)
+		assert.deepEqual(st.windowsOf(s), [], what)
+	}
+	const offline = st.diffValues(v, st.deriveVariables(null, false))
+	assert.deepEqual([offline.windows_open, offline.windows_attention], ['', ''], 'no frame blanks them, never the last ones heard')
+	// window_state: by light, amber-or-red, or granted; a window's name as Stagewatch matches it; no name is any window.
+	assert.equal(st.windowIs(framed, 'lobby', 'green'), true)
+	assert.equal(st.windowIs(framed, 'LOBBY', 'green'), true)
+	assert.equal(st.windowIs(framed, 'lobby', 'attention'), false)
+	assert.equal(st.windowIs(framed, 'foyer', 'attention'), true)
+	assert.equal(st.windowIs(framed, 'foyer', 'amber'), true)
+	assert.equal(st.windowIs(framed, 'green-room', 'grey'), true)
+	assert.equal(st.windowIs(framed, '', 'attention'), true, 'any window')
+	assert.equal(st.windowIs(framed, '', 'red'), false)
+	assert.equal(st.windowIs(snap({ windows: [{ ...WINDOWS[0], light: 'red' }] }), 'lobby', 'attention'), true, 'red needs a look too')
+	assert.equal(st.windowIs(framed, 'lobby', 'granted'), true)
+	assert.equal(st.windowIs(framed, 'lobby', 'granted', 'patterns foh'), true)
+	assert.equal(st.windowIs(framed, 'lobby', 'granted', 'PlayMap Stage left'), true)
+	assert.equal(st.windowIs(framed, 'lobby', 'granted', 'Patterns'), false, 'a name, never part of one')
+	assert.equal(st.windowIs(framed, 'foyer', 'granted'), false)
+	assert.equal(st.windowIs(framed, 'stage', 'green'), false, 'a window the frame does not carry is in no state')
+	assert.equal(st.windowIs(snap(), '', 'grey'), false)
+	assert.equal(st.windowIs(null, 'lobby', 'green'), false)
+	// window_holding: the named window holds; no name is every window holding.
+	assert.equal(st.windowHolding(framed, 'foyer'), true)
+	assert.equal(st.windowHolding(framed, 'lobby'), false)
+	assert.equal(st.windowHolding(framed, ''), false, 'lobby does not hold')
+	assert.equal(st.windowHolding(snap({ windows: WINDOWS.map((w) => ({ ...w, hold: true })) }), ''), true)
+	assert.equal(st.windowHolding(snap(), ''), false, 'no window: nothing holds')
+	// Rechecked when the block changes, and only then.
+	assert.ok(st.FEEDBACK_IDS.includes('window_state') && st.FEEDBACK_IDS.includes('window_holding'))
+	assert.deepEqual(st.feedbacksAffected(framed, snap({ windows: WINDOWS.map((w) => ({ ...w })) }), false), [])
+	assert.deepEqual(st.feedbacksAffected(framed, snap({ windows: [{ ...WINDOWS[0], light: 'amber', inStep: false }, ...WINDOWS.slice(1)] }), false).sort(), ['window_holding', 'window_state'])
+	assert.deepEqual(st.feedbacksAffected(snap(), framed, false).sort(), ['window_holding', 'window_state'], 'the first window')
+	// The feedbacks read the same.
+	const self = fakeInstance(LICENSED)
+	self.snapshot = framed
+	UpdateFeedbacks(self)
+	const state = self.feedbacks.window_state
+	assert.deepEqual(state.options.find((o) => o.id === 'state').choices.map((c) => c.id), ['green', 'attention', 'amber', 'red', 'grey', 'granted'])
+	assert.equal(state.callback({ options: { window: 'foyer', state: 'attention', app: '' } }), true)
+	assert.equal(state.callback({ options: { window: 'lobby', state: 'attention' } }), false, 'a button saved without the app option')
+	assert.equal(state.callback({ options: { window: 'green-room', state: 'granted', app: 'PlayMap Stage left' } }), true)
+	assert.equal(self.feedbacks.window_holding.callback({ options: { window: 'foyer' } }), true)
+	assert.equal(self.feedbacks.window_holding.callback({ options: { window: '' } }), false)
+	self.snapshot = null
+	assert.equal(state.callback({ options: { window: '', state: 'grey', app: '' } }), false, 'not connected: nothing lit')
+})
+
+test('2.22 window keys: each presses a defined action and lights by a defined feedback', async () => {
+	const { UpdateActions } = await import('../dist/actions.js')
+	const { UpdateFeedbacks } = await import('../dist/feedbacks.js')
+	const { UpdatePresets } = await import('../dist/presets.js')
+	const self = fakeInstance(LICENSED)
+	UpdateActions(self)
+	UpdateFeedbacks(self)
+	UpdatePresets(self)
+	const outputs = self.structure.find((s) => s.id === 'outputs').definitions
+	for (const id of ['windows_hold_toggle', 'windows_identify', 'window_lobby', 'windows_attention', 'window_withdraw_lobby']) {
+		assert.ok(outputs.includes(id), `${id} is listed`)
+		const p = self.presets[id]
+		for (const step of p.steps ?? [])
+			for (const a of [...step.down, ...(step[1000]?.actions ?? [])]) assert.ok(a.actionId in self.actions, `${id} presses a defined action`)
+		for (const f of p.feedbacks ?? []) assert.ok(f.feedbackId in self.feedbacks, `${id} lights by a defined feedback (${f.feedbackId})`)
+	}
+	// A withdraw ends what an app shows at once: never on a tap, only on a 1 s hold.
+	const withdraw = self.presets.window_withdraw_lobby.steps[0]
+	assert.deepEqual(withdraw.down, [])
+	assert.deepEqual(withdraw[1000].actions, [{ actionId: 'window_grant', options: { what: 'withdraw', window: 'lobby', app: '' } }])
+	assert.ok(self.presets.window_withdraw_lobby.feedbacks.some((f) => f.feedbackId === 'window_state' && f.options.state === 'granted'))
+	// The lobby key: amber (needs a look) is listed last, so it wins over green and holding.
+	const lobby = self.presets.window_lobby.feedbacks
+	assert.deepEqual(lobby.map((f) => [f.feedbackId, f.options.state ?? '']), [['window_state', 'green'], ['window_holding', ''], ['window_state', 'attention']])
+	assert.ok(self.presets.windows_hold_toggle.feedbacks.some((f) => f.feedbackId === 'window_holding' && f.options.window === ''))
+	assert.match(self.presets.windows_attention.feedbacks[0].style.text, /windows_attention/)
+	assert.ok(!Object.values(self.presets).some((p) => (p.steps ?? []).some((st) => st.down.some((a) => a.actionId === 'window_grant' && a.options.what === 'grant'))),
+		'no key presses a grant: Companion TCP refuses it today')
 })
