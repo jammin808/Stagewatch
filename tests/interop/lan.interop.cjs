@@ -14,7 +14,10 @@
 // desk rows send a line across it both ways (the bench's assistant proposing a look that the operator approves there, the
 // rig's own line run at Patterns), deciding over HTTP with the operator's PIN; the doors rows read the verdict on its route,
 // the operator frame's `network` and the rig's Companion door, judged by the Companion module's own rule (lib/companion.cjs),
-// with PlayMap configured by the node key bound to it and AGMessage only seen. The rows run in order, each a node:test test
+// with PlayMap configured by the node key bound to it and AGMessage only seen. The VT rows (S4.1–S4.4) run a second rig beside
+// the room's, in its namespace on ports of its own and off the show network, with playout links to Patterns' and PlayMap's wires,
+// each paired by proof with that app's own token (handed over in that link's own variable of the rig's environment), and stop it
+// once they end, so the room's rig, its doors and its rows are as they were. The rows run in order, each a node:test test
 // that writes its matrix row; S0.1 starts the apps (the rig first, which the others link to) and every later row reads the
 // apps it started; the rows that stall the rig or take an app down (and back) come after the others, S7.4 (no address ever
 // counted) last but one, and S7.1 (no secret anywhere) last, as it stops the apps to sweep what they left (the rig's
@@ -43,7 +46,7 @@ const { Matrix } = require('./lib/matrix.cjs');
 const { until, fatal, sleep } = require('./lib/inbox.cjs');
 const { Stagewatch, NODE_ID, BUS_PORT } = require('./apps/stagewatch.cjs');
 const { Patterns } = require('./apps/patterns.cjs');
-const { PlayMap } = require('./apps/playmap.cjs');
+const { PlayMap, DOORS: PlayMapDoors } = require('./apps/playmap.cjs');
 const { AGMessage } = require('./apps/agmessage.cjs');
 const S = require('./lib/scenarios.cjs');
 
@@ -373,6 +376,292 @@ test('S4.5 PlayMap follows Patterns, paired by proof', row({
   r.evidence.push(run.log('playmap.wire'), run.log('patterns.wire'), apps.playmap.engineLog);
   r.facts = await S.playmapFollowsPatterns(apps.playmap, apps.patterns, `${lan.host('patterns').addr}:${apps.patterns.wire.port}`, HELLO_MS);
   await lockoutAfter(r);
+}));
+
+/** The VT rows' rig, beside the room's in its namespace, off the show network: its ports, its id. */
+const VT_PORTS = { http: 19950, companion: 19951, osc: 19952 };
+const VT_NODE = 'interop-sw-vt';
+/** A VT a screen reads is the clip's own time left, within 1.5 s (the frame is built from the link's last STATE). */
+const VT_SLACK_S = 1.5;
+/** One kernel's clock seen over a link: the offset its matched pongs believe, within 50 ms. */
+const CLOCK_AGREE_MS = 50;
+/** S4.4's deadline: a believed sample (the link pings every 2 s, the belief takes the best of its window) within 10 s. */
+const CLOCK_MS = 10000;
+
+/**
+ * Start a VT rows' rig (row `row`'s own: its name, folders, PIN and logs) with playout links `which` ('patterns', 'stage-left'),
+ * each at its app's own wire address with that app's own pairing token, after stopping the one before; resolves once its ready
+ * line is read and checked.
+ */
+async function vtStart(row, which) {
+  await vtStop();
+  const pat = `patterns=${lan.host('patterns').addr}:${apps.patterns.wire.port},patterns`;
+  const pm = `stage-left=${lan.host('playmap').addr}:${PlayMapDoors.wire},playmap`;
+  const vt = new Stagewatch(run, lan.host('stagewatch'), null, {
+    name: `vt-${row}`, ports: VT_PORTS, nodeId: VT_NODE,
+    playout: which.map((w) => (w === 'patterns' ? pat : pm)),
+    tokens: Object.fromEntries(which.map((w) => [w, w === 'patterns' ? apps.patterns.token : apps.playmap.token])),
+  });
+  apps.vt = vt;
+  await vt.start(READY_MS);
+  vt.checkReady();
+  return vt;
+}
+
+/**
+ * Take PlayMap's VT setup away again (VIDEO STOP on its playlist, then PLAYLIST DELETE, on its wire: PlayMap deletes no playlist
+ * that plays), so the rows after the VT rows find PlayMap's air and its own context as they were before them, nothing playing:
+ * resolves with what PlayMap said, or null when no setup stands.
+ */
+async function vtTeardown() {
+  if (!vtPlaylist) return null;
+  const stop = await apps.playmap.say(`VIDEO STOP ON ${vtPlaylist}`);
+  if (!/^OK( |$)/.test(stop)) throw new Error(`PlayMap answered VIDEO STOP with ${JSON.stringify(stop.slice(0, 200))}`);
+  const said = await apps.playmap.say(`PLAYLIST DELETE ${vtPlaylist}`);
+  if (!/^OK( |$)/.test(said)) throw new Error(`PlayMap answered PLAYLIST DELETE with ${JSON.stringify(said.slice(0, 200))}`);
+  vtPlaylist = null;
+  await until(async () => (await apps.playmap.state()).video === null, HELLO_MS, "PlayMap's air with no VT item");
+  return { stop, delete: said };
+}
+
+/** Stop the VT rows' rig (if one runs) and remove what it keeps a secret in. */
+async function vtStop() {
+  const vt = apps.vt;
+  if (!vt) return null;
+  delete apps.vt;
+  const how = await vt.stop();
+  run.removeSecretFiles(vt.secretFiles());
+  return how;
+}
+
+/** After a VT row: neither the room's rig nor the VT rig counts any address of this LAN, both written in the row. */
+async function vtLockoutAfter(r) {
+  await lockoutAfter(r);
+  if (!apps.vt) return;
+  const { read, counted } = await S.readLockout(apps.vt, lanAddresses());
+  r.facts.vtAuth = read;
+  if (counted.length) throw new Error(`the VT rig counted failures against ${counted.join(', ')}`);
+}
+
+/** The link called `name` as the VT rig's `links` line reads it, once `ok(link)` holds, within ms. */
+function vtLink(name, ok, ms, what) {
+  return until(async () => {
+    const l = (await apps.vt.links()).find((x) => x.name === name);
+    if (!l) throw fatal(`the VT rig runs no link called ${name}`);
+    return ok(l) ? l : null;
+  }, ms, what);
+}
+
+/**
+ * Paired, the kind and node its peer said: the link as read, within ms of `from`. Neither app proves itself to a connector yet and
+ * neither wire offers TLS, so the record says why it is amber (13.16.2): proved at level 0 (`legacy`) over plain TCP (`plain`).
+ */
+async function vtPaired(name, kind, node, from, what) {
+  const l = await vtLink(name, (x) => x.pairing === 'paired' && x.kind === kind && x.node === node, S.left(from, HELLO_MS), what);
+  const ms = S.inTime(from, HELLO_MS, what);
+  const r = l.record;
+  if (r.state !== 'live' || r.level !== 0 || r.light !== 'amber' || !r.flags.includes('legacy') || !r.flags.includes('plain')) {
+    throw new Error(`${name}'s record is ${JSON.stringify({ state: r.state, level: r.level, light: r.light, flags: r.flags })}, not live at level 0, amber for plain and legacy`);
+  }
+  return { ms, kind: l.kind, node: l.node, level: r.level, light: r.light, flags: r.flags, state: r.state, words: r.words };
+}
+
+/**
+ * The VT the VT rig's frame (any screen's, no PIN) reads, from link `link`, beside the clip's own time left as its app's STATE says
+ * it (`own()`: { leftS, running }), read just before: within VT_SLACK_S of it, more the time between the two reads. Resolves with
+ * both once they agree, within ms.
+ */
+function vtAgrees(link, source, node, own, ms, what) {
+  return until(async () => {
+    const t0 = Date.now();
+    const clip = await own();
+    const f = await apps.vt.frame();
+    const p = f.playout;
+    if (!p || p.link !== link) return null;
+    if (p.source !== source || p.node !== node) throw new Error(`the VT names ${JSON.stringify({ source: p.source, node: p.node })}, not ${source} ${node}`);
+    if (!p.running || !clip.running) return null;
+    const gap = (Date.now() - t0) / 1000;
+    const off = Math.abs(p.remaining - clip.leftS);
+    return off <= VT_SLACK_S + gap ? { vt: { title: p.title, remaining: p.remaining, duration: p.duration, running: p.running }, own: clip, offS: Math.round(off * 1000) / 1000, readsS: gap } : null;
+  }, ms, what);
+}
+
+/** Patterns' clip on air as its STATE says it: its time left and whether it runs. */
+async function patternsClip() {
+  const v = (await apps.patterns.state()).video;
+  if (!v) return { leftS: null, running: false };
+  return { file: v.file, role: v.role, leftS: (v.lengthMs - v.positionMs) / 1000, running: v.playing === true && v.paused === false, paused: v.paused, pausable: v.pausable };
+}
+
+/** PlayMap's clip on air (its focused playlist's item) as its STATE says it. */
+async function playmapClip() {
+  const v = (await apps.playmap.state()).video;
+  if (!v) return { leftS: null, running: false };
+  return { file: v.file, role: v.role, leftS: (v.lengthMs - v.positionMs) / 1000, running: v.playing === true && v.paused !== true, paused: v.paused };
+}
+
+/**
+ * A playout line through the VT rig's HTTP door with the operator's PIN: its receipt, which must be the peer's own answer — applied
+ * (`applied`) or refused — with the peer's request in refs.peerRequest.
+ */
+async function vtPlayout(words, id, applied) {
+  const sent = await apps.vt.api(['playout', ...words], id);
+  const j = sent.json;
+  if (!j) throw new Error(`playout ${words.join(' ')} answered ${sent.status} ${sent.text.slice(0, 200)}`);
+  if (applied && (sent.status !== 200 || j.ok !== true || j.stage !== 'applied')) throw new Error(`playout ${words.join(' ')} answered ${sent.status} ${sent.text.slice(0, 300)}`);
+  if (!applied && (j.ok !== false || typeof j.error !== 'string')) throw new Error(`playout ${words.join(' ')} was not refused: ${sent.status} ${sent.text.slice(0, 300)}`);
+  if (!j.refs || !j.refs.peerRequest) throw new Error(`playout ${words.join(' ')}'s receipt names no peer request: ${sent.text.slice(0, 300)}`);
+  return { status: sent.status, ok: j.ok, stage: j.stage, effect: j.effect, error: j.error, peerRequest: j.refs.peerRequest };
+}
+
+/** The playlist PlayMap's VT setup made, while it stands: the VT rows' last takes it away again. */
+let vtPlaylist = null;
+
+/** PlayMap's VT setup (a 60 s colour item in a playlist called show, focused and playing), said on its wire: the ids it answered. */
+async function playmapVtSetup() {
+  // `also`: an ERR that says the line would change nothing (PlayMap refuses those), taken as done.
+  const ok = async (line, what, also = null) => {
+    const said = await apps.playmap.say(line);
+    if (also && also.test(said)) return said;
+    if (!/^OK( |$)/.test(said)) throw new Error(`PlayMap answered ${what} with ${JSON.stringify(said.slice(0, 200))}`);
+    return said.slice(3).trim();
+  };
+  const list = await ok('PLAYLIST NEW show', 'PLAYLIST NEW');
+  vtPlaylist = list;
+  const item = await ok(`PLAYLIST ADD ${list} color:#202020 Intro`, 'PLAYLIST ADD');
+  await ok(`SET ${item} durationNs 60000000000`, 'SET durationNs');
+  // A node's only playlist is its focused one already.
+  const focus = await ok(`PLAYLIST FOCUS ${list}`, 'PLAYLIST FOCUS', /^ERR already focused$/);
+  await ok(`PLAYLIST GO ${list} #1`, 'PLAYLIST GO');
+  return { list, item, focus };
+}
+
+test("S4.1 the rig's VT link to Patterns", row({
+  id: 'S4.1',
+  title: "a rig's playout link to Patterns' wire (--playout patterns=<Patterns>:9697,patterns, Patterns' own token): paired by proof as Patterns within 5 s of its ready line, its VT the clip's own time left within 1.5 s, and playout patterns pause applied in Patterns' words with Patterns' STATE paused and the VT stopped within 5 s",
+  apps: ['stagewatch', 'patterns'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('vt-s4-1.out'), run.log('vt-s4-1.err'), run.log('patterns.wire'));
+  const clip = await apps.patterns.clip('s4.mp4', 90);
+  const vt = await vtStart('s4-1', ['patterns']);
+  const readyAt = Date.now();
+  r.facts = { clip: { file: path.basename(clip.key), lengthMs: clip.lengthMs } };
+  r.facts.paired = await vtPaired('patterns', 'patterns', ids.patterns, readyAt, "the VT rig's link to Patterns paired");
+  r.facts.vt = await vtAgrees('patterns', 'Patterns', ids.patterns, patternsClip, S.left(readyAt, HELLO_MS), "the VT rig's VT on Patterns' clip");
+  r.facts.vtMs = S.inTime(readyAt, HELLO_MS, "the VT rig's VT on Patterns' clip");
+  // The clip the VT follows is the one on Patterns' air: its STATE names it the programme's.
+  if (r.facts.vt.own.role !== 'program') throw new Error(`Patterns' clip has role "${r.facts.vt.own.role}", not program`);
+  const sentAt = Date.now();
+  r.facts.pause = await vtPlayout(['patterns', 'pause'], 'interop-s4-1', true);
+  if (!/VIDEO PAUSE/.test(r.facts.pause.effect || '')) throw new Error(`the receipt's effect is "${r.facts.pause.effect}", not Patterns' answer to VIDEO PAUSE`);
+  const paused = await until(async () => { const c = await patternsClip(); return c.paused === true && !c.running ? c : null; }, S.left(sentAt, HELLO_MS), "Patterns' clip paused");
+  const stopped = await until(async () => { const p = (await vt.frame()).playout; return p && p.link === 'patterns' && p.running === false ? p : null; }, S.left(sentAt, HELLO_MS), "the VT stopped");
+  r.facts.paused = { patterns: paused, vt: { remaining: stopped.remaining, running: stopped.running }, ms: S.inTime(sentAt, HELLO_MS, "Patterns' clip paused and the VT stopped") };
+  await vtLockoutAfter(r);
+}));
+
+test("S4.2 the rig's VT link to PlayMap", row({
+  id: 'S4.2',
+  title: "a rig's playout link to PlayMap's wire (--playout stage-left=<PlayMap>:9941,playmap, PlayMap's own token) with PlayMap's VT setup playing: paired by proof as PlayMap within 5 s, its VT the item's own time left within 1.5 s, playout stage-left pause applied with PlayMap's STATE paused, and playout stage-left go show #9 refused in PlayMap's own words",
+  apps: ['stagewatch', 'playmap'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('vt-s4-2.out'), run.log('vt-s4-2.err'), run.log('playmap.wire'), apps.playmap.engineLog);
+  r.facts = { setup: await playmapVtSetup() };
+  await until(async () => (await playmapClip()).running, HELLO_MS, "PlayMap's VT setup playing");
+  const vt = await vtStart('s4-2', ['stage-left']);
+  const readyAt = Date.now();
+  r.facts.paired = await vtPaired('stage-left', 'playmap', ids.playmap, readyAt, "the VT rig's link to PlayMap paired");
+  r.facts.vt = await vtAgrees('stage-left', 'PlayMap', ids.playmap, playmapClip, S.left(readyAt, HELLO_MS), "the VT rig's VT on PlayMap's item");
+  r.facts.vtMs = S.inTime(readyAt, HELLO_MS, "the VT rig's VT on PlayMap's item");
+  let sentAt = Date.now();
+  r.facts.pause = await vtPlayout(['stage-left', 'pause'], 'interop-s4-2-pause', true);
+  const paused = await until(async () => { const c = await playmapClip(); return c.paused === true && !c.running ? c : null; }, S.left(sentAt, HELLO_MS), "PlayMap's item paused");
+  r.facts.paused = { playmap: paused, ms: S.inTime(sentAt, HELLO_MS, "PlayMap's item paused") };
+  // PlayMap's own words for a GO to an item its playlist has not, said on its own wire: the oracle the receipt is held to.
+  const own = await apps.playmap.say('PLAYLIST GO show #9');
+  if (!/^ERR /.test(own)) throw new Error(`PlayMap answered PLAYLIST GO show #9 with ${JSON.stringify(own)}`);
+  sentAt = Date.now();
+  r.facts.go = await vtPlayout(['stage-left', 'go', 'show', '#9'], 'interop-s4-2-go', false);
+  r.facts.go.ms = S.inTime(sentAt, HELLO_MS, 'the refused GO answered');
+  if (r.facts.go.status !== 409) throw new Error(`the refused GO answered ${r.facts.go.status}, not 409`);
+  const words = own.slice(4);
+  if (!r.facts.go.error.includes(words)) throw new Error(`the receipt says "${r.facts.go.error}", not PlayMap's own "${words}"`);
+  r.facts.go.playmapSaid = own;
+  await vtLockoutAfter(r);
+}));
+
+test('S4.3 both at once', row({
+  id: 'S4.3',
+  title: "one rig with both playout links (patterns, then stage-left), each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context carries link:patterns and link:stage-left each in its own record's light, and the VT names Patterns' running clip first and, once that is paused through its link, PlayMap's running item",
+  apps: ['stagewatch', 'patterns', 'playmap'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('vt-s4-3.out'), run.log('vt-s4-3.err'));
+  await apps.patterns.clip('s4-3.mp4', 90);
+  const vt = await vtStart('s4-3', ['patterns', 'stage-left']);
+  const readyAt = Date.now();
+  r.facts = {
+    paired: {
+      patterns: await vtPaired('patterns', 'patterns', ids.patterns, readyAt, "the VT rig's link to Patterns paired"),
+      'stage-left': await vtPaired('stage-left', 'playmap', ids.playmap, readyAt, "the VT rig's link to PlayMap paired"),
+    },
+  };
+  // PlayMap's item, paused by S4.2, runs again through its link.
+  let at = Date.now();
+  r.facts.play = await vtPlayout(['stage-left', 'play'], 'interop-s4-3-play', true);
+  await until(async () => (await playmapClip()).running, S.left(at, HELLO_MS), "PlayMap's item running again");
+  const config = await until(async () => {
+    const c = await vt.config();
+    return JSON.stringify((c.playoutLinks || []).map((l) => [l.name, l.kind])) === JSON.stringify([['patterns', 'patterns'], ['stage-left', 'playmap']]) ? c : null;
+  }, S.left(readyAt, HELLO_MS), 'the config naming both links by kind');
+  r.facts.config = config.playoutLinks;
+  const items = await until(async () => {
+    const c = await vt.context();
+    const mine = (c.items || []).filter((i) => i.id === 'link:patterns' || i.id === 'link:stage-left');
+    return mine.length === 2 ? mine : null;
+  }, S.left(readyAt, HELLO_MS), "the context's link items");
+  const links = await vt.links();
+  r.facts.items = items.map((i) => ({ id: i.id, label: i.label, light: i.light, state: i.state }));
+  for (const i of items) {
+    const l = links.find((x) => `link:${x.name}` === i.id);
+    if (i.kind !== 'playout' || i.light !== l.record.light) throw new Error(`${i.id} is ${i.kind} ${i.light}, not its record's ${l.record.light}`);
+    if (i.light === 'red' || l.pairing !== 'paired') throw new Error(`${i.id} is ${i.light} (${i.state}), its link ${l.pairing}`);
+  }
+  r.facts.vtFirst = await vtAgrees('patterns', 'Patterns', ids.patterns, patternsClip, S.left(readyAt, HELLO_MS), "the VT on Patterns' clip, the first link's");
+  at = Date.now();
+  r.facts.pause = await vtPlayout(['patterns', 'pause'], 'interop-s4-3-pause', true);
+  r.facts.vtThen = await vtAgrees('stage-left', 'PlayMap', ids.playmap, playmapClip, S.left(at, HELLO_MS), "the VT on PlayMap's item once Patterns' clip is paused");
+  r.facts.vtThenMs = S.inTime(at, HELLO_MS, "the VT moved to PlayMap's item");
+  await vtLockoutAfter(r);
+}));
+
+test('S4.4 clocks agree on one kernel', row({
+  id: 'S4.4',
+  title: "on one kernel each of the VT rig's links believes its peer's clock within 50 ms of its own, within 10 s, and the context carries no clock: item",
+  apps: ['stagewatch', 'patterns', 'playmap'],
+  deadlineMs: CLOCK_MS,
+}, async (r) => {
+  r.evidence.push(run.log('vt-s4-3.out'), run.log('vt-s4-3.err'));
+  try {
+    if (!apps.vt) throw new Error("S4.3's rig is not running");
+    const from = Date.now();
+    r.facts = {};
+    for (const name of ['patterns', 'stage-left']) {
+      const l = await vtLink(name, (x) => x.clock !== null && Math.abs(x.clock.offsetMs) <= CLOCK_AGREE_MS, S.left(from, CLOCK_MS), `${name}'s clock within ${CLOCK_AGREE_MS} ms`);
+      if (l.clock.apart) throw new Error(`${name}'s clock is said apart at ${l.clock.offsetMs} ms`);
+      r.facts[name] = { ...l.clock, samples: l.record.samples };
+    }
+    r.facts.ms = S.inTime(from, CLOCK_MS, 'both clocks within 50 ms');
+    const clocks = ((await apps.vt.context()).items || []).filter((i) => /^clock:/.test(i.id));
+    if (clocks.length) throw new Error(`the context carries ${clocks.map((i) => `${i.id} (${i.state})`).join(', ')}`);
+    await vtLockoutAfter(r);
+  } finally {
+    r.facts = r.facts || {};
+    r.facts.vtStopped = await vtStop();
+    r.facts.playmapTeardown = await vtTeardown();
+  }
 }));
 
 /**

@@ -319,7 +319,11 @@ running app on a network: two copies of one install for the conflict, an old cer
   second end. The
   rig takes `--playout` (`tests/e2e/playout.e2e.cjs`, against fake PlayMap and Patterns peers). Not done: Patterns' `pausable`,
   `stoppable` and `ON <key>` land in its Round 94 (P93.2, P93.3), so today every pause or stop of a real Patterns playlist item is
-  refused here and no real desk is sent `ON <key>`; `together` is refused with words, and no help line or context row offers it
+  refused here and no real desk is sent `ON <key>` (*since then (SW20.13):* S4.1 pauses a real Patterns clip on its air through a
+  playout link, at the lane's Patterns pin, which stays at round 91's 5a8ad8f (below, "The VT rows": at Round 94's fa5d76b ten
+  LAN rows fail, Patterns' desk holding its key from the rig until a person presses Trust); at fa5d76b the same row read
+  `pausable` true; no lane row yet pauses a real playlist item or
+  sends `ON <key>`); `together` is refused with words, and no help line or context row offers it
   (the timed GO, with `INDEX` and `CUE LIST`, is SW20.7's); a link set to `wss` was not started (SW20.6 starts it, below); an AI's playout line is still a desk proposal, not re-targeted to
   the peer's own approvals (that needs `proposal.collect.ms`, SW21.2); the module's playout actions are SW20.12's, and it sends
   its Patterns lines with no id, so it reads no receipt; neither Patterns nor PlayMap sends a follow-up today, so a real peer's
@@ -374,7 +378,8 @@ running app on a network: two copies of one install for the conflict, an old cer
   STATE's revision moves, and a peer answering as another node than its link's feeds none of its list; what they list and the
   running order's cues reach the copilot's facts, and the context offers `[together]` on a PlayMap node's GO. Left: the desk's
   cue editor, its pickers from those lists, the running-order row's menus and Help (SW20.11, the maintainer's PC work); the
-  module's playout actions (SW20.12); no real PlayMap or Patterns has run a cue yet (the VT interop rows, SW20.13); "seen" and
+  module's playout actions (SW20.12); no real PlayMap or Patterns has run a cue yet (the VT interop rows, SW20.13, drive both
+  through playout links but run no `--cue`: a cue against the real apps is a row still to come); "seen" and
   "started late" are read from the node's STATE, never from its outputs (PlayMap's round-3 observer); a Patterns desk's GO is
   never timed until its wire offers TLS; `INDEX` and `CUE LIST` answers longer than a line (256 KB) are not read, so such a
   peer's cues go unchecked and the peer's own refusal is the word; the link's record carries no `unfit` flag, so a clock not fit
@@ -769,6 +774,64 @@ running app on a network: two copies of one install for the conflict, an old cer
     connection drop. Not read: PlayMap hearing one id at every address it says hellos from (a node heard at two addresses is
     one peer), since on the LAN each app has one address, and on the laptop S1c.3 takes the rig's hello from either of the
     laptop's two addresses.
+- **The VT rows (SW20.13).** The lane drives the real Patterns bench and PlayMap engine through Stagewatch's own playout links
+  for the first time (G44's first untested pairing: Stagewatch's link against Patterns' wire and PlayMap's). The unit lands at
+  the pins as they are, `tools/interop/siblings.json` unchanged: **the LAN rows prove against Patterns at round 91's pin
+  (5a8ad8f8, Round 91.6's papers)** and PlayMap at 952940b5 (its wire answers every line the rows send there; the diff to
+  Mapper's newest pushed commit, 783319e1, moves its dialled links and context, not its wire). There the four rows pass on the
+  LAN with every row before them, 32 of 32. **Patterns' pin does not move to Round 94's papers (fa5d76b9), which the plan
+  asked for (P93.4); moving it is a later unit of its own.** At fa5d76b S0.1 with S4.1–S4.4 were also run green, S4.1 reading
+  the clip's `pausable` true; but ten LAN rows that pass at 5a8ad8f fail there: S1.5, S2.1b, S2.3, S2.4, S2.7, S3.3, S3.4,
+  S7.3 (its Patterns leg), S7.4 and S8.1. The one reason: since its Round 93.2 Patterns' desk holds its node key from a
+  Stagewatch on another machine until that Stagewatch proves itself (LINK, which the rig does not answer) or a person presses
+  Trust beside its fingerprint on the desk's Nodes page (no wire verb, deck or assistant presses it; Patterns' `docs/OPEN.md`
+  L96 is the same hold for a pin kept from before), and neither the bench (`tools/Patterns.Bench`, no control line for the
+  press) nor the rig can stand in for that press yet. So Patterns' link reads the rig's public view without its key: its key
+  is never bound (S2.7, S2.1b), its hello's row says "it cannot prove itself yet … press Trust" rather than live (S1.5), no
+  context is posted and no verbs reach the rig's desk (S2.3, S2.4, S3.3, S3.4, S7.3's Patterns leg), the doors are not ready
+  (S8.1), and S7.4 with them; the laptop and offline topologies pass (a Stagewatch at loopback gets the key as before). **What
+  moves the pin**, in that later unit: Patterns' bench given a control line that presses Trust beside the fingerprint the desk
+  shows (queued for Patterns' Round 95; the unit number is Patterns' to give), or the rig answering LINK so it proves
+  itself (SW22.1a–c, `/ws` speaks LINK), whichever lands first; the pin then moves to a pushed Patterns commit at which
+  every row passes. The rows, each added once it passed:
+  - S4.1: a rig with `--playout patterns=<Patterns>:9697,patterns` and Patterns' own token is paired by proof as Patterns (kind
+    and node its STATE says) within 5 s of its ready line, its record live, level 0 and amber for `plain` and `legacy`; its VT
+    is the clip on Patterns' air (a 90 s synthetic clip, role `program`) within 1.5 s of the clip's own time left; `playout
+    patterns pause` is applied in Patterns' words (`Patterns took VIDEO PAUSE`), the peer's request in
+    `refs.peerRequest`, and Patterns' STATE paused and the VT stopped within 5 s.
+  - S4.2: PlayMap's VT setup said on its wire (`PLAYLIST NEW show`, a 60 s `color:#202020` item, `PLAYLIST GO`; `PLAYLIST
+    FOCUS` answers `already focused`, a node's one playlist being its focused one), a rig with `--playout
+    stage-left=<PlayMap>:9941,playmap` and PlayMap's own token is paired as PlayMap within 5 s, its VT the item's own time left
+    within 1.5 s; `playout stage-left pause` is applied (`VIDEO PAUSE`; PlayMap pauses a playlist item, Patterns' playlist rule
+    is not PlayMap's) with PlayMap's STATE paused; and `playout stage-left go show #9` is refused, 409, its error holding
+    PlayMap's own words (`show has no item #9`, read from PlayMap's own wire first as the oracle).
+  - S4.3: one rig with both links, each with its own app's token, both paired within 5 s; the config names them by the kind
+    each peer said; the context's `link:patterns` and `link:stage-left` are each in its own record's light; PlayMap's item runs
+    again through its link (`playout stage-left play`); the VT names Patterns' running clip (the first link's in Settings'
+    order) and, that paused through its link, PlayMap's running item.
+  - S4.4: on one kernel each of that rig's links believes its peer's clock within 50 ms of its own within 10 s (both read about
+    1 ms off, round trips of 1-4 ms), and its context carries no `clock:` item. The rig's new `links` control line reads it
+    (each link's kind, node, pairing, believed clock and 13.16.3 record, never a token; `tests/e2e/playout.e2e.cjs` holds it).
+  - Departures from the design, on purpose: the VT rows run a rig of their own beside the room's (its namespace, ports
+    19950–19952, off the show network) and stop it when they end, where the design names the room's rig started with
+    `--playout`: a playout link's peer is a configured node in the rig's preflight, so links on the room's rig would move the
+    doors rows (S6.3, S8.1–S8.4) under them. Off the show network the rig hears no PlayMap hello naming its TLS door, so the
+    PlayMap link is the line wire at 9941, plain, as an operator types it; the TLS carrier to a real PlayMap
+    (`playmap.lines.v1`, SW20.6) is not read by a row yet. The rig takes each link's own token
+    (`STAGEWATCH_RIG_PLAYOUT_TOKEN_<NAME>`, else the shared variable), as Settings keeps one per link, so S4.3 pairs each app
+    with its own. S4.3's links are amber, not green as the design's row says: neither app proves itself to a connector yet
+    (level 0, `legacy`) and both wires are plain TCP off this machine (`plain`), which 13.16.2 lights amber; green waits on
+    each app answering LINK (and, for the line wire, on TLS). "Both VTs named" is read as the VT naming each link's clip in
+    turn, the frame carrying one VT.
+  - **Finding, for the owners (PlayMap's early STATE counted malformed)**, named here and asserted by no row: PlayMap's link
+    also carries the `malformed` flag ("lines it could not read") from its first moment. PlayMap's TCP wire says its STATE right after `HELLO`, before the proof (`WireSession`, not
+    strict: its `ws` channel holds the STATE until the proof), and Stagewatch's core counts every message heard during the
+    handshake as malformed (13.6.3's "discarded and counted", `PeerLinkConnector.Hear`), so every level-0 line-wire link to
+    PlayMap says it could not read lines it read whole. Whether an early STATE is counted apart from a malformed line
+    (Stagewatch's core and SHOWBUS's §13.14 words) or PlayMap holds it until the proof (as its strict channel does) is the two
+    owners' call.
+  - Not read yet: S6.3's `link:stage-left` (a playout link to PlayMap red while it is gone), which needs the room's rig to run
+    a playout link; a cue (`--cue`) against the real apps; the TLS carrier to PlayMap.
 - **Interop rows that wait on another app.** Each is named here and not in the lane, which holds only rows that pass:
   - S2.2 and S2.5 (AGMessage's context reaching the rig, and AGMessage reading the rig's) are AGMessage's rows (SW-INT-AG):
     they come with the lane giving AGMessage a key of its own (0.5.0 posts no context without one).
@@ -797,7 +860,8 @@ running app on a network: two copies of one install for the conflict, an old cer
     key, so 'ready for doors' is held on two of the three apps' contexts. Not in them: S7.3's AGMessage leg (an approved
     unknown line for AGMessage failed with words) moves to SW-INT-AG under the slip rule (R3), AGMessage holding no key in
     the lane, and this train's S7.3 covers Patterns and PlayMap; S6.3's `link:stage-left` (a playout link to
-    PlayMap red while it is gone) waits for the VT rows, so the doors are configured there by PlayMap's node key; the rows
+    PlayMap red while it is gone) waits for a playout link on the room's rig (the VT rows run a rig of their own, SW20.13,
+    above), so the doors are configured there by PlayMap's node key; the rows
     decide on the rig's desk over HTTP with the PIN, since the rig's Companion door refuses `peer` and `desk` from another
     machine (May drive other show apps), and read the Companion module's `network_ready` off that door by the module's own
     rule, the module itself not running in the lane.
@@ -811,8 +875,8 @@ running app on a network: two copies of one install for the conflict, an old cer
     its hello, so a row that pulls the rig's cable straight after the rig's restart (S6.1b) can catch that restart and read
     Patterns as off; S6.1 now ends only once Patterns follows the rig under its hello's name. That restart is Patterns'
     link's, to be named to its next round.
-  - The design's later rows come with the work they read, each added once it passes: the VT rows (S4.1–S4.4) with 2.20's
-    playout links; windows on Patterns and the MCP desk rows (S5.1, S3.5, S3.7) with
+  - The design's later rows come with the work they read, each added once it passes (the VT rows, S4.1–S4.4, came with 2.20's
+    playout links, SW20.13, above): windows on Patterns and the MCP desk rows (S5.1, S3.5, S3.7) with
     2.22's windows for peers, Xvfb, Mesa and Playwright joining the job with them; PlayMap's windows rows (S5.2, S5.3) with
     its PeerLink work; and AGMessage's desk, stuck and re-offer rows and one contract across the four copies (S1.3b, S3.1,
     S3.2, S3.8, S6.5, S7.2) with AGMessage's next releases. A release waits only on the rows in the lane.

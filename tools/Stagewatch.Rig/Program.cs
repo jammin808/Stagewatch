@@ -50,8 +50,10 @@ using Stagewatch.Show;
 // folder refused, or a certificate that cannot be kept or made, stops the rig before anything starts (exit 2, said on standard
 // error, never a key or a password).
 // --playout NAME=HOST:PORT[,KIND] (at most 8, each NAME a playout link's name by Settings' rule, KIND auto unless given) runs a
-// playout link to a Patterns desk or a PlayMap node as the app runs one (PlayoutLink, PlayoutDirector): its pairing token is
-// STAGEWATCH_RIG_PLAYOUT_TOKEN's (none when unset), proved and never sent in clear off this PC; `playout` and `patterns` lines go
+// playout link to a Patterns desk or a PlayMap node as the app runs one (PlayoutLink, PlayoutDirector): its pairing token is its
+// own, as Settings keeps one per link — STAGEWATCH_RIG_PLAYOUT_TOKEN_<NAME>'s (the name upper case, '-' as '_': stage-left reads
+// STAGEWATCH_RIG_PLAYOUT_TOKEN_STAGE_LEFT), else STAGEWATCH_RIG_PLAYOUT_TOKEN's, else none — proved and never sent in clear off
+// this PC; `playout` and `patterns` lines go
 // through the app's executor, their receipts completed in the peer's own words (PlayoutReceipts, with a WS and Companion follow-up
 // marked final), the link's rows go to the journal, its record's light to the context's link:<name> item, the clip it has on air
 // to the frame's playout row (with its link and node), and the links to the config's playoutLinks. Its running order never moves
@@ -109,6 +111,10 @@ using Stagewatch.Show;
 //                "words":"…"|null}]}: one row per id named and what speaks for it, the key that admitted it by its id (never
 //                its secret), and the rig's own words for a link it verifies none; a socket that only claims an id, with no
 //                credential that proves one, is a claim and not listed
+//   links        its playout links (--playout) as they stand, no secret in them → {"rig":"links","at":<unix ms>,"links":[{"name",
+//                "kind","node","pairing":"none|paired|open","clock":{"offsetMs","rttMs","errMs","apart"}|null,"record":{…}}]}: each
+//                link's kind and node as its peer said them (null before it did), where its pairing stands, the clock its matched
+//                pongs believe while paired, and its 13.16.3 record, which carries no token, proof or nonce
 //   exit         stops the rig as Ctrl+C does → {"rig":"exiting"}
 //   anything else is refused, never guessed → {"rig":"refused","line":"<first word>","error":"…"}
 // The end of standard input ends the reader; with --exit-on-eof it also stops the rig as Ctrl+C does (so does input that can no
@@ -534,9 +540,10 @@ sealed class Rig : ICompanionBridge, IDisposable
             return 3;
         }
         if (_o.Bus > 0) _beacon = new SlidesBeacon(SayHello, _o.Bus, _o.BusTo is { } to ? [to] : null);
-        // Each playout link dials once started: its token from the environment, never from argv or a file the rig writes.
-        var token = Environment.GetEnvironmentVariable("STAGEWATCH_RIG_PLAYOUT_TOKEN") ?? "";
-        foreach (var l in _o.Playout) _playout.Set(l.Name, PlayoutLinks.Make(l, token, _inst, TimeProvider.System, null, "", _director.Wire));
+        // Each playout link dials once started: its own token from the environment, never from argv or a file the rig writes.
+        var shared = Environment.GetEnvironmentVariable(PlayoutTokenVariable) ?? "";
+        foreach (var l in _o.Playout)
+            _playout.Set(l.Name, PlayoutLinks.Make(l, Environment.GetEnvironmentVariable(PlayoutTokenVariableFor(l.Name)) ?? shared, _inst, TimeProvider.System, null, "", _director.Wire));
         _ticker = new Timer(_ => QueueTick(), null, 0, 250);
         // The windows as they stand at the ready line: the constructor's, before any command can change them.
         var windows = _windows.Windows;
@@ -732,8 +739,17 @@ sealed class Rig : ICompanionBridge, IDisposable
     }
 
     // ---------------------------------------------------------------- the control reader (standard input)
+    /// <summary>The variable every playout link's pairing token comes from when its own does not name one.</summary>
+    public const string PlayoutTokenVariable = "STAGEWATCH_RIG_PLAYOUT_TOKEN";
+
+    /// <summary>
+    /// The variable a playout link's own token comes from: <see cref="PlayoutTokenVariable"/>, '_' and the link's name upper case with
+    /// '-' as '_'. A name is a-z, 0-9 and '-' (<see cref="PlayoutRules.NameProblem"/>), so two names never share a variable.
+    /// </summary>
+    public static string PlayoutTokenVariableFor(string name) => PlayoutTokenVariable + "_" + name.ToUpperInvariant().Replace('-', '_');
+
     /// <summary>The words a control line that is none of the reader's is refused with: the lines there are.</summary>
-    public const string UnknownControl = "unknown (stall <ms>, auth, heard, nodes, exit)";
+    public const string UnknownControl = "unknown (stall <ms>, auth, heard, nodes, links, exit)";
 
     /// <summary>
     /// One line at a time from standard input, each answered in JSON lines (a stall twice); a blank line is ignored, and an
@@ -755,12 +771,13 @@ sealed class Rig : ICompanionBridge, IDisposable
                     case "auth" when words.Length == 1: Say(Lockout()); break;
                     case "heard" when words.Length == 1: Say(Heard()); break;
                     case "nodes" when words.Length == 1: Say(NodeLinkRows()); break;
+                    case "links" when words.Length == 1: Say(PlayoutLinkRows()); break;
                     case "exit" when words.Length == 1:
                         Say(new { rig = "exiting" });
                         Log("exit: stopping (control line)");
                         _stop.TrySetResult();
                         return;
-                    case "auth" or "heard" or "nodes" or "exit": Say(new { rig = "refused", line = words[0], error = words[0] + " takes no words" }); break;
+                    case "auth" or "heard" or "nodes" or "links" or "exit": Say(new { rig = "refused", line = words[0], error = words[0] + " takes no words" }); break;
                     default: Say(new { rig = "refused", line = Clip(words[0]), error = UnknownControl }); break;
                 }
             }
@@ -841,6 +858,28 @@ sealed class Rig : ICompanionBridge, IDisposable
             }),
         };
     }
+
+    /// <summary>
+    /// <c>links</c>: the playout links (--playout) as they stand, read off the show thread from what each link has published: its
+    /// name, the kind and node its peer said (null before it did), where its pairing stands, the clock its matched pongs believe
+    /// while it is paired (null before a matched pong) and its 13.16.3 record — every field a reader of the link takes, none of them
+    /// a token, a proof or a nonce. Each field is its own read of the link's latest publication, as every reader of a link takes
+    /// them, so a row read while the link publishes may hold fields of two publications: a test reads it until it settles.
+    /// </summary>
+    private object PlayoutLinkRows() => new
+    {
+        rig = "links",
+        at = UnixMs(),
+        links = _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>().Select(l => new
+        {
+            name = l.LinkName,
+            kind = l.Kind,
+            node = l.NodeId,
+            pairing = l.Pairing.ToString().ToLowerInvariant(),
+            clock = l.Clock is { } c ? new { offsetMs = c.OffsetMs, rttMs = c.RttMs, errMs = c.ErrMs, apart = l.ClockApart } : null,
+            record = System.Text.Json.Nodes.JsonNode.Parse(l.Record.ToJson()),
+        }),
+    };
 
     /// <summary>
     /// <c>stall &lt;ms&gt;</c>: the owner thread is blocked for that long, as a show thread that stops turning over is: no tick

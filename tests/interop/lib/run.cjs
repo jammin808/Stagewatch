@@ -2,7 +2,8 @@
 // tools/interop/run.sh, with the topology's matrix beside it), what tools/interop/build.sh built ($SW_INTEROP_OUT/builds.json,
 // the only place the driver learns where an app is), and the register of every secret the run makes or learns. Secrets go
 // to the apps through 0600 files in run/secrets, a tmpfs of the run's own mount namespace that ends with the run (or, for
-// AGMessage's admin token, its environment, its one door; for the three PlayMap is given, its token, Patterns' token and its
+// AGMessage's admin token, its environment, its one door, and so for the pairing tokens of the VT rows' rig's playout links,
+// Patterns' and PlayMap's own, each in its link's variable; for the three PlayMap is given, its token, Patterns' token and its
 // node key, PlayMap's 0600 settings file in its home, where it reads them, on the disk; the rig's keys given to PlayMap in row
 // S2.1b, beside PlayMap's token, go through the 0600 files here to PlayMap's operator helper, which pairs by proof and says
 // each key to PlayMap's wire at 127.0.0.1 from inside its namespace, as its operator types it at its own machine), never

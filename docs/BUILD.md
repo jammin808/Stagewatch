@@ -101,7 +101,9 @@ tools/test.sh help            # what each lane does, and the variables a person 
   `--journal <file>|-` keeps the show journal as the app does (a file it can't open for appending is refused), and
   `/report` and `/api/report.csv` answer from it (404 "no report" while its show thread is stalled, as the app's);
   `--playout NAME=HOST:PORT[,patterns|playmap]` (up to 8) runs a playout link to a Patterns desk or a PlayMap node as
-  the app runs one, its pairing token from `STAGEWATCH_RIG_PLAYOUT_TOKEN` (never a flag, so no secret is in its arguments):
+  the app runs one, each with a pairing token of its own as Settings keeps one, from `STAGEWATCH_RIG_PLAYOUT_TOKEN_<NAME>`
+  (the link's name upper case, `-` as `_`: `stage-left` reads `STAGEWATCH_RIG_PLAYOUT_TOKEN_STAGE_LEFT`), else from
+  `STAGEWATCH_RIG_PLAYOUT_TOKEN` (never a flag, so no secret is in its arguments):
   `playout` and `patterns` lines go through the app's executor, each receipt the peer's own answer with its one follow-up
   on a WebSocket and Companion, and the context, the frame, the config and the journal take the links as the app's do (its
   running order never moves on a clip's end); the ready line's `playout` lists each link's name, kind and address;
@@ -126,7 +128,9 @@ tools/test.sh help            # what each lane does, and the variables a person 
   `--bus` and nothing else (each id's kind, address, age and conflict mark); `nodes` reads its own record of the show
   apps' node links on `/ws` (each by the id it named, what speaks for that id, key, operator or none, the key that admitted
   it by its id, never its secret, and its words for one it verifies none; a socket that only claims an id is not one);
-  `exit` stops it as Ctrl+C does; anything else is
+  `links` reads its playout links as they stand (each link's kind and node as its peer said them, where its pairing
+  stands, the clock its matched pongs believe and its 13.16.3 record, never a token); `exit` stops it as Ctrl+C does;
+  anything else is
   refused and a blank line is ignored. It exits 0 when stopped, 2 on an option it can't take, 3 when a server can't
   listen and 4 when the secrets file can't be written; on 3 and 4 the node keys made in that start aren't kept.
   `tools/test.sh rig` passes `$SW_RIG_ARGS` on to it (`SW_RIG_ARGS="--node-keys 2"`).
@@ -199,6 +203,14 @@ tools/test.sh help                                # every lane, and every variab
   comes with the pin that brings it. `SW_INTEROP_HEADS=1` runs each sibling at the commit its repository has checked out
   instead (still pushed only), and `builds.json` and the matrix say how far each is from its pin: the nightly drift report,
   which moves no pin.
+- Patterns' pin is its round 91's papers (5a8ad8f), and the LAN rows prove against that. Round 94's papers (fa5d76b) are
+  pushed, and there S0.1 with the VT rows (S4.1–S4.4) pass, S4.1 reading the clip's `pausable` true, but ten LAN rows that
+  pass at 5a8ad8f fail (S1.5, S2.1b, S2.3, S2.4, S2.7, S3.3, S3.4, S7.3's Patterns leg, S7.4, S8.1), for one reason:
+  since its round 93.2 Patterns' desk holds its node key from a Stagewatch on another machine until that Stagewatch proves
+  itself (LINK, which the rig does not answer) or a person presses Trust beside its fingerprint on the desk's Nodes page,
+  and neither the bench nor the rig can stand in for that press yet (the laptop and offline topologies, at loopback, pass).
+  The pin moves, as a unit of its own, once Patterns' bench has a control line that presses Trust or the rig answers LINK
+  (`docs/WHATS_NEXT.md`, "The VT rows").
 
 **The topologies.** `tools/test.sh interop` starts `tools/interop/run.sh <topology>` once per topology inside `unshare
 --user --map-root-user --net --pid --fork --mount-proc --kill-child`, with 20 minutes to finish. The run's processes live in
@@ -219,7 +231,8 @@ for the run.
 **Secrets.** Every secret the run makes or learns is in the run's register: the rig's PIN and node keys, its certificate's
 password (kept unsealed beside the key off Windows), each app's token, and AGMessage's admin and context tokens. The driver
 hands a secret to an app through an owner-only file in the run's secrets folder, a tmpfs of the run's own mount namespace
-that is gone with the run; AGMessage's admin token through its environment, its one door for it; and PlayMap's own token,
+that is gone with the run; AGMessage's admin token through its environment, its one door for it, and so Patterns' and
+PlayMap's tokens to the VT rows' rig, each in its playout link's own variable; and PlayMap's own token,
 Patterns' token and PlayMap's node key through an owner-only settings file in PlayMap's home (`playmap.node.json`, its door
 for them), on the disk; and, in row S2.1b, two of the rig's keys (the free key, then PlayMap's own again) through
 owner-only files in the secrets folder to a helper started in PlayMap's namespace, which pairs by proof with PlayMap's
@@ -238,6 +251,9 @@ once those are removed, for every secret of the register, in either case. A row'
 **The rows.**
 - Each row is one cross-app fact: a `node:test` test that writes its matrix row. The rows run in order: S0.1 starts the
   apps, the rows that take an app down come last but one, and S7.1 last, since it stops the apps to sweep what they left.
+  The VT rows (S4.1–S4.4) run a rig of their own beside the room's, in its namespace on ports of its own (19950–19952) and
+  off the show network, with playout links to Patterns' and PlayMap's wires, and stop it once they end, so the room's rig,
+  its doors and the rows after them are as they were; both rigs' lockout tables are read after each.
 - A row is added only once it passes against the real apps. One that cannot pass yet is not in the lane, and
   `docs/WHATS_NEXT.md` names it with what it waits on.
 - Each deadline is the contract's number × 1.5 + 2 s: a hello every 2 s, so heard within 5 s; stale after 6 s, said within
@@ -265,6 +281,10 @@ once those are removed, for every secret of the register, in either case. A row'
 | S2.6 | lan | PlayMap's, Patterns' and the rig's own contexts are each under 64 KiB as carried |
 | S2.7 | lan | a node key cannot speak for another node: each such post is refused 403 with Stagewatch's words, no forged word reaches the rig's context, and every key stays bound as it was |
 | S4.5 | lan | PlayMap follows Patterns' clip and blackout, paired by proof |
+| S4.1 | lan | a rig's playout link to Patterns' wire, with Patterns' own token: paired by proof as Patterns within 5 s, amber for level 0 over plain TCP; its VT Patterns' clip's own time left within 1.5 s; `playout patterns pause` applied in Patterns' words, its STATE paused and the VT stopped within 5 s |
+| S4.2 | lan | a rig's playout link to PlayMap's wire, with PlayMap's own token and a 60 s colour item playing in its playlist `show`: paired by proof as PlayMap within 5 s; its VT the item's own time left within 1.5 s; `playout stage-left pause` applied, PlayMap's STATE paused; `playout stage-left go show #9` refused in PlayMap's own words |
+| S4.3 | lan | one rig with both links, each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context's `link:patterns` and `link:stage-left` each in its own record's light, and the VT names Patterns' running clip, then, that paused through its link, PlayMap's running item |
+| S4.4 | lan | on one kernel each link believes its peer's clock within 50 ms of its own, within 10 s, and the context carries no `clock:` item |
 | S6.1 | lan | the rig killed and restarted: every link lets go, then is gone, then is live again |
 | S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again |
 | S6.2a | lan | a stuck Stagewatch: PlayMap's link stays live and shows no time, for Stagewatch's own reason, and the rig's running time again once the show turns over |
@@ -325,6 +345,10 @@ not run". `docs/WHATS_NEXT.md` has the job's details and the maintainer's action
   unknown words and a key speaking for another node;
 - let every link to the rig go when the rig is killed or its cable pulled, and come back; PlayMap and Patterns show no time
   while the rig's show thread is stuck, and the rig's time again after;
+- drive the real Patterns desk and PlayMap node through Stagewatch's own playout links (the rig's, the app's
+  `PlayoutLink`), each paired by proof with its own app's token: the VT read from Patterns' clip and PlayMap's playlist
+  item, a pause applied in each peer's words, a GO PlayMap refuses refused in its words, and each link's clock believed
+  within 50 ms on one kernel;
 - carry a line across the rig's desk both ways: Patterns' assistant's proposal approved at the rig and applied at Patterns
   in EDIT SAFE, and the rig's own line run at Patterns, each with the desk saying done in Patterns' words; a line an app does
   not list is refused at the desk;
@@ -345,13 +369,14 @@ not run". `docs/WHATS_NEXT.md` has the job's details and the maintainer's action
 - **Windows.** The WPF desk (its Show network line, its mirror, its right-click menus: the UI smoke and the PC's walk),
   WebView2 (the design's S5.1w, Patterns showing a granted page: a Windows job or the walk), DPAPI (the rig's certificate
   password is unsealed off Windows) and PlayMap's Direct3D 12 never run on the lane.
-- **The desk itself.** The rig is Stagewatch's servers around a simulated show, not the WPF app, so the app's own link to
-  Patterns (`PlayoutLink`) is held by the suite against scripted desks and the scripted peer, not by the lane. The rows
+- **The desk itself.** The rig is Stagewatch's servers around a simulated show, not the WPF app: the app's playout link
+  (`PlayoutLink`) runs in the lane only as the VT rows' rig of their own runs it, plain TCP at level 0 (amber), never over
+  PlayMap's TLS carrier and with no cue; the rest is held by the suite against scripted desks and the scripted peer. The rows
   decide on the rig's desk over HTTP with the operator's PIN: its Companion door refuses `peer` and `desk` from another
   machine, and the Companion module itself does not run here; its `network_ready` is read off the rig's Companion door by the
   module's own rule (a frame's `network`; a STUCK pong throws the frame away, so yes or no after a stall is read from a
-  frame sent after it). S6.3's doors are configured by PlayMap's node key, not by a playout link to it (the VT rows'
-  unit).
+  frame sent after it). S6.3's doors are configured by PlayMap's node key, not by a playout link to it: the VT rows run a
+  rig of their own, so the room's rig runs no playout link.
 - **AGMessage's own context.** AGMessage holds no node key in the lane, so it posts no context: its heard row is held
   green and its context row stays amber, and 'ready for doors' is held on Patterns' and PlayMap's contexts alone until
   SW-INT-AG keys it. A forged post for its id (S2.7) lights its key row red for 30 s, so the doors rows read before
@@ -364,7 +389,7 @@ not run". `docs/WHATS_NEXT.md` has the job's details and the maintainer's action
 - **Each app's own promises.** That neither Patterns nor PlayMap sends its key in clear off its own machine is held by its
   own tests (Patterns' Round 89.5, PlayMap's PM-2), not read by the lane.
 - **The rows that wait.** AGMessage's keyed rows, the rows that need a sibling's later work, the offline laptop, and the
-  design's desk, VT, windows and doors rows are not in the lane until they pass; `docs/WHATS_NEXT.md` names each with what
+  design's desk, windows and doors rows are not in the lane until they pass, nor is a playout cue against the real apps; `docs/WHATS_NEXT.md` names each with what
   it waits on.
 
 ## Single-file publish

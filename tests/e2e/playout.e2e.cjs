@@ -1,10 +1,11 @@
 // Playout links against the rig (--playout): a fake PlayMap node and a fake Patterns desk on their line wires (fakepeers.cjs), each
-// paired by proof with the token the rig takes from its environment. A playout line over HTTP, a WebSocket and Companion reaches the
-// link it names, and its receipt is the peer's own answer — applied, refused in the peer's words, or accepted and then its one
+// paired by proof with its own token, which the rig takes from its link's own variable (patterns from ..._PATTERNS, stage-left from
+// ..._STAGE_LEFT) before the one every link falls back to, set here to a token that pairs neither (cues.e2e pairs through that one).
+// A playout line over HTTP, a WebSocket and Companion reaches the link it names, and its receipt is the peer's own answer — applied, refused in the peer's words, or accepted and then its one
 // follow-up with "final" — with the peer's request in refs.peerRequest; a pause Patterns' own facts refuse is refused here and never
 // sent. The context carries a link:<name> item per link in its record's light (amber at level 0), the frame's playout row names the
 // link and node feeding the VT, the config names the links, and the show log's rows are the peers' outcomes and what their STATE
-// showed. Neither peer, nor the rig's own lines, ever carries the token.
+// showed; the rig's `links` line reads each link as it stands. Neither peer, nor the rig's own lines, ever carries a token.
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,7 +13,12 @@ const net = require('node:net');
 const { Rig, until } = require('./rig.cjs');
 const { fakePlayMap, fakePatterns, legacyKey, ok, err } = require('./fakepeers.cjs');
 
+/** The PlayMap node's own token, given to its link alone (STAGEWATCH_RIG_PLAYOUT_TOKEN_STAGE_LEFT: '-' read as '_'). */
 const TOKEN = 'e2e-pl4y-0ut-7f3a';
+/** The Patterns desk's own token, given to its link alone (STAGEWATCH_RIG_PLAYOUT_TOKEN_PATTERNS): the node's would not pair it. */
+const PAT_TOKEN = 'e2e-p4tt-3rns-91c2';
+/** The token every link falls back to: it pairs neither peer, so a link paired here read its own variable first. */
+const SHARED = 'e2e-5h4r-3d00-0b1d';
 const PLAYMAP_ID = 'pm5e6f7a';
 
 // The node's one playlist as its STATE says it: idle until a CUE or a GO moves it; its clip on air plays on.
@@ -56,13 +62,13 @@ function playmapCommands(body, tag, later) {
 before(async () => {
   pm = await fakePlayMap({ token: TOKEN, state: pmState, context: pmContext, whoami: '{"paired":true,"role":"remote","armed":false,"may":"*"}', commands: playmapCommands });
   pat = await fakePatterns({
-    token: TOKEN, state: patState, context: patContext,
+    token: PAT_TOKEN, state: patState, context: patContext,
     commands: (body, tag) => (body === 'VIDEO END 10' ? [ok(tag, 'jumped to the last 10 s')] : [err(tag, 'not in this fake: ' + body)]),
   });
   // Both push their STATE while their clips play, as the real ones do: the clip's countdown and the playlist's state stay fresh.
   pusher = setInterval(() => { pm.push('STATE ' + pmState()); pat.push('STATE ' + patState()); }, 300);
   rig = await Rig.create({
-    wire: true, journal: '-', env: { STAGEWATCH_RIG_PLAYOUT_TOKEN: TOKEN },
+    wire: true, journal: '-', env: { STAGEWATCH_RIG_PLAYOUT_TOKEN: SHARED, STAGEWATCH_RIG_PLAYOUT_TOKEN_STAGE_LEFT: TOKEN, STAGEWATCH_RIG_PLAYOUT_TOKEN_PATTERNS: PAT_TOKEN },
     args: ['--playout', `stage-left=127.0.0.1:${pm.port},playmap`, '--playout', `patterns=127.0.0.1:${pat.port}`],
   });
 });
@@ -148,7 +154,25 @@ test('the links pair by proof and every reader takes them: ready line, context i
     'the clip feeding the VT names its peer, its link and its node');
   await until(() => pm.heard.some((l) => / WHOAMI$/.test(l)), 10000, 'a PlayMap node is asked WHOAMI once its kind is heard');
   assert.ok(!pat.heard.some((l) => / WHOAMI$/.test(l)), 'a Patterns desk is never asked WHOAMI');
+
+  // The rig's own reader of its links: each by its name in Settings' order, its kind and node as its peer said them, paired, and
+  // its 13.16.3 record at level 0, with no token in the line.
+  const links = await plainRig('links', (j) => j.rig === 'links');
+  assert.deepEqual(links.links.map((l) => [l.name, l.kind, l.node, l.pairing, l.record.level]),
+    [['stage-left', 'playmap', PLAYMAP_ID, 'paired', 0], ['patterns', 'patterns', '9f8e7d6c', 'paired', 0]]);
+  assert.ok(Number.isInteger(links.at) && links.at > 0, 'links says when it read');
+  for (const l of links.links) assert.ok(l.clock === null || (typeof l.clock.offsetMs === 'number' && typeof l.clock.apart === 'boolean'), `${l.name}'s clock`);
+  const words = await plainRig('links now', (j) => j.rig === 'refused');
+  assert.deepEqual([words.line, words.error], ['links', 'links takes no words']);
 });
+
+/** A control line to the rig and its answer, its line checked for neither token. */
+async function plainRig(line, answered) {
+  const said = await rig.control(line, answered);
+  const text = JSON.stringify(said);
+  for (const t of [TOKEN, PAT_TOKEN, SHARED]) assert.ok(!text.includes(t) && !text.toUpperCase().includes(legacyKey(t)), `the ${line} line carries no token`);
+  return said;
+}
 
 test('HTTP: a GO the node refuses is refused in its words, 409, with its request named; a link it does not have is refused here', async () => {
   const { status, receipt } = await http('playout stage-left go pl1 it9', 'h1');
@@ -209,12 +233,14 @@ test('G48: Patterns\' pause of a playlist item is refused here in Patterns\' wor
   assert.deepEqual([end.receipt.ok, end.receipt.stage, end.receipt.effect], [true, 'applied', 'Patterns took VIDEO END 10 (jumped to the last 10 s)']);
 });
 
-test('the token reaches neither peer as a word, nor any line the rig says', () => {
-  const key = legacyKey(TOKEN);
-  for (const [who, heard] of [['PlayMap', pm.heard], ['Patterns', pat.heard]]) {
-    assert.ok(heard.some((l) => / AUTH-PROOF [0-9a-f]{64}$/.test(l)), `${who} was paired by proof`);
-    assert.ok(!heard.some((l) => l.includes(TOKEN) || l.toUpperCase().includes(key)), `${who} never heard the token`);
+test('no token reaches either peer as a word, nor any line the rig says', () => {
+  for (const t of [TOKEN, PAT_TOKEN, SHARED]) {
+    const key = legacyKey(t);
+    for (const [who, heard] of [['PlayMap', pm.heard], ['Patterns', pat.heard]]) {
+      assert.ok(heard.some((l) => / AUTH-PROOF [0-9a-f]{64}$/.test(l)), `${who} was paired by proof`);
+      assert.ok(!heard.some((l) => l.includes(t) || l.toUpperCase().includes(key)), `${who} never heard a token`);
+    }
+    assert.ok(!rig.log.includes(t) && !rig.log.toUpperCase().includes(key), 'the rig\'s log never says one');
+    assert.ok(!rig.out.items.some((l) => l.line.includes(t)), 'nor its standard output');
   }
-  assert.ok(!rig.log.includes(TOKEN) && !rig.log.toUpperCase().includes(key), 'the rig\'s log never says it');
-  assert.ok(!rig.out.items.some((l) => l.line.includes(TOKEN)), 'nor its standard output');
 });

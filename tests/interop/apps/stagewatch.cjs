@@ -11,6 +11,10 @@
 // the keys on its first start only (--state keeps their hashes and what each speaks for): their secrets come from the secrets
 // file of that start, registered by name, and a restart's file holds none. Its certificate's password, kept unsealed beside the
 // key off Windows, is registered too.
+// A second rig beside it in the same namespace (`own`: its own name, ports, node id and folders) runs playout links (`playout`:
+// --playout NAME=HOST:PORT[,KIND], each link's pairing token handed over in the one variable the rig reads for that link,
+// STAGEWATCH_RIG_PLAYOUT_TOKEN_<NAME>, never argv or a file), off the show network, as the VT rows run them: the room's rig and
+// its rows stay as they are while it runs, and it is stopped once those rows end.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -29,15 +33,24 @@ class Stagewatch {
    * the keys and its certificate with no Show Bus port (a laptop with no network, where every address is typed); omitted, it
    * is off it.
    */
-  constructor(run, host, bus = null) {
+  /**
+   * `own`: { name, ports, nodeId, playout: [NAME=HOST:PORT[,KIND]], tokens: { NAME: token } } for a rig beside the room's (its
+   * logs, folders and secrets under `name`); omitted, it is the room's rig.
+   */
+  constructor(run, host, bus = null, own = null) {
     this.run = run;
     this.host = host;
     this.bus = bus;
     this.onBus = !!bus && bus.hello !== false;
-    this.folders = run.folders('stagewatch');
+    this.name = own ? own.name : 'stagewatch';
+    this.ports = own ? own.ports : PORTS;
+    this.nodeId = own ? own.nodeId : NODE_ID;
+    this.playout = own ? own.playout : [];
+    this.tokens = own ? own.tokens : {};
+    this.folders = run.folders(this.name);
     // 16 hex: long enough that finding it in a capture means it leaked, never a timestamp that happens to hold it.
-    this.pinFile = run.secrets.file('stagewatch.pin', hex(8));
-    this.secretsOut = path.join(run.secrets.dir, 'stagewatch.secrets.json');
+    this.pinFile = run.secrets.file(`${this.name}.pin`, hex(8));
+    this.secretsOut = path.join(run.secrets.dir, `${this.name}.secrets.json`);
     this.state = path.join(this.folders.home, 'windows.json');
     this.journal = path.join(this.folders.home, 'journal.jsonl');
     this.tlsFolder = path.join(this.folders.home, 'tls');
@@ -46,7 +59,7 @@ class Stagewatch {
     this.handed = new Map();
   }
 
-  get address() { return `${this.host.addr}:${PORTS.http}`; }
+  get address() { return `${this.host.addr}:${this.ports.http}`; }
 
   /** Its door over TLS, held to the certificate it said in its ready line. */
   get secure() { return `https://${this.address}`; }
@@ -55,15 +68,18 @@ class Stagewatch {
    *  (within ms), with the ready line's JSON. */
   async start(ms = 60000) {
     this.starts = (this.starts || 0) + 1;
+    // Each playout link's token in the variable the rig reads for that link alone (its name upper case, '-' as '_').
+    const tokens = Object.fromEntries(Object.entries(this.tokens).map(([link, t]) => [`STAGEWATCH_RIG_PLAYOUT_TOKEN_${link.toUpperCase().replace(/-/g, '_')}`, t]));
     this.proc = new AppProcess(this.run, {
-      name: this.starts === 1 ? 'stagewatch' : `stagewatch.${this.starts}`,
+      name: this.starts === 1 ? this.name : `${this.name}.${this.starts}`,
       ns: this.host.ns,
       command: 'dotnet',
-      args: [this.run.builds.stagewatch.rig, '--port', String(PORTS.http), '--companion', String(PORTS.companion), '--osc', String(PORTS.osc),
+      args: [this.run.builds.stagewatch.rig, '--port', String(this.ports.http), '--companion', String(this.ports.companion), '--osc', String(this.ports.osc),
         '--bind', 'all', '--pin-file', this.pinFile, '--secrets-out', this.secretsOut, '--state', this.state, '--journal', this.journal,
-        '--node-id', NODE_ID, '--exit-on-eof',
-        ...(this.bus ? [...(this.onBus ? ['--bus', String(BUS_PORT)] : []), '--tls', this.tlsFolder, '--node-keys', String(this.bus.keys)] : [])],
-      env: baseEnv(this.folders),
+        '--node-id', this.nodeId, '--exit-on-eof',
+        ...(this.bus ? [...(this.onBus ? ['--bus', String(BUS_PORT)] : []), '--tls', this.tlsFolder, '--node-keys', String(this.bus.keys)] : []),
+        ...this.playout.flatMap((l) => ['--playout', l])],
+      env: { ...baseEnv(this.folders), ...tokens },
       cwd: this.folders.home,
       stdin: true,
     });
@@ -77,10 +93,10 @@ class Stagewatch {
     // The file is written whole before the ready line: every secret this start made, registered by name.
     const secrets = JSON.parse(fs.readFileSync(this.secretsOut, 'utf8'));
     if (this.pin !== undefined && secrets.pin !== this.pin) throw new Error('the restarted rig took another PIN than its file holds');
-    this.pin = this.run.secrets.add('stagewatch.pin', secrets.pin);
-    for (const w of secrets.windows || []) this.run.secrets.add(`stagewatch.window.${w.name}`, w.path);
+    this.pin = this.run.secrets.add(`${this.name}.pin`, secrets.pin);
+    for (const w of secrets.windows || []) this.run.secrets.add(`${this.name}.window.${w.name}`, w.path);
     for (const k of secrets.nodeKeys || []) {
-      this.run.secrets.add(`stagewatch.nodeKey.${k.id}`, k.secret);
+      this.run.secrets.add(`${this.name}.nodeKey.${k.id}`, k.secret);
       this.keys.push({ id: k.id, secret: k.secret });
     }
     // The certificate a restart serves is the one the first start made: what every peer pinned.
@@ -108,8 +124,11 @@ class Stagewatch {
   checkReady() {
     const r = this.ready;
     const wrong = [];
-    if (r.http !== PORTS.http) wrong.push(`http ${r.http}`);
-    if (r.node !== NODE_ID) wrong.push(`node ${r.node}`);
+    if (r.http !== this.ports.http) wrong.push(`http ${r.http}`);
+    if (r.node !== this.nodeId) wrong.push(`node ${r.node}`);
+    const links = (r.playout || []).map((l) => `${l.name}=${l.address},${l.kind}`);
+    const asked = this.playout.map((l) => (l.includes(',') ? l : `${l},auto`));
+    if (JSON.stringify(links) !== JSON.stringify(asked)) wrong.push(`playout ${JSON.stringify(links)}, not ${JSON.stringify(asked)}`);
     if (r.bind !== 'all') wrong.push(`bind ${r.bind}`);
     if (r.pin !== 'set') wrong.push(`pin is not "set"`);
     if (r.secrets !== 'file') wrong.push(`secrets ${r.secrets}`);
@@ -184,12 +203,33 @@ class Stagewatch {
   }
 
   /**
+   * Its playout links as its `links` line reads them: [{ name, kind, node, pairing, clock: { offsetMs, rttMs, errMs, apart } | null,
+   * record }], each link's kind and node as its peer said them, where its pairing stands, the clock its matched pongs believe and
+   * its 13.16.3 record. No secret in it.
+   */
+  async links() {
+    const said = await this.control('links', (j) => j.rig === 'links' || j.rig === 'refused');
+    if (said.rig !== 'links') throw new Error(`links refused: ${said.error}`);
+    if (!Array.isArray(said.links)) throw new Error("the rig's links line holds no links");
+    const leaked = this.run.secrets.foundIn(JSON.stringify(said));
+    if (leaked.length) throw new Error(`the rig's links line holds ${leaked.join(', ')}`);
+    return said.links;
+  }
+
+  /** Its config as the operator's pages read it (GET /api/config with the PIN). */
+  async config() {
+    const res = await get(`http://${this.address}/api/config`, 5000, { 'X-Stagewatch-Pin': this.pin });
+    if (res.status !== 200 || !res.json) throw new Error(`the rig answered GET /api/config with ${res.status}`);
+    return res.json;
+  }
+
+  /**
    * The PIN's lockout reader reads this network's addresses as the rows assert them: one wrong PIN from `from` (sent to the
    * rig at `at`, on a route that only reads) is that address with one more failure, and the right PIN clears it, so the table
    * is as it was for the rows after.
    */
   async proveLockoutReader(from, at = this.host.addr) {
-    const route = `http://${at}:${PORTS.http}/api/context`;
+    const route = `http://${at}:${this.ports.http}/api/context`;
     const before = (await this.auth()).pins[from] || 0;
     const wrong = await get(route, 5000, { 'X-Stagewatch-Pin': 'not-the-pin' });
     if (wrong.status < 400) throw new Error(`a wrong PIN on ${route} answered ${wrong.status}`);
@@ -209,7 +249,7 @@ class Stagewatch {
    * runs this control after its last row's read, and no read after it asserts `from`.
    */
   async proveViewPassReader(from, at = this.host.addr) {
-    const route = `http://${at}:${PORTS.http}/w/interop-no-such-window`;
+    const route = `http://${at}:${this.ports.http}/w/interop-no-such-window`;
     const before = (await this.auth()).viewPasses[from] || 0;
     const wrong = await get(route);
     if (wrong.status !== 404) throw new Error(`a window address no window has, ${route}, answered ${wrong.status}, not 404`);
@@ -301,7 +341,7 @@ class Stagewatch {
   async companion() {
     if (this.deck && !this.deck.closed) return this.deck;
     const { CompanionDeck } = require('../lib/companion.cjs');
-    this.deck = await CompanionDeck.connect(this.host.addr, PORTS.companion, this.run.log(`stagewatch.companion.${this.starts}`));
+    this.deck = await CompanionDeck.connect(this.host.addr, this.ports.companion, this.run.log(`${this.name}.companion.${this.starts}`));
     return this.deck;
   }
 
