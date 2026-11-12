@@ -254,6 +254,21 @@ public static class ScreenWindows
     public static bool ValidName(string? name) => ScreenPreset.ValidName(name);
 
     /// <summary>
+    /// A window grant as one line of this Stagewatch's grammar, <c>window grant &lt;window&gt; &lt;app&gt;</c>, each a bare word — the window by
+    /// its name, the app by its Show Bus id — or null when <paramref name="a"/> is no grant, or names every window, or either cannot be
+    /// written so (a name with a space, an app named by its name): the line a deck's asked grant waits on the desk as.
+    /// </summary>
+    public static string? GrantLine(WindowArgs a)
+    {
+        var window = a.Who.Trim();
+        var app = a.Argument.Trim();
+        return a.Action.Equals("grant", StringComparison.OrdinalIgnoreCase) && ValidName(window) && !window.Equals("all", StringComparison.OrdinalIgnoreCase)
+               && NodeBindings.ValidId(app)
+            ? $"window grant {window} {app}"
+            : null;
+    }
+
+    /// <summary>
     /// The window an address belongs to, and by which pass (<see cref="WindowHit.Via"/>: "" for the window's own address, else the
     /// node id of the page grant whose address it is), or null. Every window's token and every page grant's are compared, each in
     /// constant time and none skipped once one matches, so the time taken says nothing about how close a guess was or which pass it hit.

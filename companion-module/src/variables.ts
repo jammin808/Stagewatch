@@ -102,6 +102,12 @@ const STATIC: Record<string, string> = {
 	// 2.22
 	windows_open: 'Windows Stagewatch controls that a screen has opened (any light but grey: grey is a window nobody has opened yet)',
 	windows_attention: 'Windows amber or red: switching to what it was sent, link lost, or could not show it',
+	desk_pending: "Proposals waiting on Stagewatch's approval desk",
+	desk_next_id: 'The oldest proposal waiting: its id (p18-k3m9)',
+	desk_next_from: 'The oldest proposal waiting: who proposed it',
+	desk_next_target: 'The oldest proposal waiting: which app is to run it',
+	desk_next_line: 'The oldest proposal waiting: its line (the first 120 characters)',
+	desk_next_risk: 'The oldest proposal waiting: its risk (low, review or high)',
 	playout_answer: 'The latest answer to a playout press: applied, accepted, final …, refused — with its words (an earlier press\'s answer names its line)',
 	hard_out: 'Next curfew and how the show is tracking against it',
 	hard_out_margin: 'Time to spare (+) or over (-) at the next curfew',

@@ -1484,7 +1484,7 @@ public sealed class WebServer : IAsyncDisposable
         if (PlayoutGate.Person(cmd.Kind))
         {
             // The door names the sender, never the line: a role for the proposal, and who and from where for the desk's journal.
-            cmd = cmd with { By = DeskOrigin.Wire(WireWho(PinFrom(req), req.SessionKeyId, remote, proved)) };
+            cmd = cmd with { By = DeskOrigin.Wire(WireWho(PinFrom(req), req.SessionKeyId, remote, proved), proved) };
             // A person's line is answered with what came of it, whether or not the request named itself: never a bare "ok".
             requestId ??= PersonReceiptId(cmd.Kind);
         }
@@ -2644,7 +2644,7 @@ public sealed class WebServer : IAsyncDisposable
         if (PlayoutGate.Person(cmd.Kind))
         {
             // As on HTTP: the door names the sender, and a person's line is always answered with what came of it.
-            cmd = cmd with { By = DeskOrigin.Wire(WireWho(null, link.KeyId, client.Remote, proved)) };
+            cmd = cmd with { By = DeskOrigin.Wire(WireWho(null, link.KeyId, client.Remote, proved), proved) };
             requestId ??= PersonReceiptId(cmd.Kind);
         }
         if (requestId is not null)

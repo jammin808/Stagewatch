@@ -149,6 +149,12 @@ public sealed class DeskService : IShowApprovals
     /// <summary>Why a decision from what is not a person is refused.</summary>
     public const string PersonDecides = DeskOrigin.PersonDecides;
 
+    /// <summary>
+    /// Why a window grant aimed at this desk is not approved by a sender that proved no person (Show Bus §12.4): a deck, or a wire request
+    /// on its address alone. The proposal waits for a person; a deck may still reject it.
+    /// </summary>
+    public const string GrantTakesProof = "a window grant is approved by a person who proved it — at the desk, or over HTTP or a WebSocket with the PIN or a control key; Companion TCP, OSC and an address alone prove nobody";
+
     /// <summary>What approving with nothing ticked says: nothing was approved, and the proposal still waits.</summary>
     public const string NothingTicked = "Nothing was ticked — nothing ran";
 
@@ -535,13 +541,46 @@ public sealed class DeskService : IShowApprovals
             : $"{NameOf(target)} has told this desk no verbs — Stagewatch sends only lines it can read";
     }
 
+    // ------------------------------------------------------------------ a deck's ask
+
+    /// <summary>Why an ask is refused from a sender that is no deck: only a door that proves no person asks; a person makes the grant.</summary>
+    public const string AsksFromDeckOnly = "only a deck (Companion TCP, OSC) asks the operator for a window grant — a person makes one at the desk";
+
+    /// <summary>
+    /// A window grant from a deck (Companion TCP, OSC), which proves no person (Show Bus §12.4): asked of the operator, never made — a
+    /// proposal aimed at this desk, pending until a person approves it, its app named by its Show Bus id alone, as an approved proposal's
+    /// grant finds its app (<see cref="ShowCommand.By"/> <see cref="DeskOrigin.Proposal"/>). <paramref name="wouldGrant"/> is the host's
+    /// dry run of the grant on its windows now, its app found by id alone: a grant it refuses — no such window, no app by that id, an app
+    /// that holds the window already — is refused here in its words, nothing queued, since the operator could only approve a refusal.
+    /// Refused with words too: a sender that is no deck; a window or an app that cannot be written as one word each; a full desk. The
+    /// journal's row of the proposal keeps the deck's door and address apart from its words.
+    /// </summary>
+    public DeskOutcome AskGrant(WindowArgs grant, DeskOrigin by, Func<WindowArgs, WindowChange> wouldGrant)
+    {
+        if (!by.Asks || by.Door.Length == 0) return new(false, AsksFromDeckOnly);
+        if (ScreenWindows.GrantLine(grant) is not { } line) return new(false, ProposalDesk.AsksGrantsOnly);
+        var tried = wouldGrant(grant);
+        if (!tried.Ok) return new(false, tried.Words);
+        SharedProposal? p;
+        string? refused;
+        bool again;
+        // The queue raises the proposal's first change on this thread, inside the call: its row keeps the deck's door and address.
+        _submittedWith = by.Named;
+        try { (p, refused, again) = Queue.ProposeAsked(by.Door, line, "", CommandRisk.OfLine(line).Risk, Now); }
+        finally { _submittedWith = null; }
+        if (p is null) return new(false, refused!);
+        return new(true, again ? $"{Short(p.Id)} already asks for it — {p.Line} waits for the operator's approval at the desk"
+            : $"asked as {Short(p.Id)} — {line} waits for the operator's approval at the desk", p);
+    }
+
     // ------------------------------------------------------------------ a person's decision
 
     /// <summary>
     /// A person approves or rejects a proposal, named by its id (whole, or p&lt;n&gt; of this run) or <c>next</c>, the oldest waiting.
     /// Refused with words, the proposal left as it is: a decider that is not a person; no such proposal, or one no longer waiting;
     /// an approval with nothing ticked; an approval of a high proposal without its id and <paramref name="high"/> — <c>next</c> never
-    /// approves one, whatever comes with it, and its words name the id to say; and an approval for an app that has not asked for its
+    /// approves one, whatever comes with it, and its words name the id to say; an approval of a window grant aimed at this desk by a
+    /// decider that proved no person (<see cref="DeskOrigin.Proved"/>: a deck, an address alone); and an approval for an app that has not asked for its
     /// approved lines lately; and a rejection whose reason holds a key or a window's address, which no journal row keeps. An approved
     /// line aimed at this desk runs here at once through the host, and the outcome is that run's: its refusal is this decision's. A
     /// refusal repeated is one journal row and a count.
@@ -573,6 +612,13 @@ public sealed class DeskService : IShowApprovals
             return new(true, $"rejected {Short(p.Id)} ({Title(p)})", rejected);
         }
         if (!ticked) return new(false, NothingTicked, p);
+        // A window grant here is a person's act: one that came in on a door that proves nobody — a deck's own ask, an app's self-ask, an
+        // agent's proposal — is never approved from such a door, or a grant would still be made on an address alone.
+        if (p.TargetIsDesk && !by.Proved && ProposalDesk.GrantedApp(p.Line) is not null)
+        {
+            Refused(now, p, NotApproved, by, "a grant takes a proved person", GrantTakesProof);
+            return new(false, GrantTakesProof, p);
+        }
         // A high proposal is chosen by name: its id and the word. As next — the oldest, whichever that is — it is never approved.
         if (p.Risk == "high" && (!high || next))
         {

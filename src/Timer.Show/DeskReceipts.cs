@@ -7,7 +7,8 @@ namespace Stagewatch.Show;
 /// The Show Bus receipt of a line a person sent to another app (§3, §11): what that app made of it, not only that it was queued.
 /// Within the sender's deadline it is the proposal's end — applied in the app's words when it ran it, refused when it said no, was
 /// not delivered or was rejected — and with none by then, accepted, saying where the line stands: sent and not collected yet, or
-/// collected and not answered. An accepted receipt carries its one follow-up (<see cref="CommandReceipt.Final"/>) within
+/// collected and not answered. A line that waits for a person's decision (a deck's asked window grant) is accepted at once, waiting
+/// for the operator, since no wait within the deadline settles it. An accepted receipt carries its one follow-up (<see cref="CommandReceipt.Final"/>) within
 /// <c>receipt.final.ms</c> of the send: the proposal's end once it comes, else accepted still, in words that say what is known.
 /// Every receipt names the proposal in <c>refs.sharedProposal</c>, by its whole id. Pure but for the waits, on the clock given.
 /// </summary>
@@ -27,6 +28,9 @@ public static class DeskReceipts
     public static async Task<CommandReceipt> Within(string id, DeskService desk, string proposal, TimeSpan remaining, TimeProvider time, long sentAt)
     {
         var settled = desk.Settled(proposal);
+        // A line that waits for a person's decision (a deck's asked grant) is answered at once: no wait within the deadline could
+        // settle it, and its follow-up is the decision, or that it still waits.
+        if (desk.ResultOf(proposal) is { Stage: "pending" } waiting) return Of(id, waiting) with { Final = FinalOf(id, desk, proposal, settled, time, sentAt) };
         if (await Wait(settled, remaining, time).ConfigureAwait(false) is { } ended) return Of(id, ended);
         var now = desk.ResultOf(proposal) ?? await settled.ConfigureAwait(false);
         return now.Settled ? Of(id, now) : Of(id, now) with { Final = FinalOf(id, desk, proposal, settled, time, sentAt) };
@@ -55,9 +59,12 @@ public static class DeskReceipts
     public static CommandReceipt Unsettled(string id, DeskResult result)
     {
         var s = FinalWithin.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture);
-        var words = result.Stage == "collected"
-            ? $"unconfirmed — {result.Words}; none came in {s} s — it may have run; its result is on the desk as {DeskService.Short(result.Id)}"
-            : $"{result.Words} ({s} s on); it is not delivered unless it is collected";
+        var words = result.Stage switch
+        {
+            "collected" => $"unconfirmed — {result.Words}; none came in {s} s — it may have run; its result is on the desk as {DeskService.Short(result.Id)}",
+            "pending" => $"{result.Words} ({s} s on); it runs only once a person approves it, and its outcome is on the desk as {DeskService.Short(result.Id)}",
+            _ => $"{result.Words} ({s} s on); it is not delivered unless it is collected",
+        };
         return Of(id, result with { Words = words }, final: true);
     }
 

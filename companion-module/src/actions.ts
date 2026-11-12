@@ -1,7 +1,7 @@
 import type { CompanionActionDefinitions, CompanionOptionValues, DropdownChoice } from '@companion-module/base'
 import { quote } from './connection.js'
 import { adviceCommand, formatShort, itemAdjust, latestOpenFor, liveQuestion, newestUnanswered, playoutOffered, resolveItem } from './state.js'
-import type { PlayoutLinkInfo } from './state.js'
+import { deskNext, type DeskAccess, type PeerInfo, type PlayoutLinkInfo, type Snapshot } from './state.js'
 import type ModuleInstance from './main.js'
 
 const URGENCY_CHOICES: DropdownChoice[] = [
@@ -107,6 +107,9 @@ export function playoutStartLine(action: 'cue' | 'go', link: string, playlist: s
 	return { line: `${head} ${action} ${words.join(' ')}${together ? ' together' : ''}` }
 }
 
+/** A Show Bus id as Stagewatch reads one (NodeBindings.ValidId): 1–40 of letters, digits, - and _. */
+export const SHOW_BUS_ID = /^[A-Za-z0-9_-]{1,40}$/
+
 /** The longest show app's name a window line takes (ScreenWindows.MaxAppName): a longer one is named by its id. */
 export const MAX_APP_NAME = 60
 
@@ -118,12 +121,13 @@ export const MAX_APP_NAME = 60
 export function showAppWord(v: string): string | null {
 	const t = v.trim()
 	if (t.length < 1 || t.length > MAX_APP_NAME || /[\u0000-\u001f\u007f-\u009f]/.test(t)) return null
-	return /^[A-Za-z0-9_-]{1,40}$/.test(t) ? t : quote(t)
+	return SHOW_BUS_ID.test(t) ? t : quote(t)
 }
 
 /**
- * `WINDOW GRANT <window> <app>` or `WINDOW WITHDRAW <window|all> [<app>]`, or why not (nothing is sent). A grant names one window and
- * one show app, never every window; a withdraw names its window, or every window when it is empty, and its app only when one is given.
+ * `WINDOW GRANT <window> <app id>` or `WINDOW WITHDRAW <window|all> [<app>]`, or why not (nothing is sent). A grant names one window
+ * and one show app by its Show Bus id, never every window: Stagewatch asks the operator for it on the desk, and the approved grant finds
+ * its app by id alone. A withdraw names its window, or every window when it is empty, and its app (id or name) only when one is given.
  * Whether the app is heard, may show a window, or already holds it is Stagewatch's to say, in the receipt the log shows.
  */
 export function windowGrantLine(what: string, window: string, app: string): { line: string } | { error: string } {
@@ -135,10 +139,92 @@ export function windowGrantLine(what: string, window: string, app: string): { li
 	if (word === null) return { error: `Windows: a show app is named by its Show Bus id or its name, at most ${MAX_APP_NAME} characters with no control character` }
 	if (what === 'grant') {
 		if (who.toLowerCase() === 'all') return { error: 'Windows: grant one window at a time — name it' }
-		if (word === '') return { error: 'Windows: a grant names the show app — its Show Bus id or its name' }
+		if (word === '') return { error: 'Windows: a grant names the show app — its Show Bus id' }
+		// A button proves no person, so Stagewatch asks the operator for the grant; the approved grant finds its app by id alone.
+		if (!SHOW_BUS_ID.test(named)) return { error: 'Windows: a grant from a button names the show app by its Show Bus id' }
 		return { line: `WINDOW GRANT ${who} ${word}` }
 	}
 	return { line: word === '' ? `WINDOW WITHDRAW ${who}` : `WINDOW WITHDRAW ${who} ${word}` }
+}
+
+/** The longest line Stagewatch's desk takes (Show Bus §11, LineFence.MaxChars): a longer one is refused, never cut. */
+export const MAX_PEER_LINE = 2048
+
+/** The longest reason a rejection keeps (ProposalDesk.MaxReason). */
+export const MAX_REASON = 400
+
+/** How long a high proposal's first press stays armed for the second, which approves it (cross-app proposals D12). */
+export const HIGH_PRESS_MS = 3000
+
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/
+
+/**
+ * `PEER <app id> "<line>"` — one line another show app lists, sent born approved as this deck's — or why not (nothing is sent): no
+ * app chosen, an app that is no Show Bus id, no line, a line over MAX_PEER_LINE characters or one holding a control character.
+ * Whether the app lists the line, collects, or proves its verbs is Stagewatch's to say, in the receipt the log shows.
+ */
+export function peerLine(app: string, line: string): { line: string } | { error: string } {
+	const id = app.trim()
+	if (id === '') return { error: 'Peer: choose the show app' }
+	if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) return { error: 'Peer: a show app is named by its Show Bus id' }
+	const text = line.trim()
+	if (text === '') return { error: 'Peer: type the line the app is to run' }
+	if (text.length > MAX_PEER_LINE) return { error: `Peer: a line is at most ${MAX_PEER_LINE} characters` }
+	if (CONTROL.test(text)) return { error: 'Peer: a line holds no control characters' }
+	return { line: `PEER ${id} ${quote(text)}` }
+}
+
+/** A window grant's line as Stagewatch's grammar reads it: `window grant <window> <app>`, any case. */
+const GRANT_LINE = /^\s*window\s+grant\s/i
+
+/**
+ * What a press of desk_approve does with the oldest proposal waiting (`desk_next_id`): approves one that is not high
+ * (`DESK APPROVE <id>`); for a high one, the first press arms it and says so, and a second press within HIGH_PRESS_MS of the first,
+ * while the same proposal is still the oldest, sends `DESK APPROVE <id> HIGH` — a high proposal is approved by its id and the word,
+ * never as "next". Nothing waiting is said, and nothing is sent; nor is a window grant waiting, which Stagewatch takes only from a
+ * person who proved it (at its desk, or over HTTP or a WebSocket with the PIN or a control key) — a deck proves nobody, so its press
+ * would be refused (Show Bus 12.4). A deck may still reject one.
+ */
+export function deskApprove(
+	s: Snapshot | null,
+	armed: { id: string; at: number } | null,
+	now: number,
+): { line: string } | { arm: { id: string; at: number }; note: string } | { error: string } {
+	const next = deskNext(s)
+	if (!next) return { error: 'Desk: nothing is waiting for a decision' }
+	if (GRANT_LINE.test(next.line))
+		return {
+			error: `Desk: ${next.id.split('-')[0]} is a window grant (${next.line}) — a person approves it at Stagewatch's desk, or over HTTP or a WebSocket with the PIN; a deck proves nobody`,
+		}
+	if (next.risk !== 'high') return { line: `DESK APPROVE ${next.id}` }
+	if (armed && armed.id === next.id && now - armed.at >= 0 && now - armed.at <= HIGH_PRESS_MS) return { line: `DESK APPROVE ${next.id} HIGH` }
+	const short = next.id.split('-')[0]
+	return { arm: { id: next.id, at: now }, note: `Desk: ${short} is high (${next.line}) — press again within ${HIGH_PRESS_MS / 1000} s to approve it` }
+}
+
+/** `DESK REJECT <id> ["<why>"]` for the oldest proposal waiting, or why not: nothing waiting, or a reason too long or with a control character. */
+export function deskReject(s: Snapshot | null, why: string): { line: string } | { error: string } {
+	const next = deskNext(s)
+	if (!next) return { error: 'Desk: nothing is waiting for a decision' }
+	const reason = why.trim()
+	if (reason.length > MAX_REASON) return { error: `Desk: a reason is at most ${MAX_REASON} characters` }
+	if (CONTROL.test(reason)) return { error: 'Desk: a reason holds no control characters' }
+	return { line: reason === '' ? `DESK REJECT ${next.id}` : `DESK REJECT ${next.id} ${quote(reason)}` }
+}
+
+/**
+ * Why Stagewatch would refuse this deck a person's line now, by its own `ACCESS` line (`what`: a peer line, a desk decision or a
+ * window grant), or null: allowed, or Stagewatch has not said (a Stagewatch before 2.22, or before the first frame), which is
+ * Stagewatch's to answer.
+ */
+export function accessRefuses(access: DeskAccess | null, what: 'peer' | 'desk' | 'grant'): string | null {
+	if (!access || access[what]) return null
+	return `Stagewatch takes no ${what === 'grant' ? 'window grant' : what === 'desk' ? 'desk decision' : 'peer line'} from this deck: ${access.why || 'its address is not listed'}`
+}
+
+/** The peer dropdown: the config's show apps by their names and kinds, each sent by its Show Bus id. */
+export function peerChoices(peers: PeerInfo[] | undefined): DropdownChoice[] {
+	return (peers ?? []).map((p) => ({ id: p.id, label: p.kind ? `${p.name} (${p.kind})` : p.name }))
 }
 
 /** The link dropdown: none named first (Stagewatch picks: the only link, else for the clip on air the VT's), then the config's links by their peers' names. */
@@ -984,7 +1070,7 @@ export function UpdateActions(self: ModuleInstance): void {
 		window_grant: {
 			name: 'Windows: grant to a show app, or withdraw',
 			description:
-				"Grant one window to a show app on the show network (a Patterns desk shows it as a page, a PlayMap node draws it), or withdraw a window's grants. A grant is a person's act: Companion TCP authenticates nobody, so Stagewatch refuses a grant from a button and says so in the log — grant it at Stagewatch's desk (Screens → Windows). A withdraw runs from here, and Stagewatch's answer is in the log too.",
+				"Ask for one window to be granted to a show app on the show network (a Patterns desk shows it as a page, a PlayMap node draws it), or withdraw a window's grants. A grant is a person's act and a button proves no person, so Stagewatch puts the grant on its desk for the operator to approve: the log says it waits, then what the operator decided. Name the app by its Show Bus id. A withdraw runs from here, and Stagewatch's answer is in the log too.",
 			options: [
 				{
 					type: 'dropdown',
@@ -997,11 +1083,61 @@ export function UpdateActions(self: ModuleInstance): void {
 					],
 				},
 				{ type: 'textinput', id: 'window', label: 'Window name (empty = all windows, for a withdraw only)', default: 'lobby', useVariables: true },
-				{ type: 'textinput', id: 'app', label: 'Show app: its Show Bus id or its name (empty = every app, for a withdraw only)', default: '', useVariables: true },
+				{ type: 'textinput', id: 'app', label: 'Show app: its Show Bus id (a withdraw also takes its name; empty = every app, for a withdraw only)', default: '', useVariables: true },
 			],
 			callback: (ev) => {
 				const r = windowGrantLine(str(ev.options.what, 'withdraw'), str(ev.options.window), str(ev.options.app))
 				if ('error' in r) return self.log('warn', r.error)
+				const shut = r.line.startsWith('WINDOW GRANT ') ? accessRefuses(self.access ?? null, 'grant') : null
+				if (shut) return self.log('warn', shut)
+				self.sendWithReceipt(r.line)
+			},
+		},
+		// ---- 2.22: a person's lines from a deck (Show Bus §11), this PC or an address Stagewatch lists; Stagewatch's answer is in the log
+		peer_line: {
+			name: 'Show apps: send a line to another app',
+			description:
+				"Sends one line another show app lists (PlayMap, Patterns, AGMessage) through Stagewatch's desk, approved by this press. Stagewatch sends only a line the app's verified verbs list, while the app collects; its answer — and the app's — is in the log. Taken only from Stagewatch's own PC or an address listed in Settings → Remote → May drive other show apps.",
+			options: [
+				{ type: 'dropdown', id: 'app', label: 'Show app', default: peerChoices(cfg.peers)[0]?.id ?? '', choices: peerChoices(cfg.peers), allowCustom: true },
+				{ type: 'textinput', id: 'line', label: "Line, in the app's own words (e.g. PLAYLIST CUE \"Main show\" #3)", default: '', useVariables: true },
+			],
+			callback: (ev) => {
+				const shut = accessRefuses(self.access ?? null, 'peer')
+				if (shut) return self.log('warn', shut)
+				const r = peerLine(str(ev.options.app), str(ev.options.line))
+				if ('error' in r) return self.log('warn', r.error)
+				self.sendWithReceipt(r.line)
+			},
+		},
+		desk_approve: {
+			name: 'Desk: approve the oldest proposal',
+			description:
+				'Approves the proposal $(stagewatch:desk_next_id) names, the oldest waiting on Stagewatch\'s desk. A high one takes a second press within 3 s, which approves it by its id with HIGH. Stagewatch\'s answer is in the log.',
+			options: [],
+			callback: () => {
+				const shut = accessRefuses(self.access ?? null, 'desk')
+				if (shut) return self.log('warn', shut)
+				const r = deskApprove(self.snapshot, self.deskArmed ?? null, Date.now())
+				if ('error' in r) return self.log('warn', r.error)
+				if ('arm' in r) {
+					self.deskArmed = r.arm
+					return self.log('info', r.note)
+				}
+				self.deskArmed = null
+				self.sendWithReceipt(r.line)
+			},
+		},
+		desk_reject: {
+			name: 'Desk: reject the oldest proposal',
+			description: "Rejects the proposal $(stagewatch:desk_next_id) names, the oldest waiting on Stagewatch's desk, with an optional reason for its journal. Stagewatch's answer is in the log.",
+			options: [{ type: 'textinput', id: 'why', label: 'Reason (optional)', default: '', useVariables: true }],
+			callback: (ev) => {
+				const shut = accessRefuses(self.access ?? null, 'desk')
+				if (shut) return self.log('warn', shut)
+				const r = deskReject(self.snapshot, str(ev.options.why))
+				if ('error' in r) return self.log('warn', r.error)
+				self.deskArmed = null
 				self.sendWithReceipt(r.line)
 			},
 		},

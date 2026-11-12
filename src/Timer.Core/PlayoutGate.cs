@@ -25,8 +25,10 @@ public readonly record struct CommandSender(IPAddress Address, bool ThisPc, bool
 /// is refused even from this PC or a listed address. Anything else is refused in words naming the door, and nothing is sent.
 /// A <c>peer</c> or <c>desk</c> line acts on another app with a person's authority (<see cref="Person"/>): over HTTP and a WebSocket
 /// it passes by the same rule — the PIN this Stagewatch asks for, or a control key; with no PIN set, this PC or a listed address,
-/// never another site's page — and never over MCP, whatever key comes with it (an agent is not a person); Companion TCP and OSC
-/// take neither in this release (<see cref="PersonLater"/>). No other verb is this gate's. A listed address is trusted by its source address alone, which any machine on that network can forge
+/// never another site's page — over Companion TCP and OSC, which carry no credential, from this PC or a listed address alone, as a
+/// person at a deck (<see cref="DeskOrigin.Deck"/>), and never over MCP, whatever key comes with it (an agent is not a person). A
+/// window grant from Companion TCP or OSC is asked, never made (<see cref="Asks"/>): it waits on the desk for the operator. No other
+/// verb is this gate's. A listed address is trusted by its source address alone, which any machine on that network can forge
 /// over OSC (UDP): the operator lists addresses only on a show network they trust.
 /// </summary>
 public static class PlayoutGate
@@ -64,12 +66,11 @@ public static class PlayoutGate
     /// <summary>Why a person's line (<see cref="Person"/>) is refused from what is not a person: an agent, the advisor, a copilot step, a proposal.</summary>
     public static string PersonWords(ShowCommandKind kind) => kind == ShowCommandKind.Desk ? DeskOrigin.PersonDecides : DeskOrigin.PersonSends;
 
-    /// <summary>
-    /// Why a person's line is refused over Companion TCP and OSC, whoever sends it: neither carries a credential, and this release
-    /// takes peer and desk only where one can be asked for.
-    /// </summary>
-    public static string PersonLater(ShowCommandKind kind, CommandDoor door)
-        => $"{Verb(kind)} is sent over HTTP or a WebSocket (with the PIN or a control key) — {(door == CommandDoor.Osc ? "OSC" : "Companion TCP")} does not take it in this release";
+    /// <summary>A door that carries no credential (Companion TCP, OSC): it passes a line by its sender's address alone.</summary>
+    public static bool Deck(CommandDoor door) => door is CommandDoor.Osc or CommandDoor.Companion;
+
+    /// <summary>A deck's door as words name it: "OSC" or "Companion TCP"; "" for a door that is no deck's.</summary>
+    public static string DeckName(CommandDoor door) => door switch { CommandDoor.Osc => "OSC", CommandDoor.Companion => "Companion TCP", _ => "" };
 
     /// <summary>The verb a refusal names a line by.</summary>
     private static string Verb(ShowCommandKind kind) => kind switch
@@ -116,10 +117,10 @@ public static class PlayoutGate
     /// <summary>
     /// Null when <paramref name="sender"/> may send a <paramref name="kind"/> line by <paramref name="door"/>; else why not. A desk-only
     /// line (<see cref="DeskOnly"/>) never passes, whoever sends it; any other line that neither drives another node's air nor acts
-    /// with a person's authority (<see cref="Person"/>) always passes. A person's line never passes over MCP, Companion TCP or OSC. A
-    /// credential counts only on a door that carries one: OSC and Companion TCP pass
-    /// only this PC and the listed addresses, whatever the server says. On a door that carries one, a page of another site passes
-    /// only with it.
+    /// with a person's authority (<see cref="Person"/>) always passes. A person's line never passes over MCP. A credential counts only on
+    /// a door that carries one: OSC and Companion TCP pass only this PC and the listed addresses, whatever the server says — the door
+    /// then names its sender a deck (<see cref="DeskOrigin.Deck"/>). On a door that carries one, a page of another site passes only
+    /// with it.
     /// </summary>
     public static string? Check(ShowCommandKind kind, CommandDoor door, CommandSender sender, IReadOnlyList<IPAddress> from)
     {
@@ -127,7 +128,6 @@ public static class PlayoutGate
         if (Person(kind))
         {
             if (door == CommandDoor.Mcp) return PersonWords(kind);
-            if (door is CommandDoor.Osc or CommandDoor.Companion) return PersonLater(kind, door);
         }
         else if (!Drives(kind)) return null;
         var carries = door is CommandDoor.Http or CommandDoor.WebSocket or CommandDoor.Mcp;
@@ -145,26 +145,63 @@ public static class PlayoutGate
 
     /// <summary>
     /// Null when <paramref name="sender"/> may send <paramref name="cmd"/> by <paramref name="door"/>; else why not. A window grant is a
-    /// person's act (Show Bus §12.4), taken only from a door that authenticates the operator: OSC and Companion TCP, which authenticate
-    /// nobody, refuse it whoever sends it; over HTTP and a WebSocket it passes only on a credential proved with it — the PIN this
-    /// Stagewatch asks for, or a control key — never on an address alone (this PC and a listed address authenticate nobody); over MCP it
-    /// passes the door only to be queued as a proposal a person decides (the endpoint never runs it). Every other line is
+    /// person's act (Show Bus §12.4), made only from a door that authenticates the operator: over HTTP and a WebSocket it passes only on a
+    /// credential proved with it — the PIN this Stagewatch asks for, or a control key — never on an address alone (this PC and a listed
+    /// address authenticate nobody); OSC and Companion TCP, which authenticate nobody, pass it from this PC or a listed address only to be
+    /// asked (<see cref="Asks"/>): it waits on the desk for the operator, and is refused from any other address; over MCP it passes the
+    /// door only to be queued as a proposal a person decides (the endpoint never runs it). Every other line is
     /// <see cref="Check(ShowCommandKind, CommandDoor, CommandSender, IReadOnlyList{IPAddress})"/>'s.
     /// </summary>
     public static string? Check(ShowCommand cmd, CommandDoor door, CommandSender sender, IReadOnlyList<IPAddress> from)
     {
         if (!Grants(cmd)) return Check(cmd.Kind, door, sender, from);
-        if (door is CommandDoor.Osc or CommandDoor.Companion) return GrantWords(door);
+        if (Deck(door)) return sender.ThisPc || Listed(sender.Address, from) ? null : GrantWords(door);
         if (door == CommandDoor.Mcp) return null;
         if (sender.Credentialed) return null;
         return GrantWords(door, sender.OtherSite);
     }
 
-    /// <summary>Why a window grant is refused at <paramref name="door"/> (Show Bus §12.4: a person's act, taken only where the operator is authenticated).</summary>
+    /// <summary>
+    /// Whether a line that passed <paramref name="door"/> is asked of the operator rather than run: a window grant from a deck (Companion
+    /// TCP, OSC), which proves no person (Show Bus §12.4 lets such a door queue it). The door names its sender a deck
+    /// (<see cref="DeskOrigin.Deck"/>), and the host queues the grant on the desk (<see cref="DeskOrigin.Asks"/>), never makes it.
+    /// </summary>
+    public static bool Asks(ShowCommand cmd, CommandDoor door) => Deck(door) && Grants(cmd);
+
+    /// <summary>
+    /// The sender a deck's door names on a line it passes that acts with a person's authority or is asked of the operator, or null for
+    /// any other line: a deck by its door's name, with its address for the desk's journal alone.
+    /// </summary>
+    public static DeskOrigin? DeckSender(ShowCommand cmd, CommandDoor door, IPAddress address)
+        => Deck(door) && (Person(cmd.Kind) || Grants(cmd))
+            ? DeskOrigin.Deck($"{DeckName(door)}, {Plain(address)}", DeckName(door))
+            : null;
+
+    /// <summary>
+    /// What a deck (Companion TCP, OSC) at <paramref name="sender"/> may do with a person's lines now, as Companion's <c>ACCESS</c> line
+    /// says it to each connection: <c>{"peer":…,"desk":…,"why":"…","grant":…}</c> — whether a <c>peer</c> line and a <c>desk</c> decision
+    /// pass, why not (empty when they pass), and whether a window grant is taken to be asked of the operator. One rule decides all
+    /// three, this PC or a listed address (<see cref="Check(ShowCommandKind, CommandDoor, CommandSender, IReadOnlyList{IPAddress})"/>), so a
+    /// deck greys its buttons by the server's own answer.
+    /// </summary>
+    public static string AccessJson(CommandDoor door, CommandSender sender, IReadOnlyList<IPAddress> from)
+    {
+        var peer = Check(ShowCommandKind.Peer, door, sender, from) is null;
+        var desk = Check(ShowCommandKind.Desk, door, sender, from) is null;
+        var grant = Deck(door) && (sender.ThisPc || Listed(sender.Address, from));
+        var why = peer && desk ? "" : AccessWords(door);
+        return System.Text.Json.JsonSerializer.Serialize(new { peer, desk, why, grant });
+    }
+
+    /// <summary>Why a deck at an unlisted address may send no person's line: what Companion's <c>ACCESS</c> line says.</summary>
+    public static string AccessWords(CommandDoor door)
+        => $"peer, desk and window grants from another machine over {DeckName(door)} need its address in {SettingWords} ({DeckName(door)} carries no PIN)";
+
+    /// <summary>Why a window grant is refused at <paramref name="door"/> (Show Bus §12.4: a person's act, made only where the operator is authenticated).</summary>
     public static string GrantWords(CommandDoor door, bool otherSite = false) => door switch
     {
         CommandDoor.Osc or CommandDoor.Companion =>
-            $"window grant is a person's act — {(door == CommandDoor.Osc ? "OSC" : "Companion TCP")} authenticates nobody: grant it at the desk (Screens → Windows), or over HTTP or a WebSocket with the PIN or a control key",
+            $"window grant from another machine over {DeckName(door)} needs its address in {SettingWords} — and then it waits for the operator's approval at the desk ({DeckName(door)} carries no PIN)",
         CommandDoor.Mcp => "window grant is a person's act — an agent proposes it, and a person decides",
         _ when otherSite =>
             $"window grant from another site's web page over {(door == CommandDoor.WebSocket ? "a WebSocket" : "HTTP")} needs a control key while no PIN is set",
@@ -244,6 +281,9 @@ public static class PlayoutGate
     public static string Words(ShowCommandKind kind, CommandDoor door)
     {
         var verb = Verb(kind);
+        if (Person(kind) && Deck(door))
+            return $"{verb} acts on another show app with a person's authority — from another machine over {DeckName(door)} it needs its address in {SettingWords} "
+                   + $"({DeckName(door)} carries no PIN)";
         if (Person(kind))
             return $"{verb} acts on another show app with a person's authority — from another machine over {(door == CommandDoor.WebSocket ? "a WebSocket" : "HTTP")} "
                    + $"it needs a PIN set and given, a control key, or its address in {SettingWords}";

@@ -61,7 +61,7 @@ On connect the server sends `READY stagewatch/2`, then either `STATE …` (licen
 
 | Send | Receive |
 |---|---|
-| `SUBSCRIBE JSON` | `CONFIG {json}` then `SNAPSHOT {json}` right away; afterwards `SNAPSHOT` on every visible change and `CONFIG` whenever presets, quick messages or the running order change |
+| `SUBSCRIBE JSON` | `ACCESS {json}` (2.22: what this address may do with a person's lines), `CONFIG {json}` then `SNAPSHOT {json}` right away; afterwards `SNAPSHOT` on every visible change, `CONFIG` whenever presets, quick messages or the running order change, and `ACCESS` again before the next frame whenever what it says changes |
 | `SNAPSHOT` | one `SNAPSHOT {json}` |
 | `CONFIG` | `CONFIG {json}` + `SNAPSHOT {json}` |
 | `PING [token]` | `PONG [token]`, or `PONG [token] STUCK` when Stagewatch answers but its show has stopped updating (the module then shows a warning and greys the keys) |
@@ -107,9 +107,9 @@ button is recording.
 | `AUX`, `SCREEN` | Extra timers and browser screens (2.8; see REMOTE.md). Module: *Extra timer* actions and keys, `aux_1`…`aux_3` variables, *Screens: send / identify*. From 2.18 screen commands reach browser screens only (below) |
 | `UNDO`, `REDO`, `ENDOFSHOW <HH:MM\|clear>`, `LOOP <off\|n\|forever>`, `SCREEN RELOAD\|DISCONNECT [screen]` | 2.10. Module: *Undo the last live edit*, *Redo*, *Running order: show ends at*, *Running order: loop*, *Screens: reload / disconnect* |
 | `WINDOW NEW\|SHOW\|CUE\|HOLD\|RELEASE\|IDENTIFY\|RELOAD\|LOSS\|FADE\|RENAME\|REVOKE\|DELETE …` | Windows Stagewatch controls (2.17; see REMOTE.md). Module: *Windows: show a page* (show or cue), *Windows: holding page* (on, toggle, words, image), *Windows: release*, *Windows: identify*; presets *holding page on every window (toggle)* and *identify all*. From 2.22 the window feedbacks, variables and keys below |
-| `WINDOW GRANT <window> <app>`, `WINDOW WITHDRAW <window\|all> [<app>]` | A window granted to a show app, or its grants withdrawn (2.22; see REMOTE.md). A grant is refused at this door whoever sends it: `ERROR @c1 window grant is a person's act — Companion TCP authenticates nobody: grant it at the desk (Screens → Windows), or over HTTP or a WebSocket with the PIN or a control key`. A withdraw runs. Module: *Windows: grant to a show app, or withdraw*, sent with a request id (below) |
+| `WINDOW GRANT <window> <app>`, `WINDOW WITHDRAW <window\|all> [<app>]` | A window granted to a show app, or its grants withdrawn (2.22; see REMOTE.md). A grant is a person's act this door proves no person for, so from this PC or a listed address it is **asked of the operator**: it waits on the desk as a proposal (the app by its Show Bus id), `OK @c1 accepted p3 waits for a person's approval`, and its `final` follow-up is the decision (`ERROR @c1 final p3 was rejected`); from another address it is refused. A withdraw runs. Module: *Windows: grant to a show app, or withdraw*, sent with a request id (below) |
 | `PLAYOUT [<link>] END [secs]\|RESTART\|PLAY\|PAUSE\|STOP\|SEEK <m:ss>`, `PLAYOUT <link> GO\|CUE …`, `PATTERNS …` | The clip on air, a PlayMap node's playlist items and a Patterns desk's cues over Stagewatch's playout links (2.20; see REMOTE.md), from this PC or an address in May drive other show apps. Module (2.20): *Playout: the clip on air*, *Playout: GO*, *Playout: cue* and the *Patterns* actions, each sent with a request id; `vt_link`, `vt_source` and `playout_answer`; the *Playout: The VT comes from…* feedback; the *Playout links* presets (below) |
-| `PEER <app> <line>`, `DESK APPROVE\|REJECT …` | Not in this release (2.21): refused whoever sends them, `ERROR @c1 peer is sent over HTTP or a WebSocket (with the PIN or a control key) — Companion TCP does not take it in this release`. Companion TCP carries no credential; its door through the gate, an `ACCESS` line per connection and the module's *peer* and *desk* actions are release B (Stagewatch 2.22) |
+| `PEER <app> "<line>"`, `DESK APPROVE <id> [HIGH]\|NEXT`, `DESK REJECT <id>\|NEXT ["<why>"]` | A person's line to another app and a decision on the desk (2.22, release B; see REMOTE.md): from this PC or an address in May drive other show apps only, as the role `deck`, else `ERROR @c1 peer acts on another show app with a person's authority — from another machine over Companion TCP it needs its address in Settings → Remote → May drive other show apps (Companion TCP carries no PIN)`. Module: *Show apps: send a line to another app*, *Desk: approve the oldest proposal*, *Desk: reject the oldest proposal* (below) |
 | `STATE`, `SUBSCRIBE [JSON]`, `UNSUBSCRIBE`, `PING`, `QUIT` | Session |
 
 **Screen commands reach browsers only (2.18).** `SCREEN IDENTIFY|RELOAD|DISCONNECT|GO` with no screen, or `all`, reach
@@ -181,11 +181,21 @@ preset is green only from a verdict that says ready, with the count of amber row
 at, as the page's chip and the desk's line say), amber with none, red with the count of red rows. The reasons are not on
 the deck: they are the desk's Show network header, the Showcaller page and `GET /api/preflight`.
 
-**The approval desk (2.21).** The operator frame on `SNAPSHOT` ends with `desk` (`pending`, `next`, `apps`) before `network`, and
-`CONFIG` ends with `peers` (the show apps a line could go to: id, name, kind) after `playoutLinks`. The module reads neither yet,
-and has no action that sends `PEER` or `DESK`: deciding another app's proposal from a deck (`desk_approve` with a second press for
-a high one, `desk_reject`, `desk_pending` and `desk_waiting`) comes with release B. Until then a proposal is decided at the desk's
-Copilot window, on the Showcaller page or over HTTP or a WebSocket (docs/REMOTE.md, 2.21).
+**The approval desk (2.21, and on keys from 2.22).** The operator frame on `SNAPSHOT` ends with `desk` (`pending`, `next`, `apps`)
+before `network`, and `CONFIG` ends with `peers` (the show apps a line could go to: id, name, kind) after `playoutLinks`. From 2.22
+(release B) the module reads both. Variables `desk_pending` and `desk_next_id`, `desk_next_from`, `desk_next_target`,
+`desk_next_line` (its first 120 characters) and `desk_next_risk`, empty while not connected; feedback *Desk: a proposal waits*
+(any, or high only). Actions, each sent with a request id and answered on the log: *Desk: approve the oldest proposal* sends `DESK
+APPROVE <desk_next_id>`, and for a **high** one the first press only says so on the log and a second within 3 s sends `DESK APPROVE
+<id> HIGH` (never `NEXT`, which approves no high proposal); *Desk: reject the oldest proposal* sends `DESK REJECT <id>` with an
+optional quoted reason (at most 400 characters); *Show apps: send a line to another app* sends `PEER <app id> "<line>"`, the app from
+`CONFIG`'s `peers` (a dropdown by name and kind, sent by id), the line quoted whole (at most 2048 characters, no control
+character; the module refuses otherwise and sends nothing). **`ACCESS`.** Stagewatch tells each connection what its address may
+do: `ACCESS {"peer":…,"desk":…,"why":"…","grant":…}` after `SUBSCRIBE JSON`, and again when the operator's list changes it. The
+module refuses a desk, peer or grant press Stagewatch would refuse, saying why on the log and sending nothing, and the feedback
+*Desk: Stagewatch takes no person's line from this deck* greys the desk keys; until Stagewatch says (one before 2.22), it sends and
+Stagewatch answers. Presets (in *Outputs, NDI & 3D*): *Approve the oldest proposal* (amber while one waits, red while the oldest is
+high, grey while shut) and *Reject the oldest proposal*.
 
 **Windows on keys, and windows granted to show apps (2.22).** The operator frame on `SNAPSHOT` ends with `windows` while
 Stagewatch has a window, after `network`: per window its `name`, `light` (worst over every screen showing it: `green` shows what
@@ -200,20 +210,23 @@ frame's `granted` carries, as Screens → Windows' Granted to column shows it: t
 never its bare Show Bus id); *Windows: Holding page is up* while the named window holds (with none named, while every window
 does). Each is rechecked only when the block changes. The action *Windows: grant to a show app, or withdraw* sends `WINDOW GRANT
 <window> <app>` or `WINDOW WITHDRAW <window|all> [<app>]` (the app by its Show Bus id, bare, or its name, quoted; a grant of every
-window, a grant naming no app and an app longer than 60 characters are refused in the module and nothing is sent) as `@c<n>
-<line>`, and Stagewatch's receipt is one line in the connection's log, as a playout press's is (never in `playout_answer`). **A
-grant from a button is refused today**: a grant is a person's act (Show Bus 12.4) and Companion TCP authenticates nobody, so the
-log reads `WINDOW GRANT lobby 9f8e7d6c: refused — window grant is a person's act — Companion TCP authenticates nobody: grant it at
-the desk (Screens → Windows), or over HTTP or a WebSocket with the PIN or a control key`, and nothing reaches the show. A withdraw
-runs and its answer is logged the same way. Until Companion's door queues a grant as a proposal for a person to approve (release
-B, SW22.8), grant at the desk. The keys (in *Outputs, NDI & 3D*): *lobby* (its light; press toggles its holding page; rename the
+window, a grant naming no app, a grant naming its app by a name rather than its Show Bus id (2.22, SW22.8) and an app longer
+than 60 characters are refused in the module and nothing is sent) as `@c<n> <line>`, and Stagewatch's receipt is one line in the
+connection's log, as a playout press's is (never in `playout_answer`). **A grant from a button waits for the operator** (SW22.8): a
+grant is a person's act (Show Bus 12.4) and Companion TCP proves no person, so Stagewatch asks it of the operator on its desk and
+the log reads `WINDOW GRANT lobby 9f8e7d6c: accepted — p3 waits for a person's approval`, then, once they decide within 30 s, the
+decision (`WINDOW GRANT lobby 9f8e7d6c: final refused — p3 was rejected`, or `final applied — …` when approved); later than that,
+that it still waits. The approving is a person's who proved it — at Stagewatch's desk, or over HTTP or a WebSocket with the PIN or a
+control key — never a deck's: *Desk: approve the oldest proposal* refuses a waiting window grant on the log, saying so and sending
+nothing (Stagewatch would refuse it too), and *Desk: reject the oldest proposal* may still reject it. Pressing the grant again
+while it waits answers with the same proposal (`p3 already asks for it`), never a second one. A withdraw runs and its answer is logged the same way. The keys (in *Outputs, NDI & 3D*): *lobby* (its light; press toggles its holding page; rename the
 window in its options), *how many need a look*, and *withdraw lobby's grants* (on a 1 s hold only, blue while lobby is granted);
 *holding page on every window* is violet while every window holds; no key grants.
 [`companion-module/test/window-lines.tsv`](../companion-module/test/window-lines.tsv) holds the module's window lines to this
 server from both ends: the module's tests press the action and expect exactly its line, and the suite reads each line as this
 server does (the window action, the window, the app), then sends each to a real Companion server with a request id and expects the
-file's door row: a grant refused under its id in exactly the words above, a withdraw on to the show thread. When Companion's door
-queues a grant, that door row is the one row that changes.
+file's door row: a grant asked of the operator — it reaches the show thread named a deck's, a real desk queues it, the answer is
+`accepted` in the row's words and, once rejected, its `final` in the row's last words — and a withdraw on to the show thread.
 
 Bad input gets `ERROR <reason>` and the connection stays open.
 

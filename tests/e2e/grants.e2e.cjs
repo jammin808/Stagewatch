@@ -8,11 +8,14 @@
 // plain black with no words; the app hears its new address (revoke) or none (withdraw), and a real window then loads from the same
 // browser — no lockout, no tombstone. No grant's address is in the rig's standard output or error, a frame, the context or
 // /api/windows, in any run's. A --state whose windows or grants need repair is repaired as it loads, each repair said once on
-// standard error with no address, and written back. These are the bytes Patterns and PlayMap dial against.
+// standard error with no address, and written back. A grant from a deck (Companion TCP) is asked of the operator, never made: it waits
+// on the desk, the deck that asked cannot approve it, and a person with the PIN makes it, the deck hearing the outcome as its final.
+// These are the bytes Patterns and PlayMap dial against.
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const net = require('node:net');
 const path = require('node:path');
 const { chromium } = require('playwright');
 const { Rig, until, freePort } = require('./rig.cjs');
@@ -32,7 +35,7 @@ const addresses = new Set();
 const earlierOut = [];
 
 before(async () => {
-  rig = await Rig.create({ nodeKeys: 2, nodeId: RIG, journal: '-' });
+  rig = await Rig.create({ nodeKeys: 2, nodeId: RIG, journal: '-', wire: true });
   [patKey, pmKey] = rig.keys;
   browser = await chromium.launch();
   ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
@@ -277,6 +280,66 @@ test('withdraw: the grant\'s page goes plain black, the app holds no grant, and 
   await waitAttr(real, 'data-showing', '/viewer');
   assert.equal(await attr(real, 'data-link'), 'ok');
   await real.close();
+});
+
+/** One connection on the rig's Companion door from this PC: what it sends once READY, and every line it hears. */
+async function deck() {
+  const sock = net.connect(rig.companion, '127.0.0.1');
+  const lines = [];
+  let buf = '';
+  let ready;
+  const isReady = new Promise((r) => { ready = r; });
+  sock.on('data', (d) => {
+    buf += d;
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const l = buf.slice(0, nl).replace(/\r$/, '');
+      buf = buf.slice(nl + 1);
+      if (l.startsWith('READY')) ready();
+      lines.push(l);
+    }
+  });
+  sock.on('error', (e) => lines.push('socket error: ' + e.message));
+  let timer;
+  const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`no READY on the Companion door (heard ${JSON.stringify(lines)})`)), 5000); });
+  try { await Promise.race([isReady, late]); } finally { clearTimeout(timer); }
+  return {
+    send: (line) => sock.write(line + '\n'),
+    /** The first line heard that passes pred, waited for. */
+    said: (pred, what, ms = 8000) => until(() => lines.find(pred), ms, `${what} (heard ${JSON.stringify(lines)})`),
+    close: () => sock.destroy(),
+  };
+}
+
+test('a deck asks: a grant over Companion TCP waits on the desk; the deck cannot approve it; a person with the PIN makes it, and the deck hears so', async () => {
+  const from = pat.messages.length;
+  const d = await deck();
+  try {
+    const answer = (id) => (l) => l.startsWith(`OK @${id} `) || l.startsWith(`ERROR @${id} `);
+    d.send(`@g1 WINDOW GRANT lobby ${PAT.id}`);
+    const accepted = await d.said(answer('g1'), 'the ask answered');
+    const m = /^OK @g1 accepted (p\d+) waits for a person's approval$/.exec(accepted);
+    assert.ok(m, 'asked, waiting for a person: ' + accepted);
+    const short = m[1];
+    assert.equal(await grantOf('lobby', PAT.id), undefined, 'asked, not granted');
+    assert.deepEqual(rig.savedState().windows.find((x) => x.name === 'lobby').grants, [], 'nothing kept');
+
+    // The deck that asked approves nothing it asked: a deck proves no person (Show Bus 12.4).
+    d.send(`@g2 DESK APPROVE ${short} HIGH`);
+    assert.match(await d.said(answer('g2'), 'the deck\'s approval answered'), /^ERROR @g2 .*a window grant is approved by a person who proved it/);
+    await pause(300);
+    assert.equal(await grantOf('lobby', PAT.id), undefined, 'still not granted');
+
+    // A person with the PIN approves it over HTTP: the grant is made, the app's link hears it, the deck's ask hears its final.
+    const approved = await rig.run(`desk approve ${short} high`);
+    assert.equal(approved.ok, true, JSON.stringify(approved));
+    await grants(pat, (j) => j.grants.length === 1, 'the approved grant', from);
+    assert.equal((await grantOf('lobby', PAT.id)).node, PAT.id);
+    const final = await d.said((l) => l.startsWith('OK @g1 final ') || l.startsWith('ERROR @g1 final '), 'the ask\'s final');
+    assert.match(final, new RegExp(`^OK @g1 final applied this Stagewatch ran .*window grant lobby ${PAT.id}.*\\(${short}\\)$`));
+  } finally {
+    d.close();
+  }
 });
 
 test('the fence: no grant address in the rig\'s output, a frame, the context or /api/windows', async () => {

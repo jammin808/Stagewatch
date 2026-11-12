@@ -10,8 +10,11 @@ namespace Stagewatch.Remote;
 /// In:  /stagewatch/&lt;verb&gt;[/&lt;arg&gt;...] [args...]   e.g. /stagewatch/start,
 ///      /stagewatch/preset/3 "start", /stagewatch/nudge 60, /stagewatch/message "Wrap up" "warn".
 ///      The "/stagewatch" prefix is optional. Verbs are the shared command grammar.
-///      OSC carries no credential: a line that drives another node's air (playout, patterns) runs only from this PC or an
-///      address the operator listed (<see cref="PlayoutGate"/>); every other verb runs from any sender, as it always has.
+///      OSC carries no credential: a line that drives another node's air (playout, patterns), and a person's line to another app or
+///      decision on the desk (/stagewatch/peer ,ss app line; /stagewatch/desk/approve ,s p17 [high]; /stagewatch/desk/reject ,s next),
+///      runs only from this PC or an address the operator listed (<see cref="PlayoutGate"/>), a person's named a deck's
+///      (<see cref="DeskOrigin.Deck"/>); a window grant from there is asked of the operator on the desk, never made (Show Bus §12.4);
+///      every other verb runs from any sender, as it always has.
 /// Out: optional feedback to host:port — only the fields that changed, one bundle per change.
 /// </summary>
 public sealed class OscServer : IDisposable
@@ -148,7 +151,8 @@ public sealed class OscServer : IDisposable
         // Refused before the show thread hears of it: nothing reaches a peer's air for a sender that proved nothing.
         var from = new CommandSender(sender, IsThisPc(sender), Credentialed: false);
         if (PlayoutGate.Check(cmd, CommandDoor.Osc, from, _access?.PlayoutFrom ?? []) is { } refused) { Reject(refused); return; }
-        _control.Execute(cmd);
+        // A person's line, and a grant to be asked of the operator, is named a deck's: this door by name, the address for the journal alone.
+        _control.Execute(PlayoutGate.DeckSender(cmd, CommandDoor.Osc, sender) is { } by ? cmd with { By = by } : cmd);
     }
 
     private static bool IsTrigger(string verb) => verb.ToLowerInvariant() is

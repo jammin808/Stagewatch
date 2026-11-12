@@ -15,7 +15,7 @@
 
 import { EventEmitter } from 'node:events'
 import net from 'node:net'
-import type { ShowConfig, Snapshot } from './state.js'
+import { readAccess, type DeskAccess, type ShowConfig, type Snapshot } from './state.js'
 
 export type LinkStatus =
 	| { kind: 'connecting' }
@@ -56,6 +56,8 @@ export interface ConnectionEvents {
 	record: [string]
 	protocolError: [string]
 	receipt: [Receipt]
+	/** 2.22: what this connection's address may do with a person's lines (`ACCESS {json}`), said on subscribing and on each change. */
+	access: [DeskAccess]
 }
 
 const MAX_LINE = 1024 * 1024
@@ -294,6 +296,12 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 				this.#denied = true
 				const m = /"(.*)"/.exec(rest)
 				this.emit('status', { kind: 'denied', reason: m ? m[1] : 'Stagewatch refused the connection' })
+				return
+			}
+			case 'ACCESS': {
+				const a = readAccess(rest)
+				if (a) this.emit('access', a)
+				else this.emit('protocolError', 'Malformed ACCESS from Stagewatch')
 				return
 			}
 			case 'RECORD':

@@ -32,6 +32,12 @@ namespace Stagewatch.Companion;
 ///   SUBSCRIBE JSON               (v2: stream SNAPSHOT/CONFIG JSON instead of TICK/STATE)
 ///   SNAPSHOT | CONFIG            (v2: one-shot SNAPSHOT, or CONFIG + SNAPSHOT)
 ///   PING [token]                 (→ PONG [token]; heartbeat. A Unix-ms token gets "PONG t1 t2 t3" for the clock offset)
+///   PEER <app> "<line>"          (Show Bus §11: one line another app lists, sent born approved as a deck's — this PC or an address in
+///                                Settings → Remote → May drive other show apps only; the receipt waits for what the app made of it)
+///   DESK APPROVE <id> [HIGH] | DESK APPROVE NEXT | DESK REJECT <id>|NEXT ["<why>"]
+///                                (a person's decision on the desk, by the same rule; a high proposal takes its id and HIGH)
+///   WINDOW GRANT <window> <app id>  (Show Bus §12.4: asked of the operator, never made — it waits on the desk, by the same rule;
+///                                → OK @<id> accepted p<n> waits for a person's approval, then OK|ERROR @<id> final once decided)
 ///   @<id> <command>              (Show Bus receipt: → OK @<id> <stage> <effect> / ERROR @<id> <why>; an id of 13.12.1's shape,
 ///                                <prefix><n>-<inst>, already run from this address → OK @<id> {…,"repeat":true}, not run again)
 ///   @<id> RECEIPTS <id> …        (13.12.6: → OK @<id> {"inst":…,"receipts":{<id>:{…}|"unknown"}}, 1–32 ids, this address's own)
@@ -43,7 +49,9 @@ namespace Stagewatch.Companion;
 ///   READY <version>
 ///   DENIED license "<reason>"    (Free mode: the server then closes the connection)
 ///   SNAPSHOT {json}              (v2: full visible state, sent on change, ~1/s while running)
-///   CONFIG {json}                (v2: presets, quick messages, running order; sent when they change)
+///   CONFIG {json}                (v2: presets, quick messages, running order, the show apps as "peers"; sent when they change)
+///   ACCESS {json}                (v2: {"peer":…,"desk":…,"why":"…","grant":…} — what this connection's address may do with a
+///                                person's lines; after SUBSCRIBE JSON and again whenever it changes)
 ///   STATE mode=<m> state=<s> ms=<ms> preset=<slot|->
 ///   TICK ms=<ms> formatted=<HH:MM:SS> state=<s>
 ///   MODE <m>

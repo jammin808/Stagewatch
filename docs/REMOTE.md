@@ -26,8 +26,8 @@ multi-room beacon behind `/rooms` and the acknowledged-cue loop on the role page
 | MCP | `POST http://<pc>:9924/mcp` | PIN (`Authorization: Bearer <pin>` or `X-Stagewatch-Pin`) | AI assistants and Patterns tools reading and driving the show |
 | HTTP API | `http://<pc>:9924/api/...` | PIN | vMix, Companion "generic HTTP", Stream Deck, scripts |
 | WebSocket | `ws://<pc>:9924/ws` | PIN for control; a node key for a show app | Custom dashboards that want live state; show apps following the timer as node links (2.18) |
-| OSC (UDP) | port 9925, **off by default** | none; `playout` and `patterns` only from this PC or a listed address (2.20); `peer` and `desk` not in this release (2.21) | QLab, lighting desks, TouchOSC |
-| Companion TCP | port 9923 | none; `playout` and `patterns` only from this PC or a listed address (2.20); `peer` and `desk` not in this release (2.21) | Bitfocus Companion module (see COMPANION.md) |
+| OSC (UDP) | port 9925, **off by default** | none; `playout` and `patterns` only from this PC or a listed address (2.20); `peer` and `desk` (2.22) and a window grant, asked of the operator (2.22), likewise | QLab, lighting desks, TouchOSC |
+| Companion TCP | port 9923 | none; `playout` and `patterns` only from this PC or a listed address (2.20); `peer` and `desk` (2.22) and a window grant, asked of the operator (2.22), likewise; an `ACCESS` line says which (2.22) | Bitfocus Companion module (see COMPANION.md) |
 
 The PIN is generated on first run and shown in Settings → Remote. Five wrong PINs from one address lock that
 address out for a minute. A link with `?pin=1234` (e.g. `http://<pc>:9924/control?pin=1234`) logs in directly.
@@ -613,7 +613,7 @@ desk reject <id>|next [<why…>]
 | HTTP | `GET` or `POST /api/peer/<app>/<the line as one URL-encoded segment>`; `POST /api/peer` with `{"app":"pm-a1b2","line":"SET out1 name \"Left wall\""}` (two strings, at most 16 KB; anything else `400`); `/api/desk/approve/p17`, `/api/desk/approve/p18-k3m9/high`, `/api/desk/approve/next`, `/api/desk/reject/next/<why>` |
 | WebSocket | `{"cmd":"peer","args":["pm-a1b2","PLAYLIST CUE \"Main show\" #3"],"id":"a1"}`, `{"cmd":"desk","args":["approve","p18-k3m9","high"],"id":"a2"}` |
 | A Command trigger | `peer agmessage "notice Q&A in 2 minutes"` — sent as the role `trigger`. A typed line's quote marks are dropped as it is split into words, so a line that holds quote marks of its own is refused there, never sent on altered. A trigger never decides: `desk` from one is refused |
-| Companion TCP, OSC | not in this release: refused in words ("peer is sent over HTTP or a WebSocket (with the PIN or a control key) — Companion TCP does not take it in this release") |
+| Companion TCP, OSC (2.22) | `@c1 PEER "PlayMap Hall" "SET out1 name \"Left wall\""`, `@c2 DESK APPROVE p18-k3m9 HIGH`; OSC `/stagewatch/peer ,ss pm-a1b2 "…"`, `/stagewatch/desk/approve ,s p17`, `/stagewatch/desk/reject ,s next`. From this PC or an address in **May drive other show apps** only, as the role `deck` (the door's name and the address go to the desk's journal alone); anyone else is refused in words ("peer acts on another show app with a person's authority — from another machine over Companion TCP it needs its address in Settings → Remote → May drive other show apps (Companion TCP carries no PIN)"). A line holding a control character (a `\n` in Companion's quoting) is refused as it is read. Companion's receipt and its `final` follow-up are the WebSocket's |
 | MCP, the copilot, the advisor, a proposal | never: `run_command` answers `isError` ("a person sends a line to another app — not the copilot, an agent or a proposal", "a person approves — not a trigger, the copilot or an agent") for any line that opens with either verb, whether or not the rest parses, and never quotes the line back; a copilot plan drops such a step by its verb alone |
 
 **Who may send them** is the sender gate above ("Who may drive another app's air"), for these two lines: the PIN Stagewatch
@@ -1208,7 +1208,7 @@ message on the stage, and posts its own context and proposals, for the one app i
 | `POST /api/peers/context`, `POST /api/proposals`, `GET /api/proposals?target=<id>&state=approved`, `POST /api/proposals/<id>/result`, `message` and `clearmessage` | node: a node key (speaking for its own node only), a control key or the PIN. An MCP key posts no proposal (`403`, 2.21); a node key runs no other verb |
 | Every other `/api/<verb>`, `/api/crew-links`, `POST /api/layouts/…`, `/api/holding/upload`, `/api/slides/feed`, `/api/slides/script`, `/ws?role=control` | control: a control key or the PIN |
 | `playout` and `patterns` lines (2.20) | control, and the playout gate: with no PIN set, this PC, a listed address or a control key (over MCP an MCP key, and an AI's line is always a proposal); over OSC and Companion TCP, which carry no credential, this PC or a listed address only |
-| `peer` and `desk` lines (2.21), `GET\|POST /api/peer/…`, `/api/desk/…` | the PIN Stagewatch asks for, or a control key — never a node, read or MCP key; with no PIN set, this PC or a listed address. Not over Companion TCP, OSC or MCP in this release |
+| `peer` and `desk` lines (2.21), `GET\|POST /api/peer/…`, `/api/desk/…` | the PIN Stagewatch asks for, or a control key — never a node, read or MCP key; with no PIN set, this PC or a listed address. Over Companion TCP and OSC (2.22), which carry no credential, this PC or a listed address only. Never over MCP |
 | `POST /mcp` | mcp: an MCP key or the PIN |
 
 Unknown or revoked keys are `401` and counted nowhere; a key over its 600 requests a minute is `429`. Five wrong PINs from an
@@ -1427,9 +1427,22 @@ GET /ws?node=9f8e7d6c&t=patterns&can=pages        ← can= lists what the link o
   Remote → May drive other show apps included — so with no PIN set and no key a grant is refused there (`window grant is a
   person's act — over HTTP it needs the PIN given (set one in Settings → Remote) or a control key, from this PC or any other:
   grant it at the desk (Screens → Windows) otherwise`), as it is from another site's page. OSC and Companion TCP, which
-  authenticate nobody, refuse it whoever sends it: `window grant is a person's act — Companion TCP authenticates nobody: grant it
-  at the desk (Screens → Windows), or over HTTP or a WebSocket with the PIN or a control key` — a Companion deck's grant press
-  included, until those doors queue a grant as a proposal for a person instead (release B's doors). An agent's `run_command` over MCP only
+  authenticate nobody, never make a grant: from this PC or a listed address they **ask it of the operator** (2.22, SW22.8; Show Bus
+  12.4 lets such a door queue it) — the grant is tried on the windows now with its app found by its Show Bus id alone, as an
+  approved proposal's is, and what would be refused is refused at once in the same words; else it waits on the desk as a §11
+  proposal from this desk (its from named by the door, `Companion TCP` or `OSC`, never the address, which goes to the journal's row
+  alone), aimed at this desk, risk high (approved by its id and the word). Companion's receipt says so at once: `OK @c1 accepted p3
+  waits for a person's approval` (`refs.sharedProposal`), and its one follow-up, within `receipt.final.ms` (30 s), is the decision
+  — `OK @c1 final applied this Stagewatch ran window grant lobby pm-1a2b: … (p3)`, `ERROR @c1 final p3 was rejected` — or, undecided
+  by then, that it still waits and where its outcome will be. Only a person who proved it approves a window grant aimed at this
+  desk — the operator, or `desk approve` over HTTP or a WebSocket with the PIN or a control key: from a deck (Companion TCP, OSC),
+  or over HTTP or a WebSocket on an address alone (no PIN set), the approval is refused (`a window grant is approved by a person who
+  proved it — at the desk, or over HTTP or a WebSocket with the PIN or a control key; Companion TCP, OSC and an address alone prove
+  nobody`), the proposal still waits and the desk's journal says who tried; a deck may still reject it. This holds for a deck's own
+  ask and for an app's self-ask alike, so no grant is made on an address alone. The same grant asked again while it waits is that
+  ask (`p3 already asks for it — …`), nothing new queued. From any other address it is refused (`window grant from another
+  machine over Companion TCP needs its address in Settings → Remote → May drive other show apps — and then it waits for the
+  operator's approval at the desk (Companion TCP carries no PIN)`). An agent's `run_command` over MCP only
   queues it as a proposal, whatever its key. `window withdraw` is taken wherever other window lines are. A Show Bus §11 proposal
   approved at the desk names its app in `window grant <window> <app>` by its Show Bus id alone: a word that is no heard app's id
   is refused (`No show app with the id "…" on the show network — a proposal names its app by its Show Bus id`), never taken as
@@ -1464,4 +1477,29 @@ GET /ws?node=9f8e7d6c&t=patterns&can=pages        ← can= lists what the link o
   facts and a proposal approved by id are held by the unit suite (`WindowTests`, `WindowGrantTests`, `WindowLightTests`,
   `PlayoutGateTests`).
 
-Not in this release yet: the Companion module's grant action, feedbacks and variables.
+Not in this release yet: the Companion module's grant action, feedbacks and variables. *Since then (SW22.7, SW22.8):* they landed
+(docs/COMPANION.md), and a grant from a deck is asked of the operator (below).
+
+### The decks' doors: Companion TCP and OSC (2.22, release B)
+
+Companion TCP and OSC carry no credential, so they take a person's lines by the sender's address alone: from this PC, or an address
+in **Settings → Remote → May drive other show apps**, and from nowhere else.
+
+- **`peer` and `desk`** (2.21's verbs; see "A person's line to another app, and a person's decision") pass as a person at a deck,
+  the role `deck`: a `peer` line is sent born approved with `decidedBy` `deck`, and a decision is the deck's. The door's name and the
+  sender's address go to the desk's journal row alone, never its words, a proposal or a frame. Companion: `PEER <app> "<line>"`,
+  `DESK APPROVE <id> [HIGH]`, `DESK APPROVE NEXT`, `DESK REJECT <id>|NEXT ["<why>"]`, with a request id for a receipt (and its
+  `final`); OSC: `/stagewatch/peer ,ss <app> <line>`, `/stagewatch/desk/approve ,s <id> [high]`, `/stagewatch/desk/reject ,s next`.
+  Everything else of 2.21's rules holds: a listed line of a verified table, while its app collects; a high proposal by its id and
+  the word, never as next. A line break inside Companion's quoting is a control character, refused as the line is read. A deck
+  never approves a window grant aimed at this desk (a deck proves no person; see windows granted to show apps): it may reject one.
+- **`window grant`** is asked of the operator, never made (above: windows granted to show apps): `OK @c1 accepted p3 waits for a
+  person's approval`, then the decision as its `final`. `window withdraw` and every other window line run as before.
+- **`ACCESS {json}`** (Companion TCP, per connection): `{"peer":true,"desk":true,"why":"","grant":true}` — whether this connection's
+  address may send a `peer` line, decide on the desk and ask for a grant, and why not (`peer, desk and window grants from another
+  machine over Companion TCP need its address in Settings → Remote → May drive other show apps (Companion TCP carries no PIN)`).
+  Sent after `SUBSCRIBE JSON`, before the first `CONFIG`, and again with the next frame whenever the operator's list changes what it
+  says; the module greys its desk keys by it and refuses a press it would refuse. `grant` is appended after the design's three
+  fields.
+- **Not here:** the copilot's steps for other apps (SW22.9) and MCP's `target` (SW22.10); a `peer` or `desk` line over Companion with
+  no request id is run and answered by nothing, as Companion's other lines are (the status line and the journal say what came of it).

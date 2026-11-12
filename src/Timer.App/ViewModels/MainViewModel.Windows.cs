@@ -1,5 +1,6 @@
 using Stagewatch.Core;
 using Stagewatch.Remote;
+using Stagewatch.Show;
 
 namespace Stagewatch.App.ViewModels;
 
@@ -42,6 +43,21 @@ public sealed partial class MainViewModel
     {
         var director = Windowing;
         director.Web = _web;
+        // A deck's grant (Companion TCP, OSC) proves no person (Show Bus §12.4): it is asked of the operator on the desk, never made
+        // here; tried first on the windows now, its app by its Show Bus id alone, as the approved proposal will find it.
+        if (by is { Asks: true } && args.Action.Equals("grant", StringComparison.OrdinalIgnoreCase))
+        {
+            var asked = Desk.AskGrant(args, by, a => director.Check(a, ScreenPresetPath, Settings.Holding.Images, app => ScreenWindows.FindApp(HeardApps(), app, idOnly: true)));
+            if (asked.Proposal is { } p)
+            {
+                ReceiptRefId(DeskReceipts.Ref, p.Id);
+                OnSharedProposal(p);
+            }
+            if (!asked.Ok) { Refuse(asked.Words); return; }
+            StatusLine = asked.Words;
+            ReceiptAwait(asked.Proposal!.Id);
+            return;
+        }
         var idOnly = by == DeskOrigin.Proposal;
         var change = director.Run(args, ScreenPresetPath, Settings.Holding.Images, app => ScreenWindows.FindApp(HeardApps(), app, idOnly));
         if (!change.Ok) { Refuse(change.Words); return; }

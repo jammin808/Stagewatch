@@ -1,5 +1,5 @@
 import { combineRgb, type CompanionFeedbackDefinitions, type DropdownChoice } from '@companion-module/base'
-import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, networkReady, standingBy, vtFrom, windowHolding, windowIs, type WindowStateWant } from './state.js'
+import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, networkReady, standingBy, vtFrom, windowHolding, windowIs, deskWaiting, type WindowStateWant } from './state.js'
 import type ModuleInstance from './main.js'
 
 // Every callback reads the cached frame only: no I/O, constant time.
@@ -666,6 +666,23 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			defaultStyle: { bgcolor: COLORS.violet, color: COLORS.white },
 			options: [{ type: 'textinput', id: 'window', label: 'Window name (empty = every window)', default: '' }],
 			callback: (fb) => windowHolding(s(), String(fb.options.window ?? '')),
+		},
+		desk_waiting: {
+			type: 'boolean',
+			name: "Desk: a proposal waits on Stagewatch's desk",
+			description: 'True while any proposal waits for a decision; with "high only", while the oldest waiting is high (approve takes a second press).',
+			defaultStyle: { bgcolor: COLORS.amber, color: COLORS.black },
+			options: [{ type: 'checkbox', id: 'high', label: 'High only', default: false }],
+			callback: (fb) => deskWaiting(s(), fb.options.high === true),
+		},
+		desk_shut: {
+			type: 'boolean',
+			name: 'Desk: Stagewatch takes no person\'s line from this deck',
+			description:
+				"True while Stagewatch's ACCESS line says this deck's address may not send peer lines or desk decisions (not this PC, and not listed in Settings → Remote → May drive other show apps): grey the desk keys with it.",
+			defaultStyle: { bgcolor: COLORS.grey, color: COLORS.darkgrey },
+			options: [],
+			callback: () => self.access !== null && self.access !== undefined && (!self.access.peer || !self.access.desk),
 		},
 		preview: {
 			type: 'boolean',

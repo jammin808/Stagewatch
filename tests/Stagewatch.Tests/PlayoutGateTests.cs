@@ -258,37 +258,52 @@ static class PlayoutGateTests
         await Send("/stagewatch/playout", "stage-left", "go", "show", "intro");
         await Send("/stagewatch/patterns", "pause");
         await Send("/stagewatch/playout/pause");
+        await Send("/stagewatch/peer", "playmap", "UNDO");
+        await Send("/stagewatch/desk/approve", "next");
+        await Send("/stagewatch/window", "grant", "lobby", "9f8e7d6c");
         await Send("/stagewatch/start");   // the same sender's other verbs run as they always have; the server reads in order
         Check(await Ran(ShowCommandKind.Start, 0), "osc gate: start from another machine still runs");
-        Check(!Any(ShowCommandKind.Playout) && !Any(ShowCommandKind.Patterns) && osc.MessagesRejected == 3,
-              $"osc gate: playout and patterns from an unlisted machine never reach the show thread ({osc.MessagesRejected} rejected)");
+        Check(!Any(ShowCommandKind.Playout) && !Any(ShowCommandKind.Patterns) && !Any(ShowCommandKind.Peer) && !Any(ShowCommandKind.Desk)
+              && Windows(control).Count == 0 && osc.MessagesRejected == 6,
+              $"osc gate: playout, patterns, peer, desk and a window grant from an unlisted machine never reach the show thread ({osc.MessagesRejected} rejected)");
         lock (rejected)
-            Check(rejected.Count == 3 && rejected[0] == "OSC: " + PlayoutGate.Words(ShowCommandKind.Playout, CommandDoor.Osc)
-                  && rejected[1] == "OSC: " + PlayoutGate.Words(ShowCommandKind.Patterns, CommandDoor.Osc),
-                  "osc gate: the refusal's words reach the status line");
+            Check(rejected.Count == 6 && rejected[0] == "OSC: " + PlayoutGate.Words(ShowCommandKind.Playout, CommandDoor.Osc)
+                  && rejected[1] == "OSC: " + PlayoutGate.Words(ShowCommandKind.Patterns, CommandDoor.Osc)
+                  && rejected[3] == "OSC: " + PlayoutGate.Words(ShowCommandKind.Peer, CommandDoor.Osc)
+                  && rejected[4] == "OSC: " + PlayoutGate.Words(ShowCommandKind.Desk, CommandDoor.Osc)
+                  && rejected[5] == "OSC: " + PlayoutGate.GrantWords(CommandDoor.Osc),
+                  "osc gate: the refusal's words reach the status line, each in its own verb's words");
 
         access.From = [IPAddress.Loopback];   // the sender's address, listed
         var at = Count();
         await Send("/stagewatch/playout", "stage-left", "go", "show", "intro");
         Check(await Ran(ShowCommandKind.Playout, at), "osc gate: a listed address drives playout");
-        // A person's line (peer, desk) is not OSC's in this release, listed or not: refused in words, and the show thread never hears it.
-        await Send("/stagewatch/peer", "playmap", "UNDO");
-        await Send("/stagewatch/desk", "approve", "next");
-        await Send("/stagewatch/next");
-        Check(await Ran(ShowCommandKind.Next, at) && !Any(ShowCommandKind.Peer) && !Any(ShowCommandKind.Desk), "osc gate: peer and desk from a listed address never reach the show thread");
-        lock (rejected)
-            Check(rejected.Contains("OSC: " + PlayoutGate.PersonLater(ShowCommandKind.Peer, CommandDoor.Osc)) && rejected.Contains("OSC: " + PlayoutGate.PersonLater(ShowCommandKind.Desk, CommandDoor.Osc)),
-                  $"osc gate: peer and desk are refused in words that say where they are taken ({string.Join(" | ", rejected.Skip(3))})");
-        // A window grant is a person's act (Show Bus §12.4): OSC authenticates nobody, so a listed address is refused it too, while the
-        // same sender's other window lines run as before; the server reads in order, so the show line after it says the grant was read.
-        var grantsAt = Count();
+        // A person's line (peer, desk) from a listed address reaches the show thread named a deck's: OSC by name, the address for the desk's
+        // journal alone; the desk then decides it as a person's. Its OSC addresses: /stagewatch/peer ,ss and /stagewatch/desk/approve ,s.
         var rejectedAt = osc.MessagesRejected;
+        await Send("/stagewatch/peer", "playmap", "UNDO");
+        await Send("/stagewatch/desk/approve", "p17", "high");
+        await Send("/stagewatch/desk/reject", "next");
+        await Send("/stagewatch/next");
+        Check(await Ran(ShowCommandKind.Next, at) && osc.MessagesRejected == rejectedAt, "osc gate: peer and desk from a listed address pass the door");
+        List<ShowCommand> people;
+        lock (control.Commands) people = [.. control.Commands.Where(c => PlayoutGate.Person(c.Kind))];
+        Check(people is [{ Kind: ShowCommandKind.Peer } peer, { Kind: ShowCommandKind.Desk } approve, { Kind: ShowCommandKind.Desk } reject]
+              && peer.Get<PeerArgs>() is { App: "playmap", Line: "UNDO" } && approve.Get<DeskArgs>() is { Action: "approve", Id: "p17", High: true }
+              && reject.Get<DeskArgs>() is { Action: "reject", Id: "next" }
+              && people.All(c => c.By is { Role: "deck", Door: "OSC", Who: "OSC, 127.0.0.1" }),
+              $"osc gate: peer and desk reach the show thread whole, each named a deck's by the door, its address for the journal alone ({string.Join(" | ", people.Select(c => c.By?.Who))})");
+        // A window grant is a person's act (Show Bus §12.4) that OSC proves no person for: from a listed address it reaches the show thread
+        // named a deck's, so the host asks it of the operator on the desk and never makes it; the same sender's other window lines name no one.
+        var grantsAt = Count();
         await Send("/stagewatch/window", "grant", "lobby", "9f8e7d6c");
         await Send("/stagewatch/window", "show", "lobby", "/clock");
-        Check(await Ran(ShowCommandKind.Window, grantsAt) && Windows(control).All(a => a.Action != "grant") && osc.MessagesRejected == rejectedAt + 1,
-              "osc gate: a window grant from a listed address never reaches the show thread; the window show after it does");
-        lock (rejected)
-            Check(rejected.Contains("OSC: " + PlayoutGate.GrantWords(CommandDoor.Osc)), "osc gate: the grant's refusal says it is a person's act and where to grant it");
+        Check(await Ran(ShowCommandKind.Window, grantsAt) && osc.MessagesRejected == rejectedAt, "osc gate: a window grant from a listed address passes the door");
+        List<ShowCommand> windowLines;
+        lock (control.Commands) windowLines = [.. control.Commands.Skip(grantsAt).Where(c => c.Kind == ShowCommandKind.Window)];
+        var grantLine = windowLines.FirstOrDefault(c => c.Get<WindowArgs>().Action == "grant");
+        Check(grantLine.By is { Asks: true, Door: "OSC" } && windowLines.Where(c => c.Get<WindowArgs>().Action != "grant").All(c => c.By is null),
+              "osc gate: the grant is named a deck's — the host asks it of the operator — and the window show after it is no one's");
 
         // The default seam: a sender on this PC passes with nothing listed.
         var local = new FakeControl();
@@ -306,8 +321,10 @@ static class PlayoutGateTests
         await sender.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Loopback, localPort));
         ok = false;
         for (var i = 0; i < 100 && !ok; i++) { ok = Windows(local).Any(a => a.Action == "withdraw"); if (!ok) await Task.Delay(20); }
-        Check(ok && Windows(local).All(a => a.Action != "grant") && plain.MessagesRejected == 1,
-              "osc gate: this PC is refused a window grant too (OSC proves no person), and its withdraw after it runs");
+        List<ShowCommand> localGrants;
+        lock (local.Commands) localGrants = [.. local.Commands.Where(c => c.Kind == ShowCommandKind.Window && c.Get<WindowArgs>().Action == "grant")];
+        Check(ok && localGrants is [{ By: { Asks: true, Door: "OSC" } }] && plain.MessagesRejected == 0,
+              "osc gate: this PC's window grant passes only to be asked of the operator (OSC proves no person), and its withdraw after it runs");
         Check(typeof(OscServer).GetConstructors().Single().GetParameters() is [{ } first, { } second]
               && first.ParameterType == typeof(IShowCommands) && second.ParameterType == typeof(IShowAccess) && second.HasDefaultValue,
               "osc gate: OSC needs commands and frames, and who may drive playout (none given: this PC only)");
@@ -357,28 +374,42 @@ static class PlayoutGateTests
         Check(await Answer("ERROR ") is { } unknown && !unknown.Contains("playout", StringComparison.Ordinal) && server.MessagesRejected == 3,
               $"companion gate: diagnostics count every line refused at the door, the grammar's and the gate's ({server.MessagesRejected})");
 
+        await Say("@c0 peer playmap UNDO");
+        Check(await Answer("ERROR @c0 ") == "ERROR @c0 " + PlayoutGate.Words(ShowCommandKind.Peer, CommandDoor.Companion) && !Any(ShowCommandKind.Peer),
+              "companion gate: a peer line from an unlisted machine is refused under its id, in words that name the setting");
+        await Say("@g0 window grant lobby 9f8e7d6c");
+        Check(await Answer("ERROR @g0 ") == "ERROR @g0 " + PlayoutGate.GrantWords(CommandDoor.Companion) && Windows(bridge.Commands).Count == 0,
+              "companion gate: a window grant from an unlisted machine is refused under its id, and the show thread never hears it");
+
         bridge.From = [IPAddress.Loopback];
         await Say("@c3 patterns pause");
         Check(await Answer("OK @c3") == "OK @c3 accepted" && Any(ShowCommandKind.Patterns), "companion gate: a listed address drives patterns");
-        // A person's line (peer, desk) is not Companion TCP's in this release, listed or not.
-        await Say("@c4 peer playmap UNDO");
-        Check(await Answer("ERROR @c4 ") == "ERROR @c4 " + PlayoutGate.PersonLater(ShowCommandKind.Peer, CommandDoor.Companion),
-              "companion gate: a peer line from a listed address is refused under its id, in words that say where it is taken");
-        await Say("@c5 desk approve next");
-        Check(await Answer("ERROR @c5 ") == "ERROR @c5 " + PlayoutGate.PersonLater(ShowCommandKind.Desk, CommandDoor.Companion)
-              && !Any(ShowCommandKind.Peer) && !Any(ShowCommandKind.Desk),
-              "companion gate: a desk line is refused the same way, and neither reached the show thread");
-        // A window grant is a person's act (Show Bus §12.4): Companion TCP authenticates nobody, so a listed address is refused it under
-        // its id, counted and said on the status line, while its other window lines run as before.
+        // A person's line (peer, desk) from a listed address reaches the show thread named a deck's: Companion TCP by name, the address
+        // for the desk's journal alone, with or without a request id.
         var rejectedAt = server.MessagesRejected;
+        await Say("@c4 PEER playmap \"PLAYLIST CUE \\\"Main show\\\" #3\"");
+        Check(await Answer("OK @c4") == "OK @c4 accepted", "companion gate: a peer line from a listed address passes under its id");
+        await Say("DESK APPROVE p18-k3m9 HIGH");
+        await Say("@c5 desk reject next");
+        Check(await Answer("OK @c5") == "OK @c5 accepted" && server.MessagesRejected == rejectedAt, "companion gate: desk lines from a listed address pass, with an id and without");
+        List<ShowCommand> people;
+        lock (bridge.Commands) people = [.. bridge.Commands.Where(c => PlayoutGate.Person(c.Kind))];
+        Check(people is [{ Kind: ShowCommandKind.Peer } peer, { Kind: ShowCommandKind.Desk } approve, { Kind: ShowCommandKind.Desk } reject]
+              && peer.Get<PeerArgs>() is { App: "playmap", Line: "PLAYLIST CUE \"Main show\" #3" }
+              && approve.Get<DeskArgs>() is { Action: "approve", Id: "p18-k3m9", High: true } && reject.Get<DeskArgs>() is { Action: "reject", Id: "next" }
+              && people.All(c => c.By is { Role: "deck", Door: "Companion TCP", Who: "Companion TCP, 127.0.0.1" }),
+              $"companion gate: peer and desk reach the show thread whole, each named a deck's by the door ({string.Join(" | ", people.Select(c => c.By?.Who))})");
+        // A window grant is a person's act (Show Bus §12.4) that Companion TCP proves no person for: from a listed address it reaches the
+        // show thread named a deck's, so the host asks it of the operator on the desk and never makes it; a withdraw names no one.
         await Say("@c6 window grant lobby 9f8e7d6c");
-        Check(await Answer("ERROR @c6 ") == "ERROR @c6 " + PlayoutGate.GrantWords(CommandDoor.Companion) && server.MessagesRejected == rejectedAt + 1,
-              "companion gate: a window grant from a listed address is refused under its id in words, and counted");
+        Check(await Answer("OK @c6") == "OK @c6 accepted" && server.MessagesRejected == rejectedAt, "companion gate: a window grant from a listed address passes the door");
         await Say("@c7 window withdraw lobby");
-        Check(await Answer("OK @c7") == "OK @c7 accepted" && Windows(bridge.Commands).Any(a => a.Action == "withdraw") && Windows(bridge.Commands).All(a => a.Action != "grant"),
-              "companion gate: the grant never reached the show thread; a withdraw from the same deck runs");
-        lock (rejected)
-            Check(rejected.Contains("Companion: " + PlayoutGate.GrantWords(CommandDoor.Companion)), "companion gate: the grant's refusal reaches the status line");
+        Check(await Answer("OK @c7") == "OK @c7 accepted", "companion gate: a withdraw from the same deck runs");
+        List<ShowCommand> windowLines;
+        lock (bridge.Commands) windowLines = [.. bridge.Commands.Where(c => c.Kind == ShowCommandKind.Window)];
+        Check(windowLines is [{ By: { Asks: true, Door: "Companion TCP" } } grantLine, { By: null } withdrawLine]
+              && grantLine.Get<WindowArgs>() is { Action: "grant", Who: "lobby", Argument: "9f8e7d6c" } && withdrawLine.Get<WindowArgs>().Action == "withdraw",
+              "companion gate: the grant is named a deck's, which the host asks of the operator; the withdraw is no one's");
     }
 
     /// <summary>The window lines a surface heard, in order.</summary>

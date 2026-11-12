@@ -1070,8 +1070,8 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.Peer or ShowCommandKind.Desk => DeskCommand(c),
             _ => (false, $"the rig doesn't simulate {c.Kind.ToString().ToLowerInvariant()} (the app does)"),
         };
-        // A person's line is never offered to a deck's recorder, as in the app.
-        if (result.Ok && !PlayoutGate.Person(c.Kind)) CommandRecorded?.Invoke(c.Kind.ToString().ToLowerInvariant());
+        // A person's line, and a deck's asked line, is never offered to a deck's recorder, as in the app.
+        if (result.Ok && !PlayoutGate.Person(c.Kind) && c.By is not { Asks: true }) CommandRecorded?.Invoke(c.Kind.ToString().ToLowerInvariant());
         if (result.Ok) Tick();
         return result;
 
@@ -1159,6 +1159,14 @@ sealed class Rig : ICompanionBridge, IDisposable
     /// </summary>
     private (bool, string) WindowCommand(WindowArgs a, DeskOrigin? by)
     {
+        // As the app: a deck's grant (Companion TCP, OSC) is asked of the operator on the desk, tried first with its app by id alone.
+        if (by is { Asks: true } && a.Action.Equals("grant", StringComparison.OrdinalIgnoreCase))
+        {
+            var asked = _desk.AskGrant(a, by, w => _windows.Check(w, ScreenPresetPath, Settings.Holding.Images, app => ScreenWindows.FindApp(HeardApps(), app, idOnly: true)));
+            if (asked.Proposal is { } p && _receiptRefIds is { } ids) ids[DeskReceipts.Ref] = p.Id;
+            if (asked.Ok) _receiptAwaited = asked.Proposal!.Id;
+            return (asked.Ok, asked.Words);
+        }
         var idOnly = by == DeskOrigin.Proposal;
         var change = _windows.Run(a, ScreenPresetPath, Settings.Holding.Images, app => ScreenWindows.FindApp(HeardApps(), app, idOnly));
         if (change.Effect == WindowEffect.Changed) Journal(JournalKind.Note, -1, "Window: " + change.Words);

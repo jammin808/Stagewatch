@@ -68,6 +68,13 @@ public sealed class WindowDirector
         return change;
     }
 
+    /// <summary>
+    /// Owner thread. What <see cref="Run"/> would say of <paramref name="args"/> on the windows now, with nothing applied, saved or pushed:
+    /// a deck's asked grant is tried so before it waits on the desk, and refused in these words when it would change nothing.
+    /// </summary>
+    public WindowChange Check(WindowArgs args, Func<string, string?> setupPath, IReadOnlyList<HoldingImage> images, Func<string, AppLookup>? findApp = null)
+        => ScreenWindows.Apply(_windows, args, new WindowContext(setupPath, images, _newToken, _newId, findApp));
+
     private string Name(string id) => _windows.FirstOrDefault(w => w.Id == id)?.Name ?? id;
 
     /// <summary>Why a window only show apps draw is not reloaded (Show Bus 12.6): naming the apps that draw it and what sends it again.</summary>

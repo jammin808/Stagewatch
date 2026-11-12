@@ -83,7 +83,7 @@ public sealed partial class MainViewModel
     /// <summary>The command being receipted made something a sender can follow (a message's signal id).</summary>
     private void ReceiptRef(string name, long value) => _receipts.Ref(name, value);
 
-    /// <summary>The command being receipted sent a line to another app: its receipt waits for what that app makes of it.</summary>
+    /// <summary>The command being receipted sent a line to another app, or asked the operator for one: its receipt waits for what came of it.</summary>
     private void ReceiptAwait(string proposalId) => _receipts.Await(proposalId);
 
     /// <summary>The command being receipted made something a sender follows by an id that is no number (a shared proposal's id).</summary>

@@ -970,22 +970,29 @@ test('2.22 window_grant: every press sends exactly its line with a request id, e
 	assert.ok(presses.some((r) => r[3].startsWith('WINDOW GRANT ')) && presses.some((r) => r[3] === 'WINDOW WITHDRAW all'))
 })
 
-test("2.22 window_grant's answer: a grant is refused at Companion's door in Stagewatch's words on the log; a withdraw passes; neither touches playout_answer", async () => {
+test("2.22 window_grant's answer: a grant waits for the operator, then the decision, on the log; a withdraw passes; neither touches playout_answer", async () => {
 	const rows = windowRows()
 	const doors = Object.fromEntries(rows.filter((r) => r[0] === 'door').map((r) => [r[1], r]))
 	assert.deepEqual(Object.keys(doors).sort(), ['grant', 'withdraw'])
-	// Today a grant is a person's act Companion TCP refuses (Show Bus 12.4); when its door queues it as a proposal, its door row changes.
-	assert.equal(doors.grant[2], 'refused')
-	assert.match(doors.grant[3], /^window grant is a person's act — Companion TCP authenticates nobody/)
+	// A grant is a person's act Companion TCP proves no person for (Show Bus 12.4): its door asks it of the operator on the desk.
+	assert.equal(doors.grant[2], 'asked')
+	assert.match(doors.grant[3], /^p<n> waits for a person's approval$/)
+	assert.match(doors.grant[4], /^p<n> was rejected$/)
 	assert.equal(doors.withdraw[2], 'passes')
 	const presses = rows.filter((r) => r[0] === 'press')
 	const received = []
-	// A Stagewatch whose Companion door answers as the door rows say (Stagewatch's suite sends the same lines to its real server and
-	// holds the refusal to these words); a line that passes is answered as its show thread would: applied.
+	let asked = 0
+	// A Stagewatch whose Companion door answers as the door rows say (Stagewatch's suite sends the same lines to its real server and its
+	// real desk, and holds the answers to these words): an asked grant at once, accepted, then its final follow-up once the operator
+	// rejects it; a line that passes is answered as its show thread would: applied.
 	const srv = await fakeServer(
 		answering(received, (line) => {
 			const id = line.slice(1, line.indexOf(' '))
 			const door = doors[line.split(' ')[2].toLowerCase()]
+			if (door[2] === 'asked') {
+				const tag = `p${++asked}`
+				return [`OK @${id} accepted ${door[3].replace('p<n>', tag)}`, `ERROR @${id} final ${door[4].replace('p<n>', tag)}`]
+			}
 			return door[2] === 'refused' ? [`ERROR @${id} ${door[3]}`] : [`OK @${id} applied lobby's grants withdrawn`]
 		}),
 	)
@@ -995,11 +1002,21 @@ test("2.22 window_grant's answer: a grant is refused at Companion's door in Stag
 		await waitFor(c, 'status', (s) => s.kind === 'connected')
 		for (const r of presses) {
 			const id = c.request(r[3])
+			// An asked grant's two answers come in one write: both are waited for from the send, so neither is missed.
+			const decision = doors[r[4]][2] === 'asked' ? waitFor(c, 'receipt', (x) => x.id === id && x.final) : null
 			const got = await waitFor(c, 'receipt', (x) => x.id === id)
 			// The module's own routing (ModuleInstance's receipt handler calls routeReceipt and does what it says).
 			const to = routeReceipt(got, id)
 			const log = to.log
-			if (doors[r[4]][2] === 'refused') {
+			if (doors[r[4]][2] === 'asked') {
+				const tag = `p${asked}`
+				assert.deepEqual([got.kind, got.ok, got.stage, got.final, got.line], ['answered', true, 'accepted', false, r[3]])
+				assert.deepEqual(log, { level: 'info', text: `${r[3]}: accepted — ${tag} waits for a person's approval` }, 'waiting for the operator, on the log')
+				const decided = await decision
+				assert.deepEqual([decided.ok, decided.final], [false, true])
+				assert.deepEqual(routeReceipt(decided, id).log, { level: 'warn', text: `${r[3]}: final refused — ${tag} was rejected` }, "the operator's decision follows on the log")
+				assert.equal(routeReceipt(decided, id).answer, null)
+			} else if (doors[r[4]][2] === 'refused') {
 				assert.deepEqual([got.kind, got.ok, got.line], ['answered', false, r[3]])
 				assert.deepEqual(log, { level: 'warn', text: `${r[3]}: refused — ${doors[r[4]][3]}` }, 'the refusal on the log, in its words')
 			} else {
@@ -1113,4 +1130,155 @@ test('2.22 window keys: each presses a defined action and lights by a defined fe
 	assert.match(self.presets.windows_attention.feedbacks[0].style.text, /windows_attention/)
 	assert.ok(!Object.values(self.presets).some((p) => (p.steps ?? []).some((st) => st.down.some((a) => a.actionId === 'window_grant' && a.options.what === 'grant'))),
 		'no key presses a grant: Companion TCP refuses it today')
+})
+
+// ---------------------------------------------------------------- 2.22: the approval desk and a person's lines from a deck
+
+const DESK = {
+	pending: 2,
+	next: { id: 'p18-k3m9', from: 'AI agent (MCP)', target: 'PlayMap Hall', line: 'PANIC', risk: 'high', collects: true, cut: false },
+	apps: [{ id: 'pm-a1b2', name: 'PlayMap Hall', kind: 'playmap', collects: true, verified: true }],
+}
+
+test('2.22 desk: variables and desk_waiting follow the frame\'s desk block; nothing is said to wait offline or with no block', async () => {
+	const { deskWaiting, deskNext } = await import('../dist/state.js')
+	const v = deriveVariables(snap({ desk: DESK }), true)
+	assert.deepEqual(
+		[v.desk_pending, v.desk_next_id, v.desk_next_from, v.desk_next_target, v.desk_next_line, v.desk_next_risk],
+		[2, 'p18-k3m9', 'AI agent (MCP)', 'PlayMap Hall', 'PANIC', 'high'],
+	)
+	const none = deriveVariables(snap(), true)
+	assert.deepEqual([none.desk_pending, none.desk_next_id, none.desk_next_risk], [0, '', ''])
+	const offline = deriveVariables(null, false)
+	assert.deepEqual([offline.desk_pending, offline.desk_next_id], ['', ''])
+	assert.equal(deskWaiting(snap({ desk: DESK })), true)
+	assert.equal(deskWaiting(snap({ desk: DESK }), true), true)
+	assert.equal(deskWaiting(snap({ desk: { ...DESK, next: { ...DESK.next, risk: 'review' } } }), true), false)
+	assert.equal(deskWaiting(snap({ desk: { pending: 0, next: null, apps: [] } })), false)
+	assert.equal(deskWaiting(null), false)
+	assert.equal(deskNext(snap({ desk: { pending: 1, next: { risk: 'low' } } })), null, 'a next with no id is no proposal')
+	assert.ok(FEEDBACK_IDS.includes('desk_waiting') && FEEDBACK_IDS.includes('desk_shut'))
+	assert.ok(feedbacksAffected(snap(), snap({ desk: DESK }), false).includes('desk_waiting'))
+	assert.ok(!feedbacksAffected(snap({ desk: DESK }), snap({ desk: DESK }), false).includes('desk_waiting'))
+})
+
+test('2.22 desk_approve: a review proposal at once; a high one on a second press within 3 s, by its id with HIGH; nothing waiting sends nothing', async () => {
+	const { deskApprove, deskReject, HIGH_PRESS_MS, UpdateActions } = await import('../dist/actions.js')
+	const review = snap({ desk: { ...DESK, next: { ...DESK.next, risk: 'review', line: 'UNDO' } } })
+	assert.deepEqual(deskApprove(review, null, 1000), { line: 'DESK APPROVE p18-k3m9' })
+	const high = snap({ desk: DESK })
+	const first = deskApprove(high, null, 1000)
+	assert.deepEqual(first.arm, { id: 'p18-k3m9', at: 1000 })
+	assert.match(first.note, /^Desk: p18 is high \(PANIC\) — press again within 3 s to approve it$/)
+	assert.deepEqual(deskApprove(high, first.arm, 1000 + HIGH_PRESS_MS), { line: 'DESK APPROVE p18-k3m9 HIGH' })
+	assert.ok('arm' in deskApprove(high, first.arm, 1001 + HIGH_PRESS_MS), 'too late: armed again, not approved')
+	assert.ok('arm' in deskApprove(high, { id: 'p17-k3m9', at: 1000 }, 1500), 'armed for another proposal: armed again')
+	assert.deepEqual(deskApprove(snap(), null, 0), { error: 'Desk: nothing is waiting for a decision' })
+	assert.deepEqual(deskReject(high, ''), { line: 'DESK REJECT p18-k3m9' })
+	assert.deepEqual(deskReject(high, 'not "now"'), { line: 'DESK REJECT p18-k3m9 "not \\"now\\""' })
+	assert.ok('error' in deskReject(high, 'x'.repeat(401)) && 'error' in deskReject(high, 'a\tb') && 'error' in deskReject(snap(), ''))
+
+	// The action, pressed twice for a high proposal: the first press only says so, the second sends the line with a request id.
+	const self = fakeInstance(LICENSED)
+	self.snapshot = high
+	UpdateActions(self)
+	self.actions.desk_approve.callback({ options: {} })
+	assert.deepEqual(self.answered, [])
+	assert.ok(self.logs.some(([level, text]) => level === 'info' && text.startsWith('Desk: p18 is high')))
+	self.actions.desk_approve.callback({ options: {} })
+	assert.deepEqual(self.answered, ['DESK APPROVE p18-k3m9 HIGH'])
+	assert.equal(self.deskArmed, null)
+	self.actions.desk_reject.callback({ options: { why: 'wrong cue' } })
+	assert.deepEqual(self.answered, ['DESK APPROVE p18-k3m9 HIGH', 'DESK REJECT p18-k3m9 "wrong cue"'])
+	assert.deepEqual([self.commands, self.sent], [[], []], 'desk lines go only with a request id')
+
+	// A window grant waiting (a deck's own ask among them) is a person's to approve, never a deck's: refused here, saying why, on
+	// either press, and sending nothing; a deck may still reject it.
+	const grant = snap({ desk: { ...DESK, next: { ...DESK.next, id: 'p19-k3m9', line: 'window grant lobby pat1', from: 'Companion TCP', target: 'this Stagewatch' } } })
+	const refused = deskApprove(grant, null, 1000)
+	assert.match(refused.error, /^Desk: p19 is a window grant \(window grant lobby pat1\) — a person approves it at Stagewatch's desk, or over HTTP or a WebSocket with the PIN; a deck proves nobody$/)
+	assert.deepEqual(deskApprove(grant, { id: 'p19-k3m9', at: 1000 }, 1500), refused, 'armed or not, a deck approves no grant')
+	assert.ok('error' in deskApprove(snap({ desk: { ...DESK, next: { ...DESK.next, line: '  WINDOW  GRANT stage pm1' } } }), null, 0), 'any case, any spacing')
+	assert.ok('arm' in deskApprove(snap({ desk: { ...DESK, next: { ...DESK.next, line: 'window withdraw lobby pat1' } } }), null, 0), 'a withdraw is no grant')
+	const deck = fakeInstance(LICENSED)
+	deck.snapshot = grant
+	UpdateActions(deck)
+	deck.actions.desk_approve.callback({ options: {} })
+	deck.actions.desk_approve.callback({ options: {} })
+	assert.deepEqual(deck.answered, [], 'two presses send nothing')
+	assert.equal(deck.logs.filter(([level, text]) => level === 'warn' && text === refused.error).length, 2, 'each press says why')
+	deck.actions.desk_reject.callback({ options: { why: '' } })
+	assert.deepEqual(deck.answered, ['DESK REJECT p19-k3m9'], 'a deck may reject a grant')
+})
+
+test('2.22 peer_line: an app from CONFIG peers by its id and one quoted line; refused here, sending nothing, when it cannot be sent', async () => {
+	const { peerLine, peerChoices, UpdateActions } = await import('../dist/actions.js')
+	const { readPeers } = await import('../dist/state.js')
+	assert.deepEqual(peerLine('pm-a1b2', 'PLAYLIST CUE "Main show" #3'), { line: 'PEER pm-a1b2 "PLAYLIST CUE \\"Main show\\" #3"' })
+	assert.deepEqual(peerLine(' ag1 ', ' notice Q&A in 2 minutes '), { line: 'PEER ag1 "notice Q&A in 2 minutes"' })
+	for (const [app, line, why] of [
+		['', 'UNDO', 'Peer: choose the show app'],
+		['PlayMap Hall', 'UNDO', 'Peer: a show app is named by its Show Bus id'],
+		['pm-a1b2', '  ', 'Peer: type the line'],
+		['pm-a1b2', 'x'.repeat(2049), 'Peer: a line is at most 2048 characters'],
+		['pm-a1b2', 'UNDO\nPANIC', 'Peer: a line holds no control characters'],
+	])
+		assert.ok(peerLine(app, line).error?.startsWith(why), `${app} ${line.slice(0, 20)} → ${why}`)
+	const peers = readPeers([{ id: 'pm-a1b2', name: 'PlayMap Hall', kind: 'playmap' }, { id: 'bad id', name: 'x' }, { id: 'ag1' }, null])
+	assert.deepEqual(peers, [{ id: 'pm-a1b2', name: 'PlayMap Hall', kind: 'playmap' }, { id: 'ag1', name: 'ag1', kind: '' }])
+	assert.deepEqual(peerChoices(peers), [{ id: 'pm-a1b2', label: 'PlayMap Hall (playmap)' }, { id: 'ag1', label: 'ag1' }])
+	const self = fakeInstance({ ...LICENSED, peers })
+	UpdateActions(self)
+	const app = self.actions.peer_line.options.find((o) => o.id === 'app')
+	assert.deepEqual(app.choices, peerChoices(peers))
+	self.actions.peer_line.callback({ options: { app: 'pm-a1b2', line: 'UNDO' } })
+	assert.deepEqual(self.answered, ['PEER pm-a1b2 "UNDO"'])
+})
+
+test('2.22 ACCESS: read from its line, greys the desk keys (desk_shut), and a person\'s action it refuses sends nothing and says why', async () => {
+	const { readAccess } = await import('../dist/state.js')
+	const { accessRefuses, UpdateActions } = await import('../dist/actions.js')
+	const { UpdateFeedbacks } = await import('../dist/feedbacks.js')
+	const shut = readAccess('{"peer":false,"desk":false,"why":"peer, desk and window grants from another machine over Companion TCP need its address in Settings","grant":false}')
+	assert.deepEqual([shut.peer, shut.desk, shut.grant], [false, false, false])
+	assert.equal(readAccess('not json'), null)
+	assert.deepEqual(readAccess('{"peer":"yes"}'), { peer: false, desk: false, why: '', grant: false }, 'a field not true is no')
+	assert.equal(accessRefuses(null, 'peer'), null, 'until Stagewatch says, Stagewatch answers')
+	assert.equal(accessRefuses({ peer: true, desk: true, why: '', grant: true }, 'desk'), null)
+	assert.match(accessRefuses(shut, 'grant'), /^Stagewatch takes no window grant from this deck: peer, desk and window grants/)
+
+	const self = fakeInstance(LICENSED)
+	self.snapshot = snap({ desk: DESK })
+	self.access = shut
+	UpdateActions(self)
+	UpdateFeedbacks(self)
+	self.actions.peer_line.callback({ options: { app: 'pm-a1b2', line: 'UNDO' } })
+	self.actions.desk_approve.callback({ options: {} })
+	self.actions.desk_reject.callback({ options: { why: '' } })
+	self.actions.window_grant.callback({ options: { what: 'grant', window: 'lobby', app: '9f8e7d6c' } })
+	self.actions.window_grant.callback({ options: { what: 'withdraw', window: 'lobby', app: '' } })
+	assert.deepEqual(self.answered, ['WINDOW WITHDRAW lobby'], 'only the withdraw went: no person\'s line, no grant')
+	assert.equal(self.logs.filter(([level, text]) => level === 'warn' && text.startsWith('Stagewatch takes no ')).length, 4)
+	assert.equal(self.feedbacks.desk_shut.callback({ options: {} }), true)
+	self.access = { peer: true, desk: true, why: '', grant: true }
+	assert.equal(self.feedbacks.desk_shut.callback({ options: {} }), false)
+	self.access = null
+	assert.equal(self.feedbacks.desk_shut.callback({ options: {} }), false, 'not said is not shut')
+	assert.equal(self.feedbacks.desk_waiting.callback({ options: { high: true } }), true)
+})
+
+test('2.22 ACCESS on the wire: the connection hears it as an access event', async () => {
+	const srv = await fakeServer((s) => {
+		s.setEncoding('utf8')
+		s.write(`READY stagewatch/2\nACCESS {"peer":true,"desk":true,"why":"","grant":true}\nSNAPSHOT ${JSON.stringify(snap())}\n`)
+	})
+	const c = new StagewatchConnection('127.0.0.1', srv.port, FAST)
+	try {
+		const heard = waitFor(c, 'access')
+		c.start()
+		assert.deepEqual(await heard, { peer: true, desk: true, why: '', grant: true })
+	} finally {
+		c.destroy()
+		await srv.close()
+	}
 })

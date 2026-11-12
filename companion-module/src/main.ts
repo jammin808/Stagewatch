@@ -19,7 +19,9 @@ import {
 	diffValues,
 	feedbacksAffected,
 	playoutOffered,
+	readPeers,
 	readPlayoutLinks,
+	type DeskAccess,
 	type ShowConfig,
 	type Snapshot,
 	type VariableValues,
@@ -57,6 +59,13 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	#playoutAnswer = ''
 	/** The id the latest playout press went with; null when it was not sent. */
 	#latestPlayout: string | null = null
+	/**
+	 * What this connection's address may do with a person's lines, as Stagewatch's ACCESS line last said; null until it says (and again
+	 * once the link drops): the desk and peer actions then send, and Stagewatch answers.
+	 */
+	access: DeskAccess | null = null
+	/** A high proposal's first desk_approve press: its id and when, so a second press within 3 s approves it by its id with HIGH. */
+	deskArmed: { id: string; at: number } | null = null
 
 	#conn: StagewatchConnection | null = null
 	#vars: VariableValues = {}
@@ -160,6 +169,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		conn.on('record', (line) => this.#onRecord(line))
 		conn.on('protocolError', (m) => this.log('warn', m))
 		conn.on('receipt', (r) => this.#onReceipt(r))
+		conn.on('access', (a) => this.#onAccess(a))
 		conn.start()
 	}
 
@@ -197,8 +207,12 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		const wasConnected = this.isConnected
 		this.isConnected = connected
 		const prev = this.snapshot
-		// Offline means unknown: blank the timer rather than show a frozen, wrong time.
-		if (!connected) this.snapshot = null
+		// Offline means unknown: blank the timer rather than show a frozen, wrong time; and what the deck may do is said again once back.
+		if (!connected) {
+			this.snapshot = null
+			this.access = null
+			this.deskArmed = null
+		}
 		if (wasConnected !== connected || prev !== this.snapshot) {
 			this.#pushVariables()
 			this.checkFeedbacks('connected', ...feedbacksAffected(prev, this.snapshot, true))
@@ -213,6 +227,12 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		this.#pushVariables()
 		const changed = feedbacksAffected(prev, s, false)
 		if (changed.length > 0) this.checkFeedbacks(changed[0], ...changed.slice(1))
+	}
+
+	/** Stagewatch said what this deck may do: the desk keys' grey follows at once. */
+	#onAccess(a: DeskAccess): void {
+		this.access = a
+		this.checkFeedbacks('desk_shut')
 	}
 
 	#licence = ''
@@ -230,6 +250,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			features: Array.isArray(c.features) ? c.features.filter((f) => typeof f === 'string') : undefined,
 			holding: Array.isArray(c.holding) ? c.holding.filter((h) => h && typeof h.id === 'string') : [],
 			playoutLinks: readPlayoutLinks(c.playoutLinks),
+			peers: readPeers(c.peers),
 		}
 		this.configHeard = true
 		this.#pushVariables()
@@ -253,6 +274,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			// The playout actions and keys come and go with the licence and the links (each link's label is in its dropdown).
 			playoutOffered(this.showConfig, this.configHeard),
 			(this.showConfig.playoutLinks ?? []).map((l) => [l.name, l.kind, l.label]),
+			// The peer dropdown names each show app the config lists.
+			(this.showConfig.peers ?? []).map((p) => [p.id, p.name, p.kind]),
 		])
 		if (shape === this.#shape) return
 		this.#shape = shape

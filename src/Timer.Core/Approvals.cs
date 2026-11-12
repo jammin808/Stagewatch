@@ -272,6 +272,42 @@ public sealed class ProposalDesk
         lock (_lock) return NotTaken(target, nowUtc);
     }
 
+    /// <summary>Why a deck's ask is refused when its line is not a window grant naming its app by its Show Bus id.</summary>
+    public const string AsksGrantsOnly = "a deck asks the operator only for a window grant that names its show app by its Show Bus id";
+
+    /// <summary>
+    /// A window grant asked from a door that proves no person (a deck: Companion TCP, OSC — Show Bus §12.4 lets such a door queue it): a
+    /// proposal aimed at this desk from this desk itself, its from named by the door (<paramref name="door"/>, never an address), pending
+    /// until a person decides it, rated <paramref name="risk"/>. Refused with words, nothing queued: no door named; a line that breaks
+    /// §11's line rules; a line that is not a window grant naming its app by a Show Bus id (an app's name is the proposer's word, so an
+    /// approved grant finds its app by id alone); a desk full of proposals waiting. Raises one <see cref="Changed"/>, pending. The same
+    /// grant asked again while an earlier ask of it waits is that ask (<c>Again</c>), nothing new queued and nothing raised: a deck held
+    /// down or pressed twice puts one decision before the operator, never fills the desk.
+    /// </summary>
+    public (SharedProposal? Proposal, string? Error, bool Again) ProposeAsked(string door, string line, string reason, string risk, DateTime nowUtc)
+    {
+        var deskId = _deskId();
+        if (door.Trim().Length == 0) return (null, "an asked line names the door it came in by", false);
+        if (line.Trim().Length == 0) return (null, "line is required", false);
+        if (LineFence.Check(line, WindowTokens?.Invoke()) is { } fenced) return (null, fenced, false);
+        line = line.Trim();
+        if (GrantedApp(line) is not { } app || !NodeBindings.ValidId(app)) return (null, AsksGrantsOnly, false);
+        lock (_lock)
+        {
+            Expire(nowUtc);
+            var waiting = _byId.Values.Where(p => p.State == SharedProposalState.Pending && p.TargetIsDesk && p.From.Id == deskId
+                                                  && string.Equals(p.Line, line, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(p => p.CreatedUtc).FirstOrDefault();
+            if (waiting is not null) return (waiting, null, true);
+            if (PendingCount() >= MaxOpen) return (null, "too many proposals waiting", false);
+            var p = new SharedProposal(NextId(), new NodeRef("main", deskId, Clean(door, 60)), new NodeRef("main", deskId, ""), line, Clean(reason, MaxReason),
+                Risk(risk), true, SharedProposalState.Pending, nowUtc);
+            _byId[p.Id] = p;
+            Raise(p);
+            return (p, null, false);
+        }
+    }
+
     /// <summary>A person's line refused for what it is: its ends, its role, §11's line rules, a filled secret, a line its app does not list.</summary>
     private string? NotALine(NodeRef from, NodeRef target, string line, RiskVerdict verdict, string by)
     {

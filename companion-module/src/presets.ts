@@ -551,6 +551,27 @@ ${v('standing_by')} SB`, { size: '14', bgcolor: COLORS.darkgrey }),
 			],
 			keywords: ['windows', 'grant', 'withdraw', 'patterns', 'playmap', 'show app'],
 		}),
+		// 2.22: the approval desk from a deck. Amber while a proposal waits, red when the oldest is high (approve takes a second press
+		// within 3 s), dark grey while Stagewatch takes no desk decision from this deck (ACCESS).
+		simple('desk_approve_next', 'Desk: approve the oldest proposal (high: press twice)', {
+			style: style(`APPROVE\n${v('desk_next_id')}\n${v('desk_next_risk')}`, { size: '7', bgcolor: COLORS.darkgrey }),
+			steps: press('desk_approve'),
+			feedbacks: [
+				{ feedbackId: 'desk_waiting', options: { high: false }, style: { bgcolor: COLORS.amber, color: COLORS.black } },
+				{ feedbackId: 'desk_waiting', options: { high: true }, style: { bgcolor: COLORS.red, color: COLORS.white } },
+				{ feedbackId: 'desk_shut', options: {}, style: { bgcolor: COLORS.grey, color: COLORS.darkgrey, text: 'DESK\nnot from here' } },
+			],
+			keywords: ['desk', 'approve', 'proposal', 'peer', 'show app', 'approval'],
+		}),
+		simple('desk_reject_next', 'Desk: reject the oldest proposal', {
+			style: style(`REJECT\n${v('desk_next_id')}\n${v('desk_pending')} waiting`, { size: '7', bgcolor: COLORS.darkgrey }),
+			steps: press('desk_reject', { why: '' }),
+			feedbacks: [
+				{ feedbackId: 'desk_waiting', options: { high: false }, style: { bgcolor: COLORS.blue, color: COLORS.white } },
+				{ feedbackId: 'desk_shut', options: {}, style: { bgcolor: COLORS.grey, color: COLORS.darkgrey, text: 'DESK\nnot from here' } },
+			],
+			keywords: ['desk', 'reject', 'proposal', 'approval'],
+		}),
 		simple('ltc_chase', 'LTC in: timer follows timecode (toggle)', {
 			style: style(`LTC
 ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
@@ -747,7 +768,7 @@ ${v('ltc')}`, { size: '7', bgcolor: COLORS.darkgrey }),
 			id: 'outputs',
 			name: 'Outputs, NDI & 3D',
 			description:
-				"Open, key or close the speaker output and switch NDI — lit while active. Greyed when the licence doesn't include it. The windows Stagewatch controls: holding page, identify, a window's light (the lobby key: rename the window in its options), how many need a look, and withdrawing a window's grants (hold 1 s).",
+				"Open, key or close the speaker output and switch NDI — lit while active. Greyed when the licence doesn't include it. The windows Stagewatch controls: holding page, identify, a window's light (the lobby key: rename the window in its options), how many need a look, and withdrawing a window's grants (hold 1 s). The approval desk: approve or reject the oldest proposal (a high one takes a second press), greyed while Stagewatch takes no desk decision from this deck.",
 			definitions: outputs,
 		},
 		{

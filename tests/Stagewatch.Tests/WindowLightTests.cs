@@ -172,10 +172,22 @@ static class WindowLightTests
         CommandSender Sender(bool thisPc = false, bool credentialed = false, bool otherSite = false) => new(thisPc ? IPAddress.Loopback : lan, thisPc, credentialed, otherSite);
         Check(PlayoutGate.Grants(grant) && !PlayoutGate.Grants(withdraw) && !PlayoutGate.Grants(show), "doors: a window grant is told apart from every other window line");
         foreach (var door in new[] { CommandDoor.Osc, CommandDoor.Companion })
-            Check(PlayoutGate.Check(grant, door, Sender(thisPc: true, credentialed: true), [lan]) == PlayoutGate.GrantWords(door)
-                  && PlayoutGate.GrantWords(door).StartsWith("window grant is a person's act — ", StringComparison.Ordinal)
+        {
+            Check(PlayoutGate.Check(grant, door, Sender(thisPc: true), []) is null && PlayoutGate.Check(grant, door, Sender(), [lan]) is null
+                  && PlayoutGate.Asks(grant, door) && !PlayoutGate.Asks(withdraw, door) && !PlayoutGate.Asks(show, door),
+                $"doors: {door} passes a window grant from this PC or a listed address only to be asked of the operator (Show Bus §12.4 lets it queue one)");
+            Check(PlayoutGate.Check(grant, door, Sender(credentialed: true), []) == PlayoutGate.GrantWords(door)
+                  && PlayoutGate.GrantWords(door).StartsWith($"window grant from another machine over {PlayoutGate.DeckName(door)} needs its address in ", StringComparison.Ordinal)
+                  && PlayoutGate.GrantWords(door).Contains("waits for the operator's approval", StringComparison.Ordinal)
                   && PlayoutGate.Check(show, door, Sender(), []) is null && PlayoutGate.Check(withdraw, door, Sender(), []) is null,
-                $"doors: {door} refuses a window grant whoever sends it, this PC and a listed address included, and still takes other window lines");
+                $"doors: {door} refuses a grant from an unlisted machine, a server's word of a credential opening nothing, and still takes other window lines from anyone");
+            Check(PlayoutGate.DeckSender(grant, door, lan) is { Role: "deck", Asks: true } by && by.Door == PlayoutGate.DeckName(door)
+                  && by.Who == $"{PlayoutGate.DeckName(door)}, 10.0.0.40" && PlayoutGate.DeckSender(withdraw, door, lan) is null && PlayoutGate.DeckSender(show, door, lan) is null,
+                $"doors: {door} names a grant's sender a deck by the door's name, its address for the journal alone; other window lines name no one");
+        }
+        Check(!PlayoutGate.Asks(grant, CommandDoor.Http) && !PlayoutGate.Asks(grant, CommandDoor.WebSocket) && !PlayoutGate.Asks(grant, CommandDoor.Mcp)
+              && PlayoutGate.DeckSender(grant, CommandDoor.Http, lan) is null,
+            "doors: only a deck asks a grant; HTTP and a WebSocket make it on a credential, and MCP proposes it");
         foreach (var door in new[] { CommandDoor.Http, CommandDoor.WebSocket })
         {
             Check(PlayoutGate.Check(grant, door, Sender(credentialed: true), []) is null && PlayoutGate.Check(grant, door, Sender(thisPc: true, credentialed: true), []) is null,

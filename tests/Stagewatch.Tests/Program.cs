@@ -2165,6 +2165,7 @@ PeerLinesTests.Run(Check);
 ReportTests.Run(Check);
 NetworkPreflightTests.Run(Check);
 await DeskWireTests.Run(Check);
+await DeckDoorTests.Run(Check);
 await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);
 await BusCarrierProbeTests.Run(Check);
@@ -2239,6 +2240,16 @@ sealed class FakeBridge : Stagewatch.Companion.ICompanionBridge
     public volatile IReadOnlyList<IPAddress> From = Array.Empty<IPAddress>();
     public IReadOnlyList<IPAddress> PlayoutFrom => From;
     public void Execute(ShowCommand command) { lock (Commands) Commands.Add(command); }
+    /// <summary>
+    /// What a receipted command comes to, as a test plays the host (a desk asking the operator for a deck's grant, say); null, or a hook
+    /// that answers null, for the default: heard and accepted.
+    /// </summary>
+    public Func<ShowCommand, string, Task<CommandReceipt>?>? Receipts { get; set; }
+    public Task<CommandReceipt> ExecuteWithReceiptAsync(ShowCommand command, string id, TimeSpan timeout)
+    {
+        Execute(command);
+        return Receipts?.Invoke(command, id) ?? Task.FromResult(CommandReceipt.Accepted(id));
+    }
     /// <summary>The apps the config lists (a desk's peers), as a test sets them; null for a host that keeps no desk.</summary>
     public IReadOnlyList<(string Id, string Name, string Kind)>? Peers { get; set; }
     /// <summary>

@@ -560,7 +560,8 @@ running app on a network: two copies of one install for the conflict, an old cer
   sender: the door that took the line stamps who sent it (`ShowCommand.By`, a `DeskOrigin`, now in Core), and a line nobody is
   named for sends and decides nothing. The sender gate (`PlayoutGate`) decides both over HTTP and a WebSocket by 2.20's rule —
   the PIN or a control key; with no PIN, this PC or a listed address — refuses both over MCP whatever key comes, and over
-  Companion TCP and OSC in this release (release B's doors, SW22.8). Its list is renamed **May drive other show apps** in
+  Companion TCP and OSC in this release (release B's doors, SW22.8; *since then (SW22.8):* both pass there from this PC or a
+  listed address, as the role `deck`). Its list is renamed **May drive other show apps** in
   Settings, Help, Diagnostics, the notes, the module's tips and the papers (the design wrote "May drive other show apps from";
   the trailing word is left off so a refusal reads "its address in Settings → Remote → May drive other show apps"). The
   receipt of a sent line waits for its app (`DeskReceipts`): applied or refused in the app's words within 3 s, else accepted
@@ -615,7 +616,7 @@ running app on a network: two copies of one install for the conflict, an old cer
   page says "Nothing from other apps waits" while the desk may hold its own. The copilot's `recent` rows still quote the
   journal's "Proposed …" rows, a proposal's line among them, as before this unit; release B's `other_apps` is where they
   belong. The config is behind the viewing code like the rest of it, so `peers` (ids hellos already say) is not the PIN's;
-  the AI's facts still carry no `collects` (release B's `PeerFact`, SW22.9); the module reads neither field yet (SW22.8); the
+  the AI's facts still carry no `collects` (release B's `PeerFact`, SW22.9); the module reads neither field yet (SW22.8; *since then:* it reads both); the
   Show network row's Collects mark and its menu are SW21.6's (PC work). Compiled here, never seen: the app's frame and config
   wiring (`RefreshDeskReaders`), its context rows and the Copilot list's names.
   *Since then (SW21.6):* the desk has its door (PC work). A Show network row's right-click and its … button open one menu,
@@ -1125,7 +1126,9 @@ maintainer's too.
   table (199 rows, 32,843 bytes) only when the request names it — and a door that carries no credential needs the gate's address
   rule and the deck's own answer before it may send another app a line; and a train's release closes before the next train's
   units start (rule R1), so release B is Train 5's. Until then those doors refuse both verbs in words, and the copilot and MCP
-  never see them (`Help` leaves them out). The lane's S3.5 and S3.7 move with it (SW22.11).
+  never see them (`Help` leaves them out). The lane's S3.5 and S3.7 move with it (SW22.11). *Since then (SW22.8):* Companion TCP
+  and OSC take both from this PC or a listed address, with the `ACCESS` line and the module's actions (2.22 below); the copilot
+  (SW22.9) and MCP (SW22.10) are still to come.
 - **Words owed to the contract.** Show Bus 1.3 §3 words `refs` as naming what was made "by number"; 2.21's receipts carry
   `refs.sharedProposal` as a string. 1.3 is final and its body hash-pinned, so the words are asked of Show Bus 1.4's edit, not
   made here. The contract's Landed line now names Patterns' and PlayMap's copies of 1.3, which hold the master (`bash
@@ -1203,7 +1206,8 @@ maintainer's too.
     desk, and HTTP or a WebSocket with the PIN given or a control key — never on an address alone, this PC's or a listed one. It is
     refused over OSC and Companion TCP whoever sends it, and over MCP only becomes a proposal; PlayoutGateTests holds every door on a
     real server. A command trigger the operator set on this PC may still fire a `window grant` line: a trigger is the operator's own
-    act, set at this desk, so no door refuses it, as no door refuses a trigger's other window lines.
+    act, set at this desk, so no door refuses it, as no door refuses a trigger's other window lines. *Since then (SW22.8):* OSC and Companion TCP ask
+    a grant of the operator from this PC or a listed address instead of refusing it (2.22 below, "Release B's doors").
   - **SW22.7's grant press is refused until SW22.8.** The module's `window_grant` sends `WINDOW GRANT` over Companion TCP, which this
     unit refuses (12.4 lets a door that authenticates nobody refuse or queue). Until SW22.8's gate queues a grant from Companion TCP
     and OSC as a §11 proposal for a person to approve, SW22.7's grant side answers with the refusal's words and its withdraw side
@@ -1211,7 +1215,8 @@ maintainer's too.
     *Since then (SW22.7):* so it landed. The press goes with a request id and its refusal is a line in the module's log, in
     Stagewatch's words; `companion-module/test/window-lines.tsv` holds them from both ends (the suite sends every window line the
     module presses to a real Companion server and expects that file's door row; the module's tests show that row's words on the
-    log), so SW22.8 changes the grant's one door row. No preset grants a window until then.
+    log), so SW22.8 changes the grant's one door row. No preset grants a window until then. *Since then (SW22.8):* the door asks
+    a grant of the operator instead (2.22 below, "Release B's doors"); that door row now says `asked`.
   - A Show Bus §11 proposal approved at the desk names its app by its Show Bus id alone (the host hears an approved line as
     `DeskOrigin.Proposal`), so a node not itself heard can no longer grant an app that merely has its id as a name (SW22.3's gap
     closed); `FindApp(idOnly)` and `DeskOrigin.Proposal` on the approved line are each tested, the WPF step between them
@@ -1318,6 +1323,42 @@ maintainer's too.
     P3 timer row (above). AGMessage 0.6.0, which is another session's branch and not
     its main; its pin stays at 0.5.0. PlayMap's early STATE still
     marks `malformed` (the finding under "The VT rows"). And everything the paragraph above lists as not proved.
+- **Release B's doors: Companion TCP and OSC through the gate, and a deck's grant waits for the operator (SW22.8; G14, G20).**
+  `peer` and `desk` pass Companion TCP and OSC from this PC or an address in May drive other show apps, as the role `deck` (the
+  door's name and the address in the desk's journal row alone), and are refused from anywhere else in words naming the setting;
+  OSC takes `/stagewatch/peer ,ss` and `/stagewatch/desk/approve|reject ,s`. A `window grant` from those doors is asked, never made
+  (Show Bus 12.4 lets a door that proves no person refuse or queue one): the host tries it on its windows with the app found by its
+  Show Bus id alone (an app's name is refused, as SW22.5 holds for an approved proposal), refuses at once what would be refused,
+  and otherwise queues it on the desk as a pending §11 proposal aimed at this desk, from the door by name, risk high
+  (`DeskService.AskGrant`, `ProposalDesk.ProposeAsked`; the app and the rig alike). Its receipt is `accepted p3 waits for a
+  person's approval` at once, with `refs.sharedProposal`, and its one `final` is the decision within `receipt.final.ms`, else that
+  it still waits; approved, the line runs as a proposal's. Companion tells each connection `ACCESS
+  {"peer","desk","why","grant"}` after `SUBSCRIBE JSON` and on each change. The module reads the frame's `desk` and `CONFIG`'s
+  `peers`: `peer_line` (app dropdown by id), `desk_approve` (the oldest, `desk_next_id`; a high one on a second press within 3 s,
+  sending `HIGH`), `desk_reject`, the `desk_pending` and `desk_next_*` variables, `desk_waiting` and `desk_shut` feedbacks, two
+  presets, and refuses a press `ACCESS` says is refused. `window_grant` names its app by id alone now. Only a person who proved it
+  approves a window grant aimed at this desk (`DeskOrigin.Proved`: the operator, or HTTP or a WebSocket with the PIN or a control
+  key): a deck's `desk approve` of one — its own ask, an app's self-ask — and a wire request on an address alone (no PIN set) are
+  refused in words, the proposal still waiting and the journal naming who tried, so no grant is made on an address alone (this
+  closes the wire's address-only approval too, which 2.21 and SW22.5 had left open); a deck may still reject one, and the module's
+  `desk_approve` refuses a waiting grant on its log. The same grant asked again while it waits is that ask, nothing new queued.
+  `grants.e2e.cjs` holds the rig's deck branch end to end: a grant over Companion TCP is accepted and waits, no grant made; the
+  deck's own approval is refused; the PIN's approval makes it and the deck hears its `final` (deleting the rig's `Asks` branch fails
+  that row). Left, each named:
+  - **A deck's grant is not a peer's proposal.** It is this desk's own proposal, from the door by name (`from` `main` with this
+    desk's id), so `GET /api/proposals?from=<id>` lists it with the desk's own, and no other app collects it.
+  - **A `peer` or `desk` line over Companion TCP with no request id is run and answered by nothing**, as Companion's other unreceipted
+    lines are (HTTP answers such a line with a receipt of its own); the module always sends one.
+  - **The follow-up is bounded by `receipt.final.ms` (30 s).** A decision later than that reaches the desk and the journal, not the
+    deck's log: its final says the grant still waits and where its outcome will be.
+  - **`ACCESS` is said again with the next frame**, not the instant the list is saved; a deck sees the change within a frame
+    (≤ 1 s while the show runs, on the next change while it stands still). No measurement this round.
+  - **The design's `ACCESS` has three fields;** `grant` is appended after them (a grant follows the same address rule).
+  - **Companion itself has not loaded the new definitions; the desk's help and the Copilot list naming a deck's grant are WPF,
+    compiled, never seen:** the maintainer's PC work, not run; so is the app's own deck branch in `ApplyWindowCommand`, which only
+    the rig's twin of it proves end to end. OSC's door and `desk.e2e.cjs`'s Companion and OSC rows have no e2e (the suite holds both
+    doors on real servers: `PlayoutGateTests`, `DeckDoorTests`, `CompanionV2Tests.ModuleWindowLines`). The module's package version
+    is unchanged.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

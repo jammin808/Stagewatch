@@ -150,6 +150,72 @@ export interface Snapshot {
 	 * there is a window: a frame without it has none (or comes from a Stagewatch before 2.22). Never a token or a path.
 	 */
 	windows?: WindowInfo[]
+	/**
+	 * 2.21: the approval desk (Show Bus §11), in operator frames only: how many proposals wait, the oldest (its line cut to 120
+	 * characters, `cut` true when it was longer) and the show apps a line could go to.
+	 */
+	desk?: DeskInfo
+}
+
+/** The detail frame's `desk`: what waits on Stagewatch's approval desk. */
+export interface DeskInfo {
+	pending: number
+	next: DeskNextInfo | null
+	apps?: { id: string; name: string; kind: string; collects: boolean; verified: boolean }[]
+}
+
+/** The oldest proposal waiting: its id (p18-k3m9), who proposed it, which node is to act, its line and its risk (low, review, high). */
+export interface DeskNextInfo {
+	id: string
+	from: string
+	target: string
+	line: string
+	risk: string
+	collects: boolean
+	cut?: boolean
+}
+
+/**
+ * 2.22: what this connection's address may do with a person's lines, as Stagewatch's `ACCESS` line says it (Companion TCP proves no
+ * person, so this PC or an address the operator listed only): send a `PEER` line, decide on the desk (`DESK`), ask for a window grant;
+ * `why` says why not. Null until Stagewatch says (a Stagewatch before 2.22 never does): the module then sends and Stagewatch answers.
+ */
+export interface DeskAccess {
+	peer: boolean
+	desk: boolean
+	why: string
+	grant: boolean
+}
+
+/** An `ACCESS` line's JSON read, or null when it is no access line; a field missing or of another type reads as no. */
+export function readAccess(json: string): DeskAccess | null {
+	let v: unknown
+	try {
+		v = JSON.parse(json)
+	} catch {
+		return null
+	}
+	if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+	const o = v as Record<string, unknown>
+	return { peer: o.peer === true, desk: o.desk === true, why: typeof o.why === 'string' ? o.why : '', grant: o.grant === true }
+}
+
+/** The proposal waiting longest on the desk, or null: none, a frame without a desk, or one whose next is not whole. */
+export function deskNext(s: Snapshot | null): DeskNextInfo | null {
+	const n = s?.desk?.next
+	return n && typeof n.id === 'string' && n.id.length > 0 && typeof n.risk === 'string' ? n : null
+}
+
+/** How many proposals wait on the desk: 0 with no frame or a frame without a desk. */
+export function deskPending(s: Snapshot | null): number {
+	const p = s?.desk?.pending
+	return typeof p === 'number' && p > 0 ? p : 0
+}
+
+/** Whether a proposal waits: any, or (`highOnly`) the oldest is high. */
+export function deskWaiting(s: Snapshot | null, highOnly = false): boolean {
+	if (deskPending(s) === 0) return false
+	return !highOnly || deskNext(s)?.risk === 'high'
 }
 
 /**
@@ -201,6 +267,23 @@ export interface ShowConfig {
 	 * than 2.20, whose grammar has no `PLAYOUT`.
 	 */
 	playoutLinks?: PlayoutLinkInfo[]
+	/** 2.21: the show apps a `PEER` line may name — each by its Show Bus id, its name and its kind. Absent before 2.21. */
+	peers?: PeerInfo[]
+}
+
+/** A show app as the config lists it (`peers`): its Show Bus id, its name and its kind (playmap, patterns, messenger…). */
+export interface PeerInfo {
+	id: string
+	name: string
+	kind: string
+}
+
+/** The config's show apps, each with an id Stagewatch would read; anything else in the list is left out. */
+export function readPeers(v: unknown): PeerInfo[] | undefined {
+	if (!Array.isArray(v)) return undefined
+	return v
+		.filter((p): p is PeerInfo => !!p && typeof p.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(p.id))
+		.map((p) => ({ id: p.id, name: typeof p.name === 'string' && p.name ? p.name : p.id, kind: typeof p.kind === 'string' ? p.kind : '' }))
 }
 
 export interface PlayoutLinkInfo {
@@ -402,6 +485,8 @@ export const FEEDBACK_IDS = [
 	// 2.22
 	'window_state',
 	'window_holding',
+	'desk_waiting',
+	'desk_shut',
 ] as const
 export type FeedbackId = (typeof FEEDBACK_IDS)[number]
 
@@ -484,6 +569,13 @@ export function deriveVariables(s: Snapshot | null, connected: boolean, config: 
 			state: connected ? 'unknown' : 'offline',
 			// No frame is no verdict: never the last one heard.
 			network_ready: 'unknown',
+			// Nor a desk: nothing is said to wait.
+			desk_pending: '',
+			desk_next_id: '',
+			desk_next_from: '',
+			desk_next_target: '',
+			desk_next_line: '',
+			desk_next_risk: '',
 		}
 	}
 	const abs = Math.abs(s.seconds)
@@ -562,6 +654,13 @@ export function deriveVariables(s: Snapshot | null, connected: boolean, config: 
 		// ---- the windows Stagewatch controls (2.22): opened on a screen (any light but grey), and amber or red
 		windows_open: windowsOf(s).filter((w) => w.light !== 'grey').length,
 		windows_attention: windowsOf(s).filter((w) => isAttention(w.light)).length,
+		// ---- the approval desk (2.21's frame block, 2.22's keys): how many wait and the oldest
+		desk_pending: deskPending(s),
+		desk_next_id: deskNext(s)?.id ?? '',
+		desk_next_from: deskNext(s)?.from ?? '',
+		desk_next_target: deskNext(s)?.target ?? '',
+		desk_next_line: deskNext(s)?.line ?? '',
+		desk_next_risk: deskNext(s)?.risk ?? '',
 		// ---- schedule recovery
 		hard_out: s.hardOut ?? '',
 		hard_out_margin: s.hardOutMargin == null ? '' : signed(s.hardOutMargin),
@@ -672,6 +771,7 @@ export function feedbacksAffected(prev: Snapshot | null, next: Snapshot | null, 
 	if (!same(prev.playout, next.playout)) add('vt_running', 'vt_link')
 	if (!same(prev.network, next.network)) add('network_not_ready')
 	if (!same(prev.windows, next.windows)) add('window_state', 'window_holding')
+	if (!same(prev.desk, next.desk)) add('desk_waiting')
 	if (prev.preview !== next.preview) add('preview')
 	if (prev.qaPending !== next.qaPending || prev.qaQueued !== next.qaQueued) add('qa_waiting')
 	if (!same(prev.timings, next.timings)) add('item_late')

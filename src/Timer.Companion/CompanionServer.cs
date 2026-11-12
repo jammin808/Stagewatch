@@ -16,8 +16,12 @@ namespace Stagewatch.Companion;
 ///      visible changes (~1/s while running) and CONFIG {json} whenever presets, quick messages
 ///      or the running order change. Same frames the browser viewer gets.
 ///
-/// A line that drives another node's air (playout, patterns) runs only from this PC or an address the operator listed
-/// (<see cref="PlayoutGate"/>): Companion TCP carries no credential, and it binds every interface when the operator asks.
+/// A line that drives another node's air (playout, patterns), and a person's line to another app or decision on the desk (peer, desk),
+/// runs only from this PC or an address the operator listed (<see cref="PlayoutGate"/>): Companion TCP carries no credential, and it
+/// binds every interface when the operator asks. A person's line is named a deck's (<see cref="DeskOrigin.Deck"/>), its address kept for
+/// the desk's journal alone; a window grant is asked of the operator on the desk, never made (Show Bus §12.4). Each JSON subscriber is
+/// told what its address may do (<c>ACCESS {json}</c>, <see cref="PlayoutGate.AccessJson"/>) when it subscribes and again whenever that
+/// changes, so a deck greys what would be refused.
 ///
 /// Stability: every client has its own bounded outbound queue drained by its own writer task.
 /// Publishing never touches a socket, so a stalled client can't block the engine ticker or the
@@ -237,12 +241,36 @@ public sealed class CompanionServer : IAsyncDisposable
         /// </summary>
         private string? Gate(ShowCommand cmd)
         {
-            var sender = new CommandSender(_remote, _server.IsThisPc(_remote), Credentialed: false);
-            if (PlayoutGate.Check(cmd, CommandDoor.Companion, sender, _server._bridge.PlayoutFrom) is not { } refused) return null;
+            if (PlayoutGate.Check(cmd, CommandDoor.Companion, Sender, _server._bridge.PlayoutFrom) is not { } refused) return null;
             Interlocked.Increment(ref _server._rejected);
             try { _server.CommandRejected?.Invoke("Companion: " + refused); } catch { }
             return refused;
         }
+
+        /// <summary>This client as the gate judges it: its address, whether it is this PC; never a credential (Companion TCP carries none).</summary>
+        private CommandSender Sender => new(_remote, _server.IsThisPc(_remote), Credentialed: false);
+
+        /// <summary>
+        /// A line that passed the gate, as the show thread is handed it: a person's line, or a window grant to be asked of the operator,
+        /// named a deck's — this door by name, the address for the desk's journal alone; any other line as it was read.
+        /// </summary>
+        private ShowCommand Named(ShowCommand cmd)
+            => PlayoutGate.DeckSender(cmd, CommandDoor.Companion, _remote) is { } by ? cmd with { By = by } : cmd;
+
+        /// <summary>
+        /// What this client's address may do with a person's lines (<see cref="PlayoutGate.AccessJson"/>), queued as <c>ACCESS {json}</c>
+        /// when it differs from what this client was last told. Under the frames' lock, from the subscribe answer and each push, so a
+        /// change to the operator's list reaches every deck with the next frame.
+        /// </summary>
+        private void TellAccess()
+        {
+            var access = PlayoutGate.AccessJson(CommandDoor.Companion, Sender, _server._bridge.PlayoutFrom);
+            if (access == _accessSent) return;
+            _accessSent = access;
+            Enqueue("ACCESS " + access);
+        }
+
+        private string? _accessSent;
 
         /// <summary>Never blocks. Called from the engine ticker, the UI thread, or this client's reader.</summary>
         public void Enqueue(string line) => _outbound.Writer.TryWrite(line);
@@ -336,6 +364,7 @@ public sealed class CompanionServer : IAsyncDisposable
             lock (_frames)
             {
                 if (!JsonMode || !Subscribed || s.Seq.Value <= _seqSent) return;
+                TellAccess();
                 if (_configVersionSent != s.ConfigVersion)
                 {
                     _configVersionSent = s.ConfigVersion;
@@ -359,6 +388,7 @@ public sealed class CompanionServer : IAsyncDisposable
                 {
                     Subscribed = true;
                     JsonMode = true;
+                    TellAccess();
                 }
                 var snap = _server._bridge.Snapshots.Latest;
                 if (includeConfig || (JsonMode && Subscribed && _configVersionSent != snap.ConfigVersion))
@@ -412,7 +442,7 @@ public sealed class CompanionServer : IAsyncDisposable
                     Enqueue($"ERROR @{id} {refused}");
                     return;
                 }
-                _ = ReplyAsync(_server._bridge.ExecuteWithReceiptAsync(cmd, id, TimeSpan.FromSeconds(3)));
+                _ = ReplyAsync(_server._bridge.ExecuteWithReceiptAsync(Named(cmd), id, TimeSpan.FromSeconds(3)));
                 return;
             }
             _rid = id;
@@ -537,7 +567,7 @@ public sealed class CompanionServer : IAsyncDisposable
                         Fail(error);
                     }
                     else if (Gate(cmd) is { } refused) Fail(refused);
-                    else bridge.Execute(cmd);
+                    else bridge.Execute(Named(cmd));
                     break;
             }
         }

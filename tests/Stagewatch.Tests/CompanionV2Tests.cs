@@ -99,9 +99,10 @@ static class CompanionV2Tests
     /// file the module's own tests press <c>window_grant</c> against. Each press row's line is read as the Companion server reads it
     /// (tokenized, then the shared grammar) and must give the row's window action, window and app; then every press line goes to a real
     /// Companion server from this PC with a request id, and the door row for its action says what comes back: refused, under its id in
-    /// exactly the row's words (the words the module's log shows), and nothing reaching the show thread; or passed on to the show thread.
-    /// A grant is a person's act (Show Bus 12.4) that Companion TCP refuses today, so the grant's door row is the one row that changes
-    /// when that door queues it as a proposal.
+    /// exactly the row's words (the words the module's log shows), and nothing reaching the show thread; passed on to the show thread; or
+    /// asked — a grant is a person's act (Show Bus 12.4) that Companion TCP proves no person for, so it reaches the show thread named a
+    /// deck's and the host asks it of the operator on the desk (here a real <see cref="Stagewatch.Show.DeskService"/>): accepted at once
+    /// in the row's words, and, once the operator decides (here: rejects), its final follow-up in the row's last words.
     /// </summary>
     public static async Task ModuleWindowLines(Action<bool, string> Check)
     {
@@ -112,8 +113,16 @@ static class CompanionV2Tests
         var rows = File.ReadAllLines(path).Where(l => l.Length > 0 && !l.StartsWith('#')).Select(l => l.Split('\t')).ToList();
         var doors = rows.Where(r => r[0] == "door").ToDictionary(r => r[1], r => r, StringComparer.Ordinal);
         Check(doors.Count == 2 && doors.ContainsKey("grant") && doors.ContainsKey("withdraw")
-              && doors.Values.All(d => d[2] == "passes" ? d.Length == 3 : d[2] == "refused" && d.Length == 4 && d[3].Length > 0),
-              "companion window lines: one door row for grant and one for withdraw, each refused with words or passes");
+              && doors.Values.All(d => d[2] switch
+              {
+                  "passes" => d.Length == 3,
+                  "refused" => d.Length == 4 && d[3].Length > 0,
+                  "asked" => d.Length == 5 && d[3].Contains("p<n>", StringComparison.Ordinal) && d[4].Contains("p<n>", StringComparison.Ordinal),
+                  _ => false,
+              }),
+              "companion window lines: one door row for grant and one for withdraw, each refused with words, passed on, or asked of the operator");
+        Check(doors.TryGetValue("grant", out var grantDoor) && grantDoor[2] == "asked" && doors["withdraw"][2] == "passes",
+              "companion window lines: Companion's door asks a grant of the operator (Show Bus 12.4 lets it queue one) and passes a withdraw");
         Check(rows.All(r => r[0] is "door" or "press" or "refuse"), "companion window lines: every row is a door, a press or a refuse row");
 
         var presses = rows.Where(r => r[0] == "press").ToList();
@@ -129,8 +138,19 @@ static class CompanionV2Tests
         Check(presses.Count(r => r[4] == "grant") >= 3 && presses.Count(r => r[4] == "withdraw") >= 3,
               $"companion window lines: grants and withdraws both pressed ({presses.Count} presses)");
 
-        // Every press line, sent as the module sends it, against a real Companion server.
+        // Every press line, sent as the module sends it, against a real Companion server; a grant named a deck's is asked of the
+        // operator on a real desk, as the app's and the rig's executors ask it, its dry run passed so the door's words are the desk's.
+        var desk = DeskTests.Room();
+        var asked = new List<string>();
         var bridge = new FakeBridge { Allowed = true };
+        bridge.Receipts = (cmd, rid) =>
+        {
+            if (cmd.By is not { Asks: true } by || !PlayoutGate.Grants(cmd)) return null;
+            var outcome = desk.Desk.AskGrant(cmd.Get<WindowArgs>(), by, _ => new WindowChange(true, "", [], [], WindowEffect.Changed));
+            if (outcome.Proposal is not { } p) return Task.FromResult(CommandReceipt.Refused(rid, outcome.Words));
+            lock (asked) asked.Add(p.Id);
+            return Stagewatch.Show.DeskReceipts.Within(rid, desk.Desk, p.Id, TimeSpan.FromSeconds(3), TimeProvider.System, TimeProvider.System.GetTimestamp());
+        };
         var port = FreePort();
         await using var server = new Stagewatch.Companion.CompanionServer(bridge);
         server.Start(port, bindAllInterfaces: false);
@@ -152,15 +172,36 @@ static class CompanionV2Tests
                 if (line is null) break;
                 if (line.StartsWith($"OK @{id}", StringComparison.Ordinal) || line.StartsWith($"ERROR @{id}", StringComparison.Ordinal)) answer = line;
             }
-            List<WindowArgs> heard;
-            lock (bridge.Commands) heard = [.. bridge.Commands.Skip(before).Where(c => c.Kind == ShowCommandKind.Window).Select(c => c.Get<WindowArgs>()!)];
+            List<ShowCommand> heard;
+            lock (bridge.Commands) heard = [.. bridge.Commands.Skip(before).Where(c => c.Kind == ShowCommandKind.Window)];
             var door = doors[r[4]];
             if (door[2] == "refused")
                 Check(answer == $"ERROR @{id} {door[3]}" && heard.Count == 0,
                       $"companion window lines: {r[3]} is refused at Companion's door under its id in the door row's words, and reaches no show thread ({answer})");
+            else if (door[2] == "passes")
+                Check(answer?.StartsWith($"OK @{id}", StringComparison.Ordinal) == true && heard is [{ By: null } w] && w.Get<WindowArgs>() is { } a
+                      && a.Action == r[4] && a.Who == r[5] && a.Argument == r[6],
+                      $"companion window lines: {r[3]} passes Companion's door to the show thread, no one's ({answer})");
             else
-                Check(answer?.StartsWith($"OK @{id}", StringComparison.Ordinal) == true && heard is [{ } w] && w.Action == r[4] && w.Who == r[5] && w.Argument == r[6],
-                      $"companion window lines: {r[3]} passes Companion's door to the show thread ({answer})");
+            {
+                string tag;
+                lock (asked) tag = asked.Count > 0 ? Stagewatch.Show.DeskService.Short(asked[^1]) : "?";
+                Check(answer == $"OK @{id} accepted {door[3].Replace("p<n>", tag, StringComparison.Ordinal)}"
+                      && heard is [{ By: { Asks: true, Door: "Companion TCP" } } g] && g.Get<WindowArgs>() is { } a && a.Action == r[4] && a.Who == r[5] && a.Argument == r[6],
+                      $"companion window lines: {r[3]} reaches the show thread named a deck's and is asked of the operator — accepted at once in the door row's words ({answer})");
+                string whole;
+                lock (asked) whole = asked[^1];
+                desk.Desk.Decide(whole, approve: false, DeskOrigin.Operator);
+                string? final = null;
+                for (var i = 0; i < 20 && final is null; i++)
+                {
+                    var line = await ReadLine(reader);
+                    if (line is null) break;
+                    if (line.StartsWith($"OK @{id} final", StringComparison.Ordinal) || line.StartsWith($"ERROR @{id} final", StringComparison.Ordinal)) final = line;
+                }
+                Check(final == $"ERROR @{id} final {door[4].Replace("p<n>", tag, StringComparison.Ordinal)}",
+                      $"companion window lines: once the operator decides (rejects), {r[3]}'s final follow-up says so in the door row's words ({final})");
+            }
         }
     }
 

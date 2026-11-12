@@ -13,7 +13,7 @@ using Stagewatch.Show;
 /// <summary>
 /// The two verbs only a person sends (Show Bus §11): <c>peer &lt;app&gt; &lt;line&gt;</c> and <c>desk approve|reject</c>. The grammar —
 /// one line, whole, never altered, and no model handed either verb; the sender gate — the PIN or a control key, with no PIN this PC or
-/// a listed address, never an agent, and not Companion TCP or OSC in this release; the desk's one executor, by whoever the door named;
+/// a listed address, never an agent, and over Companion TCP or OSC this PC or a listed address alone (their doors: DeckDoorTests); the desk's one executor, by whoever the door named;
 /// the receipt of a sent line — what its app made of it, with its one follow-up; and both verbs over a loopback web server, HTTP and
 /// WebSocket, a line reaching its app byte for byte through each door.
 /// </summary>
@@ -146,10 +146,16 @@ static class DeskWireTests
             var notAgent = kind == ShowCommandKind.Desk ? DeskOrigin.PersonDecides : DeskOrigin.PersonSends;
             Check(PlayoutGate.Check(kind, CommandDoor.Mcp, Sender(thisPc: true, credentialed: true), listed) == notAgent,
                 $"person gate: {verb} over MCP is refused with any key, from any machine — an agent is not a person");
-            Check(PlayoutGate.Check(kind, CommandDoor.Osc, Sender(thisPc: true), listed) == PlayoutGate.PersonLater(kind, CommandDoor.Osc)
-                  && PlayoutGate.Check(kind, CommandDoor.Companion, Sender(thisPc: true, credentialed: true), listed) == PlayoutGate.PersonLater(kind, CommandDoor.Companion)
-                  && PlayoutGate.PersonLater(kind, CommandDoor.Companion).Contains("Companion TCP does not take it in this release", StringComparison.Ordinal),
-                $"person gate: {verb} over OSC and Companion TCP is refused in this release, this PC and listed addresses included");
+            foreach (var door in new[] { CommandDoor.Osc, CommandDoor.Companion })
+            {
+                var name = PlayoutGate.DeckName(door);
+                Check(PlayoutGate.Check(kind, door, Sender(thisPc: true), none) is null && PlayoutGate.Check(kind, door, Sender(), listed) is null
+                      && PlayoutGate.Check(kind, door, Sender(thisPc: true, otherSite: true), none) is null,
+                    $"person gate: {verb} over {name} passes from this PC and from a listed address");
+                Check(PlayoutGate.Check(kind, door, Sender(credentialed: true), none) == PlayoutGate.Words(kind, door)
+                      && PlayoutGate.Words(kind, door) == $"{verb} acts on another show app with a person's authority — from another machine over {name} it needs its address in {PlayoutGate.SettingWords} ({name} carries no PIN)",
+                    $"person gate: {verb} over {name} from an unlisted machine is refused in words that name the setting — a server's word that a credential was proved opens nothing on a door that carries none");
+            }
         }
         Check(PlayoutGate.SettingWords == "Settings → Remote → May drive other show apps"
               && PlayoutGate.Words(ShowCommandKind.Playout, CommandDoor.Osc) == "playout from another machine over OSC needs its address in Settings → Remote → May drive other show apps (OSC carries no PIN)",
@@ -615,6 +621,19 @@ static class DeskWireTests
             var (localStatus, _) = await Get("/api/peer/playmap/UNDO", requestId: "n3");
             Check(localStatus == HttpStatusCode.OK && Row(r => r.Who == "this PC, no PIN set") && Ran("UNDO") == sentBefore + 2,
                 $"person gate http: no PIN set, this PC sends ({localStatus}, {Ran("UNDO")} of {sentBefore + 2})");
+
+            // A window grant aimed at this desk is a person's act (Show Bus §12.4): an address alone — this PC, no PIN set — approves
+            // none, and it still waits; the PIN given approves it, and it runs here.
+            b.Desk.SubmitProposal(DeskTests.Proposal("patterns", "pat1", "Patterns FOH", "main", "", "", "window grant lobby pat1"), NodeCredential.Key("kP"));
+            var grant = b.Desk.Queue.All().Last(p => p.Line == "window grant lobby pat1");
+            var (bareGrant, bareGrantBody) = await Get($"/api/desk/approve/{grant.Id}/high", requestId: "g1");
+            Check(bareGrant == HttpStatusCode.Conflict && (string?)bareGrantBody["error"] == DeskService.GrantTakesProof
+                  && b.Desk.Queue.Get(grant.Id) is { State: SharedProposalState.Pending } && Row(r => r.Words.EndsWith(DeskService.GrantTakesProof, StringComparison.Ordinal) && r.Who == "this PC, no PIN set"),
+                $"desk grant http: no PIN set, this PC's address alone approves no window grant — it still waits, and the journal says why ({bareGrant})");
+            pin = "4321";
+            var (pinGrant, _) = await Get($"/api/desk/approve/{grant.Id}/high", pin, "g2");
+            Check(pinGrant == HttpStatusCode.OK && b.Desk.Queue.Get(grant.Id) is { State: SharedProposalState.Done, DecidedBy: "wire" },
+                $"desk grant http: with the PIN a person approves it, and it runs here ({pinGrant})");
         }
         finally
         {
