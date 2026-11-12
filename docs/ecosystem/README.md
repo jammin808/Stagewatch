@@ -21,31 +21,31 @@ Every repository's work is on the session's designated working branch (the same 
 lifted all three pauses on 2026-11-11 ("Resume and continue StageWatch, Patterns, and PlayMap"); each landed unit is pushed as
 it lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.21's code landed; its papers wait on Patterns Round 94
+### Stagewatch — 2.20 and 2.21 closed; Train 5 (2.22) under way
 
 - Landed: 2.17 (controlled windows), 2.18 (Train 1's harms), 2.19 (Show Bus 1.3 final, the PeerLink kit, hello 1.3, the
-  interop lane `tools/test.sh interop` with CI's interop job), the brief's four lines, the temp-folder fence, 2.20 SW20.1–SW20.12
-  (playout links on the PeerLink core) and 2.21 SW21.1–SW21.9 (the verb table, the desk's rules, the desk as one service,
-  `peer`/`desk` on the wire, the readers, one report, one preflight, the desk's door in WPF, the lane's desk rows), the last at
-  `ce8efad`. `main` was merged in at `b6f454e` (its lockout fix: a valid key clears no count); the merge's WHATS_NEXT names
-  one interop row not yet built.
-- Next, in order: the suite's two timing races named in SW21.3's and SW21.7's commits (a mend unit of its own); SW20.13 (the
-  VT interop rows S4.1–S4.4, once Patterns Round 94's papers are pushed); SW20.14 and SW21.10 as one set of papers (the
-  owner's S-releases answer: 2.20 and 2.21 ship as one release); then Train 5 (SW22.1a … SW22.12), no unit of it before
-  those papers, so the release is cut on a head that holds 2.21 and nothing of 2.22.
-- Template: `workflows/train4-stagewatch-lean.js` (set its unit list; drop the units `git log` already names).
+  interop lane `tools/test.sh interop` with CI's interop job), the brief's four lines, the temp-folder fence, 2.20 SW20.1–SW20.13
+  (playout links on the PeerLink core; the VT rows against the real apps), 2.21 SW21.1–SW21.9 (one desk for every app, one
+  report, one preflight), SW21.9m (the suite's timing races, and two product races they showed) and SW21.10, the two releases'
+  combined papers, at `d311de8`: the head the 2.20 + 2.21 release is cut on (the maintainer's PC: `tools\release.ps1`), with
+  nothing of 2.22 in it. `main` was merged in at `b6f454e`.
+- The interop lane's LAN rows still run against Patterns at round 91's pin: a newer Patterns holds its node key from a
+  Stagewatch on another machine until a person presses Trust, which the lane cannot do yet. The pin moves in a unit of its own
+  once Patterns' test bench has a trust line (a mends unit queued in Patterns Round 95) or the rig answers LINK (SW22.1a–c).
+  The lane's rows assume a host no other build shares: PlayMap's own preflight reads red above 95 % CPU and closes the doors.
+- Next, in order (Train 5): SW22.1a, SW22.1b, SW22.3, SW22.4 (Patterns Round 96 waits on 1b and 4), SW22.1c, SW22.2, SW22.5,
+  SW22.6, SW22.7, SW22.8, SW22.9, SW22.10; SW22.11 waits on Patterns Round 96's papers; SW22.12 is 2.22's papers.
+- Template: `workflows/stagewatch-chain.js` (its unit list is given at launch; briefs from `unit-brief.py`).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — Round 94 under way
+### Patterns — Round 95 under way
 
-- Landed and pushed: Rounds 89–93 (Round 93 is the plan's P92, closed at `b57410d`; the tag table's next row is round 93's),
-  Round 94.0 (PLAN §112's opening), 94.1 (one speaker message), 94.2 (a playlist item and a stinger's clip held) and 94.3
-  (`VIDEO … ON <key>`), the last at `66fd5c5`.
-- Next: Round 94.4, a mends unit this round inserted for what 94.2's and 94.3's whole runs found (a STAGE CLEAR that does not
-  reach the Stagewatch a receipt bound; "not sent" said for a call that may have arrived; a test's wait under load; a STATE
-  push after the control wire's long-line refusal), then 94.5, the round's papers (the plan's P93.4). Then Round 95 = the
-  plan's P94 (the Eye's NETWORK band: 95.0 opening, 95.1, 95.2, 95.3 papers). Round 96 (the plan's P95) waits on Stagewatch's
-  SW22.1b and SW22.4.
+- Landed and pushed: Rounds 89–94 (Round 94 is the plan's P93: one speaker message, held clips, `VIDEO … ON <key>`, a mends
+  unit 94.4 the round inserted, papers 94.5 at `fa5d76b`; the tag table's next row is round 94's), Round 95.0 (PLAN §113.1's
+  opening) and 95.1 (the Eye's NETWORK band, `04e29e6`).
+- Next: 95.2 (the Eye's cost and marks); 95.3, a mends unit this round inserted (the Core allocation fence CI's run on 94.4
+  showed red once, root-caused and never loosened; the test bench's trust line for the interop lane); 95.4, the round's papers
+  (the plan's P94.3). Round 96 (the plan's P95) waits on Stagewatch's SW22.1b and SW22.4.
 - Template: `workflows/patterns-rounds-lean.js` (its units carry both plan and round numbers; drop the ones `git log` names).
 
 ### PlayMap (repo Mapper) — waiting on round 3's integration pass
