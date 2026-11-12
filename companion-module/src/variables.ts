@@ -95,6 +95,10 @@ const STATIC: Record<string, string> = {
 	// 2.20
 	vt_source: 'Where the VT plays: vMix, Patterns or PlayMap (empty = no VT)',
 	vt_link: 'The playout link feeding the VT (e.g. stage-left; empty = vMix or none)',
+	// 2.21
+	network_ready: "Ready for doors? yes / no / unknown — Stagewatch's one verdict over every show app, link and window (unknown: not connected, Stagewatch stuck, or no verdict)",
+	network_red: 'Preflight rows that are red: each one blocks the doors (empty while unknown)',
+	network_amber: 'Preflight rows that are amber: to look at, never blocking (empty while unknown)',
 	playout_answer: 'The latest answer to a playout press: applied, accepted, final …, refused — with its words (an earlier press\'s answer names its line)',
 	hard_out: 'Next curfew and how the show is tracking against it',
 	hard_out_margin: 'Time to spare (+) or over (-) at the next curfew',

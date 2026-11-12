@@ -82,8 +82,22 @@ public sealed class WebServer : IAsyncDisposable
     {
         _control = control;
         _pin = pin;
-        _mcp = new McpEndpoint(control, () => CurrentFrameJson(FrameAccess.Operator));
+        _mcp = new McpEndpoint(control, () => CurrentFrameJson(FrameAccess.Operator), ServedPreflight);
     }
+
+    /// <summary>
+    /// The room's preflight as every door of this server gives it (GET /api/preflight, MCP get_preflight): the host's, or the stuck
+    /// answer while the show thread is stuck or the host's verdict has gone stale (<see cref="PreflightWire.Served"/>); null when
+    /// the host keeps none. Any thread.
+    /// </summary>
+    public string? ServedPreflight()
+        => PreflightWire.Served(_control.PreflightJson(), _control.Snapshots.ProducerStuck, PreflightClock.GetUtcNow().ToUnixTimeMilliseconds());
+
+    /// <summary>
+    /// The clock a verdict's age is read on (<see cref="PreflightWire.MaxAge"/>): the system's, or a manual one that ages a verdict
+    /// without waiting. Fixed when the server is made.
+    /// </summary>
+    public TimeProvider PreflightClock { get; init; } = TimeProvider.System;
 
     public bool IsRunning => _listener is not null;
 
@@ -620,6 +634,17 @@ public sealed class WebServer : IAsyncDisposable
                 if (Authorize(req, remote, ApiKeyScope.Read) is { } denied) { await WriteDenied(stream, denied, ct); return; }
                 var json = _control.ContextJson();
                 if (json is null) { await WriteJsonError(stream, 404, "no context", ct); return; }
+                await WriteAsync(stream, 200, "application/json", Encoding.UTF8.GetBytes(json), ct, cors: true, extra: RateHeaders(req)); return;
+            }
+            case "/api/preflight":
+            {
+                // 'Ready for doors', with a reason per node: read access (the PIN or any key), as the context. Nothing rides in its
+                // address, so a query is refused; a host that keeps no preflight says so. What is served is never a confident stale
+                // verdict (ServedPreflight): a stuck show thread, or a verdict the host has not rebuilt, answers not ready.
+                if (req.Method == "POST") { await WriteJsonError(stream, 405, "GET the preflight", ct); return; }
+                if (Authorize(req, remote, ApiKeyScope.Read) is { } denied) { await WriteDenied(stream, denied, ct); return; }
+                if (req.Query.Count > 0) { await WriteJsonError(stream, 400, PreflightWire.NoQuery, ct); return; }
+                if (ServedPreflight() is not { } json) { await WriteJsonError(stream, 404, PreflightWire.None, ct); return; }
                 await WriteAsync(stream, 200, "application/json", Encoding.UTF8.GetBytes(json), ct, cors: true, extra: RateHeaders(req)); return;
             }
             case "/api/peers/context":

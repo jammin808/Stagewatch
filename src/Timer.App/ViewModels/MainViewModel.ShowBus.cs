@@ -92,6 +92,26 @@ public sealed partial class MainViewModel
     /// <summary>IShowContext: this node's context, rebuilt once a second on the show thread (any thread may read it).</summary>
     public string? ContextJson() => _contextJson;
 
+    // The room's preflight ('ready for doors'), judged once a second on the show thread from the same join as every other reader
+    // of the show network, and published whole: the route's JSON with the time it was built (a door serves it only while fresh),
+    // the result the frame's verdict, the desk's header and the copilot's facts read. Never an item of this Stagewatch's context.
+    private readonly SeenNodes _seenNodes = new();   // show thread
+    private volatile string? _preflightJson;
+    private volatile PreflightResult? _preflight;
+    private string _networkLine = "";                // show thread: the network's counts, before the verdict joins them
+
+    /// <summary>IShowContext: the preflight as last judged (any thread may read it); the doors decide whether it is still fresh.</summary>
+    public string? PreflightJson() => _preflightJson;
+
+    /// <summary>The Show network header's tooltip: the verdict, then each row with its light in a shape and a word (<see cref="NetworkPreflight.Text"/>).</summary>
+    [ObservableProperty] private string _preflightTip = "";
+
+    /// <summary>
+    /// "Copy the preflight" (the header's button and its right-click entry run this): the verdict and its rows as text, or "" before
+    /// the first one is judged.
+    /// </summary>
+    public string PreflightText() => _preflight is { } p ? NetworkPreflight.Text(p) : "";
+
     /// <summary>IShowContext: this Stagewatch's own Show Bus id, from the settings snapshot (any thread may read it).</summary>
     public string? OwnNodeId => _store.Snapshot.NodeId;
 
@@ -108,17 +128,44 @@ public sealed partial class MainViewModel
         // After the join is published: the desk hears peers' lines from the network of this second — a key revoked or bound to another
         // id in the last one proves nothing now — and expires what no app collected before its readers below are told.
         ExpireShared();
+        var links = LinkItems();
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
-            now, _hub.Latest, _hub.ProducerStuck, LinkItems(), Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
+            now, _hub.Latest, _hub.ProducerStuck, links, Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
             PlayoutRows());
         _contextJson = ShowContext.Build(input);
         SyncPeerRows(now, view);
+        RefreshPreflight(now, view, links);
         RefreshPlayoutConfig();
         RefreshDeskReaders();
         var hello = OwnHello;
         var twin = OwnTwin;
         HelloLine = ShowBusHello.Line(hello, input.Name, _nodeId, twin);
         HelloLineWarns = ShowBusHello.Item(hello, twin) is not null;   // in step with the context's amber bus:hello
+    }
+
+    /// <summary>
+    /// Show thread, once a second: the room's verdict from this second's join, the nodes heard before, what is configured (each
+    /// playout link's peer, each node key bound to an id), this Stagewatch's own link and window items and the keys refused. The
+    /// frame carries the verdict from the next frame built, while it is fresh; the header says it after the network's counts.
+    /// </summary>
+    private void RefreshPreflight(DateTime now, NetworkView view, IReadOnlyList<ContextItem> items)
+    {
+        var configured = NetworkPreflight.Configured(
+            OrderedLinks().Select(l => (l.LinkName, l.Kind ?? (l.SetKind == PlayoutRules.Auto ? null : l.SetKind), l.NodeId, l.Peer)), _apiKeys, _nodes, _nodeId);
+        var seen = _seenNodes.Note(view, configured.Select(c => c.Id).ToHashSet(StringComparer.Ordinal), now);
+        // The windows' items are told apart by their ids alone (ScreenWindows.ContextItems: "window:<name>").
+        var windows = items.Where(IsWindow).ToList();
+        var result = NetworkPreflight.Run(new PreflightInput(now, view, seen, configured, items.Where(i => !IsWindow(i)).ToList(), windows, ShowClock)
+        {
+            Refused = _nodes.RefusedSince(now - PeerContexts.KeepFor, _nodeId),
+            KeyNames = NetworkPreflight.KeyNames(_apiKeys),
+        });
+        _preflight = result;
+        _preflightJson = result.ToJson();
+        ShowNetworkLine = NetworkPreflight.Line(_networkLine, result);
+        PreflightTip = NetworkPreflight.Text(result);
+
+        static bool IsWindow(ContextItem item) => item.Id.StartsWith("window:", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -287,7 +334,8 @@ public sealed partial class MainViewModel
                 : $"Key '{KeyName(r.KeyId)}' refused: {r.Words}";
             row.MakeKeyLabel = ownKey ? "" : $"Make a key for {(row.RefusalOnly || row.Apart ? AppName(row.NodeKind) : row.Name.Length > 0 ? row.Name : row.Kind)}";
         }
-        ShowNetworkLine = ShowNetwork.NetworkLine(view, refused.Count, PeerRows.Count(r => r.RefusalOnly));
+        // The header's counts; the verdict joins them once this second's preflight is judged (RefreshPreflight).
+        _networkLine = ShowNetwork.NetworkLine(view, refused.Count, PeerRows.Count(r => r.RefusalOnly));
     }
 
     /// <summary>A key's name by its id, or null once it is gone.</summary>

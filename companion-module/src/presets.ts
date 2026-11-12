@@ -96,6 +96,20 @@ export function UpdatePresets(self: ModuleInstance): void {
 			feedbacks: [{ feedbackId: 'phase_color', options: { target: 'bg_alert' } }],
 		}),
 		simple('show_tod', 'Time of day', { style: style(v('time_of_day'), { size: '14' }), steps: [], feedbacks: [] }),
+		simple('show_doors', 'Ready for doors', {
+			// Green only from a verdict that says ready, with how many rows are amber (to look at, never blocking), so a green key is
+			// in step with the page and the desk; amber with no verdict, red (the later feedback) when a row is red.
+			style: style(`DOORS\nREADY\n${v('network_amber')} amber`, { size: '14', bgcolor: COLORS.green }),
+			steps: [],
+			feedbacks: [
+				{ feedbackId: 'network_not_ready', options: { unknown: true }, style: { bgcolor: COLORS.amber, color: COLORS.black, text: 'DOORS\nUNKNOWN' } },
+				{
+					feedbackId: 'network_not_ready',
+					options: { unknown: false },
+					style: { bgcolor: COLORS.red, color: COLORS.white, text: `NOT\nREADY\n${v('network_red')} red` },
+				},
+			],
+		}),
 		simple('show_link', 'Connection status', {
 			style: style('STAGE\nWATCH\nOFFLINE', { size: '14', bgcolor: COLORS.red }),
 			steps: [],

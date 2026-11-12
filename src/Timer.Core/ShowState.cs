@@ -162,6 +162,14 @@ public sealed record ShowSnapshot
 
     /// <summary>The shared approval desk (Show Bus §11) as the operator's readers show it: what waits, the next proposal, the apps a line could go to.</summary>
     public DeskSummary Desk { get; init; } = DeskSummary.Empty;
+
+    // ---------------------------------------------------------------- the room's verdict (operator frames)
+
+    /// <summary>
+    /// 'Ready for doors' as the host last judged it (its preflight: ready while no row is red), or null from a host that keeps no
+    /// preflight. The rows and their reasons are <c>GET /api/preflight</c>'s; a frame carries the verdict alone.
+    /// </summary>
+    public NetworkVerdict? Network { get; init; }
 }
 
 /// <summary>Where the presenter is in their deck (PowerPoint), plus the rehearsal ghost.</summary>
@@ -632,6 +640,13 @@ public interface IShowContext
 
     /// <summary>This node's own Show Bus id (its hello's), or null when it has none: no node link may name it.</summary>
     string? OwnNodeId => null;
+
+    /// <summary>
+    /// The room's preflight as this node last built it (<see cref="PreflightWire.Write"/>), or null when it keeps none. Any
+    /// thread may read it. A door never serves it as it is: <see cref="PreflightWire.Served"/> answers for a stuck show thread
+    /// and for a verdict gone stale. It is never an item of <see cref="ContextJson"/>: this node's own light stays one hop.
+    /// </summary>
+    string? PreflightJson() => null;
 
     /// <summary>
     /// A peer posted its context with <paramref name="credential"/>, what the request proved (Show Bus §11). Status 200

@@ -25,6 +25,9 @@ static class WebV2Tests
         };
         public const string NetworkCsv = "# " + ShowReport.Sample + "\r\n" + ShowReport.NetworkColumns + "\r\n2026-10-25 04:20:11,Stage left,playmap,9f8e7d6c,2026-10-25 04:20:11,node key 'Stage left',PLAYLIST GO show\r\n";
         public volatile bool NoReport;
+        /// <summary>The preflight this host last built (IShowContext.PreflightJson), or null: it keeps none.</summary>
+        public volatile string? Preflight;
+        public string? PreflightJson() => Preflight;
         public volatile bool Mcp = true;
         public (string? Secret, bool Required) CrewKeyPolicy { get; set; } = ("test-secret", true);
         public IReadOnlyList<string> CrewDepartments => new[] { "Lighting", "Sound" };
@@ -457,7 +460,8 @@ static class WebV2Tests
         Check((await http.SendAsync(noteReply)).StatusCode == HttpStatusCode.Accepted, "mcp: notification → 202");
         var tools = await Mcp("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
         var names = tools.GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
-        Check(names.SequenceEqual(new[] { "get_state", "get_running_order", "run_command", "get_report", "get_proposal", "get_context" }), "mcp: tools/list (with a proposal's fate and the room's context)");
+        Check(names.SequenceEqual(new[] { "get_state", "get_running_order", "run_command", "get_report", "get_proposal", "get_context", "get_preflight" }),
+            "mcp: tools/list (with a proposal's fate, the room's context and its preflight)");
         var call = await Mcp("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"run_command\",\"arguments\":{\"command\":\"signal message speaker \\\"Wrap up\\\"\"}}}");
         Check(call.GetProperty("result").GetProperty("isError").GetBoolean() == false && control.Commands.Last() is { Kind: ShowCommandKind.Signal, Text: "speaker\u0001Wrap up" }, "mcp: run_command goes through the grammar");
         // Human in the loop: with approval on, an agent's command is queued for the operator and does not run.
@@ -518,6 +522,127 @@ static class WebV2Tests
         await ViewPassCounts(Check);
         await LockoutTablesRead(Check);
         await NetworkCsvRoute(Check);
+        await PreflightRoute(Check);
+    }
+
+    /// <summary>
+    /// GET /api/preflight on a real server, and its other doors: read scope (401 with no credential, any key reads it, with its rate
+    /// headers), nothing in its address (a query is 400, the PIN's included), 404 when the host keeps none; the host's verdict
+    /// passed through byte for byte while it is fresh, and the stuck answer in its place once it is older than 3 s or the show
+    /// thread is stuck — on the route and from MCP's get_preflight alike. A verdict's age is read on the server's preflight clock,
+    /// a manual one here, so no round trip's length decides a check. The operator frame ends desk then network; the public
+    /// frames have neither. What the rows say is NetworkPreflightTests' and the preflight e2e's.
+    /// </summary>
+    static async Task PreflightRoute(Action<bool, string> Check)
+    {
+        long nowMs = 1_000_000;
+        var control = new ReportControl { Snapshots = new SnapshotHub(() => Volatile.Read(ref nowMs)) };
+        var (read, readSecret) = ApiKeys.Create("Dashboard", ApiKeyScope.Read, DateTime.UtcNow);
+        control.Keys = new[] { read };
+        control.Snapshots.Publish(new ShowSnapshot { State = TimerState.Running, Seconds = 300, Text = "05:00", Network = new NetworkVerdict(false, 1, 2, false) });
+        control.Snapshots.MarkAlive();
+        var port = FreePort();
+        var clock = new ShowWorkflowTests.ManualTime(new DateTime(2026, 10, 25, 21, 40, 0, DateTimeKind.Utc));
+        await using var web = new WebServer(control, () => "4321") { PreflightClock = clock };
+        web.Start(port, bindAll: false);
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        HttpRequestMessage Keyed(string path, HttpMethod? method = null)
+        {
+            var m = new HttpRequestMessage(method ?? HttpMethod.Get, path);
+            m.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", readSecret);
+            return m;
+        }
+        async Task<(HttpStatusCode Status, string Body, HttpResponseMessage Reply)> Get(HttpRequestMessage m)
+        {
+            var r = await http.SendAsync(m);
+            return (r.StatusCode, await r.Content.ReadAsStringAsync(), r);
+        }
+        async Task<(string Text, bool IsError)> McpPreflight()
+        {
+            var msg = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+            {
+                Content = new StringContent("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"get_preflight\",\"arguments\":{}}}", Encoding.UTF8, "application/json"),
+            };
+            msg.Headers.Add("X-Stagewatch-Pin", "4321");
+            using var doc = JsonDocument.Parse(await (await http.SendAsync(msg)).Content.ReadAsStringAsync());
+            var result = doc.RootElement.GetProperty("result");
+            return (result.GetProperty("content")[0].GetProperty("text").GetString() ?? "", result.GetProperty("isError").GetBoolean());
+        }
+        long UnixMs() => clock.GetUtcNow().ToUnixTimeMilliseconds();
+        static string Verdict(long at) => PreflightWire.Write(at, ready: true, stuck: false, red: 0, amber: 1, green: 3, "ready · 1 to look at",
+            [new PreflightRow("node:9f8e7d6c:heard", "9f8e7d6c", "Stage left", "playmap", "heard", Light.Amber, "", "went away at 21:40", "")]);
+
+        // No preflight on this host: said, never an empty verdict.
+        var none = await Get(Keyed("/api/preflight"));
+        var noneMcp = await McpPreflight();
+        Check(none.Status == HttpStatusCode.NotFound && none.Body == "{\"ok\":false,\"error\":\"no preflight here\"}" && noneMcp is { IsError: true, Text: PreflightWire.None },
+            $"preflight route: a host that keeps none answers 404 no preflight here, and MCP's get_preflight says the same as an error ({(int)none.Status} {none.Body})");
+
+        // Fresh: the host's verdict byte for byte, with any key; nothing rides in the address.
+        var fresh = Verdict(UnixMs());
+        control.Preflight = fresh;
+        var bare = await Get(new HttpRequestMessage(HttpMethod.Get, "/api/preflight"));
+        var keyed = await Get(Keyed("/api/preflight"));
+        var query = await Get(Keyed("/api/preflight?rows=red"));
+        var pinned = await Get(new HttpRequestMessage(HttpMethod.Get, "/api/preflight?pin=4321"));
+        var posted = await Get(Keyed("/api/preflight", HttpMethod.Post));
+        var header = new HttpRequestMessage(HttpMethod.Get, "/api/preflight");
+        header.Headers.Add("X-Stagewatch-Pin", "4321");
+        var byPin = await Get(header);
+        Check(bare.Status == HttpStatusCode.Unauthorized && keyed.Status == HttpStatusCode.OK && keyed.Body == fresh && byPin.Status == HttpStatusCode.OK && byPin.Body == fresh
+              && keyed.Reply.Content.Headers.ContentType?.ToString() == "application/json",
+            $"preflight route: read scope — 401 with no credential; a read key or the PIN reads the host's verdict byte for byte ({(int)bare.Status}, {(int)keyed.Status}, {(int)byPin.Status})");
+        Check(keyed.Reply.Headers.Contains("X-RateLimit-Limit") && keyed.Reply.Headers.Contains("X-RateLimit-Remaining") && keyed.Reply.Headers.Contains("X-RateLimit-Reset")
+              && keyed.Reply.Headers.TryGetValues("Access-Control-Allow-Origin", out var origins) && origins.Single() == "*",
+            "preflight route: a key's answer carries its rate headers, cross-origin as the context is");
+        Check(query.Status == HttpStatusCode.BadRequest && query.Body == "{\"ok\":false,\"error\":\"/api/preflight takes no query\"}" && pinned.Status == HttpStatusCode.BadRequest
+              && pinned.Body == query.Body && posted.Status == HttpStatusCode.MethodNotAllowed,
+            $"preflight route: a query is refused 400 — the PIN's too, so nothing rides in its address — and a POST 405 ({(int)query.Status} {query.Body}, {(int)pinned.Status}, {(int)posted.Status})");
+        var mcp = await McpPreflight();
+        Check(mcp is { IsError: false } && mcp.Text == fresh, "preflight: MCP's get_preflight returns the route's JSON");
+
+        // Stale: a verdict the host has not rebuilt for more than 3 s is never served as the verdict; at 3 s it still is.
+        clock.Advance(TimeSpan.FromMilliseconds(3000));
+        var edge = await Get(Keyed("/api/preflight"));
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        var stale = await Get(Keyed("/api/preflight"));
+        var staleMcp = await McpPreflight();
+        static bool IsStuck(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            return !root.GetProperty("ready").GetBoolean() && root.GetProperty("stuck").GetBoolean() && root.GetProperty("red").GetInt32() == 1
+                   && root.GetProperty("rows").GetArrayLength() == 1 && root.GetProperty("rows")[0].GetProperty("id").GetString() == PreflightWire.StuckId
+                   && root.GetProperty("rows")[0].GetProperty("words").GetString() == PreflightWire.StuckWords;
+        }
+        Check(edge.Body == fresh && stale.Status == HttpStatusCode.OK && IsStuck(stale.Body) && !stale.Body.Contains("went away", StringComparison.Ordinal) && IsStuck(staleMcp.Text),
+            $"preflight route: a verdict 3 s old is served; a millisecond older it is answered ready:false, stuck:true and the one red row, on the route and from MCP ({stale.Body})");
+
+        // Stuck: a fresh verdict from a show thread that has stopped turning over is not a verdict either.
+        control.Preflight = Verdict(UnixMs());
+        var alive = await Get(Keyed("/api/preflight"));
+        Interlocked.Exchange(ref nowMs, nowMs + 60_000);
+        var stuck = await Get(Keyed("/api/preflight"));
+        var stuckMcp = await McpPreflight();
+        Check(alive.Body == control.Preflight && control.Snapshots.ProducerStuck && stuck.Status == HttpStatusCode.OK && IsStuck(stuck.Body) && IsStuck(stuckMcp.Text),
+            $"preflight route: with a stuck SnapshotHub the answer is stuck:true, never the verdict the host last built ({stuck.Body})");
+        control.Snapshots.MarkAlive();
+        control.Preflight = Verdict(UnixMs());
+        Check((await Get(Keyed("/api/preflight"))).Body == control.Preflight, "preflight route: the verdict is back once the show thread turns over");
+
+        // The frame: desk, then network, the operator's alone.
+        var operatorFrame = await Get(Keyed("/api/state?detail=1"));
+        var publicDetail = await Get(new HttpRequestMessage(HttpMethod.Get, "/api/state?detail=1"));
+        var publicFrame = await Get(new HttpRequestMessage(HttpMethod.Get, "/api/state"));
+        Check(operatorFrame.Body.EndsWith(",\"desk\":{\"pending\":0,\"next\":null,\"apps\":[]},\"network\":{\"ready\":false,\"red\":1,\"amber\":2,\"stuck\":false}}", StringComparison.Ordinal),
+            $"frame: the operator frame ends desk, then network (…{operatorFrame.Body[Math.Max(0, operatorFrame.Body.Length - 110)..]})");
+        Check(new[] { publicDetail.Body, publicFrame.Body }.All(b => b.Contains("\"seconds\":300", StringComparison.Ordinal)
+                  && !b.Contains("\"desk\"", StringComparison.Ordinal) && !b.Contains("\"network\"", StringComparison.Ordinal)),
+            "frame: the public frames, plain and detailed, have neither desk nor network");
+        control.Snapshots.Publish(new ShowSnapshot { State = TimerState.Running, Seconds = 299, Text = "04:59" });
+        var without = await Get(Keyed("/api/state?detail=1"));
+        Check(without.Body.EndsWith(",\"desk\":{\"pending\":0,\"next\":null,\"apps\":[]}}", StringComparison.Ordinal),
+            "frame: a host that keeps no preflight sends no network field — a missing verdict is never read as ready");
     }
 
     /// <summary>

@@ -838,10 +838,17 @@ public partial class MainWindow : Window, IContextActions
                 break;
 
             case "show-hello":
-                // The hello's line and the network's counts on the Producer tab: Copy takes the line right-clicked; Remote's bind is the
-                // hello's cause.
+                // The hello's line on the Producer tab: Copy takes the line right-clicked; Remote's bind is the hello's cause.
                 var shown = element is TextBlock { Text.Length: > 0 } line ? line.Text : _vm.HelloLine;
                 yield return I("Copy", () => CopyText(shown), shown.Length > 0);
+                yield return I("Remote settings…", () => OnOpenSettings(this, new RoutedEventArgs()));
+                break;
+
+            case "network-ready":
+                // The Show network header (the network's counts and the room's verdict) and its button: Copy the preflight is the
+                // button's own code; Copy takes the line as drawn.
+                yield return I("Copy the preflight", CopyPreflight, _vm.PreflightText().Length > 0);
+                yield return I("Copy", () => CopyText(_vm.ShowNetworkLine), _vm.ShowNetworkLine.Length > 0);
                 yield return I("Remote settings…", () => OnOpenSettings(this, new RoutedEventArgs()));
                 break;
 
@@ -991,6 +998,21 @@ public partial class MainWindow : Window, IContextActions
         root.Children.Add(done);
         win.Content = root;
         win.ShowDialog();
+    }
+
+    /// <summary>"Copy the preflight" as the Show network header's button.</summary>
+    private void OnCopyPreflight(object sender, RoutedEventArgs e) => CopyPreflight();
+
+    /// <summary>
+    /// The room's verdict and every row of its preflight to the clipboard, as text: the one code behind the header's button and its
+    /// right-click entry. Before the first verdict is judged there is nothing to copy, and the status line says so.
+    /// </summary>
+    private void CopyPreflight()
+    {
+        var text = _vm.PreflightText();
+        if (text.Length == 0) { _vm.StatusLine = "No preflight yet: the show network is judged once a second."; return; }
+        CopyText(text);
+        _vm.StatusLine = "Preflight copied.";
     }
 
     private static void CopyText(string text)

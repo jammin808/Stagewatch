@@ -78,6 +78,12 @@ using Stagewatch.Show;
 // app's: operator frames end with desk (what waits, the next proposal, the apps a line could go to), the config with peers (those
 // apps; the frame's configVersion goes up when a link's kind changes and, no oftener than the desk's 5 s hold, when the apps do),
 // and each peers row of the context with collects.
+// The rig judges the room as the app does (NetworkPreflight, once a second): 'ready for doors' while no row is red, a row per check
+// of each node configured (a --playout link's peer, the node a node key is bound to) or seen, and of its own links and windows. A
+// configured node gone is red, one only seen amber. GET /api/preflight serves it (read scope, no query), never stale and never
+// from a stalled show thread (then not ready, stuck); operator frames end with network (ready, red, amber, stuck) after desk, the
+// stuck verdict in place of one judged more than 3 s before the frame was built; MCP has get_preflight. A change of the verdict is
+// a log line.
 // A message that asks for its acknowledgement (message <text> <urgency> <flash> ack) is the app's: a speaker signal on the
 // app's own board (SignalBoard, ids counting from 1), its receipt's refs.messageId naming it, frames carrying messageId,
 // messageAck ("sent", then "done" once acknowledged: a message signal completes on its first answer) and messageAckBy, and the
@@ -391,6 +397,12 @@ sealed class Rig : ICompanionBridge, IDisposable
     private List<(string Id, string Secret)>? _madeKeys;
     /// <summary>The show network as last joined (owner thread, once a second), for any thread to read.</summary>
     private volatile NetworkView _network = NetworkView.Empty;
+    // The room's preflight, as the app keeps it: judged once a second on the owner thread from the same join, published whole — the
+    // route's JSON with the time it was built (the web server serves it only while fresh and the show turns over), and the result
+    // whose verdict the frame carries while it is fresh (the stuck one once it is not, by the doors' own rule).
+    private readonly SeenNodes _seenNodes = new();   // owner thread
+    private volatile string? _preflightJson;
+    private PreflightResult? _preflight;             // owner thread
 
     // --playout: the links it runs and the app's executor over them; the peer step of the receipted command being run (owner thread).
     private readonly PlayoutLinks _playout = new();
@@ -1237,6 +1249,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             Timings = timings.ToEquatableArray(),
             ConfigVersion = _configVersion,
             Desk = _desk.Said,
+            Network = _preflight?.VerdictAt(new DateTimeOffset(now).ToUnixTimeMilliseconds()),
         };
     }
 
@@ -1273,6 +1286,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         foreach (var c in view.Conflicts.Where(c => !_conflictsLogged.Contains(c.Id))) Log($"hello: {c.Conflict} — its hello adds no peers row while the mark stands");
         _conflictsLogged = view.Conflicts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         _network = view;
+        Preflight(now, view, links);
         // As the app: no rows for a link whose peer answers as another kind than its settings name, which is sent nothing.
         var rows = _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>().Where(l => l.WrongKind is null)
             .Select(l => new PlayoutRow(l.LinkName, l.Peer, l.Kind ?? "", Starts: l.Kind is not null)).ToList();
@@ -1281,6 +1295,28 @@ sealed class Rig : ICompanionBridge, IDisposable
     }
 
     private HashSet<string> _conflictsLogged = new(StringComparer.Ordinal);   // owner thread: the ids in conflict it logged
+
+    /// <summary>
+    /// Owner thread, once a second: the room's verdict as the app judges it (<see cref="NetworkPreflight.Run"/>) — the join of this
+    /// second, the nodes heard before, what is configured (each --playout link's peer, each node key bound to an id), the rig's own
+    /// link and window items and the keys refused. The frame built next carries the verdict, while it is fresh; a change of it is logged.
+    /// </summary>
+    private void Preflight(DateTime now, NetworkView view, IReadOnlyList<ContextItem> items)
+    {
+        var configured = NetworkPreflight.Configured(
+            _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>().Select(l => (l.LinkName, l.Kind ?? (l.SetKind == PlayoutRules.Auto ? null : l.SetKind), l.NodeId, l.Peer)),
+            _apiKeys, _nodes, _nodeId);
+        var seen = _seenNodes.Note(view, configured.Select(c => c.Id).ToHashSet(StringComparer.Ordinal), now);
+        static bool IsWindow(ContextItem item) => item.Id.StartsWith("window:", StringComparison.Ordinal);
+        var result = NetworkPreflight.Run(new PreflightInput(now, view, seen, configured, items.Where(i => !IsWindow(i)).ToList(), items.Where(IsWindow).ToList(), ShowClock.For("UTC"))
+        {
+            Refused = _nodes.RefusedSince(now - PeerContexts.KeepFor, _nodeId),
+            KeyNames = NetworkPreflight.KeyNames(_apiKeys),
+        });
+        _preflightJson = result.ToJson();
+        if (_preflight?.Verdict != result.Verdict) Log("preflight: " + result.Words);
+        _preflight = result;
+    }
 
     /// <summary>
     /// The beacon's timer thread, every beat: the app's hello over the rig's own servers and --bind (<see cref="ShowBusHello.Main"/>):
@@ -1307,6 +1343,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     public string? ViewCode => _o.ViewCode.Length == 0 ? null : _o.ViewCode;
     public bool McpAllowed => true;
     public string? ContextJson() => _context;
+    public string? PreflightJson() => _preflightJson;
     public string? OwnNodeId => _nodeId;
     public IReadOnlyList<ApiKey> ApiKeys => _apiKeys;
     public NodeBindings Nodes => _nodes;

@@ -9,7 +9,7 @@
 // secret placeholder rides in no line — nor a key where the app is named, or in a rejection's reason — and is in no log, journal,
 // context or proposal after. A restarted desk makes ids of a new run, which every app runs, never skipping one as an id it ran
 // before. With no PIN set, peer and desk pass only from this PC. These are the bytes PlayMap, Patterns and AGMessage collect against.
-// The desk's readers: the operator's frame ends with desk, the config with peers, each peers row of the context with collects; and
+// The desk's readers: the operator's frame ends with desk (then network), the config with peers, each peers row of the context with collects; and
 // the producer page draws the frame's desk in a browser — the next proposal, approved or rejected by the id it shows, a high one by
 // a second press that sends the word high, Approve greyed with its reason while the proposal's app is not collecting. The page
 // takes no press on what it has just drawn (a double-click neither confirms a high proposal nor decides the one behind), names
@@ -359,10 +359,10 @@ test('one report: a verified app\'s lines reach network.csv once, with their nod
   playmap.recent = [];
 });
 
-test('the readers: the operator frame ends with desk, the config with peers, each peers row of the context with collects', async () => {
+test('the readers: the operator frame ends with desk (then network), the config with peers, each peers row of the context with collects', async () => {
   const frame = await (await fetch(`${rig.base}/api/state?detail=1`, { headers: { 'X-Stagewatch-Pin': rig.pin } })).text();
   const state = JSON.parse(frame);
-  assert.equal(Object.keys(state).at(-1), 'desk', 'desk is the operator frame\'s last field');
+  assert.deepEqual(Object.keys(state).slice(-2), ['desk', 'network'], 'the operator frame ends desk, then network (the room\'s verdict)');
   assert.deepEqual(Object.keys(state.desk), ['pending', 'next', 'apps']);
   assert.deepEqual(state.desk.apps.map((a) => a.id).sort(), [...APPS].sort());
   assert.deepEqual(state.desk.apps.find((a) => a.id === 'pm-a1b2c3'), { id: 'pm-a1b2c3', name: 'PlayMap Hall', kind: 'playmap', collects: true, verified: true });

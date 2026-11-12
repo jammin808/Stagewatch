@@ -18,17 +18,28 @@ public sealed class McpEndpoint
     private readonly IShowAgents _agents;
     private readonly IShowContext? _context;
     private readonly Func<byte[]> _detailFrame;
+    private readonly Func<string?> _preflight;
 
-    public McpEndpoint(IShowControl control, Func<byte[]> detailFrame) : this(control, control, control, detailFrame, control) { }
+    /// <summary>
+    /// A full surface's endpoint. <paramref name="preflight"/> is the room's preflight as that surface's doors serve it; without
+    /// one, the control's own under the same rule (<see cref="PreflightWire.Served"/>): never a stale verdict, never a stuck show's.
+    /// </summary>
+    public McpEndpoint(IShowControl control, Func<byte[]> detailFrame, Func<string?>? preflight = null)
+        : this(control, control, control, detailFrame, control, preflight ?? (() => PreflightWire.ServedNow(control.PreflightJson(), control.Snapshots.ProducerStuck))) { }
 
-    /// <summary>MCP needs only these: run commands, read the report and the show's context, and route agents' commands to the operator.</summary>
-    public McpEndpoint(IShowCommands commands, IShowReports reports, IShowAgents agents, Func<byte[]> detailFrame, IShowContext? context = null)
+    /// <summary>
+    /// MCP needs only these: run commands, read the report and the show's context, and route agents' commands to the operator.
+    /// <paramref name="preflight"/> is the room's preflight as served; with none, get_preflight says there is none here.
+    /// </summary>
+    public McpEndpoint(IShowCommands commands, IShowReports reports, IShowAgents agents, Func<byte[]> detailFrame, IShowContext? context = null,
+        Func<string?>? preflight = null)
     {
         _commands = commands;
         _reports = reports;
         _agents = agents;
         _detailFrame = detailFrame;
         _context = context;
+        _preflight = preflight ?? (() => null);
     }
 
     /// <summary>
@@ -113,6 +124,12 @@ public sealed class McpEndpoint
                             "(timer, departments, links to Patterns, presenter PCs, screens) with their lights, recent events, the verbs you may " +
                             "propose with their risk, and every other show app it can hear (Patterns, AGMessage…) with their lights and headlines. " +
                             "Lights are facts: grey means unknown — say so, never guess.",
+            new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
+        Tool("get_preflight", "Is the room ready for doors? One verdict over every show app this Stagewatch was set up with or can hear, " +
+                              "its own links and its windows: ready (no red row), the red and amber counts, the verdict in words, and one " +
+                              "row per check (heard, context, own, key, link, clock, window) with its light, why, and what to do. Amber is " +
+                              "listed and never blocks. stuck:true means Stagewatch itself has stopped turning over: there is no verdict, " +
+                              "so say so, never 'ready'. Read-only.",
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() })
     };
 
@@ -173,6 +190,9 @@ public sealed class McpEndpoint
             }
             case "get_context":
                 return Text(_context?.ContextJson() ?? "{}");
+            case "get_preflight":
+                // The route's JSON, by the route's rule; a host that keeps none says so as an error, never as an empty verdict.
+                return _preflight() is { } preflight ? Text(preflight) : Text(PreflightWire.None, isError: true);
             default:
                 return Text("Unknown tool: " + name, isError: true);
         }

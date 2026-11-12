@@ -702,9 +702,15 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                                <!-- The network's counts: apps heard, red ones, keys refused, rows apart, ids two machines say. -->
-                                <TextBlock help:ContextHelp.Tip="show-hello" Text="{Binding ShowNetworkLine}" Visibility="{Binding ShowNetworkLine, Converter={StaticResource NonEmptyToVis}}"
-                                           FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" Foreground="{StaticResource TextMutedBrush}" Background="Transparent" />
+                                <!-- The network's counts (apps heard, red ones, keys refused, rows apart, ids two machines say), then the room's verdict:
+                                     ready for doors, ready with rows to look at, or not ready and why. Its tooltip lists every row of the preflight, each
+                                     light as a shape and a word; Copy the preflight is this button and the line's right-click entry, the same code. -->
+                                <DockPanel Visibility="{Binding ShowNetworkLine, Converter={StaticResource NonEmptyToVis}}" Margin="0,2,0,0">
+                                    <Button x:Name="CopyPreflightButton" DockPanel.Dock="Right" Content="Copy the preflight" Click="OnCopyPreflight" FontSize="11" Padding="6,1" Margin="8,0,0,0"
+                                            VerticalAlignment="Top" help:ContextHelp.Tip="network-ready" />
+                                    <TextBlock x:Name="ShowNetworkLineText" help:ContextHelp.Tip="network-ready" Text="{Binding ShowNetworkLine}" ToolTip="{Binding PreflightTip}"
+                                               ToolTipService.ShowDuration="60000" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" Background="Transparent" />
+                                </DockPanel>
                                 <ItemsControl ItemsSource="{Binding PeerRows}" Margin="0,6,0,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>

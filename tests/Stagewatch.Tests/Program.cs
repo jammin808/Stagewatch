@@ -2111,6 +2111,7 @@ DeskRulesTests.Run(Check);
 DeskTests.Run(Check);
 PeerLinesTests.Run(Check);
 ReportTests.Run(Check);
+NetworkPreflightTests.Run(Check);
 await DeskWireTests.Run(Check);
 await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);

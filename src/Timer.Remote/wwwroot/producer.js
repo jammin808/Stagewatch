@@ -21,7 +21,8 @@
       onState: render,
       onConfig: function (c) { config = c; renderDepts(); renderHolding(); if (pinUsed !== null) loadCrewLinks(); },
       onAuth: function (a) {
-        if (a.ok) { $('app').classList.remove('hidden'); afterAuth(); return; }
+        if (a.ok) { $('app').classList.remove('hidden'); afterAuth(); netAuth(true); return; }
+        netAuth(false);
         $('app').classList.add('hidden');
         $('pinbox').classList.remove('hidden');
         $('pinerr').textContent = a.error || 'Wrong PIN';
@@ -29,7 +30,7 @@
       },
       onError: flashError,
       onReceipt: deskReceipt,
-      onStatus: function (on) { $('conn').textContent = on ? 'connected' : 'reconnecting…'; $('conn').style.color = on ? '' : 'var(--amber)'; }
+      onStatus: function (on) { netLinked = on; $('conn').textContent = on ? 'connected' : 'reconnecting…'; $('conn').style.color = on ? '' : 'var(--amber)'; }
     });
   }
 
@@ -115,6 +116,7 @@
     renderQuestions(s);
     renderAdvice(s);
     renderDesk(s);
+    renderNetwork(s);
     renderRows(s);
     $('delayInfo').textContent = s.delay > 0 ? '· delay ' + SW.fmt(s.delay) + ' before next' : '';
   }
@@ -242,6 +244,73 @@
       box.appendChild(row);
     });
   }
+
+  // The room's verdict ('ready for doors'). The chip reads the frame's network: ready while no row of Stagewatch's preflight is
+  // red; amber is counted and never blocks; each state is a shape and words, never colour alone. Why — a reason per node — is
+  // read from GET /api/preflight each time the frame's verdict changes: its red rows stand under the chip while the room is not
+  // ready, its red and amber rows when the chip is pressed. A frame with no network (a host that keeps no preflight) draws no
+  // chip: a missing verdict is never drawn as ready. The route is read only with a PIN this Stagewatch took and while the link
+  // is up: a refused PIN is never sent again (each send would count against this device), and an answer of another version
+  // than this page reads is not drawn.
+  var NET_ROWS = 8;
+  var netDrawn = null, netAsked = '', netOpen = false, netRead = null, netFailed = false, netAuthed = false, netLinked = false;
+
+  // The PIN was taken, or refused: what was read with it is forgotten either way, and the next frame asks again once it is taken.
+  function netAuth(ok) {
+    netAuthed = ok;
+    netAsked = ''; netRead = null; netFailed = false; netDrawn = null;
+    if (ok && state) renderNetwork(state);
+  }
+
+  function loadPreflight(key) {
+    if (!netAuthed) return;
+    fetch('/api/preflight', { headers: { 'X-Stagewatch-Pin': pinUsed || '' }, cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('not read'); return r.json(); })
+      .then(function (p) {
+        if (!p || p.v !== 1 || !Array.isArray(p.rows)) throw new Error('not a preflight this page reads');
+        if (netAsked === key) { netRead = p; netFailed = false; }
+      })
+      .catch(function () { if (netAsked === key) { netRead = null; netFailed = true; } })
+      .then(function () { if (netAsked === key && state) { netDrawn = null; renderNetwork(state); } });
+  }
+
+  function renderNetwork(s) {
+    var n = s.network, chip = $('netReady'), box = $('netBox');
+    chip.classList.toggle('hidden', !n);
+    if (!n) { box.classList.add('hidden'); netDrawn = null; netAsked = ''; netRead = null; return; }
+    var verdict = JSON.stringify(n);
+    if (netAuthed && verdict !== netAsked) { netAsked = verdict; loadPreflight(verdict); }
+    var key = verdict + '|' + netOpen + '|' + netFailed + '|' + (netRead ? netRead.at : '');
+    if (key === netDrawn) return;
+    netDrawn = key;
+    var ready = n.ready && !n.stuck;
+    chip.textContent = n.stuck ? '✕ No verdict — Stagewatch is stuck'
+      : !n.ready ? '✕ Not ready for doors · ' + n.red + ' red' + (n.amber ? ' · ' + n.amber + ' to look at' : '')
+      : n.amber ? '△ Ready for doors · ' + n.amber + ' to look at' : '✓ Ready for doors';
+    chip.className = 'pill ' + (!ready ? 'late' : n.amber ? 'warn' : 'ok');
+    // The rows drawn are of the verdict the chip says: one read for another verdict (the room changed since) is not drawn.
+    var read = netRead && !!netRead.ready === !!n.ready && netRead.red === n.red && netRead.amber === n.amber ? netRead : null;
+    var show = !ready || netOpen;
+    box.classList.toggle('hidden', !show);
+    if (!show) return;
+    var rows = $('netRows');
+    rows.textContent = '';
+    var listed = read ? read.rows.filter(function (r) { return r.light === 'red' || (netOpen && r.light === 'amber'); }) : [];
+    listed.slice(0, NET_ROWS).forEach(function (r) {
+      var line = SW.el('div', 'netrow ' + r.light, (r.light === 'red' ? '✕ ' : '△ ') + (r.name || r.id) + ' — ' + r.words
+        + (r.configured ? ' (' + r.configured + ')' : '') + (r.fix ? ' · ' + r.fix : ''));
+      rows.appendChild(line);
+    });
+    $('netNote').textContent = !read ? (netFailed ? 'The reasons could not be read here — see Stagewatch → Producer → Show network.' : 'Reading the reasons…')
+      : listed.length > NET_ROWS ? '+' + (listed.length - NET_ROWS) + ' more — see Stagewatch → Producer → Show network'
+      : listed.length === 0 ? (netOpen ? 'Every row is green.' : '') : (read.words || '');
+  }
+
+  $('netReady').onclick = function () { netOpen = !netOpen; if (state) renderNetwork(state); };
+  // A row's words age ("not heard for 14 s") while the verdict's counts stand: while rows are shown they are read again.
+  setInterval(function () {
+    if (netAuthed && netLinked && state && state.network && netAsked && !$('netBox').classList.contains('hidden')) loadPreflight(netAsked);
+  }, 5000);
 
   // The approval desk (Show Bus §11): what other show apps and their AIs propose waits here for a person (this Stagewatch's own
   // copilot's proposals wait at its desk). The frame's desk block names how many wait and the oldest; a decision names that

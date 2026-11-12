@@ -613,6 +613,35 @@ running app on a network: two copies of one install for the conflict, an old cer
   the AI's facts still carry no `collects` (release B's `PeerFact`, SW22.9); the module reads neither field yet (SW22.8); the
   Show network row's Collects mark and its menu are SW21.6's (PC work). Compiled here, never seen: the app's frame and config
   wiring (`RefreshDeskReaders`), its context rows and the Copilot list's names.
+  *Since then (SW21.8):* one preflight (REMOTE.md, "One preflight: ready for doors"). `NetworkPreflight` (Timer.Show, pure,
+  on the time it is given) judges the room once a second from the same join every other reader of the show network takes:
+  ready while no row is red, a row per check — heard, context, own, key, link, clock, window. A node a person configured (a
+  playout link's peer, the node a node key is bound to) is red when gone or never heard; one only seen is amber when it goes
+  and is forgotten after 10 minutes (`SeenNodes`, 32 at most). Its doors: `GET /api/preflight` (read scope, no query, 404
+  from a host with none), the operator frame's `network` after `desk`, MCP `get_preflight`, the copilot's `doors`, the
+  module's `network_ready` / `network_red` / `network_amber`, its feedback and a preset key, the Showcaller page's chip with
+  its reasons, the desk's Show network header with its tooltip and Copy the preflight (button and right-click), a help tip,
+  and the rig, which judges and serves the same. Every door answers the stuck answer for a stuck show thread or a verdict
+  older than 3 s (`PreflightWire.Served`, in Core beside the frame's `NetworkVerdict`, since the web server reads only
+  Core). It is never an item of Stagewatch's own context. Held by `NetworkPreflightTests`, `WebV2Tests` (a real server: the
+  route, the stuck hub, a stale verdict, MCP, the frame's last two fields), the module's test and `tests/e2e/preflight.e2e.cjs`
+  (two scripted apps against the rig: amber at 6 s, the configured one red at 12 s and the seen one amber, every door, the
+  page's chip in a browser, a stalled show thread). *What this did not do:* the design's `desk` check is not built — it
+  reads "nodes whose hello says `approvals`" as nodes that should be collecting, but that cap names a node that keeps the
+  queue (Show Bus §14), so the row would be red for every app that does not use this desk, against the rule that nothing a
+  person did not configure blocks; whether an app collects stays where it is said today (the frame's `desk.apps`, the
+  context's `collects`). `clock` is the amber `clock:<name>` item a playout link already raises while its clock is apart,
+  so a clock within bounds has no green row. Window grants to peers are not a configured relationship yet (they come with
+  windows for peers). A playout link whose peer has never said its id and whose settings name none configures no node: its
+  own `link:<name>` row is red, and no `heard` row names a node. The page's rows are read again every 5 s while shown, so a
+  row's seconds can lag that long. The frame carries the verdict from the first frame built after a judgement (within a
+  tick), and the stuck one once that judgement is more than 3 s old. A keyed request refused is recorded under the id it
+  named (`NodeBindings`), so the `key` check judges it beside what that node proves: red only for a node expected or heard
+  with nothing of its own taken — which a holder of any node key can still cause for a node that is heard and has posted
+  nothing yet, until that node's own post is taken. The show network's join keeps 32 rows by kind, then name, for every
+  reader; a configured node past them is amber "not checked" here (the join was not given a keep-first set: its order is
+  what the context's `peers` and the desk's rows show). Compiled here, never seen (the maintainer's PC): the Show network header's verdict, its tooltip, the Copy the
+  preflight button and right-click entry, and the UI smoke's checks of them.
   *Asks of the other apps (SW21.2).* **Patterns** (Round 94 or after): its `APPLY` line keeps a look's title as typed, only
   shortened (`DeskProposals.Line`, at the pin `5a8ad8f8`), so a title holding a control character or an invisible format character
   is now refused `400` where 2.20 dropped the characters; and at the pin a refused proposal stays unsent and is posted again each

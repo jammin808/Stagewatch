@@ -225,7 +225,26 @@ public static class Program
                            && vm.ApiKeyNodeChoices(patKey).FirstOrDefault()?.Id == "9f8e7d6d",
                            "a rebind that changes nothing is refused with the reason; Settings offers the node a key was refused for first");
                     tabs.SelectedItem = (TabItem)w.FindName("TabProducer");
-                    Pump(400);
+                    Pump(1600);
+                    // One verdict for the doors: the Show network header says it after the network's counts, its tooltip lists the
+                    // preflight's rows (each light a shape and a word), and Copy the preflight is its button and its right-click
+                    // entry, the same code. The route serves what the desk judged.
+                    var header = (TextBlock)w.FindName("ShowNetworkLineText");
+                    var copyButton = (Button)w.FindName("CopyPreflightButton");
+                    var preflightText = vm.PreflightText();
+                    Expect(vm.ShowNetworkLine.StartsWith("Show network: ", StringComparison.Ordinal)
+                           && (vm.ShowNetworkLine.Contains(" · ready", StringComparison.Ordinal) || vm.ShowNetworkLine.Contains(" · not ready: ", StringComparison.Ordinal))
+                           && header.Text == vm.ShowNetworkLine && header.ToolTip as string == vm.PreflightTip && vm.PreflightTip == preflightText
+                           && preflightText.Split('\n') is { Length: > 1 } tipLines && vm.ShowNetworkLine.EndsWith(tipLines[0], StringComparison.Ordinal)
+                           && tipLines.Skip(1).All(l => l.StartsWith("✕ red  ", StringComparison.Ordinal) || l.StartsWith("△ amber  ", StringComparison.Ordinal) || l.StartsWith("✓ green  ", StringComparison.Ordinal)),
+                           $"the Show network header says the verdict, its tooltip lists the rows ({vm.ShowNetworkLine})");
+                    var doorsMenu = main.ActionsFor("network-ready", header).OfType<MenuItem>().Select(m => m.Header as string ?? "").ToList();
+                    Expect(doorsMenu.SequenceEqual(new[] { "Copy the preflight", "Copy", "Remote settings…" }) && copyButton.Content as string == "Copy the preflight"
+                           && copyButton.IsVisible && Stagewatch.App.Help.ContextHelp.GetTip(copyButton) == "network-ready" && Stagewatch.App.Help.HelpContent.Tip("network-ready") is not null,
+                           $"Copy the preflight on the right-click and the button ({string.Join(", ", doorsMenu)})");
+                    Expect(vm.PreflightJson() is { } served && Stagewatch.Core.PreflightWire.At(served) is not null
+                           && System.Text.Json.JsonDocument.Parse(served).RootElement.GetProperty("words").GetString() == preflightText.Split('\n')[0],
+                           "the preflight the doors serve is the one the desk shows");
                     Save(w, "producer-show-network");
                 });
                 vm.Dispose();

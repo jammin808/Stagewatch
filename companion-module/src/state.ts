@@ -101,6 +101,11 @@ export interface Snapshot {
 	speech?: { percent: number; wpm: number; projected: number | null; listening: boolean } | null
 	/** The clip feeding the VT countdown: vMix's, or a playout link's (2.20: `link` names it, `node` is its peer's Show Bus id). */
 	playout?: { title: string; remaining: number; duration: number; running: boolean; source: string; link?: string; node?: string } | null
+	/**
+	 * 2.21: the room's verdict ('ready for doors') as Stagewatch last judged it — ready while no row of its preflight is red, the red
+	 * and amber counts (amber never blocks), and stuck when it is the stuck answer. Absent from a Stagewatch that keeps no preflight.
+	 */
+	network?: { ready: boolean; red: number; amber: number; stuck: boolean } | null
 	qaLive?: string
 	qaPending?: number
 	qaQueued?: number
@@ -325,6 +330,8 @@ export const FEEDBACK_IDS = [
 	'rundown_live',
 	// 2.20
 	'vt_link',
+	// 2.21
+	'network_not_ready',
 ] as const
 export type FeedbackId = (typeof FEEDBACK_IDS)[number]
 
@@ -387,6 +394,17 @@ export function deptState(s: Snapshot | null, dept: string): DeptState {
 	return 'clear'
 }
 
+/**
+ * 'Ready for doors' as a key reads it: `yes` or `no` only from a frame that carries a verdict; `unknown` with no frame (not
+ * connected, or Stagewatch stuck: the module drops its frame), from a Stagewatch that sends no verdict, and for the stuck answer.
+ * Unknown is never read as ready.
+ */
+export function networkReady(s: Snapshot | null): 'yes' | 'no' | 'unknown' {
+	const n = s?.network
+	if (!n || typeof n.ready !== 'boolean' || n.stuck === true) return 'unknown'
+	return n.ready ? 'yes' : 'no'
+}
+
 export function deriveVariables(s: Snapshot | null, connected: boolean, config: ShowConfig = EMPTY_CONFIG): VariableValues {
 	if (!s) {
 		return {
@@ -394,6 +412,8 @@ export function deriveVariables(s: Snapshot | null, connected: boolean, config: 
 			time: connected ? '--:--' : 'OFFLINE',
 			time_short: connected ? '--:--' : 'OFF',
 			state: connected ? 'unknown' : 'offline',
+			// No frame is no verdict: never the last one heard.
+			network_ready: 'unknown',
 		}
 	}
 	const abs = Math.abs(s.seconds)
@@ -465,6 +485,10 @@ export function deriveVariables(s: Snapshot | null, connected: boolean, config: 
 		vt_seconds: s.playout?.remaining ?? 0,
 		vt_source: s.playout?.source ?? '',
 		vt_link: s.playout?.link ?? '',
+		// ---- the room's verdict (2.21): the counts only beside a verdict
+		network_ready: networkReady(s),
+		network_red: networkReady(s) === 'unknown' ? '' : (s.network?.red ?? 0),
+		network_amber: networkReady(s) === 'unknown' ? '' : (s.network?.amber ?? 0),
 		// ---- schedule recovery
 		hard_out: s.hardOut ?? '',
 		hard_out_margin: s.hardOutMargin == null ? '' : signed(s.hardOutMargin),
@@ -573,6 +597,7 @@ export function feedbacksAffected(prev: Snapshot | null, next: Snapshot | null, 
 	if (prev.hardOutMargin !== next.hardOutMargin) add('hard_out_risk')
 	if (!same(prev.slides, next.slides)) add('pace')
 	if (!same(prev.playout, next.playout)) add('vt_running', 'vt_link')
+	if (!same(prev.network, next.network)) add('network_not_ready')
 	if (prev.preview !== next.preview) add('preview')
 	if (prev.qaPending !== next.qaPending || prev.qaQueued !== next.qaQueued) add('qa_waiting')
 	if (!same(prev.timings, next.timings)) add('item_late')

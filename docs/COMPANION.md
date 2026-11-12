@@ -157,6 +157,16 @@ the module's lines to this grammar from both ends: the module's tests press ever
 suite reads each line as this server does (tokenized, then the shared grammar) and expects its kind and arguments, and agrees with
 the module on every name a link may not take.
 
+**Ready for doors (2.21).** The operator frame Stagewatch sends on `SNAPSHOT` ends with `network` — `ready`, `red`, `amber`,
+`stuck` — the room's one verdict (docs/REMOTE.md, "One preflight"). `$(stagewatch:network_ready)` is `yes` or `no` from a
+frame that carries it, and `unknown` with no verdict: not connected, `PONG … STUCK` (the module drops its frame, as for the
+timer), a Stagewatch that sends no `network`, or the stuck answer. `network_red` and `network_amber` are the counts, empty
+while unknown; amber never blocks. The feedback *Show network: Not ready for doors* is true at `ready:false` and, unless its
+option is unticked, while there is no verdict, so a key is never left looking ready by a lost link. The *Ready for doors*
+preset is green only from a verdict that says ready, with the count of amber rows under it (green includes rows to look
+at, as the page's chip and the desk's line say), amber with none, red with the count of red rows. The reasons are not on
+the deck: they are the desk's Show network header, the Showcaller page and `GET /api/preflight`.
+
 Bad input gets `ERROR <reason>` and the connection stays open.
 
 ### v1 events (default; used by the PowerPoint add-in)

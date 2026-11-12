@@ -853,3 +853,71 @@ test('2.20 an accepted with no follow-up: settled by unconfirmed, forgotten afte
 		await srv.close()
 	}
 })
+
+// ---------------------------------------------------------------- 2.21: the room's verdict (ready for doors)
+
+test('2.21 network_ready follows the frame\'s network, reads unknown with no verdict, and network_not_ready is red at ready:false', async () => {
+	const st = await import('../dist/state.js')
+	const { UpdateFeedbacks } = await import('../dist/feedbacks.js')
+	const ready = snap({ network: { ready: true, red: 0, amber: 2, stuck: false } })
+	const notReady = snap({ network: { ready: false, red: 1, amber: 2, stuck: false } })
+	const stuckAnswer = snap({ network: { ready: false, red: 1, amber: 0, stuck: true } })
+	// The variables follow network.ready and its counts.
+	assert.deepEqual(
+		['network_ready', 'network_red', 'network_amber'].map((k) => st.deriveVariables(ready, true)[k]),
+		['yes', 0, 2],
+	)
+	assert.deepEqual(
+		['network_ready', 'network_red', 'network_amber'].map((k) => st.deriveVariables(notReady, true)[k]),
+		['no', 1, 2],
+	)
+	// No verdict is unknown, never the last one heard: not connected and STUCK both drop the frame (main.ts), a Stagewatch before
+	// 2.21 sends no network, and the stuck answer is no verdict either.
+	for (const [what, s, connected] of [
+		['not connected', null, false],
+		['STUCK (connected, no frame)', null, true],
+		['a frame with no network', snap(), true],
+		['a frame whose network is null', snap({ network: null }), true],
+		['the stuck answer', stuckAnswer, true],
+	]) {
+		const v = st.deriveVariables(s, connected)
+		assert.equal(v.network_ready, 'unknown', what)
+		assert.ok(v.network_red === undefined || v.network_red === '', `${what}: no count beside no verdict`)
+		assert.equal(st.networkReady(s), 'unknown', what)
+	}
+	// A frame lost after a verdict: the variable goes to unknown and the counts are blanked.
+	const lost = st.diffValues(st.deriveVariables(notReady, true), st.deriveVariables(null, false))
+	assert.equal(lost.network_ready, 'unknown')
+	assert.equal(lost.network_red, '')
+	assert.equal(lost.network_amber, '')
+	// The recheck is targeted, and a lost link rechecks everything.
+	assert.ok(st.FEEDBACK_IDS.includes('network_not_ready'))
+	assert.deepEqual(st.feedbacksAffected(ready, notReady, false), ['network_not_ready'])
+	assert.deepEqual(st.feedbacksAffected(ready, snap({ network: { ...ready.network } }), false), [])
+	assert.ok(st.feedbacksAffected(ready, null, true).includes('network_not_ready'))
+	// The feedback: true at ready:false; with no verdict, true unless the button says otherwise; amber rows never make it true.
+	const self = fakeInstance(LICENSED)
+	UpdateFeedbacks(self)
+	const fb = self.feedbacks.network_not_ready
+	assert.ok(fb.options.some((o) => o.id === 'unknown' && o.default === true))
+	assert.equal(fb.defaultStyle.bgcolor, self.feedbacks.clock_drift.defaultStyle.bgcolor, 'red')
+	self.snapshot = notReady
+	assert.equal(fb.callback({ options: { unknown: true } }), true)
+	assert.equal(fb.callback({ options: { unknown: false } }), true)
+	self.snapshot = ready
+	assert.equal(fb.callback({ options: { unknown: true } }), false, 'ready with two amber rows is ready')
+	assert.equal(fb.callback({ options: {} }), false)
+	for (const s of [null, snap(), stuckAnswer]) {
+		self.snapshot = s
+		assert.equal(fb.callback({ options: { unknown: true } }), true, 'unknown is never shown as ready')
+		assert.equal(fb.callback({ options: {} }), true, 'a button saved without the option')
+		assert.equal(fb.callback({ options: { unknown: false } }), false)
+	}
+	// The preset key: green only from a verdict that says ready, and a green key says how many rows are amber.
+	const { UpdatePresets } = await import('../dist/presets.js')
+	UpdatePresets(self)
+	const key = self.presets.show_doors
+	assert.ok(key && key.style.text === 'DOORS\nREADY\n$(stagewatch:network_amber) amber')
+	assert.deepEqual(key.feedbacks.map((f) => [f.feedbackId, f.options.unknown]), [['network_not_ready', true], ['network_not_ready', false]])
+	assert.ok(key.feedbacks[1].style.text.includes('$(stagewatch:network_red)'))
+})

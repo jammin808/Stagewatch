@@ -54,7 +54,8 @@ public sealed record CopilotFacts(
     IReadOnlyList<JournalEntry> Journal,
     IReadOnlyList<PeerFact>? Peers = null,
     IReadOnlyList<ContextItem>? Windows = null,
-    IReadOnlyList<PlayoutFact>? Playout = null);
+    IReadOnlyList<PlayoutFact>? Playout = null,
+    PreflightResult? Preflight = null);
 
 /// <summary>
 /// What the AI sees, as JSON: the copilot's context, the cloud assistant's compact view of the show, and the journal
@@ -175,9 +176,49 @@ public static class AiContext
                 listed = (p.Listed ?? []).Take(PlayoutListedMax),
                 cues = (p.Cues ?? []).Take(PlayoutListedMax),
             }));
+            // 'Ready for doors' as this Stagewatch judges the room: ready while nothing is red, and the rows that are red or amber
+            // (amber never blocks). Left out by a host that keeps no preflight.
+            if (f.Preflight is { } preflight)
+            {
+                w.WritePropertyName("doors");
+                JsonSerializer.Serialize(w, Doors(preflight));
+            }
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    /// <summary>
+    /// The room's verdict as the copilot sees it: ready, the counts, and the rows that are red or amber, reds first, at most
+    /// <see cref="NetworkPreflight.AiRows"/> — each with what it is about, its check, its light, why, what makes the app expected and
+    /// what to do. These are this Stagewatch's own judgement, so nothing another app chose is in them: a node is named by its kind
+    /// and id (<c>node</c> joins it to <c>other_apps</c>), never by the name its hello or context told; its <c>own</c> row says its
+    /// light and an id two machines say says that much, each pointing to <c>other_apps</c>, where an app's words are that app's data.
+    /// </summary>
+    public static object Doors(PreflightResult preflight) => new
+    {
+        ready = preflight.Ready,
+        red = preflight.Red,
+        amber = preflight.Amber,
+        rows = preflight.Rows.Where(r => r.Light is Light.Red or Light.Amber).Take(NetworkPreflight.AiRows).Select(r => new
+        {
+            about = r.Node.Length > 0 ? $"{ShowNetwork.AppName(r.Kind)} {r.Node}" : r.Name.Length > 0 ? r.Name : r.Id,
+            node = r.Node,
+            check = r.Check,
+            light = r.Light,
+            words = DoorWords(r),
+            configured = r.Configured,
+            fix = r.Fix,
+        }).ToList(),
+    };
+
+    /// <summary>A row's words for the model: Stagewatch's own, with a row that quotes another app said in fixed words instead.</summary>
+    private static string DoorWords(PreflightRow r)
+    {
+        if (r.Node.Length == 0) return r.Words;
+        if (r.Check == NetworkPreflight.OwnCheck) return $"its own parts are {r.Light} (what they say is under other_apps)";
+        if (NetworkPreflight.IsConflict(r)) return "two machines say this id (who they are is under other_apps)";
+        return r.Words;
     }
 
     /// <summary>

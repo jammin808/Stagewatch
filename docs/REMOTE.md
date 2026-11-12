@@ -246,6 +246,7 @@ and when it will now finish. Leave it blank and the plan starts when the first i
 | `get_running_order` | Planned / expected / actual for every item |
 | `run_command` | One command line from the grammar above, e.g. `trim 7 -180` |
 | `get_report` | The planned-vs-actual report as CSV |
+| `get_preflight` | The room's verdict, 'ready for doors', with a row per check (2.21, below): `GET /api/preflight`'s JSON, by its rule |
 
 Use the Remote PIN as `Authorization: Bearer <pin>`. Commands run through the same single input path as a
 button press, so an AI tool can never do anything an operator can't.
@@ -639,7 +640,8 @@ collecting — is `409`, in the desk's words, nothing queued. Other readers (the
 never quote a line its app does not list: only the sender's receipt says which.
 
 **Every reader takes the desk.** The operator's frame — `/api/state?detail=1` with the PIN or a key, a control page's
-WebSocket, Companion's `SNAPSHOT`, MCP's state — ends with `desk`; no public frame carries it, with the agenda or without:
+WebSocket, Companion's `SNAPSHOT`, MCP's state — ends with `desk`, then `network` (2.21's preflight, below); no public frame
+carries either, with the agenda or without:
 
 ```
 "desk":{"pending":2,"next":{"id":"p18-k3m9","from":"AGMessage","target":"PlayMap Hall","line":"UNDO","risk":"review","collects":true,"cut":false,"fromId":"ag-7788","targetId":"pm-a1b2"},"apps":[{"id":"pm-a1b2","name":"PlayMap Hall","kind":"playmap","collects":true,"verified":true}]}
@@ -677,6 +679,80 @@ from `GET /api/proposals/<id>` and shown whole before Approve takes a press; if 
 greyed and says why; the page lists the apps, each as collecting or not, and shows the desk's own words for what a press
 did. The page shows the oldest proposal only: one whose app is not collecting stays in front of those behind it until it is
 rejected here, or decided at the desk, which lists them all.
+
+### One preflight: ready for doors (2.21)
+
+One verdict for the room, worked out from facts once a second, with a reason per node. It reads; it changes nothing, and it
+is no command: there is no verb, so no risk.
+
+**`GET /api/preflight`** — read scope (the PIN, or any key; a key's answer carries its rate headers), cross-origin as the
+context is. It takes no query, so nothing rides in its address: `400 {"ok":false,"error":"/api/preflight takes no query"}`,
+the PIN's `?pin=` included (send the PIN as `X-Stagewatch-Pin` or `Authorization: Bearer`). A host that keeps no preflight
+answers `404 {"ok":false,"error":"no preflight here"}`.
+
+```
+{"v":1,"at":1761362220000,"ready":false,"stuck":false,"red":1,"amber":1,"green":9,
+ "words":"not ready: Stage left not heard for 14 s · 1 to look at",
+ "rows":[
+  {"id":"node:9f8e7d6c:heard","node":"9f8e7d6c","name":"Stage left","kind":"playmap","check":"heard","light":"red","configured":"playout link stage-left","words":"not heard for 14 s","fix":"is PlayMap running and on this network?"},
+  {"id":"node:a1b2c3d4:heard","node":"a1b2c3d4","name":"AGM","kind":"messenger","check":"heard","light":"amber","configured":"","words":"went away at 21:40","fix":""},
+  {"id":"node:5e6f7a8b:own","node":"5e6f7a8b","name":"FOH","kind":"patterns","check":"own","light":"green","configured":"","words":"its own parts are green","fix":""}]}
+```
+
+`ready` is `red == 0`. Amber is counted, listed and never blocks. The counts are of every row; `rows` holds at most 200,
+sorted red, amber, green, then by name. `at` is when the verdict was judged (Unix ms). `words` is the verdict as a person
+reads it: `ready for doors`, `ready · 2 to look at`, or `not ready:` and the first red row, how many more are red, how many
+amber.
+
+| check | for | green / amber / red |
+|---|---|---|
+| `heard` | each node configured or seen | live (heard within 6 s, by its hello, its context or an open node link) / stale (6–12 s, whether its row is still listed or left with its link); a seen-only node gone ("went away at 21:40"); an id two machines say (a row of its own, `node:<id>:conflict`); a node the show network's 32 rows have no room for ("not checked") / a configured node gone ("not heard for 14 s", after two minutes "not heard since 21:40") or never heard |
+| `context` | each node heard and not gone | held, verified and at most 15 s old / none held, 15–30 s old, unverified, set aside, or posted too big to read / — |
+| `own` | each node with a verified context | its context says green and no part is worse / its worst part is amber, or its context tells no light of its own (whatever its parts say) / its worst part is red — with its two worst parts in its own words |
+| `key` | each node that posts its context, and each id a keyed request was refused for in the last 30 s | it posts with its own node key / with the operator's credential (the PIN or a control key); a key refused for its id while something of its own is taken, or for an id neither configured nor heard / a key refused for a node that is configured or heard and has nothing of its own taken |
+| `link` | each of this Stagewatch's links (the items its context lists: integrations, playout links, its hello) | the item's own light |
+| `clock` | a playout link whose clock is apart | — / apart / — |
+| `window` | each window | the item's own light; grey (nobody opened it) reads amber; a window is never red |
+
+**What is expected.** A node is *configured* when a person set this Stagewatch up to work with it: a playout link's peer
+(by the id its settings name, else the one it said), and the node a node key is bound to; `configured` names which
+("playout link stage-left", "node key 'AGM'"). A configured node that is gone or was never heard is red. A node only *seen*
+— heard, with nothing configured — that goes away is amber and drops out of the rows 10 minutes after its last word:
+nothing a person did not configure turns the verdict red by leaving. A context that proves nothing is never read for its
+node's parts, so a claim cannot close the doors. A refused key is recorded under the id the request *named*, which the
+refused key does not speak for and any node's key can name: beside a context taken with the node's own key or the
+operator's credential, or a node link that proves it, the refusal is one amber `key` row naming the refused key, and for
+an id nobody configured or heard it is amber too — red is kept for a node that is expected or heard and has nothing of its
+own taken ("the key 'Stage left' was refused for it, and nothing of its own is taken: …"). No two rows share an `id`. At
+most 32 nodes are checked, the configured ones first; the rest are one amber row ("8 more nodes not checked"). The show
+network itself lists 32 apps: a configured node it has no room for has no row to judge and is amber, "not checked", never
+red by a guess. A node expected only because a node key is bound to it says the other way out in `fix`: revoke the key, or
+let it speak for the new node.
+
+**Stuck is never a confident stale verdict.** While the show thread is stuck, or the verdict was judged more than 3 s
+ago, every door answers `ready:false`, `stuck:true`, `red:1` and the one row `stagewatch:show-thread` (check
+`stagewatch`): "Stagewatch's show thread is stuck — no verdict until it turns over".
+
+**The readers.** The verdict is never an item of Stagewatch's own context, so its own light stays its own parts' (one hop).
+- **Operator frames** end, after `desk`, with `"network":{"ready":false,"red":1,"amber":1,"stuck":false}` — the frame built
+  after each judgement; no public frame carries it, and a host that keeps no preflight sends none (a missing verdict is not
+  a ready one). A frame is sent when the verdict or its counts change. By the route's rule, a frame built more than 3 s
+  after the last judgement carries `{"ready":false,"red":1,"amber":0,"stuck":true}` in its place.
+- **MCP** `get_preflight` (no arguments, read-only) returns the route's JSON, by the route's rule.
+- **Companion**: `$(stagewatch:network_ready)` — `yes`, `no`, or `unknown` when stuck, not connected or sent no verdict —
+  with `network_red`, `network_amber` and the feedback *Show network: Not ready for doors* (docs/COMPANION.md).
+- **The copilot** is given `doors`: ready, the counts and the red and amber rows (at most 12), as Stagewatch's own
+  judgement, so nothing another app chose is in them: a node is its kind and id (`node` joins it to `other_apps`), never the
+  name its hello or context told; its `own` row says its light, and an id two machines say says only that, each leaving
+  the app's words where that app's data is (`other_apps`).
+- **The Showcaller page** (`/producer`) draws a chip from the frame — "✓ Ready for doors", "△ Ready for doors · 2 to look
+  at", "✕ Not ready for doors · 1 red" — with the red rows under it while the room is not ready, and the red and amber rows
+  when it is pressed, read from this route (`v` 1 only) with the PIN the page signed in with, never again with one that
+  was refused, and not while its link is down.
+- **The desk**: Producer → Show network's header says the verdict after the network's counts ("Show network: 4 apps ·
+  ready for doors"; with no app listed, "Show network: ready for doors" — a verdict is always said); its tooltip lists the
+  rows; **Copy the preflight** is a button beside it and its right-click entry.
+- **The rig** judges and serves the same (tools/Stagewatch.Rig), and logs each change of the verdict.
 
 ## 2.17: windows — addresses Stagewatch controls
 

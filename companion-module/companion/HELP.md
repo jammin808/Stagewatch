@@ -89,6 +89,15 @@ When you change the running order or presets in Stagewatch, the keys, dropdowns 
 
 (Replace `stagewatch` with your connection's label.)
 
+### New in 2.21: ready for doors
+
+Stagewatch 2.21 judges the whole room once a second — every show app it was set up with or can hear, its own links and its windows — and says one thing: ready for doors, or not, and why.
+
+- **Variables:** `network_ready` — `yes`, `no` or `unknown`; `network_red` and `network_amber`, how many of its checks are red (each blocks) and amber (to look at, never blocking).
+- **Unknown is never ready.** `network_ready` is `unknown` when Stagewatch is not connected, when it has stopped updating (stuck), and from a Stagewatch older than 2.21, which sends no verdict; the counts are then empty.
+- **Feedback:** *Show network: Not ready for doors* — true while a check is red. With no verdict it is true as well, unless you untick *Also while there is no verdict*.
+- **Preset:** *Ready for doors* (with the live displays) — green "DOORS READY" with the number of amber checks under it ("2 amber": ready, with two things to look at) only from a verdict that says ready, amber "DOORS UNKNOWN" with no verdict, red "NOT READY" with the number of red checks. The reasons are in Stagewatch: Producer → Show network, or the Showcaller page.
+
 ### New in 2.20: playout links (Patterns desks and PlayMap nodes)
 
 Stagewatch drives the clip on air, a PlayMap node's playlist items and a Patterns desk's cues over its playout links (set up in Stagewatch's Settings → Integrations). These actions and keys appear when Stagewatch is 2.20 or later and its licence carries playout (Production). With no link switched on they stay, and Stagewatch refuses a press in its own words (on the log and the answer key).

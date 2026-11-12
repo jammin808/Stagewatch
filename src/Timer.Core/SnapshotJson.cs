@@ -315,9 +315,21 @@ public static class SnapshotJson
         w.WriteEndArray();
 
         // The approval desk is the operator's: what waits, the next proposal's line (fenced when it was proposed; a summary's length of
-        // it, marked when that is not the whole) and the apps a line could go to. Last in the frame, so every earlier field stands
-        // where its readers match it.
+        // it, marked when that is not the whole) and the apps a line could go to. After every field older readers match, so each
+        // stands where it stood.
         if (operatorView) WriteDesk(w, s.Desk);
+
+        // The room's verdict is the operator's too, and the frame's last field: ready while no row of the preflight is red. Left out
+        // by a host that keeps no preflight, so a reader never takes a missing verdict for a ready one.
+        if (operatorView && s.Network is { } n)
+        {
+            w.WriteStartObject("network");
+            w.WriteBoolean("ready", n.Ready);
+            w.WriteNumber("red", n.Red);
+            w.WriteNumber("amber", n.Amber);
+            w.WriteBoolean("stuck", n.Stuck);
+            w.WriteEndObject();
+        }
     }
 
     private static void WriteDesk(Utf8JsonWriter w, DeskSummary d)

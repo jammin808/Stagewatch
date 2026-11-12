@@ -1,5 +1,5 @@
 import { combineRgb, type CompanionFeedbackDefinitions, type DropdownChoice } from '@companion-module/base'
-import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, standingBy, vtFrom } from './state.js'
+import { contrastText, deptState, FEATURE_CHOICES, hasFeature, hexToNumber, isCounting, itemAdjust, openSignals, resolveItem, networkReady, standingBy, vtFrom } from './state.js'
 import type ModuleInstance from './main.js'
 
 // Every callback reads the cached frame only: no I/O, constant time.
@@ -620,6 +620,18 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				{ type: 'number', id: 'last', label: 'Only in its last (seconds, 0 = always)', default: 0, min: 0, max: 86400 },
 			],
 			callback: (fb) => vtFrom(s(), String(fb.options.link ?? '').trim().toLowerCase(), fb.options.running === true, Number(fb.options.last ?? 0) || 0),
+		},
+		network_not_ready: {
+			type: 'boolean',
+			name: 'Show network: Not ready for doors',
+			description:
+				"True while Stagewatch's preflight has a red row (an app it was set up with is gone, a link is down, an app's own parts are red). Amber rows never make it true. With no verdict — not connected, Stagewatch stuck, or a Stagewatch that sends none — it is true too unless you untick the option: unknown is never shown as ready. $(stagewatch:network_ready) says yes, no or unknown.",
+			defaultStyle: { bgcolor: COLORS.red, color: COLORS.white },
+			options: [{ type: 'checkbox', id: 'unknown', label: 'Also while there is no verdict (unknown)', default: true }],
+			callback: (fb) => {
+				const ready = networkReady(s())
+				return ready === 'no' || (ready === 'unknown' && fb.options.unknown !== false)
+			},
 		},
 		preview: {
 			type: 'boolean',
