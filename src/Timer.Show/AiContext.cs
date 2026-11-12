@@ -17,10 +17,15 @@ public sealed record ScreenFact(string Id, string Name, string Page, string Devi
 /// (key, operator, none, or "" when nothing spoke for it), so a context only claimed is read as a claim. <see cref="Id"/> is its
 /// Show Bus id (what <c>window grant &lt;window&gt; &lt;app&gt;</c> names it by), and <see cref="Can"/> what it can do with a window
 /// (12.6's abilities, <c>pages</c> or <c>window-draw</c>): its key-verified node link's <c>can=</c> while it has one, else its
-/// hello's caps, each kept only for the kinds its cap row names.
+/// hello's caps, each kept only for the kinds its cap row names. For a copilot plan (<see cref="AiContext.Apps"/>): whether it
+/// <see cref="Collects"/> this desk's approved lines now, whether its verbs are verified (<see cref="VerbsVerified"/>: only then are
+/// any of them given), the words its verbs open with (<see cref="VerbHeads"/>), and its whole table (<see cref="Verbs"/>) only when
+/// the request names it or the plan asked for it, as much of it as the budgets allow, with how many rows were left out
+/// (<see cref="MoreVerbs"/>).
 /// </summary>
 public sealed record PeerFact(string Kind, string Name, string Light, string Headline, IReadOnlyList<string> Parts, IReadOnlyList<string> Recent,
-    string Link = "", string Verified = "", string Id = "", IReadOnlyList<string>? Can = null);
+    string Link = "", string Verified = "", string Id = "", IReadOnlyList<string>? Can = null, bool Collects = false, bool VerbsVerified = false,
+    IReadOnlyList<string>? VerbHeads = null, IReadOnlyList<PeerCommand>? Verbs = null, int MoreVerbs = 0);
 
 /// <summary>An integration's link as the copilot sees it ("why isn't vMix switching?").</summary>
 public sealed record IntegrationFact(string Name, string Health, string Status);
@@ -261,11 +266,86 @@ public static class AiContext
     private static IReadOnlyList<string> Can(NetworkRow r, IReadOnlyDictionary<string, IReadOnlyList<string>>? helloCaps)
         => ShowNetwork.WindowAbilities(r, helloCaps);
 
-    private static object PeerJson(PeerFact p) => new
+    /// <summary>
+    /// An app as the copilot reads it. Its verbs come last: whether it collects, whether its verbs are verified, their heads, and —
+    /// only when given — the whole rows (verb, risk, words) and how many were left out; no row carries more.
+    /// </summary>
+    private static Dictionary<string, object?> PeerJson(PeerFact p)
     {
-        app = p.Kind, name = p.Name, light = p.Light, headline = p.Headline, parts = p.Parts, recent = p.Recent, link = p.Link, verified = p.Verified,
-        id = p.Id, can = p.Can ?? [],
-    };
+        var row = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["app"] = p.Kind, ["name"] = p.Name, ["light"] = p.Light, ["headline"] = p.Headline, ["parts"] = p.Parts, ["recent"] = p.Recent,
+            ["link"] = p.Link, ["verified"] = p.Verified, ["id"] = p.Id, ["can"] = p.Can ?? [],
+            ["collects"] = p.Collects, ["verbs_verified"] = p.VerbsVerified, ["verb_heads"] = p.VerbHeads ?? [],
+        };
+        if (p.Verbs is { } verbs)
+        {
+            row["verbs"] = verbs.Select(VerbJson);
+            row["more_verbs"] = p.MoreVerbs;
+        }
+        return row;
+    }
+
+    private static object VerbJson(PeerCommand c) => new { verb = c.Verb, risk = c.Risk, words = c.Words };
+
+    /// <summary>The most bytes of one app's whole verbs (its rows, as JSON) the copilot is given.</summary>
+    public const int VerbsPerAppBytes = 32 * 1024;
+
+    /// <summary>The most bytes of every app's whole verbs together the copilot is given.</summary>
+    public const int VerbsTotalBytes = 64 * 1024;
+
+    /// <summary>
+    /// The other apps as a copilot plan reads them: each fact (by its id) joined to the desk's app of that id — whether it collects and
+    /// whether its verbs are verified — and, only for a verified app, the distinct words its forms open with, in its table's order
+    /// (<see cref="VerbSyntax.Lead"/>). The apps in <paramref name="full"/> also get their whole rows, in order, while each app's rows
+    /// stay within <see cref="VerbsPerAppBytes"/> and all apps' within <see cref="VerbsTotalBytes"/> (counted as the UTF-8 JSON of the
+    /// rows, in the facts' order), with the rows left out counted. An unverified table, or a fact that is no app the desk lists, gives
+    /// no verbs: what proves nothing never reaches the model.
+    /// </summary>
+    public static IReadOnlyList<PeerFact> Apps(IReadOnlyList<PeerFact> facts, IReadOnlyList<DeskApp> apps, Func<string, IReadOnlyList<PeerCommand>> table,
+        IReadOnlyCollection<string> full)
+    {
+        var left = VerbsTotalBytes;
+        var joined = new List<PeerFact>(facts.Count);
+        foreach (var f in facts)
+        {
+            if (apps.FirstOrDefault(a => a.Id == f.Id && f.Id.Length > 0) is not { } app)
+            {
+                joined.Add(f with { Collects = false, VerbsVerified = false, VerbHeads = [], Verbs = null, MoreVerbs = 0 });
+                continue;
+            }
+            if (!app.Verified)
+            {
+                joined.Add(f with { Collects = app.Collects, VerbsVerified = false, VerbHeads = [], Verbs = null, MoreVerbs = 0 });
+                continue;
+            }
+            var rows = table(app.Id);
+            var heads = rows.SelectMany(r => VerbSyntax.Forms(r.Verb)).Select(VerbSyntax.Lead).Where(h => h.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            List<PeerCommand>? verbs = null;
+            var more = 0;
+            if (full.Contains(app.Id))
+            {
+                verbs = [];
+                var mine = 0;
+                foreach (var r in rows)
+                {
+                    // A row and the comma before it, as the copilot's context writes it. The rows given are the table's first ones:
+                    // once one does not fit, it and every row after it are counted, never skipped over for a shorter one.
+                    var bytes = JsonSerializer.SerializeToUtf8Bytes(VerbJson(r)).Length + 1;
+                    if (more == 0 && mine + bytes <= VerbsPerAppBytes && bytes <= left)
+                    {
+                        verbs.Add(r);
+                        mine += bytes;
+                        left -= bytes;
+                    }
+                    else more++;
+                }
+            }
+            joined.Add(f with { Collects = app.Collects, VerbsVerified = true, VerbHeads = heads, Verbs = verbs, MoreVerbs = more });
+        }
+        return joined;
+    }
 
     /// <summary>The cloud assistant's compact view: titles, plan, expected/actual, curfews, live remaining, the other apps.</summary>
     public static string Assistant(IReadOnlyList<RundownItem> items, ScheduleProjection p, ShowClock clock, DateTime nowUtc,

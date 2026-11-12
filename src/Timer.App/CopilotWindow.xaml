@@ -109,6 +109,9 @@
                                                 <CheckBox IsChecked="{Binding Selected}" VerticalAlignment="Top" Margin="0,2,8,0"
                                                           IsEnabled="{Binding DataContext.IsPending, RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=1}}" />
                                                 <StackPanel Grid.Column="1">
+                                                    <!-- A step for another app names it (→ PlayMap Hall): approved, the line goes to that app through this desk. -->
+                                                    <TextBlock Text="{Binding TargetLabel}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+                                                               Visibility="{Binding TargetLabel, Converter={StaticResource NonEmptyToVis}}" />
                                                     <TextBlock Text="{Binding Command}" FontFamily="Consolas" FontSize="14" TextWrapping="Wrap" />
                                                     <TextBlock Text="{Binding Why}" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
                                                     <TextBlock Text="{Binding Result}" FontSize="12" Foreground="{StaticResource NeonGreenBrush}"

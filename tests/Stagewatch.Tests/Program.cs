@@ -2161,6 +2161,7 @@ NodeTests.Run(Check);
 VerbTableTests.Run(Check);
 DeskRulesTests.Run(Check);
 DeskTests.Run(Check);
+await CopilotPlanTests.Run(Check);
 PeerLinesTests.Run(Check);
 ReportTests.Run(Check);
 NetworkPreflightTests.Run(Check);

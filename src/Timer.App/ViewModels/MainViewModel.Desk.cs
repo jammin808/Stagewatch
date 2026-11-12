@@ -103,9 +103,16 @@ public sealed partial class MainViewModel
 
     private void MirrorShared(SharedProposal p)
     {
-        var item = Proposals.FirstOrDefault(x => x.SharedId == p.Id);
         // Both ends by the names this desk knows their ids by, as its journal rows and the frame say them — never the proposal's own.
         var target = Desk.Actor(p);
+        // A copilot plan's step for another app follows the line it went as on that step, never as a list item of its own — found
+        // by its id whether or not its plan is still listed.
+        if (_planned.TryGetValue(p.Id, out var planned))
+        {
+            FollowPlanned(planned, p, target);
+            return;
+        }
+        var item = Proposals.FirstOrDefault(x => x.SharedId == p.Id);
         if (item is null)
         {
             var sent = p.State == SharedProposalState.Approved && !p.TargetIsDesk && p.From.Id == _store.Snapshot.NodeId;
@@ -162,6 +169,42 @@ public sealed partial class MainViewModel
                 break;
         }
         UpdatePendingCount();
+    }
+
+    /// <summary>
+    /// A copilot plan's step sent to another app follows its line on the desk: sent, collected, then what its app said — done,
+    /// refused, not delivered — and once it settles the status line says so, as for any line this desk sent. Once the run has said
+    /// what came of the step, a stage before the outcome never replaces its words; once the run stopped waiting for it, the outcome
+    /// is added to the run's words ("… — later: done"), so the step still says the steps after it did not run.
+    /// </summary>
+    private void FollowPlanned(CopilotStepItem step, SharedProposal p, string target)
+    {
+        if (step.Settled) return;
+        var outcome = p.State switch
+        {
+            SharedProposalState.Done => "done" + (p.Result.Length > 0 ? ": " + p.Result : ""),
+            // An unconfirmed line failed only for want of a "done": it may have run, and its words say so.
+            SharedProposalState.Failed when p.Result.StartsWith(PlayoutReceipts.Unconfirmed, StringComparison.Ordinal) => p.Result,
+            SharedProposalState.Failed => "refused: " + p.Result,
+            SharedProposalState.Undelivered => "not delivered: " + p.Result,
+            SharedProposalState.Rejected => "rejected",
+            _ => null,
+        };
+        if (outcome is null)
+        {
+            if (step.Answered) return;
+            step.Result = p.State switch
+            {
+                SharedProposalState.Approved when p.ClaimedUtc is null => $"sent to {target} as {DeskService.Short(p.Id)} — waiting for it to collect",
+                SharedProposalState.Approved => $"{target} has {DeskService.Short(p.Id)} — waiting for its answer",
+                _ => step.Result,
+            };
+            return;
+        }
+        step.Result = step.WaitedOut ? step.Result + " — later: " + outcome : outcome;
+        step.Settled = true;
+        if (p.State is SharedProposalState.Done or SharedProposalState.Failed or SharedProposalState.Undelivered)
+            StatusLine = $"{target}: \"{p.Line}\" {p.StateName}" + (p.Result.Length > 0 ? $" — {p.Result}" : "");
     }
 
     /// <summary>
@@ -294,7 +337,15 @@ public sealed partial class MainViewModel
     private void RefreshApproveBlocks()
     {
         foreach (var p in Proposals)
-            p.ApproveBlocked = p is { SharedId: { } id, State: ProposalState.Pending } ? Desk.WhyNotApprove(id) ?? "" : "";
+            p.ApproveBlocked = p switch
+            {
+                { SharedId: { } id, State: ProposalState.Pending } => Desk.WhyNotApprove(id) ?? "",
+                // A copilot plan: grey while a ticked step's app would not take its line now, in the desk's words for that app (gone,
+                // not collecting, its verbs not verified, the line not listed or rated above what was shown) — the words a Run press
+                // would be refused in; unticking that step, or its app asking again, lifts it within a second.
+                { State: ProposalState.Pending } when PlanRunner.Blocked(Desk, PlanSteps(p.Steps)) is { } stop => $"step {stop.Index + 1}: {stop.Why.Shown}",
+                _ => "",
+            };
     }
 
     private void DiscardShared(CopilotProposal p)

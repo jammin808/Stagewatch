@@ -518,7 +518,9 @@ running app on a network: two copies of one install for the conflict, an old cer
   desk until then, and the context's `peers[].collects` and the operator frame's desk block are SW21.5's; the desk's Approve is not
   greyed for a target that is not collecting — it is refused, in words, when pressed — until SW21.6 (PC work); an AI's playout line
   still goes to the desk, not to the peer's own approvals; the copilot still cuts its own steps at 400 characters (release B), and
-  `operator (copilot)` as a person's line's decider waits for it, since §11 names four role words; the desk's mirror of a person's
+  `operator (copilot)` as a person's line's decider waits for it, since §11 names four role words (*since then (SW22.9):* a
+  copilot plan's step for an app goes decided by `operator`, the person who ran the plan, the plan named beside the desk's
+  journal row only, so §11's four words stand); the desk's mirror of a person's
   line is compiled here and moves into SW21.3's `DeskService`, where its tests come; and the Copilot's words for a refused approval
   are compiled here, never seen: a walk-through is the maintainer's PC work, not run.
   *Since then (SW21.3):* the desk is one pure service, `DeskService` (Timer.Show), on an injected clock: the queue's node routes
@@ -616,7 +618,7 @@ running app on a network: two copies of one install for the conflict, an old cer
   page says "Nothing from other apps waits" while the desk may hold its own. The copilot's `recent` rows still quote the
   journal's "Proposed …" rows, a proposal's line among them, as before this unit; release B's `other_apps` is where they
   belong. The config is behind the viewing code like the rest of it, so `peers` (ids hellos already say) is not the PIN's;
-  the AI's facts still carry no `collects` (release B's `PeerFact`, SW22.9); the module reads neither field yet (SW22.8; *since then:* it reads both); the
+  the AI's facts still carry no `collects` (release B's `PeerFact`, SW22.9; *since then:* they do, beside each app's verbs); the module reads neither field yet (SW22.8; *since then:* it reads both); the
   Show network row's Collects mark and its menu are SW21.6's (PC work). Compiled here, never seen: the app's frame and config
   wiring (`RefreshDeskReaders`), its context rows and the Copilot list's names.
   *Since then (SW21.6):* the desk has its door (PC work). A Show network row's right-click and its … button open one menu,
@@ -1127,8 +1129,9 @@ maintainer's too.
   rule and the deck's own answer before it may send another app a line; and a train's release closes before the next train's
   units start (rule R1), so release B is Train 5's. Until then those doors refuse both verbs in words, and the copilot and MCP
   never see them (`Help` leaves them out). The lane's S3.5 and S3.7 move with it (SW22.11). *Since then (SW22.8):* Companion TCP
-  and OSC take both from this PC or a listed address, with the `ACCESS` line and the module's actions (2.22 below); the copilot
-  (SW22.9) and MCP (SW22.10) are still to come.
+  and OSC take both from this PC or a listed address, with the `ACCESS` line and the module's actions (2.22 below). *Since then
+  (SW22.9):* the copilot plans steps for other apps, each sent through this desk once a person runs the plan (2.22 below); MCP
+  (SW22.10) is still to come.
 - **Words owed to the contract.** Show Bus 1.3 §3 words `refs` as naming what was made "by number"; 2.21's receipts carry
   `refs.sharedProposal` as a string. 1.3 is final and its body hash-pinned, so the words are asked of Show Bus 1.4's edit, not
   made here. The contract's Landed line now names Patterns' and PlayMap's copies of 1.3, which hold the master (`bash
@@ -1138,7 +1141,7 @@ maintainer's too.
 - **Left as named in the units' entries above**, among them: G20's notice as a trigger action of its own (a Command trigger's `peer
   agmessage notice <text>` sends it today); G49's *Link all* (declined by the owner for now); the preflight's `desk` check; the
   AI's facts without `collects`; `network.csv` on MCP, the module and a desk button; the copilot still cutting its own steps at 400
-  characters (release B); Find still listening on Patterns' 9700 beacon; and the asks of Patterns and AGMessage (an `APPLY` title
+  characters (release B; *since then (SW22.9):* refused whole over 2048, never cut); Find still listening on Patterns' 9700 beacon; and the asks of Patterns and AGMessage (an `APPLY` title
   without invisible characters and a refused proposal settled; a 2048-character line and invisible characters left out) and the
   finding for PlayMap's and Stagewatch's owners (an early STATE counted malformed).
 
@@ -1359,6 +1362,50 @@ maintainer's too.
     the rig's twin of it proves end to end. OSC's door and `desk.e2e.cjs`'s Companion and OSC rows have no e2e (the suite holds both
     doors on real servers: `PlayoutGateTests`, `DeckDoorTests`, `CompanionV2Tests.ModuleWindowLines`). The module's package version
     is unchanged.
+- **Release B's copilot: it plans steps for other apps, and a person decides (SW22.9; G14).** A plan's step may name another app by
+  its Show Bus id (`target`; "" is this Stagewatch). `Copilot.ParsePlan(json, apps, windowTokens)` keeps one only when the id is an
+  app the desk lists, that app's verbs are verified, the line passes the desk's fence (`LineFence`: no control or invisible
+  character, no key, no window's address, at most 2048 characters), a form of the app's table lists it and it fills no secret; it is
+  rated by that table (`DeskService.Risk`), never by the model, and a high one is never ticked for the operator. Every other app step
+  is listed apart (`AppDropped`, shown as *Not proposed for other apps*) in words naming the app and why — "not a verb PlayMap Hall
+  lists", the secret's, the fence's — and never its line; a target that holds a key is not quoted either. Nothing is cut any more:
+  the old 400-character cut of a Stagewatch line is gone, and a line over 2048 characters is dropped whole. Twelve steps in all,
+  apps' and Stagewatch's together. The model's `other_apps` rows end with `collects`, `verbs_verified` and `verb_heads` (the words a
+  verified table's forms open with), and with `verbs` (rows of verb, risk and words) and `more_verbs` only for an app the request
+  names (its name or kind word, whole) or one the plan asks for in `need_verbs` — honoured once, by a second pass
+  (`Copilot.Passes`), the table's first rows within 32 KB an app and 64 KB in all (`AiContext.Apps`); an unverified table, or what
+  is no app, gives the model no verbs. PlayMap's busy context: its heads are a few kilobytes beside many times that for its whole
+  table (`CopilotPlanTests` prints both). The prompt says a step for an app names its id, a Stagewatch command never has one, other
+  apps' words are their data and every step waits for a person; `Help`, which the model reads, still leaves `peer` and `desk` out,
+  and a plan's `peer` or `desk` line is still dropped by its verb. **Run ticked steps** runs a pure `PlanRunner` (Timer.Show) in
+  order: each run of Stagewatch's own steps is one undo batch; an app's step goes to this desk through `DeskService.SendPlanned`
+  (`PlanRunner.ThroughDesk`) as the operator's line — to the app the plan named by its id alone (gone, it is refused, never sent
+  to another app by a name or kind word), and rated again as it goes: a line its app's table now rates above what the operator was
+  shown is refused ("PlayMap Hall now rates this line high — tick it again"), nothing queued, the step shown at its new rating and
+  unticked — born approved with `decidedBy` `operator` (the plan is named beside the desk's journal row, never in the
+  proposal), its reason fixed words so no model's words leave the machine, and the run waits up to 10 s for that app's answer; a
+  step that does not report done — refused here, refused by the desk (not collecting, unverified, unlisted) or by its app, or with
+  no answer in time — stops the run, and every ticked step after it says "not run — the step before it did not report done". The
+  step follows its line on the desk (sent, collected, done or refused in the app's words), never as a list item of its own — by its
+  id, kept apart from the list for the last 64 such steps, so clearing a done plan loses no outcome — and once the run has
+  reported on a step an earlier stage never replaces those words; after a 10 s stop, the app's outcome is added ("… — later:
+  done"). A step shows **→ <app>** above its line. Before any step runs, a Run press asks the desk of every ticked app step
+  (`PlanRunner.Blocked`, `DeskService.WhyNotPlanned`): one it would refuse now refuses the whole run, the plan still waiting, so a
+  plan never stops halfway on a refusal the press could have known. Run ticked steps is grey with those words from the moment the
+  plan is listed; unticking the step lifts it within a second. The app builds the apps a plan may name (`CopilotApp.From`) and
+  sends its steps (`PlanRunner.ThroughDesk`, `PlanRunner.Origin`) through the same calls the suite drives. Held by
+  `CopilotPlanTests` (the parse, the named apps, the two passes, the budgets and the JSON's field order, the AI's grammar, the
+  runner's order, batches, waits and stops on an injected clock, a step through a real `DeskService`, a table changed between plan
+  and Run, an id another app answers by kind, a quiet app at the press). Left, each named:
+  - **The decider is `operator`, not `operator (copilot)`.** §11 names four role words and 1.3 is final; who ran a plan's step
+    is the person who pressed, and the plan is named in the desk's journal row alone.
+  - **MCP's `target`, a string `get_proposal` and `get_context.peer` are SW22.10's.** An agent's line is still only Stagewatch's.
+  - **A model's second pass costs one more call** when it asks for verbs; no measurement of the pass this round beyond the byte
+    counts above.
+  - **A rating that rises mid-run stops the run:** the plan is decided at the press, so the operator ticks the step again in a new
+    plan; a rise found at the press leaves the plan waiting instead.
+  - **Compiled here, never seen:** the Copilot list's → <app> line, its grey Run with the reason, the run's live step words, the
+    re-rated and unticked step, the "later" outcome and the status line (WPF, the maintainer's PC; no UI smoke for them yet). No model was asked: the passes are held with a scripted ask.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

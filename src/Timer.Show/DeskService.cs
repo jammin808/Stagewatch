@@ -13,6 +13,12 @@ public sealed record DeskOutcome(bool Ok, string Words, SharedProposal? Proposal
     /// list, which they never quote — such a line cannot be told from one that holds a secret.
     /// </summary>
     public string Shown { get; init; } = Words;
+
+    /// <summary>
+    /// A copilot plan's step refused because its app's table now rates the line above what the operator was shown: that rating
+    /// (<see cref="DeskService.SendPlanned"/>); null for every other outcome.
+    /// </summary>
+    public LineRisk? Risen { get; init; }
 }
 
 /// <summary>
@@ -395,6 +401,16 @@ public sealed class DeskService : IShowApprovals
         return Apps().FirstOrDefault(a => a.Id == appId) is { Verified: true } app ? Forms(Table(app, now)) : [];
     }
 
+    /// <summary>
+    /// The rows of an app's verified table, in its order — what a copilot plan reads of that app's verbs (<see cref="AiContext.Apps"/>);
+    /// none while its table proves nothing, or for what is no app.
+    /// </summary>
+    public IReadOnlyList<PeerCommand> VerifiedTable(string appId)
+    {
+        var now = Now;
+        return Apps().FirstOrDefault(a => a.Id == appId) is { Verified: true } app ? Table(app, now) : [];
+    }
+
     private static List<DeskVerb> Forms(IReadOnlyList<PeerCommand> table)
         => table.SelectMany(row => VerbSyntax.Forms(row.Verb).Select(form => new DeskVerb(form, VerbSyntax.Lead(form), VerbTable.Normal(row.Risk), row.Words))).ToList();
 
@@ -457,21 +473,68 @@ public sealed class DeskService : IShowApprovals
         if (!by.Sends) return new(false, PersonSends);
         var (found, unknown) = Resolve(app);
         if (found is null) return new(false, unknown!);
+        return SendTo(found, line, by, reason, seen: null);
+    }
+
+    /// <summary>
+    /// A step of a copilot plan the operator approved, sent as <see cref="Send"/> sends a person's line, with two rules more: the app
+    /// is the one the plan named, by its id alone — gone from the show network, it is refused, never resolved by a name or a kind to
+    /// another node — and the line is rated again as it goes, refused (<see cref="DeskOutcome.Risen"/>) when its app's table now rates
+    /// it above <paramref name="seen"/>, the risk the operator was shown when they ticked it. Nothing is queued on a refusal.
+    /// </summary>
+    public DeskOutcome SendPlanned(NodeRef target, string line, LineRisk seen, DeskOrigin by, string reason)
+    {
+        if (!by.Sends) return new(false, PersonSends);
+        if (Apps().FirstOrDefault(a => a.Id == target.Id) is not { } found) return new(false, Gone(target));
+        return SendTo(found, line, by, reason, seen);
+    }
+
+    /// <summary>
+    /// Why a copilot plan's step would be refused if it were sent now as the operator's (<see cref="SendPlanned"/>'s words, the shown
+    /// ones), or null: nothing is sent, queued or journalled. A Run press asks this of every ticked step before any step runs.
+    /// </summary>
+    public DeskOutcome? WhyNotPlanned(NodeRef target, string line, LineRisk seen)
+    {
+        if (Apps().FirstOrDefault(a => a.Id == target.Id) is not { } found) return new(false, Gone(target));
+        var now = Now;
+        var (verdict, refused, unlisted) = Judge(new NodeRef(found.Kind, found.Id, found.Name), line, DeskOrigin.Operator.Role, now);
+        if (refused is not null) return new(false, refused) { Shown = unlisted ? UnlistedWords(found.Name) : refused };
+        return Rose(found, verdict!, seen);
+    }
+
+    /// <summary>A plan's app that the show network no longer lists, by the name the plan showed.</summary>
+    private static string Gone(NodeRef target) => $"{target.Name} is no longer on the show network";
+
+    private static string UnlistedWords(string name) => $"{name} does not list that line — see its verbs";
+
+    /// <summary>A refusal when the app's table rates a plan's line above what the operator was shown, or null.</summary>
+    private static DeskOutcome? Rose(DeskApp found, RiskVerdict verdict, LineRisk seen)
+    {
+        var now = CommandRisk.Parse(verdict.Risk);
+        return now > seen ? new(false, $"{found.Name} now rates this line {VerbTable.Normal(verdict.Risk)} — tick it again") { Risen = now } : null;
+    }
+
+    /// <summary>A line sent to an app already found, judged and queued born approved; <paramref name="seen"/> set for a plan's step.</summary>
+    private DeskOutcome SendTo(DeskApp found, string line, DeskOrigin by, string reason, LineRisk? seen)
+    {
         var now = Now;
         var target = new NodeRef(found.Kind, found.Id, found.Name);
         SharedProposal? sent = null;
         var (verdict, refused, unlisted) = Judge(target, line, by.Role, now);
+        // A plan's step is refused when the table that rates it now rates it above what the operator ticked — the verdict it would go at.
+        var rose = refused is null && seen is { } shown ? Rose(found, verdict!, shown) : null;
+        refused ??= rose?.Words;
         // Judged a moment ago: the queue judges again as it takes the line, and its answer is the one that stands.
         if (refused is null) (sent, refused) = Queue.ProposeApproved(Own, target, line, reason, verdict!, by.Role, now);
         // What the journal says of a refusal, and what makes two refusals the same one: the sender's words, but for a line no form
         // lists (never quoted) and an app that does not collect (its words count the seconds).
-        var journalled = sent is null && unlisted ? $"{found.Name} does not list that line — see its verbs" : null;
+        var journalled = sent is null && unlisted ? UnlistedWords(found.Name) : null;
         if (sent is null)
         {
             var head = $"Refused to send to {found.Name} ({by.Role})";
             var same = journalled ?? (Queue.NotCollecting(target, now) is { } quiet && quiet == refused ? "not collecting" : refused);
             Refusal(now, $"send|{found.Id}|{by.Role}|{by.Named}|{same}", head, $"{head}: {journalled ?? refused}", by.Named, found.Id);
-            return new(false, refused!) { Shown = journalled ?? refused! };
+            return new(false, refused!) { Shown = journalled ?? refused!, Risen = rose?.Risen };
         }
         Journal(now, $"Sent {Short(sent.Id)} to {found.Name} ({by.Role}): {sent.Line}", by.Named, found.Id);
         return new(true, $"sent to {found.Name} as {Short(sent.Id)} — it collects it and reports back", sent);
