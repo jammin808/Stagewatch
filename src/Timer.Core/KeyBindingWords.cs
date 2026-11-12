@@ -57,6 +57,24 @@ public static class KeyBindingWords
         return line;
     }
 
+    /// <summary>What a key's row and the context say of a key seen in clear (Show Bus 13.6.9), at its end.</summary>
+    public const string ReplaceKey = "replace this key";
+
+    /// <summary>
+    /// A key's words in Settings → Remote once it was seen in clear (Show Bus 13.6.9), of any scope: from where and how long ago, and
+    /// that it is to be replaced. "" for a key never seen in clear.
+    /// </summary>
+    public static string ClearLine(KeySighting? seen, DateTime nowUtc)
+        => seen is { } s ? $"seen in clear from {s.Address} {Ago(s.AtUtc, nowUtc)} — {ReplaceKey}" : "";
+
+    /// <summary>
+    /// The journal row for a key first seen in clear: its name (never its secret), from where, and what follows — anyone on the path
+    /// may hold it, no window is granted to it, and the operator replaces it.
+    /// </summary>
+    public static string ClearJournalLine(KeySighting seen, Func<string, string?> keyName)
+        => $"API key {Named(keyName, seen.KeyId)} was seen in clear from {seen.Address} — anyone on that network path may hold it; "
+           + $"no window is granted to it: {ReplaceKey} (Settings → Remote: revoke it, make a new one, and turn HTTPS on)";
+
     /// <summary>
     /// The nodes "Let it speak for…" offers a key (decision: the ids that key was refused for, the ids heard, or a typed
     /// one): first the node this key was last refused for, then the show network's rows, the ids its unverified links named

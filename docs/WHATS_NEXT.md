@@ -460,8 +460,8 @@ running app on a network: two copies of one install for the conflict, an old cer
   on this 413. A poster reads it as 13.12.3's table has it, refused with the body's words; fitting PlayMap's posted context to
   64 KiB is PlayMap's own (its PM-8). Left as they are: a sender holds one of the 64 connection slots for up to 15 s per such
   request (5 s for its head, 10 s draining), with no cap on drains at once until a rig measures slots running out; a body sent
-  chunked, with no `Content-Length`, is still read as none; and 13.6.9's mark of a key seen in clear (SW22.1b) must stand above
-  both these answers and the Require HTTPS redirect, which all return before any credential is read. The 413's words are
+  chunked, with no `Content-Length`, is still read as none. 13.6.9's mark of a key seen in clear (2.22, SW22.1b) stands above
+  both these answers and the Require HTTPS redirect: it is the first thing read of a request. The 413's words are
   ASCII, so the Slides agent's status, which matches the raw answer, shows them as sent; it still shows other words' em dash
   as its JSON escape, a fix of its own.
   *Since then (SW21.1):* PeerContexts keeps §14's numbers as a reader, and is the one home of them in code: a context's first
@@ -1136,6 +1136,18 @@ maintainer's too.
   characters (release B); Find still listening on Patterns' 9700 beacon; and the asks of Patterns and AGMessage (an `APPLY` title
   without invisible characters and a refused proposal settled; a 2048-character line and invisible characters left out) and the
   finding for PlayMap's and Stagewatch's owners (an early STATE counted malformed).
+
+## /ws speaks LINK (2.22, in progress) — what moved between its units
+
+2.22 is not released; its papers come with its last unit. What one of its units moved to another, so the next one carries it:
+
+- **S14 at this `/ws` acceptor moves from SW22.1b to SW22.1c**, with the receipts feature (the receipts store, a repeat answered
+  from it, `RECEIPTS`, `final`). A node LINK socket runs no command that is not public over `/ws`, and the scripted peer's side
+  call sends no `X-Request-Id` (the peer is hash-pinned by §14, so it is not changed for this), so no S14 leg can reach
+  Stagewatch's own receipts until SW22.1c gives the LINK socket its commands and receipts. Meanwhile the kit's stand-in answers
+  S14 with the core's receipt store (PeerLinkScenarios.Attacks.cs), as it has since 2.19.
+- **S12 at `/ws` is its emitting half only.** The stuck beat (`{"type":"beat","live":false}`) was already sent to every socket; SW22.1b
+  holds it on a verified LINK socket with a test. `stuck` in `can`, and `stuckMs`, come with SW22.1c.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

@@ -1246,7 +1246,7 @@ Upgrade: websocket
 | `malformed` | not one link message of that shape, or a `client` that is not the query's — as it came, and as this Stagewatch reads it (so `NODE=` or an encoded `node` beside `node=` refuses it) | no |
 | `version` | `link=0` | no |
 | `busy` | the key over its rate (`retry` its `Retry-After`) | no |
-| `binding` | on a link already verified: its key no longer speaks for its id, because the operator or another key's first use bound that id elsewhere | no |
+| `binding` | its key may not speak for the id the link names — the key bound to another node, or the id held by another key — at the LINK itself (in the binding's words, `this key speaks for patterns 0f0f0f0f0f0f — make a key for patterns 9f8e7d6c`), or on a link already verified once the operator or another key's first use binds that id elsewhere | no |
 
 - **One proof a socket, one verdict a link.** A second link message after the verdict is no command
   (`{"type":"error","error":"missing cmd"}`) and links nothing more; a link message sent again on a new socket meets a new snonce and
@@ -1270,11 +1270,26 @@ Upgrade: websocket
   closes it.
 - **Side calls.** A request carrying `Authorization: ShowBus lid=<16 hex>, s=<64 hex>` is checked first against the live link its lid
   names (13.7.1): not a live link's, or a wrong S, is 401 `{"ok":false,"error":…,"relink":true}`; a right S in clear from another
-  machine is refused the same way and its link ended at once. A live link's S passes this door; the routes read the request as one
-  with no other credential until S speaks for its key there (a later 2.22 unit).
+  machine is refused the same way and its link ended at once. A live link's S passes this door and, on the side calls' routes,
+  speaks for the key its link proved — its scope, its binding and its rate, as that key's own request would: `GET /api/context`,
+  `POST /api/peers/context`, `/api/proposals` and everything below it (a proposal, a read, a collect, a result), and `/api/message`
+  (and `/api/clearmessage`). A context or a proposal it posts for another node than its link's is 403 in the binding's words, and
+  nothing is stored. On any other route S is no credential: the request is read as one with none, so with a PIN set `/api/start`
+  is `401 PIN required`, counted nowhere. A revoked key's S ends with its link at once, and a side call with it is 401 relink — also
+  when the key goes between the session door and the route. A context too big to read posted with S is listed on the Show network
+  by the node its link's key speaks for, as a bearer node key's is.
+- **A key seen in clear** (13.6.9). An API key in force that arrives with no TLS from another machine — a bearer key, an
+  `X-Stagewatch-Pin` key or `?pin=`, each carrier read, whichever a route reads first — is marked *seen in clear* the first time, before any answer is written (its 400 or 413, the
+  Require HTTPS redirect, a refusal or a route): from its address and when. The mark is saved on the key (`clearSeen`, `clearFrom`,
+  appended to its settings entry, absent on a key never seen in clear), journalled by the key's name, shown on its Settings → Remote
+  row (`seen in clear from 10.0.0.9 4 min ago — replace this key`) and in the context as an amber `key:<id>` item (kind `health`).
+  Such a key gets no window grant (§12) until it is replaced: revoke it, make a new one and turn HTTPS on. The PIN, a view pass and
+  S are not keys and mark nothing; an unknown key marks nothing. The request itself is answered as before (1.4 refuses such a key).
 
-Not in this release yet: S on the context, proposal, message and result routes; a key seen in clear; `final`, `receipts` and
-`stuck` in `can`; a first LINK whose key speaks for another node refused as `binding` (today it links with `"verified":"none"` and
-the binding's words, as on a bearer node link); the `open` answer of 13.6.7 (a Stagewatch with no keys refuses every LINK as
-`refused` today); and the desk, context and AI facts reading the wrong-proof table (which the rig's `auth` line lists) and each node
-link's LINK-verified and oversize counts (which only the server's own node list holds).
+Not in this release yet: S14 at this `/ws` acceptor, which comes with the receipts (SW22.1c: the store, a repeat, `RECEIPTS`,
+`final`), since a node LINK socket runs no command that is not public over `/ws` and the scripted peer's side call sends no
+`X-Request-Id` (the kit's stand-in answers S14 meanwhile); `final`, `receipts` and `stuck` in `can` (the stuck beat itself, `{"type":"beat","live":false}`, reaches
+a verified link as it reaches every socket); window grants, which a key seen in clear will never get; the `open` answer of 13.6.7 (a
+Stagewatch with no keys refuses every LINK as `refused` today); Settings saying, while HTTPS is off, that other apps cannot link with
+keys; and the desk, context and AI facts reading the wrong-proof table (which the rig's `auth` line lists) and each node link's
+LINK-verified and oversize counts (which only the server's own node list holds).

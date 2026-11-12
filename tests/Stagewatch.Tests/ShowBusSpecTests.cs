@@ -289,8 +289,6 @@ static class ShowBusSpecTests
         ("its Patterns link proves at level 0 only", "SW23.1", "it answers NONCE with AUTH-PROOF and runs no LINK",
             () => Source("src/Timer.Integrations/PlayoutLink.cs") is { } link && link.Contains("\"@pa AUTH-PROOF \"", StringComparison.Ordinal)
                   && link.Contains("OffersLink = false", StringComparison.Ordinal) && !Regex.IsMatch(link, @"""(?:@l\d+ )?LINK ")),
-        ("13.6.9's mark on a key seen in clear", "SW22.1b", "it takes a key sent in clear from another machine as it takes any other, and marks nothing",
-            SeenInClearAsToday),
         ("12.2's page rule for a page opened with a viewing code or a crew link", "not scheduled",
             "it serves those pages without the window page's no-referrer, noindex and no-framing headers", PageRuleAtWindowsOnly),
         ("12.2's revocation at once for a viewing code or a crew link", "not scheduled", "a screen already open on a changed one keeps its link until it reconnects",
@@ -2002,11 +2000,23 @@ static class ShowBusSpecTests
     }
 
     /// <summary>
-    /// Whether Stagewatch still marks no key seen in clear (13.6.9): a stored key has no field for it and the server names no such mark.
+    /// Whether Stagewatch marks a key seen in clear (13.6.9): a key in force marked once, from where and when, saved on its key, amber in
+    /// the context with "replace this key", given no grant; and the server marks every request's key before any answer is written.
     /// </summary>
-    static bool SeenInClearAsToday()
-        => typeof(ApiKey).GetProperties().All(p => !p.Name.Contains("Clear", StringComparison.Ordinal))
-           && Source("src/Timer.Remote/WebServer.cs") is { } server && !Regex.IsMatch(server, "(?i)seen ?in ?clear|InClear");
+    static bool SeenInClearKept()
+    {
+        var at = new DateTime(2026, 11, 12, 20, 0, 0, DateTimeKind.Utc);
+        var key = new ApiKey { Id = "kS", Name = "Patterns FOH", Scope = ApiKeyScope.Node, Hash = new string('a', 64) };
+        var table = new KeySightings([key]);
+        var marked = table.Mark("kS", "10.0.0.9", at) && !table.Mark("kS", "10.0.0.8", at) && !table.Mark("kX", "10.0.0.9", at);
+        var saved = table.SaveTo([key]) && key is { ClearSeen: "2026-11-12T20:00:00Z", ClearFrom: "10.0.0.9" };
+        var items = Stagewatch.Show.ShowContext.ClearSeenItems(table.All(), _ => "Patterns FOH");
+        var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
+        var connection = Method(server, "private async Task HandleConnectionAsync(") ?? "";
+        var mark = connection.IndexOf("NoteClear(req, remote, secure);", StringComparison.Ordinal);
+        return marked && saved && !table.MayGrant("kS") && items is [{ Light: Light.Amber, Kind: "health" } item] && item.State.EndsWith(KeyBindingWords.ReplaceKey, StringComparison.Ordinal)
+               && mark > 0 && mark < connection.IndexOf("req.LengthUnreadable", StringComparison.Ordinal) && mark < connection.IndexOf("RequireHttps", StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Whether an mcp key posts no proposal (§11): WebServer no longer lets an mcp key post one, and answers it 403 in ProposalDesk's
@@ -2238,7 +2248,10 @@ static class ShowBusSpecTests
         var server = Source("src/Timer.Remote/WebServer.cs") ?? "";
         string Of(string signature) => Method(server, signature) ?? "";
         var passPaths = new[] { "private ScreenWindow? WindowFor(", "private string? ViewPass(", "private string? CrewLinkFor(" }.Select(Of).ToList();
-        var pinDoor = new[] { "private string? CheckPin(", "private Denied? AuthorizeSecret(" }.Select(Of).ToList();
+        // The PIN's door and the key's (a key by its secret or by its link's session credential, AuthorizeKey) read the PIN's table alone;
+        // AuthorizeSecret, which sends a secret to one or the other, reads no table of its own and no view pass's.
+        var pinDoor = new[] { "private string? CheckPin(", "private Denied? AuthorizeKey(" }.Select(Of).ToList();
+        var secretDoor = Of("private Denied? AuthorizeSecret(string? supplied, IPAddress remote, ApiKeyScope need, out bool proved)");
         var counted = Regex.IsMatch(Of("private void CountWrongPass("), @"=>\s*_passGuesses\.Count\(")
                       && Regex.IsMatch(Of("private bool PassesLockedOut("), @"=>\s*_passGuesses\.Locked\(")
                       // At the view door, a key that is no crew link counts in a local function of its own, which counts it.
@@ -2246,6 +2259,8 @@ static class ShowBusSpecTests
         Keeps(counted && passPaths.All(b => b.Contains("CountWrongPass(remote)", StringComparison.Ordinal) && b.Contains("PassesLockedOut(remote)", StringComparison.Ordinal)
                                             && !b.Contains("_pinGuesses", StringComparison.Ordinal))
               && pinDoor.All(b => b.Length > 0 && b.Contains("_pinGuesses.", StringComparison.Ordinal) && !Regex.IsMatch(b, "_passGuesses|CountWrongPass|PassesLockedOut"))
+              && secretDoor.Contains("CheckPin(", StringComparison.Ordinal) && secretDoor.Contains("AuthorizeKey(", StringComparison.Ordinal)
+              && !Regex.IsMatch(secretDoor, "_passGuesses|CountWrongPass|PassesLockedOut|ViewPass|CrewLinkFor|WindowFor")
               && !server.Contains("_passGuesses.Clear", StringComparison.Ordinal)
               && Regex.Matches(server, @"_passGuesses\.").Count == 2,
             "wrong window addresses, viewing codes and crew links count in a table of their own, apart from wrong PINs and keys, which no right "
@@ -2913,6 +2928,11 @@ static class ShowBusSpecTests
         Check(notKept.Contains("verified peers' `recent` in its report (today its report holds its own journal alone) —", StringComparison.Ordinal) && PeerRecentKept(),
             "showbus spec: Stagewatch keeps what §8's row names it without: verified peers' recent in its report — a line told by a context that proves its node "
             + "is heard once, journalled as a peer row and listed in the show network and network.csv with its road; a context that proves nothing adds no row");
+        // Kept since SW22.1b, its words in the frozen row still standing: 13.6.9's mark on a key seen in clear.
+        Check(notKept.Contains("13.6.9's mark on a key seen in clear (today it takes a key sent in clear from another machine as it takes any other, and marks nothing)", StringComparison.Ordinal)
+              && SeenInClearKept(),
+            "showbus spec: Stagewatch keeps what §8's row names it without: 13.6.9's mark on a key seen in clear — marked once from where and when, saved on "
+            + "the key, amber in the context, no grant, and marked before any answer");
         // Kept since SW22.1a, its words in the frozen row still standing: its /ws speaks LINK (13.6.5) — the offer first, then one link
         // message decided by the core's proofs, the verdict's fields, a wrong-proof table of its own.
         Check(notKept.Contains("its `/ws` speaks no LINK (today a node link proves a bearer key or the operator's credential, §7.1)", StringComparison.Ordinal) && LinkKept(),

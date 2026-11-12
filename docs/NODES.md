@@ -233,7 +233,12 @@ section has every message and refusal.
   set, or nothing makes it only a claim: it stays in Screens, flagged, never reached by "all".
 - An app may instead prove its node key with LINK (`&link=1` and no `Authorization` header; Show Bus 13.6.5): it hears an offer
   first, sends one link message with its proof, and hears the verdict with the server's proof and the link's id, so the key never
-  crosses the network. From another machine only over TLS. REMOTE.md's 2.22 section has every message and refusal.
+  crosses the network. From another machine only over TLS. A key that speaks for another node is refused there (class `binding`),
+  never verified `none`. Its side calls then carry `Authorization: ShowBus lid=…, s=…` (13.7.1) instead of the key: on
+  `/api/context`, `/api/peers/context`, `/api/proposals` (and below) and `/api/message` that session speaks for the key, and it ends
+  with the link. REMOTE.md's 2.22 section has every message and refusal.
+- A key sent in clear (a bearer key with no TLS) from another machine is marked *seen in clear* on its key row and in the context,
+  amber, and gets no window grant until it is replaced (Show Bus 13.6.9).
 - `cid` and `page` are ignored when `node` is there; a Stagewatch older than 2.18 ignores `node` and lists each install under its
   own `cid`, which it keeps only at `cid.min` to `cid.max` (6 to 32) letters, digits, `-` or `_` (so PlayMap keeps the `cid` it
   sends today, `playmap-<id>` for a shorter id).

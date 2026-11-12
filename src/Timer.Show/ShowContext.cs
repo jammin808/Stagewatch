@@ -162,6 +162,17 @@ public static class ShowContext
     }
 
     /// <summary>
+    /// Each API key seen arriving in clear from another machine (13.6.9, 13.16.5), pure: one amber <c>key:&lt;key id&gt;</c> (kind
+    /// <c>health</c>) labelled with the key's name (never its secret; "a revoked key" once it is gone), saying from where and when, and
+    /// "replace this key". The oldest first; none for a key never seen in clear.
+    /// </summary>
+    public static IReadOnlyList<ContextItem> ClearSeenItems(IEnumerable<KeySighting> seen, Func<string, string?> keyName)
+        => seen.OrderBy(s => s.AtUtc).ThenBy(s => s.KeyId, StringComparer.Ordinal)
+            .Select(s => new ContextItem("key:" + s.KeyId, "health", "API key " + (keyName(s.KeyId) is { } n ? "'" + n + "'" : "(a revoked key)"), Light.Amber,
+                $"seen in clear from {s.Address} at {KeySightings.Iso(s.AtUtc)} — {KeyBindingWords.ReplaceKey}"))
+            .ToList();
+
+    /// <summary>
     /// A link record's flag (13.16.2) in a reader's words: what an amber light stands for, so a link that is up and amber says why.
     /// A flag no row names is left out.
     /// </summary>

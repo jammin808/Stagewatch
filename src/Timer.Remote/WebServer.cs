@@ -515,6 +515,11 @@ public sealed class WebServer : IAsyncDisposable
             }
             if (req is null) return;
 
+            // 13.6.9: a key in force that came in clear from another machine is marked seen in clear before anything answers the
+            // request — its 400, its 413, the Require HTTPS redirect, a refusal or a route — since it was read on the path whatever the
+            // answer. A reading of the credential that decides nothing and counts nothing.
+            NoteClear(req, remote, secure);
+
             // A request whose body this server will not read is answered first, whatever its path or credential: a Content-Length it
             // cannot read 400, a body over the cap 413. No route, credential check, lockout count, Require HTTPS redirect or /ws upgrade
             // sees either, so anything that must see every request's credential (13.6.9's mark) stands above these two answers. A
@@ -534,12 +539,18 @@ public sealed class WebServer : IAsyncDisposable
 
             // A session credential (13.7.1) is checked before anything else reads the request: one that came in clear from another
             // machine has been read on the path, so its link ends whatever the rest of the request is; one that is not a live link's is
-            // 401 with relink. A live link's S passes this door and the route then reads the request as one with no other credential.
-            if (req.Headers.GetValueOrDefault("authorization") is { } showBus && showBus.TrimStart().StartsWith("ShowBus", StringComparison.OrdinalIgnoreCase)
-                && CheckSession(req, remote, secure, showBus) is { } refusal)
+            // 401 with relink. A live link's S passes this door and, on a side call's route (SpeaksOn), speaks for the key its link
+            // proved: the route reads the request as that key's, its scope, its binding and its rate. On any other route S is no
+            // credential, and the request is read as one with none.
+            if (req.Headers.GetValueOrDefault("authorization") is { } showBus && showBus.TrimStart().StartsWith("ShowBus", StringComparison.OrdinalIgnoreCase))
             {
-                await WriteAsync(stream, 401, "application/json", refusal, ct, cors: true);
-                return;
+                var (refusal, keyId) = CheckSession(req, remote, secure, showBus);
+                if (refusal is not null)
+                {
+                    await WriteAsync(stream, 401, "application/json", refusal, ct, cors: true);
+                    return;
+                }
+                if (SpeaksOn(req.Path)) req.SpeakAs(keyId!);
             }
 
             // Require HTTPS: plain requests from other machines go to the encrypted address (the certificate pages stay
@@ -858,6 +869,13 @@ public sealed class WebServer : IAsyncDisposable
     /// </summary>
     private NodeCredential CredentialOf(HttpRequest req)
     {
+        if (req.SessionKeyId is not null)
+            return KeyOf(req) switch
+            {
+                { Scope: ApiKeyScope.Node } k => NodeCredential.Key(k.Id),
+                { Scope: ApiKeyScope.Control } => NodeCredential.Operator,
+                _ => NodeCredential.None,
+            };
         var supplied = PinFrom(req);
         if (ApiKeys.LooksLikeKey(supplied))
             return ApiKeys.Find(_control.ApiKeys, supplied) switch
@@ -899,7 +917,7 @@ public sealed class WebServer : IAsyncDisposable
         Denied? Proposer()
         {
             var denied = Authorize(req, remote, ApiKeyScope.Node);
-            return denied is { Status: 403 } && ApiKeys.Find(_control.ApiKeys, PinFrom(req)) is { Scope: ApiKeyScope.Mcp }
+            return denied is { Status: 403 } && KeyOf(req) is { Scope: ApiKeyScope.Mcp }
                 ? denied with { Error = ProposalDesk.McpPostsNone } : denied;
         }
         if (string.IsNullOrEmpty(rest))
@@ -978,11 +996,17 @@ public sealed class WebServer : IAsyncDisposable
         lock (_tooBigLock) return _tooBig.Where(t => nowUtc - t.AtUtc <= PeerContexts.KeepFor).ToList();
     }
 
-    /// <summary>Notes a context refused as too big: by the node a node key in force is bound to, else by its address alone.</summary>
+    /// <summary>
+    /// Notes a context refused as too big: by the node a node key in force is bound to — carried by its secret, or by a live link's
+    /// session credential that verifies (13.7.1) — else by its address alone. Read before the session door, it decides and ends nothing.
+    /// </summary>
     private void NoteTooBig(HttpRequest req, IPAddress remote)
     {
-        var credential = CredentialOf(req);
-        var node = credential is { Proof: NodeProof.Key, KeyId: { } keyId } ? _control.Nodes.NodeOf(keyId) : null;
+        var keyId = LiveSessionKey(req.Headers.GetValueOrDefault("authorization")) is { } linked
+                    && _control.ApiKeys.Any(k => k.Id == linked && k.Scope == ApiKeyScope.Node)
+            ? linked
+            : CredentialOf(req) is { Proof: NodeProof.Key, KeyId: { } k } ? k : null;
+        var node = keyId is null ? null : _control.Nodes.NodeOf(keyId);
         var note = new TooBigContext(Screens.AddressOf(remote), node?.Kind, node?.Id, req.Oversize, DateTime.UtcNow);
         lock (_tooBigLock)
         {
@@ -1242,7 +1266,7 @@ public sealed class WebServer : IAsyncDisposable
         if (PlayoutGate.Person(cmd.Kind))
         {
             // The door names the sender, never the line: a role for the proposal, and who and from where for the desk's journal.
-            cmd = cmd with { By = DeskOrigin.Wire(WireWho(PinFrom(req), null, remote, proved)) };
+            cmd = cmd with { By = DeskOrigin.Wire(WireWho(PinFrom(req), req.SessionKeyId, remote, proved)) };
             // A person's line is answered with what came of it, whether or not the request named itself: never a bare "ok".
             requestId ??= PersonReceiptId(cmd.Kind);
         }
@@ -1559,8 +1583,14 @@ public sealed class WebServer : IAsyncDisposable
 
     private static bool HasPin(HttpRequest req) => PinFrom(req) is not null;
 
-    /// <summary>A refusal: HTTP status, reason, and (for 429) the seconds to wait.</summary>
-    private sealed record Denied(int Status, string Error, int RetryAfter = 0);
+    /// <summary>
+    /// A refusal: HTTP status, reason, (for 429) the seconds to wait, and whether the caller links again (<paramref name="Relink"/>: a
+    /// session credential whose link ended, 13.7.1).
+    /// </summary>
+    private sealed record Denied(int Status, string Error, int RetryAfter = 0, bool Relink = false);
+
+    /// <summary>A side call's S whose key went out of force after its door let it in: the link ended, as the session door says it (13.7.1).</summary>
+    private static readonly Denied LinkEnded = new(401, "the link ended", Relink: true);
 
     /// <summary>
     /// The one door for HTTP routes: the PIN opens everything; an API key (swk_…) opens what its scope allows and is
@@ -1571,14 +1601,21 @@ public sealed class WebServer : IAsyncDisposable
     /// its minute running out, and a key holder cannot put keyed requests between PIN guesses. Wrong view passes are
     /// counted apart, and nothing here reads or clears their count (12.2). Null = allowed.
     /// </summary>
-    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need) => AuthorizeSecret(PinFrom(req), remote, need, out _);
+    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need) => Authorize(req, remote, need, out _);
 
     /// <summary>
     /// <see cref="Authorize(HttpRequest, IPAddress, ApiKeyScope)"/>, and whether the request proved a credential when it is let in
     /// (<paramref name="proved"/>): the PIN asked for and given right, or a key in force. Let in with neither, it proved nothing: an
     /// open door (no PIN set), which the playout gate does not count as a credential.
     /// </summary>
-    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need, out bool proved) => AuthorizeSecret(PinFrom(req), remote, need, out proved);
+    private Denied? Authorize(HttpRequest req, IPAddress remote, ApiKeyScope need, out bool proved)
+    {
+        if (req.SessionKeyId is not { } keyId) return AuthorizeSecret(PinFrom(req), remote, need, out proved);
+        // A revocation ends S (13.7.1): a key gone between the session door and the route is answered as the door answers an ended link.
+        if (_control.ApiKeys.FirstOrDefault(k => k.Id == keyId) is { } key) return AuthorizeKey(key, remote, need, out proved);
+        proved = false;
+        return LinkEnded;
+    }
 
     /// <summary><see cref="Authorize(HttpRequest, IPAddress, ApiKeyScope)"/> for a secret already read from the request (a socket's Authorization header).</summary>
     private Denied? AuthorizeSecret(string? supplied, IPAddress remote, ApiKeyScope need) => AuthorizeSecret(supplied, remote, need, out _);
@@ -1589,9 +1626,20 @@ public sealed class WebServer : IAsyncDisposable
         if (!ApiKeys.LooksLikeKey(supplied))
             return CheckPin(supplied, remote, out proved) is { } pinError ? new Denied(401, pinError) : null;
 
+        return AuthorizeKey(ApiKeys.Find(_control.ApiKeys, supplied), remote, need, out proved);
+    }
+
+    /// <summary>
+    /// A key's request as <see cref="Authorize(HttpRequest, IPAddress, ApiKeyScope)"/> checks it once the key is found — by its secret, or
+    /// by the session credential of the link that proved it (13.7.1): refused while its address is locked out by wrong PINs, unknown or
+    /// revoked, or outside its scope; otherwise one use of its rate.
+    /// </summary>
+    private Denied? AuthorizeKey(ApiKey? key, IPAddress remote, ApiKeyScope need, out bool proved)
+    {
+        proved = false;
         if (_pinGuesses.Locked(remote, Environment.TickCount64))
             return new Denied(401, PinsLocked);
-        if (ApiKeys.Find(_control.ApiKeys, supplied) is not { } key)
+        if (key is null)
             return new Denied(401, "unknown or revoked API key");
         if (!ApiKeys.Allows(key.Scope, need))
             return new Denied(403, $"this API key is {ApiKeys.Describe(key.Scope)}");
@@ -1602,7 +1650,19 @@ public sealed class WebServer : IAsyncDisposable
 
     /// <summary>Whether the request carries a PIN or key good for <paramref name="need"/>. Only tests what was given.</summary>
     private bool IsAuthorized(HttpRequest req, IPAddress remote, ApiKeyScope need)
-        => HasPin(req) && (ApiKeys.LooksLikeKey(PinFrom(req)) ? Authorize(req, remote, need) is null : CheckPin(PinFrom(req), remote) is null);
+        => req.SessionKeyId is not null ? Authorize(req, remote, need) is null
+            : HasPin(req) && (ApiKeys.LooksLikeKey(PinFrom(req)) ? Authorize(req, remote, need) is null : CheckPin(PinFrom(req), remote) is null);
+
+    /// <summary>
+    /// The key a request's credential is: the one its link's session credential speaks for on a side call, else a key in force it carries;
+    /// null for the PIN, nothing, or a key unknown or revoked.
+    /// </summary>
+    private ApiKey? KeyOf(HttpRequest req)
+    {
+        if (req.SessionKeyId is { } id) return _control.ApiKeys.FirstOrDefault(k => k.Id == id);
+        var supplied = PinFrom(req);
+        return ApiKeys.LooksLikeKey(supplied) ? ApiKeys.Find(_control.ApiKeys, supplied) : null;
+    }
 
     /// <summary>Count one request against a key's minute. Null = within its limit.</summary>
     private Denied? Spend(string keyId)
@@ -1624,8 +1684,7 @@ public sealed class WebServer : IAsyncDisposable
     /// <summary>Requests already counted by IsAuthorized (the /api/state read) are refused here if over the limit.</summary>
     private Denied? KeyOver(HttpRequest req)
     {
-        var supplied = PinFrom(req);
-        if (!ApiKeys.LooksLikeKey(supplied) || ApiKeys.Find(_control.ApiKeys, supplied) is not { } key) return null;
+        if (KeyOf(req) is not { } key) return null;
         return _keyUse.TryGetValue(key.Id, out var u) && u.Count >= ApiKeys.PerMinute && Environment.TickCount64 - u.WindowStartMs < 60_000
             ? new Denied(429, "rate limit: too many requests with this key", 60) : null;
     }
@@ -1633,8 +1692,7 @@ public sealed class WebServer : IAsyncDisposable
     /// <summary>X-RateLimit-* headers for a request made with an API key ("" otherwise).</summary>
     private string RateHeaders(HttpRequest req)
     {
-        var supplied = PinFrom(req);
-        if (!ApiKeys.LooksLikeKey(supplied) || ApiKeys.Find(_control.ApiKeys, supplied) is not { } key || !_keyUse.TryGetValue(key.Id, out var u)) return "";
+        if (KeyOf(req) is not { } key || !_keyUse.TryGetValue(key.Id, out var u)) return "";
         var reset = Math.Max(0, (int)Math.Ceiling((60_000 - (Environment.TickCount64 - u.WindowStartMs)) / 1000.0));
         return $"X-RateLimit-Limit: {ApiKeys.PerMinute}\r\nX-RateLimit-Remaining: {Math.Max(0, ApiKeys.PerMinute - u.Count)}\r\nX-RateLimit-Reset: {reset}\r\n";
     }
@@ -1643,7 +1701,8 @@ public sealed class WebServer : IAsyncDisposable
     public DateTime? KeyLastUsed(string id) => _keyUse.TryGetValue(id, out var u) ? u.LastUtc : null;
 
     private static Task WriteDenied(Stream stream, Denied d, CancellationToken ct)
-        => WriteAsync(stream, d.Status, "application/json", Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { ok = false, error = d.Error })), ct, cors: true,
+        => WriteAsync(stream, d.Status, "application/json", d.Relink ? JsonSerializer.SerializeToUtf8Bytes(new { ok = false, error = d.Error, relink = true })
+                : Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { ok = false, error = d.Error })), ct, cors: true,
             extra: d.RetryAfter > 0 ? $"Retry-After: {d.RetryAfter}\r\nX-RateLimit-Limit: {ApiKeys.PerMinute}\r\nX-RateLimit-Remaining: 0\r\nX-RateLimit-Reset: {d.RetryAfter}\r\n" : null);
 
     private static string? BearerPin(string? header)
@@ -1735,11 +1794,60 @@ public sealed class WebServer : IAsyncDisposable
     /// passes; otherwise the 401 body, <c>{"ok":false,"error",…,"relink":true}</c>. A right S that came in clear from another machine is
     /// refused and its link ended at once: its socket is aborted and its S forgotten. A wrong one ends nothing, for a lid is no secret.
     /// </summary>
-    private byte[]? CheckSession(HttpRequest req, IPAddress remote, bool secure, string authorization)
+    private (byte[]? Refusal, string? KeyId) CheckSession(HttpRequest req, IPAddress remote, bool secure, string authorization)
     {
         var check = PeerLink.CheckSession(authorization, lid => _sessions.TryGetValue(lid, out var s) ? s.Session : null, !secure && !IsLocal(req, remote));
         if (check.Ends is { } gone && _sessions.TryRemove(gone, out var ended)) ended.Client.Socket.Abort();
-        return check.Status == 200 ? null : JsonSerializer.SerializeToUtf8Bytes(new { ok = false, error = check.Words, relink = check.Relink });
+        if (check.Status != 200) return (Relink(check.Words, check.Relink), null);
+        // The key the link proved, read now: a link a recheck refused has no key and no lid, and its S has ended with them.
+        return PeerLink.ParseShowBus(authorization) is { } a && LinkKeyOf(a.Lid) is { } keyId ? (null, keyId) : (Relink("the link ended", true), null);
+
+        static byte[] Relink(string words, bool relink) => JsonSerializer.SerializeToUtf8Bytes(new { ok = false, error = words, relink });
+    }
+
+    /// <summary>The key a live, verified link proved, by its lid; null when no link holds that lid now.</summary>
+    private string? LinkKeyOf(string lid)
+        => _sessions.TryGetValue(lid, out var held) && held.Client.Link is { KeyId: { } keyId, Lid: { } live } && live == lid ? keyId : null;
+
+    /// <summary>
+    /// The key a session credential speaks for when it verifies against a live link (13.7.1), read without deciding anything: no link is
+    /// ended and nothing is counted. Null for no S, a wrong one, or one whose link is gone.
+    /// </summary>
+    private string? LiveSessionKey(string? authorization)
+        => PeerLink.ParseShowBus(authorization) is { } a
+           && PeerLink.CheckSession(authorization, lid => _sessions.TryGetValue(lid, out var s) ? s.Session : null).Status == 200
+            ? LinkKeyOf(a.Lid) : null;
+
+    /// <summary>
+    /// The routes a live link's session credential speaks for its key on (13.7.1; §8's Stagewatch row): its context
+    /// (<c>/api/context</c>), a node's own context (<c>/api/peers/context</c>), the approval queue and its results
+    /// (<c>/api/proposals</c> and below it), and a stage message (<c>/api/message</c> and below it, and its clearing). Elsewhere S is
+    /// no credential.
+    /// </summary>
+    public static bool SpeaksOn(string path)
+    {
+        if (path is "/api/context" or "/api/peers/context" or "/api/proposals" || path.StartsWith("/api/proposals/", StringComparison.Ordinal)) return true;
+        if (!path.StartsWith("/api/", StringComparison.Ordinal)) return false;
+        var verb = path["/api/".Length..];
+        var slash = verb.IndexOf('/');
+        return (slash < 0 ? verb : verb[..slash]) is "message" or "clearmessage" or "messageclear" or "clear";
+    }
+
+    /// <summary>
+    /// 13.6.9: an API key in force sent in clear from another machine — no TLS, and not a local request (<see cref="IsLocal"/>) — is
+    /// marked seen in clear, from its address, the first time (<see cref="KeySightings.Mark"/>). Every carrier is read (<c>?pin=</c>,
+    /// <c>X-Stagewatch-Pin</c>, <c>Authorization: Bearer</c>), not only the one a route would read first: each was on the path. The PIN, a
+    /// view pass and S are no keys; an unknown or revoked key marks nothing.
+    /// </summary>
+    private void NoteClear(HttpRequest req, IPAddress remote, bool secure)
+    {
+        if (secure) return;
+        string?[] carriers = [req.Query.GetValueOrDefault("pin"), req.Headers.GetValueOrDefault("x-stagewatch-pin"), BearerPin(req.Headers.GetValueOrDefault("authorization"))];
+        if (!carriers.Any(ApiKeys.LooksLikeKey) || IsLocal(req, remote)) return;
+        var from = Screens.AddressOf(remote);
+        foreach (var supplied in carriers)
+            if (ApiKeys.LooksLikeKey(supplied) && ApiKeys.Find(_control.ApiKeys, supplied) is { } key)
+                _control.Sightings.Mark(key.Id, from, DateTime.UtcNow);
     }
 
     /// <summary>
@@ -1885,8 +1993,18 @@ public sealed class WebServer : IAsyncDisposable
             var browserId = Screens.ValidBrowserId(cid) ? cid! : "anon-" + Guid.NewGuid().ToString("N")[..8];
             // A control page or a node link had its credential checked above: only a crew link or the code may open the
             // view now. Any other screen is checked as it always was (its ?pin= or key included).
-            admission = NodeLinks.Admit(req.Query, credential, pinAsked, NodeLinks.PinHash(pin),
+            WsAdmission Admit(WsCredential c) => NodeLinks.Admit(req.Query, c, pinAsked, NodeLinks.PinHash(pin),
                 () => wantsControl || nodeAsked ? ViewPass(req, remote) : CheckView(req, remote), browserId, _control.Nodes, DateTime.UtcNow);
+            admission = Admit(credential);
+            // 13.5.2: a LINK whose proof verified but whose key may not speak for the id it named — the key bound to another node, or
+            // the id held by another key — is refused class binding, as a live link whose binding moves is: the binding's words, retry
+            // 60, the socket a public viewer, and counted nowhere (its proof was right). No verdict with "verified":"none" is sent.
+            if (linkVerdict is { Ok: true } && admission.Link is { Class: WsClass.Node, Verified: NodeProof.None, KeyId: not null, Words: { } bindingWords })
+            {
+                linkVerdict = LinkDecision.Refused("binding", bindingWords);
+                credential = WsCredential.KeyRefused(bindingWords, NodeLinks.RetrySeconds);
+                admission = Admit(credential);
+            }
             // A LINK socket's first message is its verdict with LINK's fields, or its refusal with LINK's class (13.6.5); a refused
             // one the viewing code shuts out hears that refusal marked view before it closes.
             if (linkVerdict is { Ok: false } r && admission.Close)
@@ -2433,6 +2551,15 @@ internal sealed class HttpRequest
     public IReadOnlyDictionary<string, string> Query { get; private init; } = new Dictionary<string, string>();
     /// <summary>The query as it came, after its <c>?</c> and undecoded ("" with none): what a LINK socket's link message is checked against.</summary>
     public string RawQuery { get; private init; } = "";
+
+    /// <summary>
+    /// The key a live link's session credential speaks for on this request (13.7.1), set once by the session door on a side call's
+    /// route; null on any other request. Its routes read it as that key's credential, and never the request's other headers.
+    /// </summary>
+    public string? SessionKeyId { get; private set; }
+
+    /// <summary>The session door's word that this request speaks for <paramref name="keyId"/>, once.</summary>
+    internal void SpeakAs(string keyId) => SessionKeyId ??= keyId;
     public IReadOnlyDictionary<string, string> Headers { get; private init; } = new Dictionary<string, string>();
     /// <summary>Request body (POST), capped at 64 KB. Empty for GET, and for a request whose body is <see cref="Oversize"/>.</summary>
     public byte[] Body { get; private init; } = Array.Empty<byte>();

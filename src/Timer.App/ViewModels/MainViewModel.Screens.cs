@@ -21,6 +21,7 @@ public sealed partial class MainViewModel
         _layouts = Settings.Remote.Layouts.ToDictionary(l => l.Name, ScreenLayouts.ToJson, StringComparer.OrdinalIgnoreCase);
         CopyApiKeys();
         _nodes.Keep(_apiKeys);   // a revoked key speaks for nothing; a pair saved on a key is put back
+        _sightings.Keep(_apiKeys);   // a revoked key's seen-in-clear mark goes with it; a mark saved on a key is put back
         _screenNames = new Dictionary<string, string>(Settings.Remote.ScreenNames, StringComparer.OrdinalIgnoreCase);
         _screenPresets = Settings.Remote.ScreenPresets
             .Where(p => ScreenPreset.ValidName(p.Name) && ScreenPreset.ValidPath(p.Path))
@@ -33,7 +34,7 @@ public sealed partial class MainViewModel
 
     /// <summary>The keys as saved, copied whole for other threads (the web server's key checks). Show thread.</summary>
     private void CopyApiKeys()
-        => _apiKeys = Settings.Remote.ApiKeys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind }).ToArray();
+        => _apiKeys = Settings.Remote.ApiKeys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind, ClearSeen = k.ClearSeen, ClearFrom = k.ClearFrom }).ToArray();
 
     /// <summary>When a key was last used (this session), for the Settings list.</summary>
     public DateTime? ApiKeyLastUsed(string id) => _web?.KeyLastUsed(id);
@@ -117,11 +118,17 @@ public sealed partial class MainViewModel
         return (true, words);
     }
 
-    /// <summary>A key's words in Settings → Remote: the node it speaks for (or "no node yet") and what it was last refused for; "" for other scopes.</summary>
+    /// <summary>
+    /// A key's words in Settings → Remote: the node it speaks for (or "no node yet") and what it was last refused for, "" for other
+    /// scopes; then, for a key of any scope seen in clear from another machine (13.6.9), from where, when, and "replace this key".
+    /// </summary>
     public string ApiKeyBindingLine(string keyId)
-        => Settings.Remote.ApiKeys.FirstOrDefault(k => k.Id == keyId) is { } key
-            ? KeyBindingWords.KeyLine(key, _nodes.NodeOf(keyId), _nodes.LastRefused(keyId), DateTime.UtcNow)
-            : "";
+    {
+        if (Settings.Remote.ApiKeys.FirstOrDefault(k => k.Id == keyId) is not { } key) return "";
+        var now = DateTime.UtcNow;
+        var parts = new[] { KeyBindingWords.KeyLine(key, _nodes.NodeOf(keyId), _nodes.LastRefused(keyId), now), KeyBindingWords.ClearLine(_sightings.Of(keyId), now) };
+        return string.Join(" · ", parts.Where(p => p.Length > 0));
+    }
 
     /// <summary>
     /// The nodes Settings' "Let it speak for…" offers a key: the node it was last refused for, then the show network's rows

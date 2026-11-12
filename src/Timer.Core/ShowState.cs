@@ -567,6 +567,12 @@ public interface IShowAccess
     NodeBindings Nodes => NodeBindings.For(this);
 
     /// <summary>
+    /// Which keys were seen arriving in clear from another machine (Show Bus 13.6.9), marked by the server that read them. A surface
+    /// that keeps none still gets a table of its own, so a key it saw in clear is marked for that surface's life.
+    /// </summary>
+    KeySightings Sightings => KeySightings.For(this);
+
+    /// <summary>
     /// The addresses whose <c>playout</c> and <c>patterns</c> lines run without a credential (<see cref="PlayoutGate"/>), an immutable
     /// copy. None unless the host lists some, so a surface that keeps no list takes those lines only from this PC or a credential.
     /// </summary>

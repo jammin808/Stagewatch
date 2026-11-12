@@ -41,6 +41,14 @@ public sealed class ApiKey
     [JsonPropertyName("node")] public string? Node { get; set; }
     /// <summary>That node's kind (patterns, messenger, playmap…), or null while not yet named.</summary>
     [JsonPropertyName("nodeKind")] public string? NodeKind { get; set; }
+    /// <summary>
+    /// When this key was first seen arriving in clear from another machine (Show Bus 13.6.9), ISO 8601 UTC to the second, or null when
+    /// never: anyone on the path may have read it, so it is marked until it is replaced, and no window is granted to it. The mark itself is
+    /// <see cref="KeySightings"/>, seeded from here.
+    /// </summary>
+    [JsonPropertyName("clearSeen"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ClearSeen { get; set; }
+    /// <summary>The address it came from then, or null. A key never seen in clear writes neither field.</summary>
+    [JsonPropertyName("clearFrom"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ClearFrom { get; set; }
 }
 
 public static class ApiKeys
@@ -109,6 +117,8 @@ public static class ApiKeys
                 // A node binding belongs on a node key only, with an id Show Bus can name; the kind only beside an id.
                 if (k.Scope != ApiKeyScope.Node || !NodeBindings.ValidId(k.Node)) k.Node = null;
                 if (k.Node is null || !NodeBindings.ValidKind(k.NodeKind)) k.NodeKind = null;
+                // A seen-in-clear mark is a time and an address, both or neither.
+                if (!KeySightings.ValidSaved(k.ClearSeen, k.ClearFrom)) (k.ClearSeen, k.ClearFrom) = (null, null);
                 return k;
             })
             .DistinctBy(k => k.Id).Take(Max).ToList();

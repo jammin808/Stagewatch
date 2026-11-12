@@ -399,6 +399,8 @@ sealed class Rig : ICompanionBridge, IDisposable
     private readonly List<ApiKey> _keys;
     private volatile IReadOnlyList<ApiKey> _apiKeys;
     private readonly NodeBindings _nodes;
+    /// <summary>The keys seen arriving in clear from another machine (13.6.9), seeded from the marks saved on them.</summary>
+    private readonly KeySightings _sightings;
     private readonly PeerContexts _peerContexts;
     /// <summary>The node keys made in this run, with their secrets: printed once in the ready line, then forgotten.</summary>
     private List<(string Id, string Secret)>? _madeKeys;
@@ -472,6 +474,8 @@ sealed class Rig : ICompanionBridge, IDisposable
         _peerContexts = new PeerContexts(_nodes);
         _windows = new WindowDirector(state.Windows, SaveWindows);
         _nodes.Bound += OnBound;   // raised on any thread; logged and saved on the owner thread
+        _sightings = new KeySightings(_keys);   // a mark saved on a key is put back
+        _sightings.Seen += OnSeenInClear;   // the same: logged, journalled and saved on the owner thread
         _desk = new DeskService(new DeskHost
         {
             Id = () => _nodeId,
@@ -641,9 +645,10 @@ sealed class Rig : ICompanionBridge, IDisposable
         // save never reached it is saved here, once this thread is the one writer.
         if (!EndOwner())
             Log("stop: the show thread did not end in time; a binding made since its last save is not kept");
-        else if (_nodes.Unsaved(_keys))
+        else if (_nodes.Unsaved(_keys) || _sightings.Unsaved(_keys))
         {
             _nodes.SaveTo(_keys);
+            _sightings.SaveTo(_keys);
             SaveState(_windows.Windows);
         }
         // The journal's last rows reach its file before the rig ends, within the journal's own bounded wait.
@@ -658,6 +663,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         _stopping.Cancel();
         var ended = EndOwner();
         _nodes.Bound -= OnBound;
+        _sightings.Seen -= OnSeenInClear;
         Engine.Dispose();
         _certificate?.Dispose();
         // A rig that never ran its stop (it could not listen) still writes what its journal holds, within a bounded wait.
@@ -1308,6 +1314,8 @@ sealed class Rig : ICompanionBridge, IDisposable
         // As the app: each playout link's record (its light and flags) beside its own words, and its clock while apart.
         links.AddRange(ShowContext.PlayoutItems(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>()
             .Select(l => new PlayoutLinkFact(l.LinkName, l.Peer, l.Record.Light, l.Status, l.Record.Flags, l.Clock?.OffsetMs, l.Clock?.ErrMs, l.ClockApart))));
+        // As the app: each key seen in clear (13.6.9), amber, from where and when.
+        links.AddRange(ShowContext.ClearSeenItems(_sightings.All(), id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name));
         var hello = _beacon?.Status ?? HelloStatus.NotYet;
         var twin = _beacon?.OwnConflict;
         if (ShowBusHello.Item(hello, twin) is { } cannot) links.Add(cannot);
@@ -1391,6 +1399,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     public string? OwnInst => _inst;
     public IReadOnlyList<ApiKey> ApiKeys => _apiKeys;
     public NodeBindings Nodes => _nodes;
+    public KeySightings Sightings => _sightings;
 
     // The shared approval queue (Show Bus §11), any thread: the service answers, as in the app.
     public (int Status, string Json) SubmitProposal(string body, NodeCredential credential) => _desk.SubmitProposal(body, credential);
@@ -1483,13 +1492,14 @@ sealed class Rig : ICompanionBridge, IDisposable
         var ids = made.Select(k => k.Id).ToHashSet(StringComparer.Ordinal);
         _keys.RemoveAll(k => ids.Contains(k.Id));
         _apiKeys = CopyKeys(_keys);
+        _sightings.Keep(_keys);
         SaveState(_windows.Windows);
         Log($"keys: the {made.Count.ToString(CultureInfo.InvariantCulture)} made in this start are taken out of --state again; their secrets never went out");
     }
 
     /// <summary>The keys copied whole for other threads: the servers never read an object the owner thread writes.</summary>
     private static IReadOnlyList<ApiKey> CopyKeys(IEnumerable<ApiKey> keys)
-        => keys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind }).ToArray();
+        => keys.Select(k => new ApiKey { Id = k.Id, Name = k.Name, Scope = k.Scope, Hash = k.Hash, Hint = k.Hint, CreatedUtc = k.CreatedUtc, Node = k.Node, NodeKind = k.NodeKind, ClearSeen = k.ClearSeen, ClearFrom = k.ClearFrom }).ToArray();
 
     /// <summary>
     /// A key came to speak for a node, on whichever thread it happened: the owner thread logs it (names and ids, never a
@@ -1502,6 +1512,21 @@ sealed class Rig : ICompanionBridge, IDisposable
         Journal(JournalKind.Note, _item, words);
         if (!_nodes.Unsaved(_keys)) return;
         _nodes.SaveTo(_keys);
+        _apiKeys = CopyKeys(_keys);
+        SaveState(_windows.Windows);
+    });
+
+    /// <summary>
+    /// A key was first seen arriving in clear from another machine (13.6.9), on whichever thread read it: the owner thread logs and
+    /// journals it by the key's name (never its secret) and saves the mark on the key, so a restarted rig keeps it.
+    /// </summary>
+    private void OnSeenInClear(KeySighting seen) => Post(() =>
+    {
+        var words = KeyBindingWords.ClearJournalLine(seen, id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name);
+        Log("keys: " + words);
+        Journal(JournalKind.Note, _item, words);
+        if (!_sightings.Unsaved(_keys)) return;
+        _sightings.SaveTo(_keys);
         _apiKeys = CopyKeys(_keys);
         SaveState(_windows.Windows);
     });

@@ -9,9 +9,9 @@ using Stagewatch.Remote;
 
 /// <summary>
 /// The scenarios 13.20 holds every acceptor to, run against Stagewatch's own <c>/ws</c> acceptor — a real <see cref="WebServer"/>, the
-/// scripted peer connecting to it: S1–S3, S8–S10, S15's oversize message and S16, and a live key or binding change refusing a verified
-/// link. The rows the acceptor keeps later stay with the kit's stand-in in the other files until they land: S10's session speaking for
-/// its key on the routes, S12's emitting half, S14, S15's reply bound, S17, S18, S19 and S20.
+/// scripted peer connecting to it: S1–S3, S8–S10, S12's emitting half, S15's oversize message, S16, S17 and S18, the session credential
+/// speaking for its key on the side calls' routes and nowhere else, and a key seen in clear (13.6.9). The rows the acceptor keeps later stay
+/// with the kit's stand-in in the other files until they land: S14 (the receipts store), S15's reply bound, S19 and S20.
 /// </summary>
 static partial class PeerLinkScenarios
 {
@@ -27,13 +27,16 @@ static partial class PeerLinkScenarios
     /// <summary>A Stagewatch on loopback with one node key in force (<see cref="Swk"/>), its certificate the kit's node certificate.</summary>
     sealed class Hall : IAsyncDisposable
     {
-        public readonly ShowBusTests.BusControl Control = new();
+        public readonly ShowBusTests.BusControl Control;
         public readonly WebServer Web;
         public readonly ShowWorkflowTests.ManualTime Clock = new(new DateTime(2026, 11, 12, 20, 0, 0, DateTimeKind.Utc));
+        /// <summary>The show thread's clock as the frames' hub reads it, in ms: moved by hand to make the producer stuck (S12).</summary>
+        public long ShowMs;
         public int Port { get; }
 
         public Hall(Material kit, Func<IPAddress, bool>? isThisPc = null, bool tls = true, string? pin = null, IReadOnlyList<ApiKey>? keys = null)
         {
+            Control = new ShowBusTests.BusControl { Snapshots = new SnapshotHub(() => Volatile.Read(ref ShowMs)) };
             Control.ApiKeys = keys ?? [KeyInForce("kS", Swk)];
             Control.Nodes.Keep(Control.ApiKeys);
             Control.Snapshots.Publish(new ShowSnapshot { Text = "05:00", Seconds = 300, Title = "Keynote" });
@@ -83,6 +86,10 @@ static partial class PeerLinkScenarios
         await AcceptorHostAndOrigin(Check, script, kit);
         await AcceptorLiveChanges(Check, script, kit);
         await AcceptorOtherRefusals(Check, script, kit);
+        await AcceptorSideCalls(Check, script, kit);
+        await AcceptorS12(Check, script, kit);
+        await AcceptorS18(Check, script, kit);
+        await AcceptorSeenInClear(Check, kit);
     }
 
     /// <summary>A control key the scenarios link with as the operator's credential (verified <c>operator</c> while no key speaks for the id).</summary>
@@ -436,7 +443,7 @@ static partial class PeerLinkScenarios
             var after = await peer.Ask(new { @do = "call", conn, path = "/api/context", attack = new { closed = true } });
             Check(refused is { } r && Str(r, "class") == "refused" && Str(r, "words") == NodeLinks.KeyRevoked && True(stays)
                   && Int(after, "status") == 401 && Str(Body(after), "error") == "the link ended" && hall.Web.ListNodes().All(f => f.Linked == 0),
-                $"peerlink scenarios: /ws acceptor — a key revoked while its link is live refuses it at once, class refused, keeps the socket a public viewer "
+                $"peerlink scenarios: S17 /ws acceptor — a key revoked while its link is live refuses it at once, class refused, keeps the socket a public viewer "
                 + $"and ends its S ({after.GetRawText()}) {peer.Faults}");
         }
     }
@@ -539,6 +546,180 @@ static partial class PeerLinkScenarios
             using var cts = new CancellationTokenSource(3000);
             try { return await reader.ReadToEndAsync(cts.Token); }
             catch (OperationCanceledException) { return ""; }
+        }
+    }
+
+    // ------------------------------------------------------------------ side calls: S speaks for its key on its routes (13.7.1)
+
+    static async Task AcceptorSideCalls(Action<bool, string> Check, string script, Material kit)
+    {
+        // A PIN set, so a route a call reaches with no credential is shut: only S speaking for its key opens it. Loopback plays another
+        // machine (the IsThisPc seam), so S rides only inside the link's TLS.
+        await using var hall = new Hall(kit, isThisPc: _ => false, pin: "4321");
+        await using var peer = Peer(script);
+        var conn = await DialHall(peer, hall, Key(kit, Swk));
+        var link = await peer.Wait(e => Ev(e, "link") && Int(e, "conn") == conn);
+        Task<JsonElement> Call(string method, string path, object? body = null)
+            => body is null ? peer.Ask(new { @do = "call", conn, method, path }) : peer.Ask(new { @do = "call", conn, method, path, body });
+
+        var context = await Call("GET", "/api/context");
+        var own = await Call("POST", "/api/peers/context", new { v = 1, node = new { t = "patterns", id = PatternsId, name = "Patterns FOH" }, light = "green", headline = "cue 12" });
+        var ownSeen = hall.Control.LastCredential;
+        // G15 through S: the key speaks for the node its LINK named, and posts under no other.
+        var forged = await Call("POST", "/api/peers/context", new { v = 1, node = new { t = "playmap", id = "pm1abc", name = "Stage left" }, light = "green", headline = "x" });
+        Check(link is not null && Int(context, "status") == 200 && Int(own, "status") == 200 && Str(Body(own), "verified") == "key" && ownSeen == NodeCredential.Key("kS")
+              && Int(forged, "status") == 403 && (Str(Body(forged), "error") ?? "").StartsWith("this key speaks for patterns " + PatternsId, StringComparison.Ordinal)
+              && hall.Control.LastCredential == NodeCredential.Key("kS") && hall.Control.Credentials.Count == 1,
+            $"peerlink scenarios: side calls — S on /api/context and /api/peers/context speaks for its key: its own context is taken as key-verified, another node's "
+            + $"is 403 in the binding's words ({Str(forged, "body")}) {peer.Faults}");
+
+        var proposed = await Call("POST", "/api/proposals", new { from = new { t = "patterns", id = PatternsId }, target = new { t = "main" }, line = "note from the link" });
+        var proposalSeen = hall.Control.LastCredential;
+        var id = Str(Body(proposed), "id") ?? "p0";
+        var read = await Call("GET", "/api/proposals/" + id);
+        int heardBefore;
+        lock (hall.Control.Credentials) heardBefore = hall.Control.Credentials.Count;
+        var result = await Call("POST", "/api/proposals/" + id + "/result", new { ok = true, words = "done" });
+        // The route reached the store as the key's: one credential more, the key's. A door that let S speak nowhere would answer 401
+        // here and add none; the store's own answer is 409, for a proposal aimed at this Stagewatch's desk runs here.
+        NodeCredential? resultSeen;
+        lock (hall.Control.Credentials) resultSeen = hall.Control.Credentials.Count == heardBefore + 1 ? hall.Control.Credentials[heardBefore] : null;
+        var message = await Call("POST", "/api/message/Doors%20in%205");
+        Check(Int(proposed, "status") == 201 && proposalSeen == NodeCredential.Key("kS") && Int(read, "status") == 200
+              && Int(result, "status") == 409 && (Str(Body(result), "error") ?? "").StartsWith("this Stagewatch runs its own proposals", StringComparison.Ordinal)
+              && resultSeen == NodeCredential.Key("kS")
+              && Int(message, "status") == 200 && hall.Control.Commands.Any(c => c.Kind == ShowCommandKind.Message && c.Text == "Doors in 5"),
+            $"peerlink scenarios: side calls — S on the proposals, result and message routes speaks for its key: a proposal from its node queued, its result "
+            + $"read as the key's, a stage message run ({Str(proposed, "body")}; {Str(result, "body")}; {Str(message, "body")}) {peer.Faults}");
+
+        // Elsewhere S is no credential: the PIN's routes stay shut to it and count nothing; the public frame is the public frame.
+        var start = await Call("POST", "/api/start");
+        var state = await Call("GET", "/api/state?detail=1");
+        // The detail asked for is the public agenda view: the operator's frame would carry the approval desk.
+        var stateBody = Body(state);
+        Check(Int(start, "status") == 401 && Str(Body(start), "error") == "PIN required" && !hall.Control.Commands.Any(c => c.Kind == ShowCommandKind.Start)
+              && Int(state, "status") == 200 && stateBody.ValueKind == JsonValueKind.Object && stateBody.TryGetProperty("detail", out var detail)
+              && detail.ValueKind == JsonValueKind.True && !stateBody.TryGetProperty("desk", out _)
+              && hall.Web.AuthFailures().Count == 0 && hall.Web.ProofFailures().Count == 0,
+            $"peerlink scenarios: side calls — S speaks on no other route: /api/start is 401 PIN required and counted nowhere, /api/state?detail=1 "
+            + $"is the public agenda view ({Str(start, "body")}) {peer.Faults}");
+
+        // A context too big to read, posted with S, is noted for the Show network by the node its link's key speaks for, not by address.
+        var tooBig = await Call("POST", "/api/peers/context", new string('x', 70 * 1024));
+        Check(Int(tooBig, "status") == 413 && hall.Web.TooBigContexts(DateTime.UtcNow) is [{ NodeId: PatternsId, Kind: "patterns" }],
+            $"peerlink scenarios: side calls — a context too big posted with S is noted by the node its key speaks for "
+            + $"({string.Join(", ", hall.Web.TooBigContexts(DateTime.UtcNow))}) {peer.Faults}");
+        await Settle(peer);
+        Check(Found(Stdout(peer), Canaries(Swk)) is null, "peerlink scenarios: side calls — no key or K on the peer's stdout");
+    }
+
+    // ------------------------------------------------------------------ S12's emitting half at /ws: the stuck beat
+
+    static async Task AcceptorS12(Action<bool, string> Check, string script, Material kit)
+    {
+        await using var hall = new Hall(kit);
+        hall.Control.Snapshots.MarkAlive();
+        await using var peer = Peer(script);
+        var conn = await DialHall(peer, hall, Key(kit, Swk));
+        var link = await peer.Wait(e => Ev(e, "link") && Int(e, "conn") == conn);
+        // The show thread falls silent past StuckAfter: the verified link hears the stuck beat, and no frame while it lasts.
+        Interlocked.Add(ref hall.ShowMs, (long)SnapshotHub.StuckAfter.TotalMilliseconds + 1);
+        var stuck = await peer.Wait(e => Ev(e, "read") && Int(e, "conn") == conn && Str(e, "message") == "{\"type\":\"beat\",\"live\":false}");
+        var framesWhileStuck = ReadJson(peer, conn).Count(m => Str(m, "type") == "state");
+        // It turns over again: a frame follows, and the link is live.
+        hall.Control.Snapshots.MarkAlive();
+        hall.Control.Snapshots.Publish(new ShowSnapshot { Text = "04:59", Seconds = 299, Title = "Keynote" });
+        var live = await peer.Wait(e => Ev(e, "read") && Int(e, "conn") == conn && (Str(e, "message") ?? "").Contains("\"04:59\"", StringComparison.Ordinal));
+        Check(link is not null && stuck is not null && live is not null && ReadJson(peer, conn).Count(m => Str(m, "type") == "state") > framesWhileStuck,
+            $"peerlink scenarios: S12 /ws acceptor — a verified link hears the stuck beat while the show thread is stuck, and frames again once it turns over {peer.Faults}");
+    }
+
+    // ------------------------------------------------------------------ S18 at /ws: a key bound to another connector
+
+    static async Task AcceptorS18(Action<bool, string> Check, string script, Material kit)
+    {
+        // Its operator bound the key to another node; and, apart, the id is held by another key. Both: refused class binding in the
+        // binding's words, retry 60, the socket a public viewer with no lid — counted nowhere, the key's rate one use.
+        var other = KeyInForce("kO", ControlSecret);
+        var legs = new (string Label, IReadOnlyList<ApiKey> Keys, string Words)[]
+        {
+            ("its key bound to another node", [WithNode(KeyInForce("kS", Swk), "patterns", "0f0f0f0f0f0f")],
+                "this key speaks for patterns 0f0f0f0f0f0f — make a key for patterns " + PatternsId),
+            ("its id held by another key", [KeyInForce("kS", Swk), WithNode(other, "patterns", PatternsId)], "patterns " + PatternsId + " speaks with its own key"),
+        };
+        foreach (var (label, keys, words) in legs)
+        {
+            await using var hall = new Hall(kit, keys: keys);
+            await using var peer = Peer(script);
+            var conn = await DialHall(peer, hall, Key(kit, Swk));
+            var refused = await peer.Wait(e => Ev(e, "refused") && Int(e, "conn") == conn);
+            var frame = await peer.Wait(e => Ev(e, "read") && Int(e, "conn") == conn && (Str(e, "message") ?? "").Contains("\"type\":\"state\"", StringComparison.Ordinal));
+            var verdicts = ReadJson(peer, conn).Where(m => Str(m, "type") == "auth").ToList();
+            Check(refused is { } r && Str(r, "class") == "binding" && Int(r, "retry") == 60 && Str(r, "words") == words
+                  && verdicts.Count == 1 && verdicts[0].TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False && frame is not null
+                  && hall.Web.ProofFailures().Count == 0 && hall.Web.AuthFailures().Count == 0 && hall.Web.ListNodes().All(f => f.Linked == 0)
+                  && hall.Control.Nodes.NodeOf("kS") is not { Id: PatternsId },
+                $"peerlink scenarios: S18 /ws acceptor, {label} — a binding refusal: class binding, retry 60, one verdict, a public viewer with no session, "
+                + $"counted nowhere ({(refused is { } x ? x.GetRawText() : "no refusal")}) {peer.Faults}");
+        }
+
+        static ApiKey WithNode(ApiKey k, string kind, string id)
+        {
+            k.Scope = ApiKeyScope.Node;
+            k.Node = id;
+            k.NodeKind = kind;
+            return k;
+        }
+    }
+
+    // ------------------------------------------------------------------ 13.6.9: a key seen in clear
+
+    static async Task AcceptorSeenInClear(Action<bool, string> Check, Material kit)
+    {
+        // Loopback plays another machine. A key in force sent plain is marked — once, from its address, whatever the answer; the PIN or an
+        // unknown key marks nothing; over TLS nothing is marked.
+        await using var hall = new Hall(kit, isThisPc: _ => false, pin: "4321");
+        var sightings = ((IShowAccess)hall.Control).Sightings;
+        var heard = new List<KeySighting>();
+        sightings.Seen += s => { lock (heard) heard.Add(s); };
+        var unknown = await RawGet(hall.Port, "/api/context", "Authorization: Bearer swk_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
+        var pin = await RawGet(hall.Port, "/api/context", "X-Stagewatch-Pin: 4321");
+        var none = heard.Count;
+        // The PIN in ?pin= beside a key in the bearer header: every carrier is read, so the key is marked though a route reads the PIN first.
+        var plain = await RawGet(hall.Port, "/api/context?pin=4321", "Authorization: Bearer " + Swk);
+        var again = await RawGet(hall.Port, "/api/start?pin=" + Swk);
+        Check(unknown.StartsWith("HTTP/1.1 401", StringComparison.Ordinal) && pin.StartsWith("HTTP/1.1 200", StringComparison.Ordinal) && none == 0
+              && plain.StartsWith("HTTP/1.1 200", StringComparison.Ordinal) && again.StartsWith("HTTP/1.1 403", StringComparison.Ordinal)
+              && heard is [{ KeyId: "kS", Address: "127.0.0.1" }] && !sightings.MayGrant("kS") && sightings.All().Count == 1,
+            $"peerlink scenarios: a key seen in clear — a key in force sent plain from another machine is marked once, from its address, whatever "
+            + $"the route answers; an unknown key or the PIN marks nothing; the key gets no grant ({string.Join(", ", heard)})");
+
+        // Over TLS the same key marks nothing; and a body too big to read is answered 413 after the mark, not before it.
+        await using var second = new Hall(kit, isThisPc: _ => false);
+        var secondSightings = ((IShowAccess)second.Control).Sightings;
+        using (var handler = new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true })
+        using (var https = new HttpClient(handler) { BaseAddress = new Uri($"https://127.0.0.1:{second.Port}") })
+        {
+            https.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Swk);
+            (await https.GetAsync("/api/context")).Dispose();
+        }
+        var overTls = secondSightings.All().Count;
+        var tooBig = await RawPost(second.Port, "/api/peers/context", "Authorization: Bearer " + Swk, new string('x', 70 * 1024));
+        Check(overTls == 0 && tooBig.StartsWith("HTTP/1.1 413", StringComparison.Ordinal) && secondSightings.Of("kS") is { Address: "127.0.0.1" },
+            $"peerlink scenarios: a key seen in clear — over TLS nothing is marked; sent plain with a body too big it is marked before the 413 ({tooBig.Split("\r\n")[0]})");
+
+        static async Task<string> RawPost(int port, string path, string header, string body)
+        {
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(IPAddress.Loopback, port);
+            var stream = tcp.GetStream();
+            var head = $"POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}\r\nConnection: close\r\n{header}\r\n"
+                       + $"Content-Type: application/json\r\nContent-Length: {Encoding.UTF8.GetByteCount(body).ToString(CultureInfo.InvariantCulture)}\r\n\r\n";
+            await stream.WriteAsync(Encoding.ASCII.GetBytes(head + body));
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            using var cts = new CancellationTokenSource(15000);
+            try { return await reader.ReadToEndAsync(cts.Token); }
+            catch (Exception ex) when (ex is OperationCanceledException or IOException) { return ""; }
         }
     }
 }

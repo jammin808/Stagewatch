@@ -122,6 +122,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         _peerContexts = new PeerContexts(_nodes);
         _ui = Dispatcher.CurrentDispatcher;
         _nodes.Bound += OnNodeBound;   // raised on any thread; saved and journalled on the show thread
+        _sightings.Seen += OnKeySeenInClear;   // the same: a key seen in clear is saved and journalled on the show thread
         _supervisor = new Stagewatch.Integrations.IntegrationSupervisor(work => _ui.BeginInvoke(work), () => { if (!_disposed) ApplyIntegrations(); }, m => StatusLine = m);
 
         Presets = new ObservableCollection<TimerPreset>(_store.Settings.Presets);
@@ -1329,6 +1330,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         // No first use can arrive now: a binding whose save was still posted to the show thread is saved here, so the
         // settings written at exit carry every pair and a restart never leaves a used key free for whichever app comes first.
         SaveBindings();
+        SaveSightings();
         DisposeIntegrations();
         _companion.StopAsync().GetAwaiter().GetResult();
         _engine.Dispose();

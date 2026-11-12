@@ -76,6 +76,8 @@ public sealed partial class MainViewModel
 {
     // One node key speaks for one node id on every node route: the posted context, proposals, collects and results.
     private readonly NodeBindings _nodes = new();
+    // Keys seen arriving in clear from another machine (13.6.9): marked by the web server, saved on the key, never granted a window.
+    private readonly KeySightings _sightings = new();
     private readonly PeerContexts _peerContexts;
     private readonly HashSet<(string KeyId, string Id)> _refusalsJournalled = new();   // show thread
     private volatile string? _contextJson;
@@ -83,6 +85,9 @@ public sealed partial class MainViewModel
 
     /// <summary>IShowAccess: which node each node key speaks for.</summary>
     public NodeBindings Nodes => _nodes;
+
+    /// <summary>IShowAccess: the keys seen in clear from another machine.</summary>
+    public KeySightings Sightings => _sightings;
 
     /// <summary>A node key was made for a refused node: its secret, shown once by the desk, never journalled or kept.</summary>
     public event Action<string, string>? NodeKeyMade;
@@ -201,6 +206,8 @@ public sealed partial class MainViewModel
         // clock.apart.ms, from its matched pongs alone (13.10.2).
         list.AddRange(ShowContext.PlayoutItems(PlayoutLinkFacts()));
         list.AddRange(WindowItems());
+        // 13.6.9, 13.16.5: each key seen in clear, amber, from where and when — "replace this key".
+        list.AddRange(ShowContext.ClearSeenItems(_sightings.All(), ApiKeyName));
         if (ShowBusHello.Item(OwnHello, OwnTwin) is { } hello) list.Add(hello);   // its own health: other apps can't find it, or can't tell it from a copy
         return list;
     }
@@ -368,6 +375,27 @@ public sealed partial class MainViewModel
         SaveBindings();
         _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, KeyBindingWords.JournalLine(bound, ApiKeyName));
     });
+
+    /// <summary>
+    /// A key was first seen arriving in clear from another machine (13.6.9), on whichever thread read it: the show thread saves the mark
+    /// on the key (a restart keeps it), journals it by the key's name and says it on the status line.
+    /// </summary>
+    private void OnKeySeenInClear(KeySighting seen) => _ui.BeginInvoke(() =>
+    {
+        if (_disposed) return;
+        SaveSightings();
+        var line = KeyBindingWords.ClearJournalLine(seen, ApiKeyName);
+        _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, line);
+        StatusLine = line;
+    });
+
+    /// <summary>Show thread: the keys as saved carry every seen-in-clear mark (<see cref="KeySightings.SaveTo"/>); writes only when behind.</summary>
+    private void SaveSightings()
+    {
+        if (!_sightings.Unsaved(Settings.Remote.ApiKeys)) return;
+        _store.Update(s => _sightings.SaveTo(s.Remote.ApiKeys));
+        CopyApiKeys();
+    }
 
     /// <summary>
     /// Show thread: the keys as saved follow the bindings (<see cref="NodeBindings.SaveTo"/>), so a restart puts back the

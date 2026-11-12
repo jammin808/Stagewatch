@@ -16,14 +16,15 @@ using Stagewatch.Core;
 /// key is PlayoutLink's (SW23.1).
 /// </para>
 /// <para>
-/// The acceptor's rows are Stagewatch's /ws acceptor's. Its LINK runs S1–S3, S8–S10, S15's oversize message and S16 against a real
-/// <see cref="Stagewatch.Remote.WebServer"/> (PeerLinkScenarios.Acceptor.cs): the offer first, the verdict's fields, its own wrong-proof
-/// table per (address, kid) with unknown kids uncounted, a fresh snonce and one proof a socket, the session door, the unpaired bound on
-/// the injected clock, and Host and Origin checked before loopback is trusted. The rows it takes over later (S12's emitting half, S14,
-/// S15's reply bound, S17, S18, S20) are answered meanwhile by <see cref="CoreAcceptor"/>, the kit's stand-in, with the core's parsers,
-/// proofs, session check and receipt store, so what those checks hold is the peer's connector end — honest, or an attacker's — against
-/// the core's crypto, CheckSession and PeerReceipts; an acceptor's own decisions there are the stand-in's. S20, S15's slow reader and S12's
-/// emitting half run no Stagewatch code yet (<see cref="PeerOnly"/>; the master's header says so beside <see cref="OnCore"/>). Stagewatch
+/// The acceptor's rows are Stagewatch's /ws acceptor's. Its LINK runs S1–S3, S8–S10, S12's emitting half, S15's oversize message and
+/// S16–S18 against a real <see cref="Stagewatch.Remote.WebServer"/> (PeerLinkScenarios.Acceptor.cs): the offer first, the verdict's fields,
+/// its own wrong-proof table per (address, kid) with unknown kids uncounted, a fresh snonce and one proof a socket, the session door and
+/// S speaking for its key on the side calls' routes, the unpaired bound on the injected clock, Host and Origin checked before loopback is
+/// trusted, live revocation, a binding refusal and a key seen in clear. The rows it takes over later (S14, S15's reply bound, S20) are
+/// answered meanwhile by <see cref="CoreAcceptor"/>, the kit's stand-in, with the core's parsers, proofs, session check and receipt store,
+/// so what those checks hold is the peer's connector end — honest, or an attacker's — against the core's crypto, CheckSession and
+/// PeerReceipts; an acceptor's own decisions there are the stand-in's. S20 and S15's slow reader run no Stagewatch code yet
+/// (<see cref="PeerOnly"/>; the master's header says so beside <see cref="OnCore"/>). Stagewatch
 /// offers no enrolment and runs no forwarder, so S21's acceptor half and S20's forwarder are not its rows.
 /// </para>
 /// <para>
@@ -90,7 +91,7 @@ static partial class PeerLinkScenarios
 
     /// <summary>
     /// The scenarios that run no Stagewatch code yet, only the peer's attack on the wire, until Stagewatch's /ws acceptor takes them over.
-    /// The master's header names them so, with S15's slow reader and S12's emitting half, which are halves of rows above.
+    /// The master's header names them so, with S15's slow reader, a half of a row above.
     /// </summary>
     static readonly int[] PeerOnly = [20];
 

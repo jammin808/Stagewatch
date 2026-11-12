@@ -187,8 +187,8 @@ static partial class PeerLinkScenarios
     static async Task S10(Action<bool, string> Check, string script, Material kit)
     {
         // The acceptor's half (Stagewatch takes side calls), the core's CheckSession behind the kit's stand-in, reached at this machine's
-        // own LAN address so a plain call is from another machine by 13.1's rule. S10's row at Stagewatch's /ws acceptor comes with
-        // PeerLinkScenarios.Acceptor.cs, and the routes its S speaks on with SW22.1b.
+        // own LAN address so a plain call is from another machine by 13.1's rule. S10's row at Stagewatch's /ws acceptor, and the routes
+        // its S speaks on, are PeerLinkScenarios.Acceptor.cs's.
         var lan = Lan();
         Check(lan is not null, "peerlink scenarios: S10 — this machine has a LAN address that is not loopback, for S in clear from another machine");
         if (lan is null) return;
@@ -359,8 +359,8 @@ static partial class PeerLinkScenarios
             Check(up && stuck && pong && afterPong == PeerShow.Stuck && beat && afterBeat == PeerShow.Stuck && live && c.M.Record(T0 + 40).Light == "green",
                 $"peerlink scenarios: S12 ws — a beat with live false makes the show stuck; a pong and a plain beat leave it stuck; the next state frame makes it live ({c.M.Record(T0 + 40).ToJson()}) {peer.Faults}");
         }
-        // S12's emitting half — an acceptor's own stuck beat and STUCK pong — is Stagewatch's /ws acceptor's: its row comes with SW22.1b,
-        // and feature stuck itself, its stuckMs Stagewatch's StuckAfter, with SW22.1c. Nothing of it is run here.
+        // S12's emitting half — an acceptor's own stuck beat — is Stagewatch's /ws acceptor's (PeerLinkScenarios.Acceptor.cs); feature stuck
+        // itself, its stuckMs Stagewatch's StuckAfter, comes with SW22.1c. Nothing of it is run here.
     }
 
     // ------------------------------------------------------------------ S13: a forged or unmatched pong; a plain clock
@@ -553,7 +553,7 @@ static partial class PeerLinkScenarios
         // The acceptor's half: the peer, as an attacker, sends request ids twice; the core's PeerReceipts behind the stand-in runs each
         // once — one applied, one refused — and answers the second from its record with "repeat":true in 13.12.6's form on each
         // carrier, which the core's 13.12.3 reads back; a RECEIPTS ask is answered from it, in its form on each carrier. S14's row at
-        // Stagewatch's /ws acceptor comes with SW22.1b, and feature receipts, the store on /ws, with SW22.1c.
+        // Stagewatch's /ws acceptor comes with feature receipts, the store on /ws, with SW22.1c.
         foreach (var carrier in new[] { "line", "ws" })
         {
             var name = "S14 " + carrier + ", the peer connecting";
@@ -752,8 +752,8 @@ static partial class PeerLinkScenarios
             var due = c.M.DialDue(At + PeerLink.HoldRefusedMs - 1) is null && c.M.DialDue(At + PeerLink.HoldRefusedMs) == "tls";
             Check(due, $"peerlink scenarios: {name} — no dial while the hold runs; the key is proved again only when it ends");
         }
-        // S17's acceptor half — a revocation ending its live links and their S at once — is Stagewatch's /ws acceptor's (SW22.1b);
-        // nothing of it is run here.
+        // S17's acceptor half — a revocation ending its live links and their S at once — is Stagewatch's /ws acceptor's
+        // (PeerLinkScenarios.Acceptor.cs); nothing of it is run here.
     }
 
     // ------------------------------------------------------------------ S18: a key bound to another connector
@@ -789,8 +789,8 @@ static partial class PeerLinkScenarios
             Check(held && c.M.Record(T0).Refusal == "binding" && words == "ERR @l2 LINK binding — this key speaks for main 0f0f0f0f0f0f",
                 $"peerlink scenarios: S18 line — a key its operator bound to another connector is refused in 13.5.2's words ({words})");
         }
-        // S18's acceptor half — a binding refusal never counted toward a lockout — is Stagewatch's /ws acceptor's: its row and the
-        // bindings come with SW22.1b, the wrong-proof table it is never counted in is the /ws acceptor's (PeerLinkScenarios.Acceptor.cs). Nothing of it is run here.
+        // S18's acceptor half — a binding refusal never counted toward a lockout — is Stagewatch's /ws acceptor's
+        // (PeerLinkScenarios.Acceptor.cs). Nothing of it is run here.
     }
 
     // ------------------------------------------------------------------ S20: a foreign Origin, a forwarder

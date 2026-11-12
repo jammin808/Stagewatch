@@ -17,7 +17,7 @@ static class ShowBusTests
 {
     internal sealed class BusControl : IShowControl
     {
-        public SnapshotHub Snapshots { get; } = new();
+        public SnapshotHub Snapshots { get; init; } = new();
         public List<ShowCommand> Commands { get; } = new();
         public void Execute(ShowCommand command) { lock (Commands) Commands.Add(command); }
         public RemoteConfig GetRemoteConfig() => new(Array.Empty<(int, string, int)>(), Array.Empty<(string, string, MessageUrgency, FlashRate)>(), Array.Empty<(string, string?, int)>());

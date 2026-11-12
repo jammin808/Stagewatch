@@ -27,6 +27,7 @@ static class NodeTests
         Room(Check);
         Refusals(Check);
         Keys(Check);
+        Sightings(Check);
         Gate(Check);
         BadRequests(Check);
         LinkRequests(Check);
@@ -963,6 +964,76 @@ static class NodeTests
               && JsonSerializer.Deserialize<ApiKey>(json) is { Node: "9f8e7d6c", NodeKind: "patterns" },
               $"keys: node and nodeKind are appended to a key in settings, and absent on other keys ({json})");
         Check(!json.Contains(ApiKeys.Prefix, StringComparison.Ordinal), "keys: the settings entry holds no secret");
+    }
+
+    // ------------------------------------------------------------------ keys seen in clear (Show Bus 13.6.9)
+
+    /// <summary>
+    /// A key seen in clear from another machine is marked once — from where and when first — for keys in force only; a revoked key's mark
+    /// goes with it; the mark is saved on the key, put back from it, and dropped by Sanitise when it does not read as one; a marked key
+    /// gets no grant; its words name the address, never a secret; and the side-call routes are the ones §8's row names.
+    /// </summary>
+    static void Sightings(Action<bool, string> Check)
+    {
+        var (key, secret) = ApiKeys.Create("Patterns FOH", ApiKeyScope.Node, T0);
+        var (other, _) = ApiKeys.Create("Dashboard", ApiKeyScope.Read, T0);
+        var table = new KeySightings(new[] { key, other });
+        var heard = new List<KeySighting>();
+        table.Seen += heard.Add;
+        var first = table.Mark(key.Id, "10.0.0.9", T0);
+        var again = table.Mark(key.Id, "10.0.0.7", T0.AddMinutes(5));
+        var unknown = table.Mark("feedbeef", "10.0.0.9", T0);
+        var s = table.Of(key.Id) ?? default;
+        Check(first && !again && !unknown && heard is [{ Address: "10.0.0.9" }] && s.Address == "10.0.0.9" && s.KeyId == key.Id && s.AtUtc == T0
+              && !table.MayGrant(key.Id) && table.MayGrant(other.Id) && table.All().Count == 1,
+            "sightings: a key in force seen in clear is marked once, from where and when first; an unknown key marks nothing; a marked key gets no grant");
+
+        // Saved on the key, appended to its settings entry and read back; a restart puts the mark back without raising Seen.
+        var saved = new[] { new ApiKey { Id = key.Id, Name = key.Name, Scope = key.Scope, Hash = key.Hash, Hint = key.Hint }, new ApiKey { Id = other.Id, Hash = other.Hash } };
+        var unsaved = table.Unsaved(saved);
+        var wrote = table.SaveTo(saved);
+        var json = JsonSerializer.Serialize(saved[0]);
+        var plain = JsonSerializer.Serialize(saved[1]);
+        var reread = ApiKeys.Sanitise(new[] { JsonSerializer.Deserialize<ApiKey>(json) });
+        var restarted = new KeySightings(reread);
+        var raised = 0;
+        restarted.Seen += _ => raised++;
+        Check(unsaved && wrote && !table.Unsaved(saved) && json.EndsWith(",\"clearSeen\":\"2026-10-25T19:00:00Z\",\"clearFrom\":\"10.0.0.9\"}", StringComparison.Ordinal)
+              && !plain.Contains("clear", StringComparison.Ordinal) && !json.Contains(secret, StringComparison.Ordinal)
+              && restarted.Of(key.Id) is { Address: "10.0.0.9" } r && r.AtUtc == T0 && !restarted.Mark(key.Id, "10.0.0.8", T0) && raised == 0,
+            $"sightings: the mark is appended to the key's settings entry, absent on a key never seen in clear, and put back on restart ({json})");
+
+        // A half mark, or one that does not read as a time and an address, is dropped when settings load.
+        var half = new ApiKey { Id = "aa11bb22", Scope = ApiKeyScope.Node, Hash = new string('c', 64), ClearSeen = "2026-10-25T19:00:00Z" };
+        var badAt = new ApiKey { Id = "aa11bb23", Scope = ApiKeyScope.Node, Hash = new string('d', 64), ClearSeen = "yesterday", ClearFrom = "10.0.0.9" };
+        var badFrom = new ApiKey { Id = "aa11bb24", Scope = ApiKeyScope.Node, Hash = new string('e', 64), ClearSeen = "2026-10-25T19:00:00Z", ClearFrom = "host.example" };
+        Check(ApiKeys.Sanitise(new[] { half, badAt, badFrom }).All(k => k.ClearSeen is null && k.ClearFrom is null),
+            "sightings: a mark that is not a time and an address both is dropped when settings load");
+
+        // A revoked key's mark goes with it; a table never told the keys in force marks any id, up to its bound.
+        table.Keep(new[] { other });
+        var open = new KeySightings();
+        for (var i = 0; i < KeySightings.MaxUnkept + 1; i++) open.Mark("k" + i.ToString(CultureInfo.InvariantCulture), "10.0.0.9", T0);
+        Check(table.Of(key.Id) is null && table.MayGrant(key.Id) && table.All().Count == 0 && open.All().Count == KeySightings.MaxUnkept,
+            "sightings: a revoked key's mark goes with it; a table that keeps no keys holds at most its bound");
+
+        // The words: the key row, the journal and the context name the address and the key, never the secret.
+        var row = KeyBindingWords.ClearLine(s, T0.AddMinutes(4));
+        var journal = KeyBindingWords.ClearJournalLine(s, id => id == key.Id ? key.Name : null);
+        var items = ShowContext.ClearSeenItems(table.All().Concat(new[] { s }), id => id == key.Id ? key.Name : null);
+        Check(row == "seen in clear from 10.0.0.9 4 min ago — replace this key" && KeyBindingWords.ClearLine(null, T0) == ""
+              && journal.StartsWith("API key 'Patterns FOH' was seen in clear from 10.0.0.9", StringComparison.Ordinal) && journal.Contains("no window is granted", StringComparison.Ordinal)
+              && items is [{ Kind: "health", Light: Light.Amber } item] && item.Id == "key:" + key.Id && item.Label == "API key 'Patterns FOH'"
+              && item.State == "seen in clear from 10.0.0.9 at 2026-10-25T19:00:00Z — replace this key"
+              && !(row + journal + item.State).Contains(secret, StringComparison.Ordinal),
+            $"sightings: the key row, the journal and the context say from where and when, and replace this key ({row} | {journal})");
+
+        // The routes a link's session credential speaks for its key on (13.7.1, §8's row), and none other.
+        var speaks = new[] { "/api/context", "/api/peers/context", "/api/proposals", "/api/proposals/p1-ab12cd34", "/api/proposals/p1-ab12cd34/result",
+            "/api/message", "/api/message/Hello", "/api/clearmessage", "/api/clear" };
+        var not = new[] { "/api/state", "/api/screens", "/api/start", "/api/messages", "/api/peer", "/api/preflight", "/api/contexts", "/mcp", "/ws", "/api/proposalsx" };
+        Check(speaks.All(WebServer.SpeaksOn) && !not.Any(WebServer.SpeaksOn),
+            "sightings: a link's session credential speaks on the context, peers' context, proposals and results, and message routes only");
     }
 
     // ------------------------------------------------------------------ node links on /ws (Show Bus §7.1)
