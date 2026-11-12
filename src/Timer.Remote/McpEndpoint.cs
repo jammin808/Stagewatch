@@ -169,6 +169,8 @@ public sealed class McpEndpoint
                 if (PlayoutGate.Person(cmd.Kind)) return Text("Refused: " + (gate(cmd.Kind) ?? PlayoutGate.PersonWords(cmd.Kind)), isError: true);
                 var drives = PlayoutGate.Drives(cmd.Kind);
                 if (drives && gate(cmd.Kind) is { } refused) return Text("Refused: " + refused, isError: true);
+                // A window grant is a person's act (Show Bus §12.4): an agent only proposes one, whatever its key, and a person decides.
+                drives |= PlayoutGate.Grants(cmd);
                 // Human in the loop: by default an agent proposes and the operator decides.
                 var reason = args?["reason"]?.GetValue<string>() ?? "";
                 // Queued or refused is the reply's fact, never read from its words: a refusal is an error to the agent.

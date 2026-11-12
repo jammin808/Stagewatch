@@ -538,6 +538,12 @@ public sealed class ProposalDesk
     /// <summary>Why a proposal under a show app's key that asks a window for another app is refused (Show Bus §12.4).</summary>
     public const string ForItselfOnly = "a show app may ask a window only for itself";
 
+    /// <summary>
+    /// What the desk's list shows first for a proposal: its reason when it gave one, else its line — but a window grant's line always
+    /// (§12.4, D12), so the operator decides on what it does, never on the words a peer chose to put beside it.
+    /// </summary>
+    public static string Headline(SharedProposal p) => p.Reason.Length > 0 && GrantedApp(p.Line) is null ? p.Reason : p.Line;
+
     /// <summary>The app a <c>window grant &lt;window&gt; &lt;app&gt;</c> line names, as this desk's grammar reads it; null for any other line.</summary>
     public static string? GrantedApp(string line)
         => ShowCommandParser.TryParseLine(line, out var cmd, out _) && cmd.Kind == ShowCommandKind.Window && cmd.Get<WindowArgs>() is { Action: "grant" } a

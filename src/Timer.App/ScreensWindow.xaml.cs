@@ -98,15 +98,18 @@ public partial class ScreensWindow : Window
     {
         var windows = _vm.ControlledWindows;
         var observed = _vm.WindowStatus();
-        var items = ScreenWindows.ContextItems(windows, observed);
+        // The light the context says: worst over every viewer (its own address, each grant's), with its grants and its holders' claims.
+        var items = _vm.WindowLights();
+        var grants = _vm.WindowGrantStatus();
         for (int i = _windowRows.Count - 1; i >= 0; i--)
             if (!windows.Any(w => w.Id == _windowRows[i].Id)) _windowRows.RemoveAt(i);
-        for (var i = 0; i < windows.Count; i++)
+        foreach (var w in windows)
         {
-            var w = windows[i];
             var row = _windowRows.FirstOrDefault(r => r.Id == w.Id);
             if (row is null) { row = new WindowRow(w.Id); _windowRows.Add(row); }
-            row.Update(w, items[i], observed.FirstOrDefault(o => o.WindowId == w.Id));
+            var item = items.FirstOrDefault(x => x.Id == ScreenWindows.ItemId(w.Name))
+                       ?? new ContextItem(ScreenWindows.ItemId(w.Name), "screen", "Window " + w.Name, Light.Grey, "not opened yet");
+            row.Update(w, item, observed.FirstOrDefault(o => o.WindowId == w.Id), grants);
         }
         WindowsSubtitle.Text = !_vm.ScreensAvailable
             ? "The web server is off: windows keep what they should show and take it up again when Settings → Remote is on."
@@ -181,6 +184,54 @@ public partial class ScreensWindow : Window
     private void OnWindowCut(object sender, RoutedEventArgs e) => ForWindows(who => $"window fade {who} 0");
     private void OnWindowFadeShort(object sender, RoutedEventArgs e) => ForWindows(who => $"window fade {who} 300");
     private void OnWindowFadeLong(object sender, RoutedEventArgs e) => ForWindows(who => $"window fade {who} 1000");
+
+    /// <summary>
+    /// The right-click menu's Grant to ▸ and Withdraw ▸, filled as it opens from the one selected window and the show apps heard now
+    /// (<see cref="ScreenWindows.GrantChoices"/>, <see cref="ScreenWindows.WithdrawChoices"/>): the Grant… button opens the same entries.
+    /// </summary>
+    private void OnWindowMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        var window = WindowGrid.SelectedItems.Count == 1 && WindowGrid.SelectedItem is WindowRow row ? _vm.ControlledWindows.FirstOrDefault(w => w.Id == row.Id) : null;
+        Fill(GrantToMenu, window is null ? [] : ScreenWindows.GrantChoices(window, _vm.HeardApps()),
+            window is null ? "select one window" : "no show app heard offers pages or window-draw, or the window is granted to four already");
+        Fill(WithdrawMenu, window is null ? [] : ScreenWindows.WithdrawChoices(window), window is null ? "select one window" : "it isn't granted to anyone");
+    }
+
+    private void Fill(MenuItem menu, IReadOnlyList<GrantChoice> choices, string none)
+    {
+        menu.Items.Clear();
+        foreach (var c in choices)
+        {
+            var item = new MenuItem { Header = c.Label.Replace("_", "__", StringComparison.Ordinal) };
+            var line = c.Line;
+            item.Click += (_, _) => Run(line);
+            menu.Items.Add(item);
+        }
+        menu.IsEnabled = choices.Count > 0;
+        menu.ToolTip = choices.Count > 0 ? null : none;
+        ToolTipService.SetShowOnDisabled(menu, true);
+    }
+
+    /// <summary>The Grant… button: the same Grant to entries as the right-click menu, for the one selected window, opened under the button.</summary>
+    private void OnWindowGrant(object sender, RoutedEventArgs e)
+    {
+        if (OneWindow("grant") is not { } row || _vm.ControlledWindows.FirstOrDefault(w => w.Id == row.Id) is not { } window) return;
+        var choices = ScreenWindows.GrantChoices(window, _vm.HeardApps());
+        if (choices.Count == 0)
+        {
+            MessageBox.Show(this, $"No show app heard on the show network can take {window.Name}: an app offers pages (Patterns) or window-draw (PlayMap), and a window is granted to four at most.", "Windows");
+            return;
+        }
+        var menu = new ContextMenu { PlacementTarget = GrantButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        foreach (var c in choices)
+        {
+            var item = new MenuItem { Header = c.Label.Replace("_", "__", StringComparison.Ordinal) };
+            var line = c.Line;
+            item.Click += (_, _) => Run(line);
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
 
     private void OnWindowNew(object sender, RoutedEventArgs e)
     {
@@ -389,9 +440,16 @@ public partial class ScreensWindow : Window
         public string State { get; private set; } = "";
         public string Device { get; private set; } = "";
         public string Swap { get; private set; } = "";
+        /// <summary>Each grant's app with where it stands as a shape and words ("✓ Patterns FOH (shows it)"); "" when granted to none.</summary>
+        public string Granted { get; private set; } = "";
 
-        public void Update(ScreenWindow w, ContextItem item, WindowObserved? seen)
+        public void Update(ScreenWindow w, ContextItem item, WindowObserved? seen, IReadOnlyList<GrantObserved> grants)
         {
+            var granted = string.Join(", ", (w.Grants ?? []).OfType<WindowGrant>().Select(g =>
+                grants.FirstOrDefault(o => o.WindowId == w.Id && o.Node == g.Node) is { } o
+                    ? $"{WindowGrants.Mark(o.State)} {ScreenWindows.GrantLabel(g)} ({WindowGrants.Short(o.State, g.How)})"
+                    : $"○ {ScreenWindows.GrantLabel(g)}"));
+            Set(nameof(Granted), Granted, granted, v => Granted = v);
             Set(nameof(Name), Name, w.Name, v => Name = v);
             var (mark, brush) = item.Light switch { Light.Green => ("✓", Green), Light.Amber => ("△", Amber), Light.Red => ("✕", Red), _ => ("○", Grey) };
             Set(nameof(Mark), Mark, mark, v => Mark = v);

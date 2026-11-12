@@ -846,6 +846,9 @@ public partial class MainWindow : Window, IContextActions
                 yield return I("Revoke its key…", () => RevokePeerKey(peer), peer.KeyId.Length > 0);
                 // A playout link's certificate of this node that waits for a person: the row's button and these run the same code.
                 foreach (var waiting in _vm.CertificatesWaitingFor(peer)) yield return I(waiting.Label, () => TrustCertificate(waiting));
+                // A window granted to this app (Show Bus §12.4): the same line Screens → Windows' Grant to ▸ runs, by its id.
+                yield return new Separator();
+                yield return GrantWindowMenu(peer);
                 break;
 
             case "show-hello":
@@ -907,6 +910,27 @@ public partial class MainWindow : Window, IContextActions
                 yield return I(_vm.HoldingFill ? "Fit the whole image" : "Fill the screen (crop)", () => _vm.HoldingFill = !_vm.HoldingFill);
                 break;
         }
+    }
+
+    /// <summary>
+    /// The Show network row's Grant a window ▸: each window this app does not hold that has room for a grant (<see cref="ScreenWindows.WindowsFor"/>),
+    /// running <c>window grant &lt;window&gt; &lt;its id&gt;</c>; greyed, saying why, when the app offers neither pages nor window-draw or no
+    /// window is left to grant it.
+    /// </summary>
+    private MenuItem GrantWindowMenu(PeerRow peer)
+    {
+        var menu = ContextHelp.Item("Grant a window", () => { });
+        var app = _vm.HeardApps().FirstOrDefault(a => a.Id == peer.NodeId);
+        var choices = app is null ? [] : ScreenWindows.WindowsFor(_vm.ControlledWindows, app);
+        foreach (var c in choices) menu.Items.Add(ContextHelp.Item(ContextHelp.Plain(c.Label), () => _vm.RunCommandLine(c.Line)));
+        if (choices.Count == 0)
+        {
+            menu.IsEnabled = false;
+            menu.ToolTip = app is null ? "it has no Show Bus id this Stagewatch can grant to"
+                : (app.Can ?? []).Count == 0 ? "it offers neither pages nor window-draw" : "no window is left to grant it (Screens → Windows makes one)";
+            ToolTipService.SetShowOnDisabled(menu, true);
+        }
+        return menu;
     }
 
     private static MenuItem Toggle(string header, bool on, Action<bool> set)

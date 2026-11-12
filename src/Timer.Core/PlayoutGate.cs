@@ -137,6 +137,41 @@ public static class PlayoutGate
         return Listed(sender.Address, from) ? null : Words(kind, door);
     }
 
+    /// <summary>
+    /// Whether a line grants a window to a show app (<c>window grant &lt;window&gt; &lt;app&gt;</c>): a person's act (Show Bus §12.4), which
+    /// a door takes only where it authenticates the operator.
+    /// </summary>
+    public static bool Grants(ShowCommand cmd) => cmd.Kind == ShowCommandKind.Window && cmd.Get<WindowArgs>() is { Action: "grant" };
+
+    /// <summary>
+    /// Null when <paramref name="sender"/> may send <paramref name="cmd"/> by <paramref name="door"/>; else why not. A window grant is a
+    /// person's act (Show Bus §12.4), taken only from a door that authenticates the operator: OSC and Companion TCP, which authenticate
+    /// nobody, refuse it whoever sends it; over HTTP and a WebSocket it passes only on a credential proved with it — the PIN this
+    /// Stagewatch asks for, or a control key — never on an address alone (this PC and a listed address authenticate nobody); over MCP it
+    /// passes the door only to be queued as a proposal a person decides (the endpoint never runs it). Every other line is
+    /// <see cref="Check(ShowCommandKind, CommandDoor, CommandSender, IReadOnlyList{IPAddress})"/>'s.
+    /// </summary>
+    public static string? Check(ShowCommand cmd, CommandDoor door, CommandSender sender, IReadOnlyList<IPAddress> from)
+    {
+        if (!Grants(cmd)) return Check(cmd.Kind, door, sender, from);
+        if (door is CommandDoor.Osc or CommandDoor.Companion) return GrantWords(door);
+        if (door == CommandDoor.Mcp) return null;
+        if (sender.Credentialed) return null;
+        return GrantWords(door, sender.OtherSite);
+    }
+
+    /// <summary>Why a window grant is refused at <paramref name="door"/> (Show Bus §12.4: a person's act, taken only where the operator is authenticated).</summary>
+    public static string GrantWords(CommandDoor door, bool otherSite = false) => door switch
+    {
+        CommandDoor.Osc or CommandDoor.Companion =>
+            $"window grant is a person's act — {(door == CommandDoor.Osc ? "OSC" : "Companion TCP")} authenticates nobody: grant it at the desk (Screens → Windows), or over HTTP or a WebSocket with the PIN or a control key",
+        CommandDoor.Mcp => "window grant is a person's act — an agent proposes it, and a person decides",
+        _ when otherSite =>
+            $"window grant from another site's web page over {(door == CommandDoor.WebSocket ? "a WebSocket" : "HTTP")} needs a control key while no PIN is set",
+        _ => $"window grant is a person's act — over {(door == CommandDoor.WebSocket ? "a WebSocket" : "HTTP")} it needs the PIN given (set one in Settings → Remote) "
+             + "or a control key, from this PC or any other: grant it at the desk (Screens → Windows) otherwise",
+    };
+
     /// <summary>The refusal for a <paramref name="kind"/> line a browser page of another site sent by <paramref name="door"/>, with no credential.</summary>
     public static string OtherSiteWords(ShowCommandKind kind, CommandDoor door)
     {

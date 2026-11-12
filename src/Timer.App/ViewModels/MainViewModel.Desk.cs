@@ -113,7 +113,7 @@ public sealed partial class MainViewModel
             item = new CopilotProposal
             {
                 Source = sent ? $"{p.DecidedBy} → {target}" : $"{Desk.Proposer(p)} → {target}",
-                Request = p.Reason.Length > 0 ? p.Reason : p.Line,
+                Request = ProposalDesk.Headline(p),
                 SharedId = p.Id,
             };
             var first = new CopilotStepItem(new CopilotStep(p.Line, p.Reason, Copilot.Of(CommandRisk.Parse(p.Risk))));

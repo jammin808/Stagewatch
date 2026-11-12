@@ -214,6 +214,31 @@ public static class ShowNetwork
     }
 
     /// <summary>
+    /// What a row's app can do with a window (12.6): its node link's abilities while a key bound to its id proves that link — none when
+    /// that link offers none, whatever a hello says, since delivery reads that link's <c>can=</c> alone (D3) — else its hello's caps read
+    /// as <c>can=</c> is (<see cref="WindowGrants.Offered"/>: only an ability whose cap row names its kind), none when neither says.
+    /// </summary>
+    public static IReadOnlyList<string> WindowAbilities(NetworkRow r, IReadOnlyDictionary<string, IReadOnlyList<string>>? helloCaps)
+    {
+        if (r.Link is { Verified: NodeProof.Key } linked) return linked.Can ?? [];
+        return helloCaps is not null && helloCaps.TryGetValue(r.Peer.Id, out var caps) ? WindowGrants.Offered(string.Join(',', caps), r.Peer.Kind) : [];
+    }
+
+    /// <summary>
+    /// The show apps a window may be granted to, as this Stagewatch hears them now (<see cref="ShowApp"/>), from one join of the show network:
+    /// each row with a valid Show Bus id that is not this Stagewatch's own (<paramref name="ownId"/>), by its kind, id and name, what it can do
+    /// with a window (<see cref="WindowAbilities"/>) and whether a key bound to its id proves the link those abilities came from. An id two
+    /// running machines say (§2's conflict) is no app to grant to until one of them stops: a grant names one node.
+    /// </summary>
+    public static IReadOnlyList<ShowApp> Apps(NetworkView view, IReadOnlyDictionary<string, IReadOnlyList<string>>? helloCaps, string? ownId)
+    {
+        var conflicted = view.Conflicts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
+        return view.Rows.Where(r => NodeBindings.ValidId(r.Peer.Id) && r.Peer.Id != ownId && !conflicted.Contains(r.Peer.Id))
+            .Select(r => new ShowApp(r.Peer.Kind, r.Peer.Id, r.Named ? r.Peer.Name : "", WindowAbilities(r, helloCaps), r.Link is { Verified: NodeProof.Key }))
+            .ToList();
+    }
+
+    /// <summary>
     /// The app a Show Bus kind names, for people: the name §14's kind row gives it (<see cref="ShowBusKinds.Label"/>), "show app"
     /// for no kind, or a kind the contract does not name as itself.
     /// </summary>

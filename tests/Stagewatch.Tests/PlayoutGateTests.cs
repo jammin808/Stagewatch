@@ -279,6 +279,16 @@ static class PlayoutGateTests
         lock (rejected)
             Check(rejected.Contains("OSC: " + PlayoutGate.PersonLater(ShowCommandKind.Peer, CommandDoor.Osc)) && rejected.Contains("OSC: " + PlayoutGate.PersonLater(ShowCommandKind.Desk, CommandDoor.Osc)),
                   $"osc gate: peer and desk are refused in words that say where they are taken ({string.Join(" | ", rejected.Skip(3))})");
+        // A window grant is a person's act (Show Bus §12.4): OSC authenticates nobody, so a listed address is refused it too, while the
+        // same sender's other window lines run as before; the server reads in order, so the show line after it says the grant was read.
+        var grantsAt = Count();
+        var rejectedAt = osc.MessagesRejected;
+        await Send("/stagewatch/window", "grant", "lobby", "9f8e7d6c");
+        await Send("/stagewatch/window", "show", "lobby", "/clock");
+        Check(await Ran(ShowCommandKind.Window, grantsAt) && Windows(control).All(a => a.Action != "grant") && osc.MessagesRejected == rejectedAt + 1,
+              "osc gate: a window grant from a listed address never reaches the show thread; the window show after it does");
+        lock (rejected)
+            Check(rejected.Contains("OSC: " + PlayoutGate.GrantWords(CommandDoor.Osc)), "osc gate: the grant's refusal says it is a person's act and where to grant it");
 
         // The default seam: a sender on this PC passes with nothing listed.
         var local = new FakeControl();
@@ -290,6 +300,14 @@ static class PlayoutGateTests
         var ok = false;
         for (var i = 0; i < 100 && !ok; i++) { lock (local.Commands) ok = local.Commands.Any(c => c.Kind == ShowCommandKind.Patterns); if (!ok) await Task.Delay(20); }
         Check(ok, "osc gate: this PC (loopback) drives patterns, as before");
+        bytes = OscCodec.EncodeMessage("/stagewatch/window", "grant", "lobby", "9f8e7d6c");
+        await sender.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Loopback, localPort));
+        bytes = OscCodec.EncodeMessage("/stagewatch/window", "withdraw", "lobby");
+        await sender.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Loopback, localPort));
+        ok = false;
+        for (var i = 0; i < 100 && !ok; i++) { ok = Windows(local).Any(a => a.Action == "withdraw"); if (!ok) await Task.Delay(20); }
+        Check(ok && Windows(local).All(a => a.Action != "grant") && plain.MessagesRejected == 1,
+              "osc gate: this PC is refused a window grant too (OSC proves no person), and its withdraw after it runs");
         Check(typeof(OscServer).GetConstructors().Single().GetParameters() is [{ } first, { } second]
               && first.ParameterType == typeof(IShowCommands) && second.ParameterType == typeof(IShowAccess) && second.HasDefaultValue,
               "osc gate: OSC needs commands and frames, and who may drive playout (none given: this PC only)");
@@ -350,7 +368,26 @@ static class PlayoutGateTests
         Check(await Answer("ERROR @c5 ") == "ERROR @c5 " + PlayoutGate.PersonLater(ShowCommandKind.Desk, CommandDoor.Companion)
               && !Any(ShowCommandKind.Peer) && !Any(ShowCommandKind.Desk),
               "companion gate: a desk line is refused the same way, and neither reached the show thread");
+        // A window grant is a person's act (Show Bus §12.4): Companion TCP authenticates nobody, so a listed address is refused it under
+        // its id, counted and said on the status line, while its other window lines run as before.
+        var rejectedAt = server.MessagesRejected;
+        await Say("@c6 window grant lobby 9f8e7d6c");
+        Check(await Answer("ERROR @c6 ") == "ERROR @c6 " + PlayoutGate.GrantWords(CommandDoor.Companion) && server.MessagesRejected == rejectedAt + 1,
+              "companion gate: a window grant from a listed address is refused under its id in words, and counted");
+        await Say("@c7 window withdraw lobby");
+        Check(await Answer("OK @c7") == "OK @c7 accepted" && Windows(bridge.Commands).Any(a => a.Action == "withdraw") && Windows(bridge.Commands).All(a => a.Action != "grant"),
+              "companion gate: the grant never reached the show thread; a withdraw from the same deck runs");
+        lock (rejected)
+            Check(rejected.Contains("Companion: " + PlayoutGate.GrantWords(CommandDoor.Companion)), "companion gate: the grant's refusal reaches the status line");
     }
+
+    /// <summary>The window lines a surface heard, in order.</summary>
+    static List<WindowArgs> Windows(List<ShowCommand> commands)
+    {
+        lock (commands) return [.. commands.Where(c => c.Kind == ShowCommandKind.Window).Select(c => c.Get<WindowArgs>()!)];
+    }
+
+    static List<WindowArgs> Windows(FakeControl control) => Windows(control.Commands);
 
     static async Task Web(Action<bool, string> Check)
     {
@@ -423,6 +460,11 @@ static class PlayoutGateTests
         Check((bool?)unqueued["isError"] == true && Text(unqueued) == IShowAgents.NobodyApproves && Count(ShowCommandKind.Patterns) == 1,
               "mcp gate: a line that drives another app's air never runs directly, even when the host queues nothing");
         control.IgnoreMust = false;
+        // A window grant is a person's act (Show Bus §12.4): an agent only proposes one, even where agents act directly.
+        var proposedAt = control.ProposedCount;
+        var agentGrant = await Mcp("window grant lobby 9f8e7d6c", mcpSecret);
+        Check((bool?)agentGrant["isError"] == false && control.ProposedCount == proposedAt + 1 && Count(ShowCommandKind.Window) == 0,
+              "mcp gate: an agent's window grant is a proposal even with agents acting directly, and nothing runs");
 
         // WebSocket: a control page let in with no PIN set proved nothing.
         using (var ws = new ClientWebSocket())
@@ -451,6 +493,40 @@ static class PlayoutGateTests
             var keyed = await Next(ws, "\"type\":\"receipt\"");
             Check(keyed is not null && JsonNode.Parse(keyed) is { } kr && (string?)kr["id"] == "w0" && (bool?)kr["ok"] == true && Count(ShowCommandKind.Playout) == 1,
                   "ws gate: no PIN set, a control page let in by a control key drives playout from another machine");
+        }
+
+        // A window grant is a person's act (Show Bus §12.4): over HTTP and a WebSocket it passes on the PIN or a control key alone, never
+        // on an address — a listed one included.
+        var grantPath = "/api/window/grant/lobby/9f8e7d6c";
+        var noKey = await http.SendAsync(Post(grantPath));
+        Check(noKey.StatusCode == HttpStatusCode.Forbidden && (string?)JsonNode.Parse(await noKey.Content.ReadAsStringAsync())!["error"] == PlayoutGate.GrantWords(CommandDoor.Http)
+              && Count(ShowCommandKind.Window) == 0,
+              "http gate: no PIN set, a window grant with no key is refused 403 in words, and nothing runs");
+        control.From = [IPAddress.Loopback];
+        var listedGrant = await http.SendAsync(Post(grantPath));
+        Check(listedGrant.StatusCode == HttpStatusCode.Forbidden && (string?)JsonNode.Parse(await listedGrant.Content.ReadAsStringAsync())!["error"] == PlayoutGate.GrantWords(CommandDoor.Http)
+              && Count(ShowCommandKind.Window) == 0,
+              "http gate: a listed address vouches for no person: its window grant with no key is refused");
+        control.From = [];
+        Check((await http.SendAsync(Post(grantPath, ctlSecret))).StatusCode == HttpStatusCode.OK && Count(ShowCommandKind.Window) == 1,
+              "http gate: a control key makes a window grant");
+        using (var ws = new ClientWebSocket())
+        {
+            await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?role=control"), CancellationToken.None);
+            await Send(ws, """{"cmd":"window","args":["grant","lobby","9f8e7d6c"],"id":"wg1"}""");
+            var wsGrant = await Next(ws, "\"type\":\"receipt\"");
+            Check(wsGrant is not null && JsonNode.Parse(wsGrant) is { } gr && (string?)gr["id"] == "wg1" && (bool?)gr["ok"] == false
+                  && (string?)gr["error"] == PlayoutGate.GrantWords(CommandDoor.WebSocket) && Count(ShowCommandKind.Window) == 1,
+                  "ws gate: no PIN set, a control page with no key is refused a window grant in words");
+        }
+        using (var ws = new ClientWebSocket())
+        {
+            ws.Options.SetRequestHeader("Authorization", "Bearer " + ctlSecret);
+            await ws.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/ws?role=control"), CancellationToken.None);
+            await Send(ws, """{"cmd":"window","args":["grant","lobby","9f8e7d6c"],"id":"wg2"}""");
+            var wsGrant = await Next(ws, "\"type\":\"receipt\"");
+            Check(wsGrant is not null && JsonNode.Parse(wsGrant) is { } gr && (string?)gr["id"] == "wg2" && (bool?)gr["ok"] == true && Count(ShowCommandKind.Window) == 2,
+                  "ws gate: a control page let in by a control key makes a window grant");
         }
 
         // A listed address passes every door with nothing proved.
@@ -528,6 +604,12 @@ static class PlayoutGateTests
         control.From = [];
         Check(await Get("/api/patterns/pause", site: "cross-site", bearer: ctlSecret) is (HttpStatusCode.OK, null) && Count(ShowCommandKind.Patterns) == 3,
               "this pc: another site's page with a control key passes on the key");
+        // A program on this PC drives another node's air with nothing proved, but a window grant is a person's act (Show Bus §12.4):
+        // this PC authenticates nobody, so only the PIN or a control key makes one.
+        Check(await Get("/api/window/grant/lobby/9f8e7d6c") == (HttpStatusCode.Forbidden, PlayoutGate.GrantWords(CommandDoor.Http)) && Count(ShowCommandKind.Window) == 0,
+              "this pc: a program here with nothing proved is refused a window grant in words, and nothing runs");
+        Check(await Get("/api/window/grant/lobby/9f8e7d6c", bearer: ctlSecret) is (HttpStatusCode.OK, null) && Count(ShowCommandKind.Window) == 1,
+              "this pc: with a control key it makes the grant");
 
         // A WebSocket's upgrade says whose page it is, for every line it sends.
         using (var ws = new ClientWebSocket())

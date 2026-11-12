@@ -259,10 +259,7 @@ public static class AiContext
     /// as <c>can=</c> is (<see cref="WindowGrants.Offered"/>: only an ability whose cap row names its kind), none when neither says.
     /// </summary>
     private static IReadOnlyList<string> Can(NetworkRow r, IReadOnlyDictionary<string, IReadOnlyList<string>>? helloCaps)
-    {
-        if (r.Link is { Verified: NodeProof.Key } linked) return linked.Can ?? [];
-        return helloCaps is not null && helloCaps.TryGetValue(r.Peer.Id, out var caps) ? WindowGrants.Offered(string.Join(',', caps), r.Peer.Kind) : [];
-    }
+        => ShowNetwork.WindowAbilities(r, helloCaps);
 
     private static object PeerJson(PeerFact p) => new
     {

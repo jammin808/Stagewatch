@@ -147,7 +147,7 @@ public sealed class OscServer : IDisposable
         if (!ShowCommandParser.TryParse(verb, args, out var cmd, out var error)) { Reject(error); return; }
         // Refused before the show thread hears of it: nothing reaches a peer's air for a sender that proved nothing.
         var from = new CommandSender(sender, IsThisPc(sender), Credentialed: false);
-        if (PlayoutGate.Check(cmd.Kind, CommandDoor.Osc, from, _access?.PlayoutFrom ?? []) is { } refused) { Reject(refused); return; }
+        if (PlayoutGate.Check(cmd, CommandDoor.Osc, from, _access?.PlayoutFrom ?? []) is { } refused) { Reject(refused); return; }
         _control.Execute(cmd);
     }
 

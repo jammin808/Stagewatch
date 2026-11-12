@@ -196,6 +196,40 @@ public static class WindowGrants
         return ("held", grant.How == ScreenWindows.HowPage ? $"{app} has its address and no page open" : $"{app} has it and draws nothing yet");
     }
 
+    /// <summary>
+    /// A grant's state (<see cref="States"/>) in the few words a window's item and the frame's <c>granted</c> carry after the app's name:
+    /// "shows it", "has it open", "not linked yet"… An unknown state reads as itself.
+    /// </summary>
+    public static string Short(string state, string how) => state switch
+    {
+        "shown" => "shows it",
+        "open" => how == ScreenWindows.HowDraw ? "draws it" : "has it open",
+        "stale" => "behind",
+        "held" => how == ScreenWindows.HowDraw ? "has it, draws nothing" : "has its address, no page open",
+        "sent" => "sent, not yet acknowledged",
+        "waiting" => "not linked yet",
+        "plain" => "link not encrypted",
+        "key-in-clear" => "key seen in clear",
+        "cannot" => "cannot take it",
+        _ => state,
+    };
+
+    /// <summary>
+    /// A grant's state as a shape beside its words, never a colour alone (the desk's lights): ✓ shown; ■ the app has it, as it acknowledged
+    /// or a viewer of it says (open, held); ○ not yet observed there (sent and not acknowledged, not linked yet); △ anything that needs the
+    /// operator (behind, plain, key in clear, cannot).
+    /// </summary>
+    public static string Mark(string state) => state switch
+    {
+        "shown" => "✓",
+        "open" or "held" => "■",
+        "sent" or "waiting" => "○",
+        _ => "△",
+    };
+
+    /// <summary>A grant its app has taken (Show Bus 12.6): it acknowledged what it was sent, or a viewer of it is or was on it.</summary>
+    public static bool Taken(string state) => state is "held" or "open" or "shown" or "stale";
+
     private static byte[] Json(Action<Utf8JsonWriter> body, bool array = false)
     {
         var buffer = new ArrayBufferWriter<byte>(256);
@@ -210,5 +244,35 @@ public static class WindowGrants
             }
         }
         return buffer.WrittenSpan.ToArray();
+    }
+}
+
+/// <summary>
+/// The journal's row for a grant its app took (Show Bus 12.6, the operator's record beside "granted" and "withdrawn"): once per grant in
+/// this desk's run, the first time its state says the app took it (<see cref="WindowGrants.Taken"/>), never an address. A grant is known by
+/// its window, its app and when it was made, so a grant made again — even within one tick of its withdraw — is told again; one that ends is
+/// forgotten. Nothing is kept across a restart: an app that takes its grants again after one is told again. Owner thread.
+/// </summary>
+public sealed class GrantsTaken
+{
+    private readonly HashSet<(string Window, string Node, DateTime Made)> _told = new();
+
+    /// <summary>The rows to journal now, in the grants' order: "Patterns FOH took lobby's address", "PlayMap Stage left took stage to draw".</summary>
+    public IReadOnlyList<string> Note(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<GrantObserved> grants)
+    {
+        var held = new HashSet<(string, string, DateTime)>();
+        foreach (var w in windows)
+            foreach (var g in w.Grants ?? [])
+                if (g is not null) held.Add((w.Id, g.Node, g.MadeUtc));
+        _told.RemoveWhere(k => !held.Contains(k));
+        var rows = new List<string>();
+        foreach (var o in grants)
+        {
+            if (!WindowGrants.Taken(o.State)) continue;
+            if (windows.FirstOrDefault(w => w.Id == o.WindowId) is not { } w || w.Grants?.FirstOrDefault(g => g?.Node == o.Node) is not { } g) continue;
+            if (!_told.Add((w.Id, g.Node, g.MadeUtc))) continue;
+            rows.Add(g.How == ScreenWindows.HowPage ? $"{ScreenWindows.GrantLabel(g)} took {w.Name}'s address" : $"{ScreenWindows.GrantLabel(g)} took {w.Name} to draw");
+        }
+        return rows;
     }
 }

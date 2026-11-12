@@ -25,10 +25,13 @@ public sealed class SettingsStore : IDisposable
     {
         _path = path;
         var notes = new LoadNotes();
-        _current = Load(path, notes);
+        var repaired = new Repaired();
+        _current = Load(path, notes, repaired);
         Notes = notes.Words;
-        // Persist identities assigned on load at once, so a crash before the next save can't change them.
-        if (File.Exists(path) && (_current.Rundown.Id.Length > 0) && !File.ReadAllText(path).Contains(_current.Rundown.Id, StringComparison.Ordinal))
+        // Persist identities assigned on load at once, so a crash before the next save can't change them; and the windows as loading
+        // repaired them, so a window given a new address keeps it and its note is said once, not again at every start.
+        if (File.Exists(path) && (repaired.Windows
+            || (_current.Rundown.Id.Length > 0 && !File.ReadAllText(path).Contains(_current.Rundown.Id, StringComparison.Ordinal))))
             SaveNow();
         _debounceTimer = new System.Threading.Timer(_ => SaveNow(), null, Timeout.Infinite, Timeout.Infinite);
     }
@@ -144,27 +147,34 @@ public sealed class SettingsStore : IDisposable
         return Path.Combine(appData, "Stagewatch", "settings.json");
     }
 
-    private static AppSettings Load(string path, LoadNotes notes)
+    /// <summary>What a load changed that must reach the file at once, before any other change saves it.</summary>
+    private sealed class Repaired
+    {
+        public bool Windows;
+    }
+
+    private static AppSettings Load(string path, LoadNotes notes, Repaired repaired)
     {
         LoadedFromBackup = false;
         try
         {
             // No file is a fresh start (someone reset it on purpose) — never a reason to bring back an old backup.
-            if (!File.Exists(path)) return Migrate(new AppSettings(), notes);
+            if (!File.Exists(path)) return Migrate(new AppSettings(), notes, repaired);
             // A damaged file falls back to the last whole one (.bak) before ever starting from nothing.
             var json = AtomicFile.ReadWithBackup(path, IsSettings, out var fromBackup);
             if (fromBackup && File.Exists(path)) Quarantine(path);
             if (json is null) throw new JsonException("no readable settings");
             var s = JsonSerializer.Deserialize<AppSettings>(json, JsonOpts) ?? new AppSettings();
             LoadedFromBackup = fromBackup;
-            return Migrate(s, notes);
+            return Migrate(s, notes, repaired);
         }
         catch
         {
             // Corrupted file and no good backup — keep it for inspection and start fresh, never block startup.
             Quarantine(path);
             notes.Clear();   // what a load that failed half-way said is not what this fresh start did
-            return Migrate(new AppSettings(), notes);
+            repaired.Windows = false;
+            return Migrate(new AppSettings(), notes, repaired);
         }
 
         static bool IsSettings(string text)
@@ -180,7 +190,7 @@ public sealed class SettingsStore : IDisposable
         }
     }
 
-    private static AppSettings Migrate(AppSettings s, LoadNotes notes)
+    private static AppSettings Migrate(AppSettings s, LoadNotes notes, Repaired repaired)
     {
         // CountdownToTime mode was removed in favor of unified Countdown + end-at.
         // Anything saved as that mode collapses back to Countdown.
@@ -202,6 +212,11 @@ public sealed class SettingsStore : IDisposable
             s.Remote.Pin = System.Security.Cryptography.RandomNumberGenerator.GetInt32(1000, 10000).ToString();
         // Who may drive another node's air without a credential: only addresses as PlayoutGate reads them, each loss said.
         s.Remote.PlayoutFrom = PlayoutGate.Sanitise(s.Remote.PlayoutFrom, notes);
+        // The controlled windows and their grants made whole as they load, each repair said now (the status line, the show log,
+        // Diagnostics), not only when the next change saves them; a repair is written back at once (the constructor), so it is said once.
+        var before = notes.Count;
+        s.Remote.Windows = ScreenWindows.Kept(s.Remote.Windows, null, notes);
+        repaired.Windows |= notes.Count > before;
         s.Rundown ??= new Rundown();
         s.Rundown.Items ??= new List<RundownItem>();
         // Stable identities for history (journal, reports): assigned once, then saved.

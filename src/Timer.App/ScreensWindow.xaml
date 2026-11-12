@@ -142,7 +142,7 @@
                     <TextBlock x:Name="WindowsSubtitle" Opacity="0.65" Margin="0,2,0,10" TextWrapping="Wrap"
                                Text="Browser windows Stagewatch controls. Open a window's address on the screen it is for (a TV, a projector PC, an OBS or vMix browser input): Stagewatch decides what it shows, and the window says back what it shows." />
 
-                    <DataGrid x:Name="WindowGrid" Grid.Row="1" IsReadOnly="True" MouseDoubleClick="OnWindowCopy">
+                    <DataGrid x:Name="WindowGrid" Grid.Row="1" IsReadOnly="True" MouseDoubleClick="OnWindowCopy" ContextMenuOpening="OnWindowMenuOpening">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="" Binding="{Binding Mark}" Width="34">
                                 <DataGridTextColumn.ElementStyle>
@@ -155,6 +155,8 @@
                             <DataGridTextColumn Header="Window" Binding="{Binding Name}" Width="120" />
                             <DataGridTextColumn Header="Should show" Binding="{Binding Wants}" Width="*" MinWidth="160" />
                             <DataGridTextColumn Header="Says it shows" Binding="{Binding State}" Width="2*" MinWidth="220" />
+                            <!-- Each grant's app with its state as a shape beside its words (✓ shows it, ■ has it as it said, ○ sent or not linked yet, △ needs you): never colour alone. -->
+                            <DataGridTextColumn Header="Granted to" Binding="{Binding Granted}" Width="*" MinWidth="140" />
                             <DataGridTextColumn Header="Device" Binding="{Binding Device}" Width="130" />
                             <DataGridTextColumn Header="Swap" Binding="{Binding Swap}" Width="64" />
                         </DataGrid.Columns>
@@ -179,6 +181,10 @@
                                     <MenuItem Header="Fade 1 s" Click="OnWindowFadeLong" />
                                 </MenuItem>
                                 <Separator />
+                                <!-- Filled as the menu opens, from the show apps heard now: the same entries the Grant… button offers. -->
+                                <MenuItem x:Name="GrantToMenu" Header="Grant to" />
+                                <MenuItem x:Name="WithdrawMenu" Header="Withdraw" />
+                                <Separator />
                                 <MenuItem Header="Copy address" Click="OnWindowCopy" />
                                 <MenuItem Header="Rename…" Click="OnWindowRename" />
                                 <MenuItem Header="New address (revoke this one)…" Click="OnWindowRevoke" />
@@ -197,7 +203,9 @@
                         <Button Content="Hold" Click="OnWindowHold" Padding="12,6" Margin="0,0,6,0" ToolTip="The holding page on the selected windows (the page stays loaded underneath)" />
                         <Button Content="Release" Click="OnWindowRelease" Padding="12,6" Margin="0,0,16,0" ToolTip="Back from the holding page to the page" />
                         <Button Content="Identify" Click="OnWindowIdentify" Padding="12,6" Margin="0,0,6,0" ToolTip="Show each selected window's name on it for 6 seconds" />
-                        <Button Content="Copy address" Click="OnWindowCopy" Padding="12,6" ToolTip="The address to open on the selected window's screen" />
+                        <Button Content="Copy address" Click="OnWindowCopy" Padding="12,6" Margin="0,0,16,0" ToolTip="The address to open on the selected window's screen" />
+                        <Button x:Name="GrantButton" Content="Grant…" Click="OnWindowGrant" Padding="12,6"
+                                ToolTip="Grant the selected window to a show app heard on the show network (the same entries as right-click → Grant to)" />
                     </WrapPanel>
 
                     <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">

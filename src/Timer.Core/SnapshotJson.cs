@@ -319,7 +319,7 @@ public static class SnapshotJson
         // stands where it stood.
         if (operatorView) WriteDesk(w, s.Desk);
 
-        // The room's verdict is the operator's too, and the frame's last field: ready while no row of the preflight is red. Left out
+        // The room's verdict is the operator's too, before the windows: ready while no row of the preflight is red. Left out
         // by a host that keeps no preflight, so a reader never takes a missing verdict for a ready one.
         if (operatorView && s.Network is { } n)
         {
@@ -329,6 +329,27 @@ public static class SnapshotJson
             w.WriteNumber("amber", n.Amber);
             w.WriteBoolean("stuck", n.Stuck);
             w.WriteEndObject();
+        }
+
+        // The controlled windows are the operator's (Show Bus 12.10): each one's light, whether it shows what it was sent, whom it is
+        // granted to and what its holders claim — never a token or a path. After every field older readers match, and only while there
+        // is a window, so a frame with none reads as it did; public and public-detail frames carry none.
+        if (operatorView && s.Windows.Count > 0)
+        {
+            w.WriteStartArray("windows");
+            foreach (var v in s.Windows)
+            {
+                w.WriteStartObject();
+                w.WriteString("name", v.Name);
+                w.WriteString("light", v.Light);
+                w.WriteBoolean("inStep", v.InStep);
+                w.WriteBoolean("hold", v.Hold);
+                w.WriteString("showing", v.Showing);
+                w.WriteString("granted", v.Granted);
+                w.WriteString("on", v.On);
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
         }
     }
 

@@ -848,7 +848,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
                 else SetHolographic(c.Number < 0 ? !Settings.Display.Holographic : false);
                 break;
             case ShowCommandKind.Screen: ApplyScreenCommand(c.Get<ScreenArgs>()); break;
-            case ShowCommandKind.Window: ApplyWindowCommand(c.Get<WindowArgs>()); break;
+            case ShowCommandKind.Window: ApplyWindowCommand(c.Get<WindowArgs>(), c.By); break;
             case ShowCommandKind.Aux: ApplyAuxCommand(c.Number, c.Get<AuxArgs>()); break;
             case ShowCommandKind.DeptNote:
             {

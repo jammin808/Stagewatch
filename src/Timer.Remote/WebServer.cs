@@ -1474,7 +1474,7 @@ public sealed class WebServer : IAsyncDisposable
         var requestId = CommandReceipt.CleanId(req.Headers.GetValueOrDefault("x-request-id"));
         // Another node's air, and a person's line to another app or decision on a proposal: with no PIN set and no key, only this PC
         // or a listed address, never another site's page (a refusal runs nothing and sends nothing).
-        if (PlayoutGate.Check(cmd.Kind, CommandDoor.Http, WebSender(req, remote, proved), _control.PlayoutFrom) is { } gated)
+        if (PlayoutGate.Check(cmd, CommandDoor.Http, WebSender(req, remote, proved), _control.PlayoutFrom) is { } gated)
         {
             Reject(gated);
             if (requestId is not null) await WriteAsync(stream, 403, "application/json", CommandReceipt.Refused(requestId, gated).ToJson(), ct);
@@ -2634,7 +2634,7 @@ public sealed class WebServer : IAsyncDisposable
         Action<CommandReceipt>? settled = requestId is not null && connector is not null
             ? r => Receipts.Keep(connector, requestId, r.RecordJson(), LinkNowMs)
             : null;
-        if (PlayoutGate.Check(cmd.Kind, CommandDoor.WebSocket, client.Sender with { Credentialed = proved }, _control.PlayoutFrom) is { } gated)
+        if (PlayoutGate.Check(cmd, CommandDoor.WebSocket, client.Sender with { Credentialed = proved }, _control.PlayoutFrom) is { } gated)
         {
             Reject(gated);
             if (requestId is null) return Error(gated);

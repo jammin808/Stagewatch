@@ -378,9 +378,11 @@ static class DeskTests
     {
         var b = Room();
         var ran = new List<(ShowCommandKind Kind, string Id)>();
+        var by = new List<DeskOrigin?>();
         b.RunHere = (cmd, id) =>
         {
             ran.Add((cmd.Kind, id));
+            by.Add(cmd.By);
             return cmd.Kind == ShowCommandKind.Note ? new DeskRun(true, "Note added") : new DeskRun(false, "There is no running order");
         };
         string Ask(string line) => b.Desk.SubmitProposal(Proposal("messenger", "ag1", "AGMessage", "main", "", "", line), NodeCredential.Key("kA")).Json;
@@ -395,6 +397,8 @@ static class DeskTests
               && ran is [(ShowCommandKind.Note, "p1-k3m9")] && b.Rows[^2].Words == "Approved p1 (operator): AGMessage → this Stagewatch: note \"From the board\""
               && b.Last == "Outcome p1: this Stagewatch: note \"From the board\" — done (Note added)",
             $"desk here: approved, it runs here at once under its own id and is done in the run's words ({b.Last})");
+        Check(by is [{ Role: "proposal" }],
+            "desk here: the host hears an approved line as a proposal's (DeskOrigin.Proposal), whoever approved it — a window grant's app by its id alone, a person's verb nobody's");
         var refused = b.Desk.Decide("p2", true, DeskOrigin.Operator, high: true);
         Check(refused is { Ok: false, Words: "There is no running order", Proposal: { State: SharedProposalState.Failed, Result: "There is no running order" } }
               && ran.Count == 2 && b.Desk.ResultOf("p2") is { Stage: "refused", Words: "this Stagewatch refused next: There is no running order (p2)" },

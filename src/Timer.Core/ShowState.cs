@@ -170,6 +170,11 @@ public sealed record ShowSnapshot
     /// preflight. The rows and their reasons are <c>GET /api/preflight</c>'s; a frame carries the verdict alone.
     /// </summary>
     public NetworkVerdict? Network { get; init; }
+
+    // ---------------------------------------------------------------- the controlled windows (operator frames)
+
+    /// <summary>The controlled windows as the operator reads them (<see cref="WindowView"/>), in the windows' order; written last, in operator frames only and only while there is one.</summary>
+    public EquatableArray<WindowView> Windows { get; init; } = EquatableArray<WindowView>.Empty;
 }
 
 /// <summary>Where the presenter is in their deck (PowerPoint), plus the rehearsal ghost.</summary>
@@ -205,6 +210,15 @@ public readonly record struct GroupView(
 public readonly record struct RoomView(
     string Room, string Host, int WebPort, string Title, string Text, string State, string Phase,
     long? OffsetSeconds, string HardOut, long? HardOutMarginSeconds, int OpenSignals, bool Stale, bool Self);
+
+/// <summary>
+/// A controlled window as the operator's frame carries it (Show Bus 12.10, the detail frame's <c>windows</c>): its name, its light (the
+/// context item's, worst over its viewers), whether it shows what it was sent (<see cref="InStep"/>: green), whether it holds, what it is
+/// given (a page, <c>holding</c> or <c>black</c>), whom it is granted to (<see cref="Granted"/>: the apps' names alone, as they were granted
+/// under, joined by ", " — where each grant stands is the context item's words and the Screens window's, not this field's), and what its
+/// holders claim. Never a token or a path to one.
+/// </summary>
+public readonly record struct WindowView(string Name, string Light, bool InStep, bool Hold, string Showing, string Granted, string On);
 
 /// <summary>
 /// Latest-wins snapshot mailbox. Publish is called on the owner thread; subscribers must

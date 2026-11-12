@@ -2143,6 +2143,7 @@ ShowWorkflowTests.Run(Check);
 WindowTests.Run(Check);
 await WindowTests.RunWeb(Check);
 WindowGrantTests.Run(Check);
+WindowLightTests.Run(Check);
 await WindowGrantTests.RunWeb(Check);
 await WindowGrantTests.RunClear(Check);
 PlayoutTests.Run(Check);

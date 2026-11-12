@@ -33,16 +33,62 @@ public sealed partial class MainViewModel
         return $"{(_web.RequireHttps ? "https" : "http")}://{host}:{_web.Port}/w/{w.Token}";
     }
 
-    /// <summary>The <c>window …</c> command, from anywhere. Refused with the reason when it would change nothing.</summary>
-    private void ApplyWindowCommand(WindowArgs args)
+    /// <summary>
+    /// The <c>window …</c> command, from anywhere. Refused with the reason when it would change nothing. A proposal's line
+    /// (<paramref name="by"/> <see cref="DeskOrigin.Proposal"/>) names its app by its Show Bus id alone (§12.4: an app asks only for itself),
+    /// never by a name another app may have.
+    /// </summary>
+    private void ApplyWindowCommand(WindowArgs args, DeskOrigin? by = null)
     {
         var director = Windowing;
         director.Web = _web;
-        var change = director.Run(args, ScreenPresetPath, Settings.Holding.Images, ((IShowScreens)this).FindApp);
+        var idOnly = by == DeskOrigin.Proposal;
+        var change = director.Run(args, ScreenPresetPath, Settings.Holding.Images, app => ScreenWindows.FindApp(HeardApps(), app, idOnly));
         if (!change.Ok) { Refuse(change.Words); return; }
         StatusLine = change.Words;
-        // The show log says what the room's screens were given (never their addresses).
+        // The show log says what the room's screens were given, and to whom a window is granted or withdrawn (never an address).
         if (change.Effect == WindowEffect.Changed) _journal.Add(DateTime.UtcNow, JournalKind.Note, -1, "Window: " + change.Words);
+    }
+
+    /// <summary>IShowScreens: the show app a <c>window grant</c> names, by its id or a name no other app has, as this desk hears the network now.</summary>
+    AppLookup IShowScreens.FindApp(string idOrName) => ScreenWindows.FindApp(HeardApps(), idOrName);
+
+    /// <summary>
+    /// The show apps a window may be granted to, from this second's join of the show network (node links, contexts, hellos): each with what
+    /// it can do with a window — its key-verified link's <c>can=</c>, else its hello's caps — and whether such a link proves it.
+    /// </summary>
+    public IReadOnlyList<ShowApp> HeardApps() => ShowNetwork.Apps(_network, HelloCaps(), _nodeId);
+
+    /// <summary>Each heard node's hello caps, by its id (the first hello heard for an id).</summary>
+    private Dictionary<string, IReadOnlyList<string>> HelloCaps()
+    {
+        var caps = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var p in NetworkPeers()) caps.TryAdd(p.Hello.Id, p.Hello.Caps ?? []);
+        return caps;
+    }
+
+    /// <summary>The windows' items over every viewer, grant and claim (<see cref="ScreenWindows.ContextItems(IReadOnlyList{ScreenWindow}, IReadOnlyList{WindowObserved}, IReadOnlyList{ViewerObserved}?, IReadOnlyList{GrantObserved}?, IReadOnlyList{WindowPlacement}?)"/>): what the Screens window draws, the same the context says.</summary>
+    public IReadOnlyList<ContextItem> WindowLights() => WindowFacts().Select(f => f.Item).ToList();
+
+    /// <summary>Where each grant stands (its app's links, its viewers), for the Screens window's Granted to column; empty while the web server is off.</summary>
+    public IReadOnlyList<GrantObserved> WindowGrantStatus() => _web?.GrantStatus() ?? Array.Empty<GrantObserved>();
+
+    /// <summary>The windows as the operator's frame carries them, made once a second with the context (<see cref="RefreshWindowReaders"/>).</summary>
+    private EquatableArray<WindowView> _windowViews = EquatableArray<WindowView>.Empty;
+
+    /// <summary>Owner thread: who took a grant (once per grant), for the show log.</summary>
+    private readonly GrantsTaken _grantsTaken = new();
+
+    /// <summary>
+    /// Owner thread, once a second with the context: the frame's windows from the facts the context was built from, and a show-log row for
+    /// each grant its app took since the last second ("Patterns FOH took lobby's address"), never an address.
+    /// </summary>
+    private void RefreshWindowReaders(IReadOnlyList<WindowFact> facts, IReadOnlyList<GrantObserved> grants)
+    {
+        var windows = ControlledWindows;
+        var views = ScreenWindows.Views(windows, facts);
+        if (!views.Equals(_windowViews)) { _windowViews = views; MarkDirty(); }
+        foreach (var row in _grantsTaken.Note(windows, grants)) _journal.Add(DateTime.UtcNow, JournalKind.Note, -1, "Window: " + row);
     }
 
     /// <summary>
@@ -50,12 +96,16 @@ public sealed partial class MainViewModel
     /// same light the Screens window shows), what it is given, to whom it is granted, and what its holders claim about where they show it
     /// (12.10: only from a context a key bound to the holder's id proves, while its grant has a viewer on it).
     /// </summary>
-    private IReadOnlyList<WindowFact> WindowFacts()
+    private IReadOnlyList<WindowFact> WindowFacts() => WindowFacts(WindowGrantStatus());
+
+    private IReadOnlyList<WindowFact> WindowFacts(IReadOnlyList<GrantObserved> grants)
     {
         var windows = ControlledWindows;
-        var holders = WindowPlacements.Holders(windows, _web?.GrantStatus() ?? Array.Empty<GrantObserved>());
+        var holders = WindowPlacements.Holders(windows, grants);
         var placements = WindowPlacements.From(_network.Rows.Where(r => r.Context is not null).Select(r => new HeldContext(r.Context!, r.ContextProof, r.Pulled)),
             _nodeId, holders);
-        return ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, WindowStatus()), placements);
+        // Worst over every viewer (its own address, each grant's), with whom it is granted to and what its holders claim (12.10).
+        var items = ScreenWindows.ContextItems(windows, WindowStatus(), _web?.ViewerStatus() ?? Array.Empty<ViewerObserved>(), grants, placements);
+        return ScreenWindows.Facts(windows, items, placements);
     }
 }

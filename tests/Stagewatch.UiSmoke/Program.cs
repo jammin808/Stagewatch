@@ -260,8 +260,9 @@ public static class Program
                     var oldKey = vm.ApiKeys.SingleOrDefault(k => k.Name == "Old AGMessage")?.Id ?? "";
                     var twinItems = twinRow is null ? new List<MenuItem>() : main.ActionsFor("show-network", new Border { DataContext = twinRow }).OfType<MenuItem>().ToList();
                     var menu = twinItems.Select(m => m.Header as string ?? "").ToList();
-                    Expect(menu.Count == 7 && menu[0].StartsWith("Send a line to ", StringComparison.Ordinal) && menu[0].EndsWith('…')
-                           && menu.Skip(1).SequenceEqual(new[] { "Its verbs…", "Copy its headline", "Copy node id", "Make a key for Patterns", "Let a key speak for this node…", "Revoke its key…" })
+                    Expect(menu.Count == 8 && menu[0].StartsWith("Send a line to ", StringComparison.Ordinal) && menu[0].EndsWith('…')
+                           && menu.Skip(1).SequenceEqual(new[] { "Its verbs…", "Copy its headline", "Copy node id", "Make a key for Patterns", "Let a key speak for this node…", "Revoke its key…", "Grant a window" })
+                           && twinItems[^1] is { IsEnabled: false, ToolTip: string grantWhy } && grantWhy.Length > 0
                            && twinItems.Take(2).All(m => m is { IsEnabled: false, ToolTip: string twinWhy } && twinWhy.Length > 0),
                            $"the row's right-click offers the desk's door first — greyed with why for a row nothing verifies — then its button's action and the rebind ({string.Join(", ", menu)})");
                     var keyChoices = twinRow is null ? Array.Empty<KeyChoice>() : vm.KeyChoicesFor(twinRow);
@@ -530,7 +531,14 @@ public static class Program
                     if (!okW) failures++;
                     var sw = new ScreensWindow(vm2);
                     sw.ShowWindowsTab();
-                    Shot(sw, "screens-windows");
+                    Shot(sw, "screens-windows", w =>
+                    {
+                        // Grants: the Granted to column, right-click's Grant to and Withdraw, and the Grant… button that opens the same entries.
+                        var grid = (DataGrid)w.FindName("WindowGrid");
+                        Expect(grid.Columns.Any(c => c.Header as string == "Granted to") && w.FindName("GrantToMenu") is MenuItem && w.FindName("WithdrawMenu") is MenuItem
+                               && w.FindName("GrantButton") is Button { Content: "Grant…" },
+                               "windows: the Granted to column, Grant to ▸ and Withdraw ▸ on right-click, and the Grant… button");
+                    });
                     break;
                 }
                 case "copilot": Shot(new CopilotWindow(vm2), "copilot"); break;

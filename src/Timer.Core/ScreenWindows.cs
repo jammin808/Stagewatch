@@ -174,6 +174,9 @@ public sealed record WindowFact(string Name, string Showing, bool Page, ContextI
     public bool Fed => Page && Item.Light == Light.Green;
 }
 
+/// <summary>One entry of the desk's grant menus (Screens' Grant to ▸ and Withdraw ▸, the Show network row's Grant a window ▸): its words and the line it runs.</summary>
+public sealed record GrantChoice(string Label, string Line);
+
 /// <summary>A window action, the window(s) it is for ("all", a name or an id) and its argument.</summary>
 public sealed record WindowArgs(string Action, string Who, string Argument) : ShowArgs;
 
@@ -286,21 +289,44 @@ public static class ScreenWindows
     /// hold everything a grant must are kept (<see cref="KeptGrants"/>), every token unique across them all. Copies: the caller's objects
     /// are never shared.
     /// </summary>
-    public static List<ScreenWindow> Kept(IEnumerable<ScreenWindow?>? saved, Func<string>? newToken = null)
+    public static List<ScreenWindow> Kept(IEnumerable<ScreenWindow?>? saved, Func<string>? newToken = null) => Kept(saved, newToken, null);
+
+    /// <summary>
+    /// <see cref="Kept(IEnumerable{ScreenWindow?}?, Func{string}?)"/>, saying in <paramref name="notes"/> what it repaired, as it repairs it:
+    /// each window dropped (and why), each window given a new address, each grant dropped (the window and the app by the name it was
+    /// granted under, and why) and each app name cut. Never a token. A list that needed nothing says nothing.
+    /// </summary>
+    public static List<ScreenWindow> Kept(IEnumerable<ScreenWindow?>? saved, Func<string>? newToken, LoadNotes? notes)
     {
-        var windows = (saved ?? []).Where(w => w is not null && ValidName(w.Name) && ValidToken(w.Token) && !string.IsNullOrEmpty(w.Id))
-            .GroupBy(w => w!.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.First()!.Clone()).ToList();
+        var whole = new List<ScreenWindow>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var w in saved ?? [])
+        {
+            if (w is null) { notes?.Add("Windows: an empty window entry was dropped"); continue; }
+            var why = !ValidName(w.Name) ? "its name is not a window name" : !ValidToken(w.Token) ? "its address is not one Stagewatch makes"
+                : string.IsNullOrEmpty(w.Id) ? "it has no id" : !names.Add(w.Name) ? "another window has its name" : null;
+            if (why is null)
+            {
+                // A copy holds no missing grant (Clone), so one is said here, before it is left out.
+                if ((w.Grants ?? []).Count(g => g is null) is var empty and > 0)
+                    notes?.Add(empty == 1 ? $"Windows: an empty grant of {w.Name} was dropped" : $"Windows: {empty} empty grants of {w.Name} were dropped");
+                whole.Add(w.Clone());
+                continue;
+            }
+            notes?.Add($"Windows: window \"{LoadNotes.Shown(w.Name)}\" was dropped — {why}");
+        }
         var taken = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var w in windows)
+        foreach (var w in whole)
         {
             if (taken.Add(w.Token)) continue;
             string token;
             do token = (newToken ?? NewToken)(); while (!ValidToken(token) || !taken.Add(token));
             w.Token = token;
             w.Revision++;
+            notes?.Add($"Windows: {w.Name} shared its address with another window and was given a new one — open its new address (Copy address) on its screen");
         }
-        foreach (var w in windows) w.Grants = KeptGrants(w.Grants, taken);
-        return windows;
+        foreach (var w in whole) w.Grants = KeptGrants(w, taken, notes);
+        return whole;
     }
 
     /// <summary>
@@ -308,23 +334,36 @@ public static class ScreenWindows
     /// <c>how</c> of page or draw; a page grant with a valid token no other pass has (<paramref name="taken"/>, which gains it), a draw
     /// grant with none. Anything else is dropped, never repaired: a grant is the operator's act, made again by a person.
     /// </summary>
-    private static List<WindowGrant> KeptGrants(List<WindowGrant>? grants, HashSet<string> taken)
+    private static List<WindowGrant> KeptGrants(ScreenWindow w, HashSet<string> taken, LoadNotes? notes)
     {
         var kept = new List<WindowGrant>();
-        foreach (var g in grants ?? [])
+        foreach (var g in w.Grants ?? [])
         {
-            if (kept.Count >= MaxGrants) break;
-            if (g is null || !NodeBindings.ValidId(g.Node) || kept.Any(k => k.Node == g.Node)) continue;
-            g.Kind ??= ""; g.Name ??= ""; g.Token ??= "";
-            var ok = g.How switch
+            if (g is null) continue;
+            g.Kind ??= ""; g.Name ??= ""; g.Token ??= ""; g.Node ??= ""; g.How ??= "";
+            var why = kept.Count >= MaxGrants ? $"{w.Name} is granted to {MaxGrants} show apps already"
+                : !NodeBindings.ValidId(g.Node) ? "it names no valid Show Bus id"
+                : kept.Any(k => k.Node == g.Node) ? "the app holds the window by another grant"
+                : g.How switch
+                {
+                    HowPage when !ValidToken(g.Token) => "its address is not one Stagewatch makes",
+                    HowPage when !taken.Add(g.Token) => "its address is another pass's",
+                    HowPage => null,
+                    HowDraw when g.Token.Length > 0 => "a drawing holds no address",
+                    HowDraw => null,
+                    _ => "it says neither page nor draw",
+                };
+            if (why is not null)
             {
-                HowPage => ValidToken(g.Token) && taken.Add(g.Token),
-                HowDraw => g.Token.Length == 0,
-                _ => false,
-            };
-            if (!ok) continue;
+                notes?.Add($"Windows: the grant of {w.Name} to {LoadNotes.Shown(GrantLabel(g))} was dropped — {why}; a person grants it again");
+                continue;
+            }
             if (!NodeBindings.ValidId(g.Kind)) g.Kind = "";
-            if (g.Name.Length > MaxAppName) g.Name = g.Name[..MaxAppName];
+            if (g.Name.Length > MaxAppName)
+            {
+                g.Name = g.Name[..MaxAppName];
+                notes?.Add($"Windows: the name {w.Name} is granted under was cut to {MaxAppName} characters");
+            }
             kept.Add(g);
         }
         return kept;
@@ -334,11 +373,19 @@ public static class ScreenWindows
     /// The one show app <paramref name="idOrName"/> names among <paramref name="heard"/>: by its Show Bus id, else by a name no other app
     /// has (case aside). Refused with words naming what was heard: no app by that id or name, or a name two apps share.
     /// </summary>
-    public static AppLookup FindApp(IReadOnlyList<ShowApp> heard, string idOrName)
+    public static AppLookup FindApp(IReadOnlyList<ShowApp> heard, string idOrName) => FindApp(heard, idOrName, idOnly: false);
+
+    /// <summary>
+    /// <see cref="FindApp(IReadOnlyList{ShowApp}, string)"/>, or with <paramref name="idOnly"/> by its Show Bus id alone: a proposal's
+    /// <c>window grant</c> names the proposer by its id (§12.4, an app asks only for itself), so a word that is no heard app's id never
+    /// falls back to an app that merely has that name.
+    /// </summary>
+    public static AppLookup FindApp(IReadOnlyList<ShowApp> heard, string idOrName, bool idOnly)
     {
         var want = idOrName.Trim();
         if (want.Length == 0) return AppLookup.Missing("window grant takes a window and a show app (its id, or its name in quotes)");
         if (heard.FirstOrDefault(a => a.Id.Equals(want, StringComparison.Ordinal)) is { } byId) return AppLookup.Found(byId);
+        if (idOnly) return AppLookup.Missing(NoAppById(want, heard));
         var named = heard.Where(a => a.Name.Equals(want, StringComparison.OrdinalIgnoreCase) || a.Label.Equals(want, StringComparison.OrdinalIgnoreCase)).ToList();
         if (named.Count == 1) return AppLookup.Found(named[0]);
         if (named.Count > 1) return AppLookup.Missing($"\"{want}\" names {named.Count} show apps — use its id ({string.Join(", ", named.Select(a => a.Id))})");
@@ -348,6 +395,12 @@ public static class ScreenWindows
     /// <summary>The words for an app nobody heard, naming those that were (the first few).</summary>
     public static string NoApp(string want, IReadOnlyList<ShowApp> heard)
         => $"No show app called \"{want}\" on the show network ("
+           + (heard.Count == 0 ? "this Stagewatch hears none" : "heard: " + string.Join(", ", heard.Take(8).Select(a => a.Label + " " + a.Id)) + (heard.Count > 8 ? ", …" : ""))
+           + ")";
+
+    /// <summary>The words for a proposal's app that no heard app has as its id: a proposal names its app by id, never by a name.</summary>
+    public static string NoAppById(string want, IReadOnlyList<ShowApp> heard)
+        => $"No show app with the id \"{want}\" on the show network — a proposal names its app by its Show Bus id ("
            + (heard.Count == 0 ? "this Stagewatch hears none" : "heard: " + string.Join(", ", heard.Take(8).Select(a => a.Label + " " + a.Id)) + (heard.Count > 8 ? ", …" : ""))
            + ")";
 
@@ -641,6 +694,36 @@ public static class ScreenWindows
             list, touched.Select(t => t.Id).ToList(), WindowEffect.Changed);
     }
 
+    /// <summary>
+    /// The apps a window may be granted to now, for the desk's Grant to ▸ menu and its Grant… button alike: each heard app that offers pages
+    /// or window-draw and does not hold the window, by its label and how it would hold it, each line naming the app by its id; none while
+    /// the window is granted to <see cref="MaxGrants"/> apps already.
+    /// </summary>
+    public static IReadOnlyList<GrantChoice> GrantChoices(ScreenWindow window, IReadOnlyList<ShowApp> heard)
+    {
+        if ((window.Grants ?? []).Count >= MaxGrants) return [];
+        return heard.Where(a => NodeBindings.ValidId(a.Id) && !(window.Grants ?? []).Any(g => g?.Node == a.Id) && HowFor(a) is not null)
+            .Select(a => new GrantChoice($"{a.Label} ({(HowFor(a) == HowPage ? "a page" : "to draw")}{(a.Verified ? "" : ", as it says")})", $"window grant {window.Name} {a.Id}"))
+            .ToList();
+    }
+
+    /// <summary>The grants a window's Withdraw ▸ menu ends, one entry each, by the name the grant was made under; each line names the app by its id.</summary>
+    public static IReadOnlyList<GrantChoice> WithdrawChoices(ScreenWindow window)
+        => (window.Grants ?? []).OfType<WindowGrant>().Select(g => new GrantChoice(GrantLabel(g), $"window withdraw {window.Name} {g.Node}")).ToList();
+
+    /// <summary>
+    /// The windows the Show network row's Grant a window ▸ menu offers an app: each window it does not hold that has room for one more grant,
+    /// while the app offers pages or window-draw (none when it offers neither).
+    /// </summary>
+    public static IReadOnlyList<GrantChoice> WindowsFor(IReadOnlyList<ScreenWindow> windows, ShowApp app)
+        => !NodeBindings.ValidId(app.Id) || HowFor(app) is null ? []
+            : windows.Where(w => (w.Grants ?? []).Count < MaxGrants && !(w.Grants ?? []).Any(g => g?.Node == app.Id))
+                .Select(w => new GrantChoice(w.Name, $"window grant {w.Name} {app.Id}")).ToList();
+
+    /// <summary>How an app would hold a window granted now (a page before a drawing), or null when it offers neither.</summary>
+    private static string? HowFor(ShowApp app)
+        => (app.Can ?? []).Contains(CanPages, StringComparer.Ordinal) ? HowPage : (app.Can ?? []).Contains(CanDraw, StringComparer.Ordinal) ? HowDraw : null;
+
     /// <summary>A grant's app as the operator's words name it: the name it was granted under, else its kind and id.</summary>
     public static string GrantLabel(WindowGrant g) => g.Name.Length > 0 ? g.Name : NodeBindings.Describe(g.Kind, g.Node);
 
@@ -657,28 +740,103 @@ public static class ScreenWindows
     /// the whole show red.
     /// </summary>
     public static IReadOnlyList<ContextItem> ContextItems(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<WindowObserved> observed)
+        => Items(windows, observed, null, null, null, said: false);
+
+    /// <summary>
+    /// The windows' items over every viewer (Show Bus 12.10): with <paramref name="viewers"/> (one row per window and pass, its own address
+    /// and each grant's) the light is the worst over the viewers that were ever opened — a grant held and never opened counts for nothing,
+    /// and a window none of whose viewers was ever opened is grey — and the words are that viewer's, naming the app when it is a grant's.
+    /// Then, apart by " · ", whom it is granted to (each with where its grant stands, from <paramref name="grants"/>) and what its holders
+    /// claim (<paramref name="placements"/>, at most <see cref="WindowPlacements.MaxPerWindow"/>). With no viewers (null), the light is the
+    /// one row per window of <paramref name="observed"/>, with the grants' and claims' words appended all the same. Never a token or a path.
+    /// </summary>
+    public static IReadOnlyList<ContextItem> ContextItems(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<WindowObserved> observed,
+        IReadOnlyList<ViewerObserved>? viewers, IReadOnlyList<GrantObserved>? grants = null, IReadOnlyList<WindowPlacement>? placements = null)
+        => Items(windows, observed, viewers, grants, placements, said: true);
+
+    private static List<ContextItem> Items(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<WindowObserved> observed,
+        IReadOnlyList<ViewerObserved>? viewers, IReadOnlyList<GrantObserved>? grants, IReadOnlyList<WindowPlacement>? placements, bool said)
     {
         var items = new List<ContextItem>(windows.Count);
         foreach (var w in windows)
         {
-            var o = observed.FirstOrDefault(x => x.WindowId == w.Id);
-            var wants = w.Hold ? "the holding page" : Describe(w.Content);
-            string light, state;
-            if (o is null || o.Connected == 0)
+            var (light, state) = viewers is null
+                ? Seen(w, observed.FirstOrDefault(x => x.WindowId == w.Id) is { } o ? new Viewer(o.Connected, o.Revision, o.Content, o.Hold, o.ShownUtc, o.Error) : null)
+                : Worst(w, viewers);
+            if (said)
             {
-                (light, state) = o?.ShownUtc is null
-                    ? (Light.Grey, $"not opened yet (should show {wants})")
-                    : (Light.Amber, $"link lost — the screen shows its {(w.OnLoss == LossWarn ? "NOT CONNECTED warning" : "holding page")}");
+                var granted = GrantedWords(w, grants);
+                if (granted.Length > 0) state += " · granted to " + granted;
+                var name = w.Name.ToLowerInvariant();
+                var claims = (placements ?? []).Where(p => p.Window == name).Take(WindowPlacements.MaxPerWindow).Select(p => p.Words).ToList();
+                if (claims.Count > 0) state += " · " + string.Join("; ", claims);
             }
-            else if (o.Error.Length > 0)
-                (light, state) = (Light.Amber, $"couldn't show {Describe(w.Content)}: {o.Error}; still on {(o.Hold ? "the holding page" : Describe(o.Content))}");
-            else if (o.Revision != w.Revision)
-                (light, state) = (Light.Amber, $"switching to {wants} (sent, not yet shown)");
-            else
-                (light, state) = (Light.Green, o.Hold ? $"holding page up ({Describe(w.Content)} ready underneath)" : $"showing {Describe(o.Content)}");
             items.Add(new ContextItem(ItemId(w.Name), "screen", "Window " + w.Name, light, state));
         }
         return items;
+    }
+
+    /// <summary>What one viewer of a window last said, as the light reads it: its links now, the revision it shows, its content and hold, when it said so, why it could not.</summary>
+    private readonly record struct Viewer(int Connected, int Revision, string Content, bool Hold, DateTime? ShownUtc, string Error);
+
+    /// <summary>One viewer's light and words: grey never opened, amber link lost, couldn't show or switching, green showing what it was sent.</summary>
+    private static (string Light, string State) Seen(ScreenWindow w, Viewer? o)
+    {
+        var wants = w.Hold ? "the holding page" : Describe(w.Content);
+        if (o is not { } v || v.Connected == 0)
+            return o?.ShownUtc is null
+                ? (Light.Grey, $"not opened yet (should show {wants})")
+                : (Light.Amber, $"link lost — the screen shows its {(w.OnLoss == LossWarn ? "NOT CONNECTED warning" : "holding page")}");
+        if (v.Error.Length > 0)
+            return (Light.Amber, $"couldn't show {Describe(w.Content)}: {v.Error}; still on {(v.Hold ? "the holding page" : Describe(v.Content))}");
+        if (v.Revision != w.Revision) return (Light.Amber, $"switching to {wants} (sent, not yet shown)");
+        return (Light.Green, v.Hold ? $"holding page up ({Describe(w.Content)} ready underneath)" : $"showing {Describe(v.Content)}");
+    }
+
+    /// <summary>
+    /// The worst over a window's viewers that were ever opened (links on it now, or a report from it once): amber before green; the first
+    /// such viewer's words in the viewers' order, its own address first. A viewer of a pass the window no longer holds counts for nothing.
+    /// </summary>
+    private static (string Light, string State) Worst(ScreenWindow w, IReadOnlyList<ViewerObserved> viewers)
+    {
+        (string Light, string State)? worst = null;
+        foreach (var v in viewers.Where(v => v.WindowId == w.Id && (v.Via.Length == 0 || w.Grants.Any(g => g?.Node == v.Via)))
+                     .OrderBy(v => v.Via.Length == 0 ? 0 : 1).ThenBy(v => v.Via, StringComparer.Ordinal))
+        {
+            // Opened: a link on it now, or a report from it once; a drawing counts from its first report, as its grant's state does.
+            if (v.ShownUtc is null && (v.Connected == 0 || v.How == HowDraw)) continue;
+            var (light, state) = Seen(w, new Viewer(v.Connected, v.Revision, v.Content, v.Hold, v.ShownUtc, v.Error));
+            if (v.Via.Length > 0 && w.Grants.FirstOrDefault(g => g?.Node == v.Via) is { } g) state = GrantLabel(g) + ": " + state;
+            if (worst is null || Rank(light) > Rank(worst.Value.Light)) worst = (light, state);
+        }
+        return worst ?? Seen(w, null);
+
+        static int Rank(string light) => light switch { Light.Red => 3, Light.Amber => 2, Light.Green => 1, _ => 0 };
+    }
+
+    /// <summary>
+    /// Whom a window is granted to, in its grants' order, each by the name it was granted under and, when <paramref name="grants"/> says,
+    /// where it stands in a few words (<see cref="WindowGrants.Short"/>): "Patterns FOH (shows it), PlayMap Stage left (not linked yet)".
+    /// "" when it is granted to none.
+    /// </summary>
+    public static string GrantedWords(ScreenWindow w, IReadOnlyList<GrantObserved>? grants)
+        => string.Join(", ", (w.Grants ?? []).OfType<WindowGrant>().Select(g =>
+            grants?.FirstOrDefault(o => o.WindowId == w.Id && o.Node == g.Node) is { } o ? $"{GrantLabel(g)} ({WindowGrants.Short(o.State, g.How)})" : GrantLabel(g)));
+
+    /// <summary>
+    /// The windows as the operator's frame carries them (<see cref="WindowView"/>), from the same facts the context and the copilot read:
+    /// each one's light and whether it is in step (green), whether it holds, what it is given, whom it is granted to and what its holders
+    /// claim, in the windows' order. Never a token or a path.
+    /// </summary>
+    public static EquatableArray<WindowView> Views(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<WindowFact> facts)
+    {
+        var byName = new Dictionary<string, WindowFact>(StringComparer.Ordinal);
+        foreach (var f in facts) byName.TryAdd(f.Name, f);
+        return windows.Where(w => byName.ContainsKey(w.Name)).Select(w =>
+        {
+            var f = byName[w.Name];
+            return new WindowView(w.Name, f.Item.Light, f.Item.Light == Light.Green, w.Hold, f.Showing, f.Granted, f.On);
+        }).ToEquatableArray();
     }
 
     /// <summary>A window's item id in this Stagewatch's context (12.10): <c>window:</c> and its name in lower case.</summary>

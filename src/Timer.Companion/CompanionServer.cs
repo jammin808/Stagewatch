@@ -238,7 +238,7 @@ public sealed class CompanionServer : IAsyncDisposable
         private string? Gate(ShowCommand cmd)
         {
             var sender = new CommandSender(_remote, _server.IsThisPc(_remote), Credentialed: false);
-            if (PlayoutGate.Check(cmd.Kind, CommandDoor.Companion, sender, _server._bridge.PlayoutFrom) is not { } refused) return null;
+            if (PlayoutGate.Check(cmd, CommandDoor.Companion, sender, _server._bridge.PlayoutFrom) is not { } refused) return null;
             Interlocked.Increment(ref _server._rejected);
             try { _server.CommandRejected?.Invoke("Companion: " + refused); } catch { }
             return refused;

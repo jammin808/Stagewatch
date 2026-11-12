@@ -805,9 +805,11 @@ grant to one node and a fifth; a window whose address another window holds first
 A bare `window withdraw` is refused in Core too, and a withdraw by a name two apps' grants share is refused, naming their
 ids. A proposal (§11) whose line is `window grant <window> <app>` is refused under any credential
 but the operator's unless `<app>` is its own `from.id`: "a show app may ask a window only for itself". The app a grant names is
-looked up among the show apps this Stagewatch hears; until the desk and the rig hear them for grants (a later 2.22 unit),
-every grant is refused with "No show app called … (this Stagewatch hears none)". A grant's address travels only on its app's own
-key-verified node link, and a withdrawn, revoked or deleted grant's address ends black: see 2.22, windows granted to show apps.
+looked up among the show apps this Stagewatch hears: on the desk, every app of the show network's join with a valid Show Bus id
+that is not this Stagewatch and that no two running machines say, with what its key-verified link's `can=` offers, else its hello's
+caps; the rig hears none yet, so every grant there is refused with "No show app called … (this Stagewatch hears none)". A grant's
+address travels only on its app's own key-verified node link, and a withdrawn, revoked or deleted grant's address ends black: see
+2.22, windows granted to show apps.
 
 ### What a window does
 
@@ -1199,7 +1201,7 @@ message on the stage, and posts its own context and proposals, for the one app i
 
 | Route | Needs |
 |---|---|
-| The pages (`/viewer`, `/audience`, `/clock`, …), `GET /api/state` (the public frame; `?detail=1` the public detail), `GET /api/config`, `GET /api/layouts[/<name>]`, `/ws` to view | nothing but the viewing code, when one is set. With the PIN or any key, `/api/state?detail=1` is the operator frame, which ends with `desk`, then `network` (2.21) |
+| The pages (`/viewer`, `/audience`, `/clock`, …), `GET /api/state` (the public frame; `?detail=1` the public detail), `GET /api/config`, `GET /api/layouts[/<name>]`, `/ws` to view | nothing but the viewing code, when one is set. With the PIN or any key, `/api/state?detail=1` is the operator frame, which ends with `desk`, then `network` (2.21), then `windows` while there is one (2.22) |
 | `GET /api/help` (the grammar people read, `peer` and `desk` among it), `GET /api/qr`, `GET /api/holding/<id>`, `/tls`, `/tls.cer`, `/custom.css` | nothing |
 | `ack` and `question` (`/api/ack/…`, `/api/question/…`, and on any socket) | nothing (a crew page confirms its own cues with its crew link; questions are rate-limited) |
 | `/report`, `/api/report.csv`, `/api/report/network.csv` (2.21), `GET /api/context`, `GET /api/preflight` (2.21), `GET /api/screens`, `GET /api/windows`, `GET /api/proposals?from=<node>`, `GET /api/proposals/<id>` | read: the PIN or any key. `/api/windows` lists a window's address only for the PIN or a control key; `/api/deptnotes` takes a department's crew link too |
@@ -1420,7 +1422,37 @@ GET /ws?node=9f8e7d6c&t=patterns&can=pages        ← can= lists what the link o
   `granted`, what its holders claim (`on`) and its `state`, never a pass; and each other app's `id` and what it `can` do with a
   window (`pages`, `window-draw`): its key-verified link's `can=` (none when that link offers none), else its hello's caps, each
   kept only for the kind its cap row names.
+- **A grant is a person's act (12.4).** `window grant` is taken only from a door that authenticates the operator: the desk, and
+  HTTP or a WebSocket with the PIN given or a control key. An address alone proves no person — this PC's and one in Settings →
+  Remote → May drive other show apps included — so with no PIN set and no key a grant is refused there (`window grant is a
+  person's act — over HTTP it needs the PIN given (set one in Settings → Remote) or a control key, from this PC or any other:
+  grant it at the desk (Screens → Windows) otherwise`), as it is from another site's page. OSC and Companion TCP, which
+  authenticate nobody, refuse it whoever sends it: `window grant is a person's act — Companion TCP authenticates nobody: grant it
+  at the desk (Screens → Windows), or over HTTP or a WebSocket with the PIN or a control key` — a Companion deck's grant press
+  included, until those doors queue a grant as a proposal for a person instead (release B's doors). An agent's `run_command` over MCP only
+  queues it as a proposal, whatever its key. `window withdraw` is taken wherever other window lines are. A Show Bus §11 proposal
+  approved at the desk names its app in `window grant <window> <app>` by its Show Bus id alone: a word that is no heard app's id
+  is refused (`No show app with the id "…" on the show network — a proposal names its app by its Show Bus id`), never taken as
+  another app's name (an agent's step the desk approves, like a line typed there, may still name an app no other app shares).
+  The desk shows a window grant's line as the proposal's headline, never the reason beside it.
+- **The window's light and words (12.10).** The `window:<name>` item's light is the worst over the viewers that were ever opened
+  (its own address, each page grant's address, each drawing once it reported); a grant held and never opened counts for nothing,
+  and a window none of whose viewers was opened is grey. The words are that viewer's (naming the app when it is a grant's), then,
+  apart by ` · `, `granted to <app> (<where its grant stands>)` for each grant and the holders' claims:
+  `showing /clock · granted to Patterns FOH (shows it) · Patterns FOH says: Screen 2 — LED wall`. The Screens window draws the same.
+- **The operator frame's `windows` (12.10).** After every other field, operator frames only, and only while there is a window:
+  `"windows":[{"name":"lobby","light":"green","inStep":true,"hold":false,"showing":"/clock","granted":"Patterns FOH","on":"Patterns FOH says: Screen 2 — LED wall"}]`
+  — `inStep` while the light is green, `showing` a page, `holding` or `black`, `granted` the apps' names alone, as they were
+  granted under, joined by `, ` (where each grant stands is the context item's words). Never a token or a path; public and
+  public-detail frames carry none.
+- **The show log** says when a window was granted and withdrawn (the command's words) and, once per grant in a run of the desk,
+  when its app took it: `Window: Patterns FOH took lobby's address`, `Window: PlayMap Stage left took stage to draw` — never an
+  address. A grant made again is told again, however soon after its withdraw; after a restart an app that takes its grants again
+  is told again.
+- **Loading repairs are said as they happen.** Settings load the windows through the same rules, and each repair — a window dropped,
+  a window given a new address, a grant dropped and why, an app name cut — is a load note: the status line at start, the show log
+  and Diagnostics, never a token. A load that repaired the windows writes them back at once, so a new address lasts and its note
+  is said once.
 
-
-Not in this release yet: the desk and the rig hearing show apps for `window grant` (every grant is refused there until they do), the
-window's light and words over its viewers and claims, and the operator frame's `windows` block.
+Not in this release yet: the rig hearing show apps for `window grant` (every grant is refused there until it does), the rig's frame
+`windows` block and `grants.e2e.cjs` (2.22, the rig's grants), and the Companion module's grant action, feedbacks and variables.

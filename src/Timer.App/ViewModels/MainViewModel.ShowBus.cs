@@ -150,7 +150,9 @@ public sealed partial class MainViewModel
         // id in the last one proves nothing now — and expires what no app collected before its readers below are told.
         ExpireShared();
         var links = LinkItems();
-        var windows = WindowFacts();
+        var grants = WindowGrantStatus();
+        var windows = WindowFacts(grants);
+        RefreshWindowReaders(windows, grants);
         var health = HealthItems();
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
             now, _hub.Latest, _hub.ProducerStuck, links, Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
@@ -498,10 +500,5 @@ public sealed partial class MainViewModel
     /// machines say, as the desk shows it (<see cref="AiContext.PeerFacts"/>), each with what it can do with a window: its key-verified
     /// link's abilities, else its hello's caps. Never joins again: any thread reads the published view and the hellos as heard.
     /// </summary>
-    private IReadOnlyList<PeerFact> PeerFacts()
-    {
-        var caps = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
-        foreach (var p in NetworkPeers()) caps.TryAdd(p.Hello.Id, p.Hello.Caps ?? []);
-        return AiContext.PeerFacts(_network, caps);
-    }
+    private IReadOnlyList<PeerFact> PeerFacts() => AiContext.PeerFacts(_network, HelloCaps());
 }

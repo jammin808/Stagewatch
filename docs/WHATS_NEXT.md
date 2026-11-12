@@ -1175,12 +1175,39 @@ maintainer's too.
 - **The Companion module's comments lag** (`companion-module/src/connection.ts` says a `final` follow-up comes only after an accepted
   that waits on another node). Any command the show thread had not run within the deadline now gets one; `parseReceipt` reads it
   either way. The words move with the module's next change, and its tests.
-- **Window grants reach their apps (SW22.4), but nobody can make one yet outside a test.** The web server delivers `grants`, the draw
-  messages and the black end (REMOTE 2.22, windows granted to show apps), and `/api/windows` lists each grant's state. The desk and
-  the rig still hear no show apps for `window grant`, so every grant made there is refused: the desk's `FindApp` is SW22.5's (with the
-  window's light over its viewers and claims, the operator frame's `windows` block and the journal rows), the rig's SW22.6's (with
-  `grants.e2e.cjs`). `ContextItems` still reads one row per window; `ViewerStatus()` waits for SW22.5 to read it, and `GrantStatus()`
-  is read only for the placement claims' holders (SW22.2, below).
+- **Window grants reach their apps (SW22.4); the desk makes them (SW22.5); the rig does not yet.** The web server delivers `grants`,
+  the draw messages and the black end (REMOTE 2.22, windows granted to show apps), and `/api/windows` lists each grant's state. The
+  desk hears the show network's apps for `window grant` (`ShowNetwork.Apps`); the rig still hears none, so every grant made there is
+  refused: the rig's `FindApp`, its frame's `windows` and `grants.e2e.cjs` are SW22.6's.
+- **Window lights and words (SW22.5, G22, G24).** A window's item is the worst over the viewers ever opened (its own address, each
+  page grant, each drawing once it reported; a grant never opened counts for nothing), its words naming the app, then whom it is
+  granted to with where each grant stands, then its holders' claims; the Screens window draws the same, with a Granted to column
+  (a shape beside each app's words: ■ only for what the app acknowledged, ○ for a grant sent and not yet acknowledged), Grant to ▸ /
+  Withdraw ▸ on right-click and a Grant… button, and the Show network row's Grant a window ▸. The operator frame ends with `windows`
+  while there is one (`granted` carries the apps' names alone). The show log says when an app took a grant, once per grant in a run
+  of the desk. Loading says each repair of the windows and their grants as it loads (the status line, the show log, Diagnostics) and
+  writes the repairs back at once, so a new address lasts and is said once. Left, each named:
+  - **The door rule is enforced here, not left to SW22.8.** `window grant` is taken only where a person is authenticated (12.4): the
+    desk, and HTTP or a WebSocket with the PIN given or a control key — never on an address alone, this PC's or a listed one. It is
+    refused over OSC and Companion TCP whoever sends it, and over MCP only becomes a proposal; PlayoutGateTests holds every door on a
+    real server. A command trigger the operator set on this PC may still fire a `window grant` line: a trigger is the operator's own
+    act, set at this desk, so no door refuses it, as no door refuses a trigger's other window lines.
+  - **SW22.7's grant press is refused until SW22.8.** The module's `window_grant` sends `WINDOW GRANT` over Companion TCP, which this
+    unit refuses (12.4 lets a door that authenticates nobody refuse or queue). Until SW22.8's gate queues a grant from Companion TCP
+    and OSC as a §11 proposal for a person to approve, SW22.7's grant side answers with the refusal's words and its withdraw side
+    works; the master plan's "SW22.7 depends on SW22.5" holds for withdraw and the feedbacks, and its grant side waits on SW22.8.
+  - A Show Bus §11 proposal approved at the desk names its app by its Show Bus id alone (the host hears an approved line as
+    `DeskOrigin.Proposal`), so a node not itself heard can no longer grant an app that merely has its id as a name (SW22.3's gap
+    closed); `FindApp(idOnly)` and `DeskOrigin.Proposal` on the approved line are each tested, the WPF step between them
+    (`MainViewModel.ApplyWindowCommand`) is compiled, not run. An agent's step approved in the copilot list runs as the operator's
+    typed line does (by id, or a name no other app has).
+  - An id two running machines say is no app to grant to until one stops (a grant names one node); its row's Grant a window ▸ is
+    greyed.
+  - The frame's `windows` and the window items are rebuilt once a second with the context, and the Screens window reads the same
+    facts on its own refresh (viewers, grants, placements): no measurement this round.
+  - The Companion module's `window_grant`, `window_state`, `window_holding` and variables are SW22.7's.
+  - The WPF desk (the Granted to column, the menus, the button, the Show network entry, the help tip) is compiled here and never
+    seen: a desk walk-through, and the UI smoke's new checks, are the maintainer's PC work, not run.
 - **Windows in the context (SW22.2, G23, G24, G22).** The timer `follows` a playout link, `hears` any other link, and `feeds` a
   window only while it shows a page (given one, and saying it shows it); no link names a health item (`ContextInput` gains `Windows`
   and `Health`, appended; the desk and the rig pass their windows and health apart from their links). Thirteen command rows in §6's
@@ -1189,9 +1216,9 @@ maintainer's too.
   most, eight per window; `ScreenWindows.Facts` gives the copilot each window's showing, light, grants and claims; `PeerFact` gains
   `Id` and `Can` (a key-verified link's `can=`, even when it offers none; else its hello's caps). The hello cap `windows` was
   already said (2.19). Left, each with its unit:
-  - The window item's light and words over its viewers, grants and claims, and the operator frame's `windows` block: SW22.5. Until
-    then the claims reach the copilot's facts alone.
-  - No grant is made outside the tests until SW22.5 and SW22.6 hear show apps, so no claim is taken in the desk or the rig yet.
+  - The window item's light and words over its viewers, grants and claims, and the operator frame's `windows` block: landed in
+    SW22.5 (above).
+  - The desk makes grants since SW22.5, so it takes claims; the rig makes none until SW22.6 hears show apps.
   - §6 P4's `serves` row per grant holder is not published; no 2.22 unit names it.
   - Patterns at its pin reads the first 12 rows of this context's commands (its brief's cap); its 32 is Patterns' PT-W3.
   - Three of the design's rows are written whole (`nudge <seconds> | trim <item> <seconds> | delay <seconds>`, the window settings

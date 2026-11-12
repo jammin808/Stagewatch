@@ -187,7 +187,8 @@ public sealed partial class MainViewModel
             Questions = _qa.Views(),
             Desk = Desk.Said,
             // By the doors' rule: a verdict the once-a-second judging has not renewed is carried as stuck, never as it last stood.
-            Network = _preflight?.VerdictAt(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+            Network = _preflight?.VerdictAt(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()),
+            Windows = _windowViews,
         };
         return FrameBuilder.Build(frame, projection, _forecast, advice, ambient);
     }

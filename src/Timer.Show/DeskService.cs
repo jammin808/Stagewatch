@@ -598,6 +598,9 @@ public sealed class DeskService : IShowApprovals
         if (!ShowCommandParser.TryParseLine(approved.Line, out var cmd, out var error))
             return Finish(id, false, "not a valid Stagewatch command: " + error);
         if (_host.RunHere is not { } run) return Finish(id, false, "this desk runs no lines of its own here");
+        // The line is a proposal's, whoever approved it: the host reads it as one (a window grant's app by its id alone, §12.4), and a
+        // person's verb in it is nobody's.
+        cmd = cmd with { By = DeskOrigin.Proposal };
         DeskRun ran;
         // A host's run that throws still finishes the proposal: approved, it is nobody's to collect, and would wait for ever.
         try { ran = run(cmd, id); }
