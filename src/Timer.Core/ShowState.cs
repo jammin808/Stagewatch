@@ -687,6 +687,16 @@ public interface IShowContext
     /// </summary>
     (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)
         => (400, "not supported", NodeProof.None);
+
+    /// <summary>
+    /// Another show app's context (§6 JSON) as this node holds it, for an AI to read, named by the app's id, a name only it has or its
+    /// kind word — only while it proves that app now (posted under the key bound to its id, or read over this node's own link); else
+    /// null with why. An unverified context never reaches an AI.
+    /// </summary>
+    (string? Json, string? Error) PeerContextJson(string app) => (null, NoPeerContexts);
+
+    /// <summary>What an AI hears where this node holds no other app's context.</summary>
+    const string NoPeerContexts = "this Stagewatch holds no other show app's context here";
 }
 
 /// <summary>
@@ -701,6 +711,16 @@ public interface IShowApprovals
     (int Status, string Json) ProposalsFrom(string nodeId) => (200, "{\"proposals\":[]}");
     (int Status, string Json) CollectApproved(string targetId, NodeCredential credential) => (200, "{\"proposals\":[]}");
     (int Status, string Json) ProposalResult(string id, string body, NodeCredential credential) => (404, "{\"ok\":false,\"error\":\"no such proposal\"}");
+
+    /// <summary>
+    /// An AI agent (MCP) proposes one line to another show app, in that app's own grammar: always a pending proposal on this desk from
+    /// the agent (<see cref="ProposalDesk.Agent"/>) that a person decides, however agents are let act here — never sent or run from the
+    /// agent's call. <see cref="AgentReply.Queued"/> says whether it was queued; refused, nothing is queued.
+    /// </summary>
+    AgentReply ProposeToApp(string app, string line, string reason) => AgentReply.Refused(NoDesk);
+
+    /// <summary>What an agent hears where this node keeps no shared approval queue.</summary>
+    const string NoDesk = "Refused: no approval desk here — a line for another app waits for a person at a Stagewatch desk.";
 }
 
 /// <summary>The planned-vs-actual show report. Thread-safe.</summary>

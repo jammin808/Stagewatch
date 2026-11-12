@@ -2167,6 +2167,7 @@ ReportTests.Run(Check);
 NetworkPreflightTests.Run(Check);
 await DeskWireTests.Run(Check);
 await DeckDoorTests.Run(Check);
+McpTargetTests.Run(Check);
 await ShowBusTests.Run(Check);
 await HelloTests.Run(Check);
 await BusCarrierProbeTests.Run(Check);

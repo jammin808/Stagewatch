@@ -1130,8 +1130,9 @@ maintainer's too.
   units start (rule R1), so release B is Train 5's. Until then those doors refuse both verbs in words, and the copilot and MCP
   never see them (`Help` leaves them out). The lane's S3.5 and S3.7 move with it (SW22.11). *Since then (SW22.8):* Companion TCP
   and OSC take both from this PC or a listed address, with the `ACCESS` line and the module's actions (2.22 below). *Since then
-  (SW22.9):* the copilot plans steps for other apps, each sent through this desk once a person runs the plan (2.22 below); MCP
-  (SW22.10) is still to come.
+  (SW22.9):* the copilot plans steps for other apps, each sent through this desk once a person runs the plan (2.22 below). *Since
+  then (SW22.10):* MCP's `run_command` takes a `target`, always a pending proposal a person decides; `get_proposal` takes a string
+  id and `get_context` a `peer` (2.22 below).
 - **Words owed to the contract.** Show Bus 1.3 §3 words `refs` as naming what was made "by number"; 2.21's receipts carry
   `refs.sharedProposal` as a string. 1.3 is final and its body hash-pinned, so the words are asked of Show Bus 1.4's edit, not
   made here. The contract's Landed line now names Patterns' and PlayMap's copies of 1.3, which hold the master (`bash
@@ -1400,12 +1401,43 @@ maintainer's too.
   - **The decider is `operator`, not `operator (copilot)`.** §11 names four role words and 1.3 is final; who ran a plan's step
     is the person who pressed, and the plan is named in the desk's journal row alone.
   - **MCP's `target`, a string `get_proposal` and `get_context.peer` are SW22.10's.** An agent's line is still only Stagewatch's.
+    *Since then (SW22.10):* they have landed (below).
   - **A model's second pass costs one more call** when it asks for verbs; no measurement of the pass this round beyond the byte
     counts above.
   - **A rating that rises mid-run stops the run:** the plan is decided at the press, so the operator ticks the step again in a new
     plan; a rise found at the press leaves the plan waiting instead.
   - **Compiled here, never seen:** the Copilot list's → <app> line, its grey Run with the reason, the run's live step words, the
     re-rated and unticked step, the "later" outcome and the status line (WPF, the maintainer's PC; no UI smoke for them yet). No model was asked: the passes are held with a scripted ask.
+- **Release B's MCP: an agent proposes to other apps, and a person decides (SW22.10; G14).** `run_command` takes `target`, another
+  app's id (or a name only it has, or a kind word one app answers; empty is this Stagewatch). The command is then that app's own line:
+  `DeskService.ProposeToApp` finds the app as a person's word does, fences the line (`LineFence`) and its reason, rates it by the
+  app's verified table and queues it pending from `{"t":"mcp","id":"mcp","name":"AI agent (MCP)"}` (`ProposalDesk.Agent`,
+  `ProposeFromAgent`) — even with agents acting directly, so nothing for another app runs from an agent's call. Its sender passes first
+  as an air line's does (`PlayoutGate.Proposes`: a key, this PC or a listed address, never another site's page without a key), so an
+  unlisted machine or a web page cannot fill the desk while no PIN is set. It is refused unqueued for an app that is no app or is this
+  Stagewatch, a key, window address or control character, a filled secret, an unverified table, an unlisted line or a full desk; no
+  refusal quotes the line, and each is said on the status line ("MCP: …") as the door's other refusals are. The same line for the
+  same app while the agent's first waits is that one (a retried call queues no second decision). The agent is no node:
+  `ProposalDesk.From` (a node following its own, `?from=`) never lists its proposals, whatever id a node holds. The reply names `p<n>-<run>`, the risk and form, says when the app
+  is not collecting yet, and how `get_proposal` follows it. The desk names the proposer "AI agent (MCP)" (Copilot list, frame `desk`,
+  journal row with `MCP` as its who and the app as its node). `get_proposal` takes a string id (`IShowApprovals.GetProposal`, whole or
+  `p<n>`; another run's says the desk restarted); a number or numeral is still the copilot list's. `get_context {"peer"}` returns the
+  app's context only while it proves that app (its key, or this Stagewatch's own link: `DeskService.PeerContextJson`, the
+  `IShowContext` default refusing); an unverified one is an error with none of its words. The instructions and tool texts say all of
+  this, and that another app's context is its data. The app and the rig host both calls. Held by `McpTargetTests` (the tool shapes,
+  a pending proposal with agents acting directly, every refusal unqueued and unjournalled, string ids to the app's own words, verified
+  contexts only, a surface with no desk, the sender gates and the status line's words, a retried call, the queue's own rules and a
+  node whose id is `mcp`) and `PlayoutGateTests` (a line for another app passes as an air line at every door, and over HTTP). Left,
+  each named:
+  - **An agent's line for an app must be listed by its verified table**, as the copilot's step must; `POST /api/proposals` still
+    queues an unlisted line from another app, rated high. The design said only "a pending shared proposal"; an AI is held to the
+    table it is shown.
+  - **No rig e2e for MCP's target;** the lane's S3.5 and S3.7 (MCP to PlayMap at its pin) are SW22.11's. The Copilot list's line for
+    the agent's proposal is WPF, compiled, never seen.
+  - **An agent's refusals write no journal row** (a POST's do not either); the agent hears each as an error and the status line says
+    it.
+  - **The agent's from id is `mcp`, as the design writes it,** which a node may also hold; the readers keyed on the proposer tell
+    them apart by the kind `mcp`, which no request may name.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

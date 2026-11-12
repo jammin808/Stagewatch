@@ -1491,6 +1491,8 @@ sealed class Rig : ICompanionBridge, IDisposable
     public (int Status, string Json) ProposalsFrom(string nodeId) => _desk.ProposalsFrom(nodeId);
     public (int Status, string Json) CollectApproved(string targetId, NodeCredential credential) => _desk.CollectApproved(targetId, credential);
     public (int Status, string Json) ProposalResult(string id, string body, NodeCredential credential) => _desk.ProposalResult(id, body, credential);
+    public AgentReply ProposeToApp(string app, string line, string reason) => _desk.ProposeToApp(app, line, reason);
+    public (string? Json, string? Error) PeerContextJson(string app) => _desk.PeerContextJson(app);
 
     /// <summary>A show app's context, taken only from a credential that may speak for its node, and held with that proof.</summary>
     public (int Status, string? Error, NodeProof Proof) AcceptPeerContext(string json, string address, NodeCredential credential)

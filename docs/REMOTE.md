@@ -248,10 +248,10 @@ and when it will now finish. Leave it blank and the plan starts when the first i
 |---|---|
 | `get_state` | The live detail frame (JSON) |
 | `get_running_order` | Planned / expected / actual for every item |
-| `run_command` | One command line from the grammar above, e.g. `trim 7 -180` |
+| `run_command` | One command line from the grammar above, e.g. `trim 7 -180`; with `target` (2.22), one line for another show app (below) |
 | `get_report` | The planned-vs-actual report as CSV |
-| `get_proposal` | What became of a proposal `run_command` made (by its number) |
-| `get_context` | The room in one JSON (Show Bus §6): `GET /api/context`'s |
+| `get_proposal` | What became of a proposal `run_command` made: by its number, or (2.22) by a shared proposal's string id, `p17-k3m9` or `p17` |
+| `get_context` | The room in one JSON (Show Bus §6): `GET /api/context`'s; with `peer` (2.22), another app's own context, only while it is verified |
 | `get_preflight` | The room's verdict, 'ready for doors', with a row per check (2.21, below): `GET /api/preflight`'s JSON, by its rule |
 
 Use the Remote PIN as `Authorization: Bearer <pin>`. Commands run through the same single input path as a
@@ -264,6 +264,28 @@ report's *AI suggestions and decisions*. Settings → Integrations can let agent
 `playout` and `patterns`: a line that drives another app's air is always a proposal (2.20), and with no PIN set it comes
 only from this PC, with an MCP key, or from an address in May drive other show apps (above). Where nobody approves (the headless
 rig), such a line is refused, and the tool result is an error, never read as queued.
+
+**Lines for other apps (2.22, release B).** `run_command {"command":"UNDO","target":"pm-a1b2","reason":"…"}` names another show app
+by its Show Bus id (or a name only it has, or `playmap` / `patterns` / `agmessage` when one of that kind is heard; an empty `target`
+is this Stagewatch). The line is that app's own, rated by its verified table, and it is **always** a pending proposal on this desk,
+from `{"t":"mcp","id":"mcp","name":"AI agent (MCP)"}`, even when agents may act directly: nothing runs from the call. It asks for
+another app's air, so its sender passes as for an air line above — with no PIN set, an MCP key, this PC or an address in May drive
+other show apps, and never another site's page without a key — before the desk hears it ("a line for another show app from another
+machine over MCP needs an MCP key while no PIN is set, or its address in …"). The result:
+"Queued for the operator's approval as p17-k3m9 (risk review, form UNDO). PlayMap Hall runs it only if a person approves it at the
+Stagewatch desk. get_proposal {"id":"p17-k3m9"} follows it." — with "It cannot be approved yet: …" while the app is not collecting.
+It is refused unqueued, an error, in the desk's words and never quoting the line: a word that names no app or names this Stagewatch,
+a line over 2048 characters or holding a control character, a key or a window's address, a reason holding a key or a window's address,
+a filled secret placeholder, an app whose verbs are not verified, a line its table does not list, a full desk; each refusal, the
+gate's and the desk's, is said on the status line too ("MCP: …"), never with the line. The same line for the same app again while
+the first waits (a retried call) is that one: "Already waiting for the operator's approval as p17-k3m9 — the same line for PlayMap
+Hall, asked again, is that one …", nothing new queued. The agent is no node: `GET /api/proposals?from=mcp` lists a node's own
+proposals, never the agent's, whatever id a node holds. The proposal lists in
+Copilot as "AI agent (MCP) → PlayMap Hall", rides the operator frame's `desk`, and is approved or rejected as any other (`desk
+approve <id> [high]`). `get_proposal {"id":"p17-k3m9"}` (or `"p17"`) returns the shared proposal's JSON (`GET /api/proposals/<id>`'s);
+a number, or a numeral string, is still this Stagewatch's own proposal. `get_context {"peer":"pm-a1b2"}` returns that app's §6 context
+as this desk holds it, only while its key or this Stagewatch's own link proves it; an unverified or missing one is an error carrying
+none of its words. A `peer` or `desk` line with no target is still an error: both are a person's.
 
 ## Screens: what browsers are told (2.8)
 

@@ -24,6 +24,7 @@ static class PlayoutGateTests
     public static async Task Run(Action<bool, string> Check)
     {
         Table(Check);
+        TargetLines(Check);
         Proposals(Check);
         Addresses(Check);
         Settings(Check);
@@ -31,6 +32,37 @@ static class PlayoutGateTests
         await Companion(Check);
         await Web(Check);
         await WebThisPc(Check);
+    }
+
+    /// <summary>
+    /// A line in another app's own grammar that an agent proposes (MCP's run_command target) passes its sender as a line that drives
+    /// another node's air does — the same senders pass and are refused at every door — and is refused in words that name it as a line
+    /// for another show app, never as playout.
+    /// </summary>
+    static void TargetLines(Action<bool, string> Check)
+    {
+        IReadOnlyList<IPAddress> none = [], listed = [Lan];
+        var senders = new[]
+        {
+            new CommandSender(IPAddress.Loopback, true, false), new CommandSender(Lan, false, false), new CommandSender(OtherLan, false, false),
+            new CommandSender(Lan, false, true), new CommandSender(Lan, true, false, OtherSite: true), new CommandSender(Lan, false, true, OtherSite: true),
+            new CommandSender(Lan, false, false, OtherSite: true),
+        };
+        foreach (var door in Doors)
+            foreach (var list in new[] { none, listed })
+                foreach (var sender in senders)
+                {
+                    var asked = PlayoutGate.Proposes(door, sender, list);
+                    var air = PlayoutGate.Check(ShowCommandKind.Playout, door, sender, list);
+                    Check((asked is null) == (air is null) && (asked is null || (asked.StartsWith(PlayoutGate.TargetLine + " from another ", StringComparison.Ordinal)
+                                                                                && !asked.Contains("playout", StringComparison.Ordinal))),
+                          $"playout gate: {door}, {sender}, {list.Count} listed — a line for another app passes as an air line does, and is refused in its own words ({asked})");
+                }
+        Check(PlayoutGate.Proposes(CommandDoor.Mcp, new CommandSender(Lan, false, false), none)
+              == "a line for another show app from another machine over MCP needs an MCP key while no PIN is set, or its address in " + PlayoutGate.SettingWords
+              && PlayoutGate.Proposes(CommandDoor.Mcp, new CommandSender(IPAddress.Loopback, true, false, OtherSite: true), none)
+              == "a line for another show app from another site's web page over MCP needs an MCP key while no PIN is set",
+              "playout gate: over MCP, a line for another app from an unlisted machine or another site's page hears what would let it through");
     }
 
     /// <summary>
@@ -491,6 +523,30 @@ static class PlayoutGateTests
         Check((bool?)unqueued["isError"] == true && Text(unqueued) == IShowAgents.NobodyApproves && Count(ShowCommandKind.Patterns) == 1,
               "mcp gate: a line that drives another app's air never runs directly, even when the host queues nothing");
         control.IgnoreMust = false;
+        // A line for another app asks for that app's air: from an unlisted machine with no key it is refused before the desk hears it,
+        // seen on the status line; with an MCP key it reaches the desk, and the desk's refusal is seen there too, never with the line.
+        async Task<JsonNode> ToApp(string line, string? bearer = null)
+        {
+            var body = JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 8, method = "tools/call", @params = new { name = "run_command", arguments = new { command = line, target = "pm1" } } });
+            var r = await http.SendAsync(Post("/mcp", bearer, body: body));
+            return JsonNode.Parse(await r.Content.ReadAsStringAsync())!["result"]!;
+        }
+        int seen;
+        lock (rejected) seen = rejected.Count;
+        var unkeyed = await ToApp("UNDO");
+        var targetWords = PlayoutGate.Proposes(CommandDoor.Mcp, new CommandSender(IPAddress.Loopback, false, false), []);
+        Check((bool?)unkeyed["isError"] == true && Text(unkeyed) == "Refused: " + targetWords && control.ToApps == 0,
+              $"mcp gate: no PIN set and no key, an unlisted machine's line for another app is refused before the desk hears it ({Text(unkeyed)})");
+        var withKey = await ToApp("UNDO", mcpSecret);
+        var unlisted = await ToApp("UNLISTED", mcpSecret);
+        Check((bool?)withKey["isError"] == false && control.ToApps == 1 && Text(withKey).StartsWith("Queued for the operator's approval as p1-k3m9", StringComparison.Ordinal)
+              && (bool?)unlisted["isError"] == true && control.ToApps == 1,
+              "mcp gate: with an MCP key, a line for another app reaches the desk, which decides what it queues");
+        lock (rejected)
+            Check(rejected.Count == seen + 2 && rejected[seen] == "MCP: " + targetWords && rejected[seen + 1] == "MCP: PlayMap Hall does not list that line — see its verbs"
+                  && !rejected.Exists(r => r.Contains("UNLISTED", StringComparison.Ordinal)),
+                  "mcp gate: the gate's refusal and the desk's each reach the status line, never the line itself");
+
         // A window grant is a person's act (Show Bus §12.4): an agent only proposes one, even where agents act directly.
         var proposedAt = control.ProposedCount;
         var agentGrant = await Mcp("window grant lobby 9f8e7d6c", mcpSecret);
@@ -755,6 +811,11 @@ static class PlayoutGateTests
             LastMust = true;
             return AgentReply.Waiting($"Queued for the operator's approval (proposal #{Interlocked.Increment(ref _proposed)}).");
         }
+        private int _toApps;
+        public int ToApps => Volatile.Read(ref _toApps);
+        public AgentReply ProposeToApp(string app, string line, string reason)
+            => line == "UNLISTED" ? AgentReply.Refused("Refused: PlayMap Hall does not list that line — see its verbs")
+                : AgentReply.Waiting($"Queued for the operator's approval as p{Interlocked.Increment(ref _toApps)}-k3m9 (risk review).");
     }
 
     /// <summary>A surface that keeps every IShowAgents default (as the rig does): nobody here approves an agent's line.</summary>

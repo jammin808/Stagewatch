@@ -27,8 +27,9 @@ public readonly record struct CommandSender(IPAddress Address, bool ThisPc, bool
 /// it passes by the same rule — the PIN this Stagewatch asks for, or a control key; with no PIN set, this PC or a listed address,
 /// never another site's page — over Companion TCP and OSC, which carry no credential, from this PC or a listed address alone, as a
 /// person at a deck (<see cref="DeskOrigin.Deck"/>), and never over MCP, whatever key comes with it (an agent is not a person). A
-/// window grant from Companion TCP or OSC is asked, never made (<see cref="Asks"/>): it waits on the desk for the operator. No other
-/// verb is this gate's. A listed address is trusted by its source address alone, which any machine on that network can forge
+/// window grant from Companion TCP or OSC is asked, never made (<see cref="Asks"/>): it waits on the desk for the operator. A line in
+/// another app's own grammar that an agent proposes over MCP (run_command's target) passes by the rule of a line that drives another
+/// node's air (<see cref="Proposes"/>), and then waits for a person. No other verb is this gate's. A listed address is trusted by its source address alone, which any machine on that network can forge
 /// over OSC (UDP): the operator lists addresses only on a show network they trust.
 /// </summary>
 public static class PlayoutGate
@@ -137,6 +138,25 @@ public static class PlayoutGate
         return Listed(sender.Address, from) ? null : Words(kind, door);
     }
 
+    /// <summary>How a refusal of its sender names a line in another show app's own grammar (<see cref="Proposes"/>).</summary>
+    public const string TargetLine = "a line for another show app";
+
+    /// <summary>
+    /// Null when <paramref name="sender"/> may propose a line in another show app's own grammar by <paramref name="door"/> — MCP's
+    /// run_command with a target, which waits for a person at this desk whoever sends it — else why not. It asks for another app's air,
+    /// so its sender is decided as the sender of a line that drives another node's air is (<see cref="Drives"/>): a credential on a door
+    /// that carries one; else this PC or a listed address, and never a page of another site without one. A person still decides the
+    /// line; this keeps an unlisted machine or a web page from filling the desk with lines nobody there may send.
+    /// </summary>
+    public static string? Proposes(CommandDoor door, CommandSender sender, IReadOnlyList<IPAddress> from)
+    {
+        var carries = door is CommandDoor.Http or CommandDoor.WebSocket or CommandDoor.Mcp;
+        if (sender.Credentialed && carries) return null;
+        if (sender.OtherSite && carries) return FromOtherSite(TargetLine, door);
+        if (sender.ThisPc) return null;
+        return Listed(sender.Address, from) ? null : Unlisted(TargetLine, door);
+    }
+
     /// <summary>
     /// Whether a line grants a window to a show app (<c>window grant &lt;window&gt; &lt;app&gt;</c>): a person's act (Show Bus §12.4), which
     /// a door takes only where it authenticates the operator.
@@ -210,9 +230,11 @@ public static class PlayoutGate
     };
 
     /// <summary>The refusal for a <paramref name="kind"/> line a browser page of another site sent by <paramref name="door"/>, with no credential.</summary>
-    public static string OtherSiteWords(ShowCommandKind kind, CommandDoor door)
+    public static string OtherSiteWords(ShowCommandKind kind, CommandDoor door) => FromOtherSite(Verb(kind), door);
+
+    /// <summary>The refusal of a line named <paramref name="verb"/> that a browser page of another site sent by <paramref name="door"/>, with no credential.</summary>
+    private static string FromOtherSite(string verb, CommandDoor door)
     {
-        var verb = Verb(kind);
         return door switch
         {
             CommandDoor.Mcp => $"{verb} from another site's web page over MCP needs an MCP key while no PIN is set",
@@ -287,6 +309,12 @@ public static class PlayoutGate
         if (Person(kind))
             return $"{verb} acts on another show app with a person's authority — from another machine over {(door == CommandDoor.WebSocket ? "a WebSocket" : "HTTP")} "
                    + $"it needs a PIN set and given, a control key, or its address in {SettingWords}";
+        return Unlisted(verb, door);
+    }
+
+    /// <summary>The refusal of a line named <paramref name="verb"/> from an unlisted machine by <paramref name="door"/>, where no person's rule applies.</summary>
+    private static string Unlisted(string verb, CommandDoor door)
+    {
         return door switch
         {
             CommandDoor.Osc => $"{verb} from another machine over OSC needs its address in {SettingWords} (OSC carries no PIN)",

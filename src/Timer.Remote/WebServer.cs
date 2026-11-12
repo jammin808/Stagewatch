@@ -1618,7 +1618,13 @@ public sealed class WebServer : IAsyncDisposable
             if (PlayoutGate.Check(kind, CommandDoor.Mcp, sender, _control.PlayoutFrom) is not { } refused) return null;
             Reject(refused, "MCP");
             return refused;
-        });
+        }, () =>
+        {
+            // A line in another app's grammar asks for that app's air: its sender passes as for a line that drives it, and is seen when it does not.
+            if (PlayoutGate.Proposes(CommandDoor.Mcp, sender, _control.PlayoutFrom) is not { } refused) return null;
+            Reject(refused, "MCP");
+            return refused;
+        }, words => Reject(words, "MCP"));
         if (reply is null) { await WriteAsync(stream, 202, "application/json", Array.Empty<byte>(), ct, cors: true, extra: RateHeaders(req)); return; }
         await WriteAsync(stream, 200, "application/json", reply, ct, cors: true, extra: RateHeaders(req));
     }

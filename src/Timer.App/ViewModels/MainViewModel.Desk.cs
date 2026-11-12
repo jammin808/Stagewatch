@@ -81,6 +81,15 @@ public sealed partial class MainViewModel
     public (int Status, string Json) ProposalResult(string id, string body, NodeCredential credential) => Desk.ProposalResult(id, body, credential);
 
     /// <summary>
+    /// IShowApprovals: an AI agent on MCP proposes a line to another app (network thread) — always pending on this desk, listed in Copilot
+    /// beside the other proposals for the operator to approve or discard (<see cref="DeskService.ProposeToApp"/>).
+    /// </summary>
+    public AgentReply ProposeToApp(string app, string line, string reason) => Desk.ProposeToApp(app, line, reason);
+
+    /// <summary>IShowContext: another app's context for an AI (network thread), only while it proves that app (<see cref="DeskService.PeerContextJson"/>).</summary>
+    public (string? Json, string? Error) PeerContextJson(string app) => Desk.PeerContextJson(app);
+
+    /// <summary>
     /// IShowContext: another app's context (network thread), taken only when the request's credential may speak for its
     /// node, and held with that proof (none is kept 30 s, shown, and never sets a risk).
     /// </summary>

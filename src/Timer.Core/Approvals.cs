@@ -308,6 +308,47 @@ public sealed class ProposalDesk
         }
     }
 
+    /// <summary>
+    /// The from of every line an AI agent proposes on this desk's MCP endpoint (§11: kind <c>mcp</c> is the desk's own, so no request
+    /// names it; only <see cref="ProposeFromAgent"/> writes it).
+    /// </summary>
+    public static readonly NodeRef Agent = new("mcp", "mcp", "AI agent (MCP)");
+
+    /// <summary>
+    /// A line an AI agent on this desk's MCP endpoint proposes to another app: pending from <see cref="Agent"/> until a person decides
+    /// it, whatever agents may do here directly, rated by <paramref name="verdict"/> (the target's verified table). Refused with words
+    /// that never quote the line (an agent's line may hold what the desk refuses), nothing queued: a target that is this desk; a line
+    /// that breaks §11's line rules or fills a secret placeholder; a line no form of the target's table takes; a desk full of proposals
+    /// waiting. Raises one <see cref="Changed"/>, pending. The same line for the same app asked again while the agent's earlier one
+    /// waits is that one (<c>Again</c>), nothing new queued and nothing raised: a retried call puts one decision before the operator,
+    /// never two that would run the line twice.
+    /// </summary>
+    public (SharedProposal? Proposal, string? Error, bool Again) ProposeFromAgent(NodeRef target, string line, string reason, RiskVerdict verdict, DateTime nowUtc)
+    {
+        var deskId = _deskId();
+        if (target.Kind == "main" || target.Id.Length == 0 || target.Id == deskId)
+            return (null, "an agent proposes a line to this Stagewatch with no target — a target is another app", false);
+        if (line.Trim().Length == 0) return (null, "line is required", false);
+        if (LineFence.Check(line, WindowTokens?.Invoke()) is { } fenced) return (null, fenced, false);
+        if (verdict.Secret) return (null, LineFence.SecretWords(NameOf(target)), false);
+        if (!verdict.Listed) return (null, $"{NameOf(target)} does not list that line — see its verbs", false);
+        line = line.Trim();
+        lock (_lock)
+        {
+            Expire(nowUtc);
+            var waiting = _byId.Values.Where(p => p.State == SharedProposalState.Pending && p.From.Kind == Agent.Kind && p.Target.Id == target.Id
+                                                  && string.Equals(p.Line, line, StringComparison.Ordinal))
+                .OrderBy(p => p.CreatedUtc).FirstOrDefault();
+            if (waiting is not null) return (waiting, null, true);
+            if (PendingCount() >= MaxOpen) return (null, "too many proposals waiting", false);
+            var p = new SharedProposal(NextId(), Agent, target, line, Clean(reason, MaxReason), Risk(verdict.Risk), false, SharedProposalState.Pending, nowUtc,
+                Form: verdict.Form, FormWords: verdict.Words);
+            _byId[p.Id] = p;
+            Raise(p);
+            return (p, null, false);
+        }
+    }
+
     /// <summary>A person's line refused for what it is: its ends, its role, §11's line rules, a filled secret, a line its app does not list.</summary>
     private string? NotALine(NodeRef from, NodeRef target, string line, RiskVerdict verdict, string by)
     {
@@ -416,7 +457,14 @@ public sealed class ProposalDesk
         => id.Length > 1 && id[0] == 'p' && long.TryParse(id.AsSpan(1, (id.IndexOf('-') is var dash and > 0 ? dash : id.Length) - 1),
             System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : 0;
 
-    public IReadOnlyList<SharedProposal> From(string nodeId) { lock (_lock) return _byId.Values.Where(p => p.From.Id == nodeId).OrderBy(p => p.CreatedUtc).ToList(); }
+    /// <summary>
+    /// The proposals a node made, by its id, oldest first: what <c>GET /api/proposals?from=</c> answers a node following its own. The
+    /// agent on this desk's MCP endpoint (<see cref="Agent"/>) is no node, whatever id a node holds, so none of its proposals is listed.
+    /// </summary>
+    public IReadOnlyList<SharedProposal> From(string nodeId)
+    {
+        lock (_lock) return _byId.Values.Where(p => p.From.Id == nodeId && p.From.Kind != Agent.Kind).OrderBy(p => p.CreatedUtc).ToList();
+    }
 
     public IReadOnlyList<SharedProposal> All() { lock (_lock) return _byId.Values.OrderBy(p => p.CreatedUtc).ToList(); }
 

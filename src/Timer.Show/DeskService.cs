@@ -299,9 +299,12 @@ public sealed class DeskService : IShowApprovals
         => new(node.Id, NameOf(node), node.Kind, Queue.Collects(node.Id, now), Verified(node, now));
 
     /// <summary>Whether a table of the node's verbs, of its kind, proves something now: posted under the key bound to its id, or read over this Stagewatch's own link.</summary>
-    private bool Verified(NodeRef node, DateTime now)
+    private bool Verified(NodeRef node, DateTime now) => Proving(node, now) is not null;
+
+    /// <summary>The context of the node's kind that proves it now — read over this Stagewatch's own link first, else posted under the key bound to its id — or null.</summary>
+    private HeldContext? Proving(NodeRef node, DateTime now)
         => _host.Contexts.Chosen(node.Id, _host.Linked(node) is { } linked ? new HeldContext(linked, NodeProof.None, Pulled: true) : null, now, node.Kind)
-            is { Proof: not NodeProof.None };
+            is { Proof: not NodeProof.None } chosen ? chosen : null;
 
     /// <summary>
     /// The app a word names, or why it names none: a node id; else a name only one app has, whatever its case; else a kind word —
@@ -386,9 +389,7 @@ public sealed class DeskService : IShowApprovals
     /// <summary>The rows of an app's table that proves something now, of its own kind — the one that rates its lines; none while nothing proves one.</summary>
     private IReadOnlyList<PeerCommand> Table(DeskApp app, DateTime now)
     {
-        var node = new NodeRef(app.Kind, app.Id, app.Name);
-        var chosen = _host.Contexts.Chosen(app.Id, _host.Linked(node) is { } linked ? new HeldContext(linked, NodeProof.None, Pulled: true) : null, now, app.Kind);
-        return chosen is { Proof: not NodeProof.None } ? chosen.Entry.Verbs.Commands : [];
+        return Proving(new NodeRef(app.Kind, app.Id, app.Name), now) is { } chosen ? chosen.Entry.Verbs.Commands : [];
     }
 
     /// <summary>
@@ -500,6 +501,72 @@ public sealed class DeskService : IShowApprovals
         var (verdict, refused, unlisted) = Judge(new NodeRef(found.Kind, found.Id, found.Name), line, DeskOrigin.Operator.Role, now);
         if (refused is not null) return new(false, refused) { Shown = unlisted ? UnlistedWords(found.Name) : refused };
         return Rose(found, verdict!, seen);
+    }
+
+    // ------------------------------------------------------------------ an AI agent's line (MCP)
+
+    /// <summary>The journal file's who of a proposal an AI agent made on this desk's MCP endpoint.</summary>
+    public const string AgentCame = "MCP";
+
+    /// <summary>
+    /// An AI agent on this desk's MCP endpoint proposes one line to another show app, in that app's own grammar (§11, release B):
+    /// always a pending proposal from the agent (<see cref="ProposalDesk.Agent"/>) that a person decides at the desk, however agents
+    /// may act here — never sent from the agent's call. The app is found as a person's word finds it (<see cref="Resolve"/>), and the
+    /// line is rated by that app's verified table alone. Refused with words, nothing queued and no row: a word that names no app or
+    /// names this Stagewatch; a reason that holds a key or a window's address; §11's line rules; a filled secret; an app whose verbs
+    /// are not verified; a line no form of its table lists; a full desk. The reply names the proposal, its risk and form, whether its
+    /// app collects now, and how <c>get_proposal</c> follows it; no refusal quotes the line. The same line for the same app while the
+    /// agent's earlier one waits is that one, named again, and nothing new is queued or journalled.
+    /// </summary>
+    public AgentReply ProposeToApp(string app, string line, string reason)
+    {
+        var (found, unknown) = Resolve(app);
+        if (found is null) return Refused(unknown!);
+        reason ??= "";
+        if (Withheld(reason) is { } withheld) return Refused("its reason: " + withheld);
+        line ??= "";
+        if (line.Trim().Length == 0) return Refused("line is required");
+        if (LineFence.Check(line, _host.WindowTokens?.Invoke()) is { } fenced) return Refused(fenced);
+        var now = Now;
+        var target = new NodeRef(found.Kind, found.Id, found.Name);
+        var verdict = Risk(target, line.Trim());
+        // A secret is refused in the desk's own words first; an unverified table may refuse a line, never let one through.
+        if (!verdict.Secret && !Verified(target, now)) return Refused(Unverified(target, now));
+        if (!verdict.Secret && !verdict.Listed) return Refused(UnlistedWords(found.Name));
+        SharedProposal? p;
+        string? refused;
+        bool again;
+        // The queue raises the proposal's first change on this thread, inside the call: its row keeps that an agent proposed it.
+        _submittedWith = AgentCame;
+        try { (p, refused, again) = Queue.ProposeFromAgent(target, line, reason, verdict, now); }
+        finally { _submittedWith = null; }
+        if (p is null) return Refused(refused!);
+        var form = p.Form is { Length: > 0 } f ? $", form {f}" : "";
+        var quiet = Queue.NotCollecting(target, now) is { } why ? $" It cannot be approved yet: {why}." : "";
+        // A retried call is the line already waiting: one decision for the operator, named by the id the first call gave.
+        var head = again ? $"Already waiting for the operator's approval as {p.Id} — the same line for {found.Name}, asked again, is that one" : $"Queued for the operator's approval as {p.Id}";
+        return AgentReply.Waiting($"{head} (risk {p.Risk}{form}). {found.Name} runs it only if a person "
+                                  + $"approves it at the Stagewatch desk.{quiet} get_proposal {{\"id\":\"{p.Id}\"}} follows it.");
+
+        static AgentReply Refused(string why) => AgentReply.Refused("Refused: " + why);
+    }
+
+    /// <summary>
+    /// Another show app's context (§6) for an AI to read, the app found as a person's word finds it (<see cref="Resolve"/>): only the
+    /// context that proves it now (<see cref="Proving"/>), as the node holds it; else null with why. An unverified context never
+    /// reaches an AI, and neither does this Stagewatch's own by this road.
+    /// </summary>
+    public (string? Json, string? Error) PeerContextJson(string app)
+    {
+        var (found, unknown) = Resolve(app);
+        if (found is null) return (null, unknown);
+        var now = Now;
+        var node = new NodeRef(found.Kind, found.Id, found.Name);
+        if (Proving(node, now) is { } chosen) return (chosen.Entry.Json, null);
+        var held = _host.Contexts.Find(node.Id, now) is not null || _host.Linked(node) is not null;
+        return (null, held
+            ? $"{NameOf(node)}'s context is not verified (posted without its key) — an AI reads only a context its app's key or this Stagewatch's own link proves"
+            : $"{NameOf(node)} has told this desk no context");
     }
 
     /// <summary>A plan's app that the show network no longer lists, by the name the plan showed.</summary>
@@ -974,7 +1041,9 @@ public sealed class DeskService : IShowApprovals
     private string About(SharedProposal p, bool proposer = false)
     {
         var own = _host.Id();
-        var (first, second) = proposer ? (p.From.Id, p.Target.Id) : (p.Target.Id, p.From.Id);
+        // The agent on this desk's MCP endpoint is this desk's own: its proposal's row is about the app it names.
+        var from = IsAgent(p.From) ? own : p.From.Id;
+        var (first, second) = proposer ? (from, p.Target.Id) : (p.Target.Id, from);
         return first != own ? first : second != own ? second : "";
     }
 
@@ -1055,9 +1124,15 @@ public sealed class DeskService : IShowApprovals
     public string Known(NodeRef node)
         => _host.Network().Rows.FirstOrDefault(r => r.Peer.Id == node.Id && r.Peer.Name.Length > 0) is { } row ? row.Peer.Name : NodeBindings.Describe(node.Kind, node.Id);
 
-    /// <summary>Who proposes, as this desk names it: itself by the name it gave a line born here (only this desk writes its own id), another node as <see cref="Known"/>.</summary>
+    /// <summary>
+    /// Who proposes, as this desk names it: itself by the name it gave a line born here, or the agent on its MCP endpoint by the
+    /// agent's name (only this desk writes its own id, and the kind <c>mcp</c>), another node as <see cref="Known"/>.
+    /// </summary>
     public string Proposer(SharedProposal p)
-        => p.From.Id == _host.Id() ? (p.From.Name.Length > 0 ? p.From.Name : "this Stagewatch") : Known(p.From);
+        => p.From.Id == _host.Id() ? (p.From.Name.Length > 0 ? p.From.Name : "this Stagewatch") : IsAgent(p.From) ? ProposalDesk.Agent.Name : Known(p.From);
+
+    /// <summary>Whether a proposal's from is the agent on this desk's MCP endpoint: no request names kind <c>mcp</c> (§11), so only this desk wrote it.</summary>
+    private static bool IsAgent(NodeRef from) => from.Kind == ProposalDesk.Agent.Kind;
 
     /// <summary>Which node is to act, as this desk names it: this Stagewatch, or another node as <see cref="Known"/>.</summary>
     public string Actor(SharedProposal p) => p.TargetIsDesk ? "this Stagewatch" : Known(p.Target);
