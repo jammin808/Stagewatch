@@ -22,9 +22,17 @@ static class ShowBusTests
         public void Execute(ShowCommand command) { lock (Commands) Commands.Add(command); }
         public RemoteConfig GetRemoteConfig() => new(Array.Empty<(int, string, int)>(), Array.Empty<(string, string, MessageUrgency, FlashRate)>(), Array.Empty<(string, string?, int)>());
         public IReadOnlyList<ApiKey> ApiKeys { get; set; } = Array.Empty<ApiKey>();
+        /// <summary>
+        /// When set, a receipted command's receipt after it is recorded: what a show thread that answers later would say (accepted, its
+        /// follow-up to come); null for the receipts below.
+        /// </summary>
+        public Func<ShowCommand, string, CommandReceipt?>? Receipts { get; set; }
+        /// <summary>The node's hello inst, as the desk's is: one for the process, whatever server it makes; null for none.</summary>
+        public string? OwnInst { get; set; }
         public Task<CommandReceipt> ExecuteWithReceiptAsync(ShowCommand command, string id, TimeSpan timeout)
         {
             Execute(command);
+            if (Receipts?.Invoke(command, id) is { } answered) return Task.FromResult(answered);
             return Task.FromResult(command.Kind == ShowCommandKind.Start
                 ? CommandReceipt.Refused(id, "Start needs a licence")
                 : new CommandReceipt(id, true, "applied", "Message on the speaker screen", null, new Dictionary<string, long> { ["messageId"] = 12 }));

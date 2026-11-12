@@ -862,7 +862,7 @@ sealed class CoreConnector : IAsyncDisposable
 /// decisions are the kit's, not Stagewatch's: the K it takes for a kid it does not know, a fresh snonce for each connection, the
 /// verdict and its words, one proof a connection, a refused socket kept as a public viewer, what it answers a command (applied, or
 /// refused for the verb <c>REFUSE</c>) and how it carries a receipt on each carrier. It answers no ping with a pong and keeps no
-/// wrong-proof table, no unpaired bound and no reply bound: those are the /ws acceptor's (WebServer; the reply bound SW22.1c).
+/// wrong-proof table, no unpaired bound and no reply bound: those are the /ws acceptor's (WebServer; its reply bound is not kept yet).
 /// </summary>
 sealed class CoreAcceptor : IAsyncDisposable
 {

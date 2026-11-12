@@ -1141,13 +1141,39 @@ maintainer's too.
 
 2.22 is not released; its papers come with its last unit. What one of its units moved to another, so the next one carries it:
 
-- **S14 at this `/ws` acceptor moves from SW22.1b to SW22.1c**, with the receipts feature (the receipts store, a repeat answered
-  from it, `RECEIPTS`, `final`). A node LINK socket runs no command that is not public over `/ws`, and the scripted peer's side
-  call sends no `X-Request-Id` (the peer is hash-pinned by §14, so it is not changed for this), so no S14 leg can reach
-  Stagewatch's own receipts until SW22.1c gives the LINK socket its commands and receipts. Meanwhile the kit's stand-in answers
-  S14 with the core's receipt store (PeerLinkScenarios.Attacks.cs), as it has since 2.19.
-- **S12 at `/ws` is its emitting half only.** The stuck beat (`{"type":"beat","live":false}`) was already sent to every socket; SW22.1b
-  holds it on a verified LINK socket with a test. `stuck` in `can`, and `stuckMs`, come with SW22.1c.
+- **S14, S19 and S20 run at this `/ws` acceptor (SW22.1c).** A LINK that proved a control key now operates, so S14's legs reach
+  Stagewatch's own receipts over `/ws` (the scripted peer's side call still sends no `X-Request-Id`, and HTTP answers once, so a side
+  call's id is not recorded). The kit's stand-in keeps only S15's reply bound.
+- **`stuck` is not in `can`, and no verdict names a `stuckMs` (SW22.1c's choice).** The plan read SW-PL2's `stuck` as the existing
+  beat with `stuckMs` 3000; 1.3's own words (13.10.5, §8's Stagewatch row) list `stuck` only once a measured stall of the show thread
+  sets `stuckMs`, and Stagewatch has none — measured, then governed. On `/ws` a link hears its show stuck by the beat whatever `can`
+  says, so nothing is lost; offering the feature waits for that measurement.
+- **The reply bound (`link.replies.max`) is not kept, not scheduled.** Each receipt waits for the socket's one send, which a reader
+  stalled 5 s ends; nothing counts the receipts waiting on a connection. Cutting a connection at 256 waits for a measured cause (S15's
+  slow reader stays the peer's attack alone).
+- **A connection past the 64 hears why before it closes** (13.14): 429, `Retry-After: 5`, in words, at most 16 such answers at once.
+  The 16 and the 2 s for a head are bounds this unit chose, not measurements; past them a connection is closed unanswered, as before.
+- **Companion TCP keeps the receipts record per client address**, for ids of 13.12.1's shape only: the module's `@c<n>` ids restart
+  with its process and would otherwise be answered from an older run's record. Companion TCP proves no connector, so an address is the
+  narrowest thing it can key on.
+- **The rig's and the desk's late commands share one path** (`ShowReceipts`, Timer.Show): `lateMs` in the receipt, a journal row, and
+  the follow-up of a command the show thread had not run within the deadline. The desk's half is compiled here and never seen run; a
+  desk walk-through is the maintainer's PC work.
+- **The `/ws` record lives as long as the desk's inst.** The desk rebuilds its web server on every Remote settings change (port, bind,
+  HTTPS, OSC); it hands each one its one record, so a relinked connector never hears "unknown" for an id this inst ran and a repeat
+  never runs twice. A command whose follow-up said unconfirmed (not run within `receipt.final.ms`) is still watched for
+  `receipts.kept.ms`: what it came to once it ran is kept for RECEIPTS and repeats, never sent as a second follow-up. A receipt
+  that never comes (the show thread went away) settles unconfirmed, so no id stays "running".
+- **A control key's LINK is a connector of its own key** (`t:id#kid`): two holders of control keys that name one unheld id keep
+  records apart. A node key that speaks for its id keys its record by the id alone.
+- **G43 (AGMessage's link reads "connected" on a frame any client gets) needs nothing more from 2.22.** Stagewatch tells a socket
+  that names a node (`/ws?node=…&t=…`) what it made of its key before any frame, a refused key included (2.18's node links), and
+  SW22.1a/b do the same for a LINK socket. AGMessage 0.5.1 dials as such a node link and marks itself connected, and confirms a
+  first-use pin, only on `{"type":"auth","ok":true}` or an authenticated 200 (its `app/lib/nodes.js`). A browser socket that names
+  no node still gets the public frame in silence, as a screen should. The gap row is closed by what landed, not by this unit's code.
+- **The Companion module's comments lag** (`companion-module/src/connection.ts` says a `final` follow-up comes only after an accepted
+  that waits on another node). Any command the show thread had not run within the deadline now gets one; `parseReceipt` reads it
+  either way. The words move with the module's next change, and its tests.
 - **Window grants reach their apps (SW22.4), but nobody can make one yet outside a test.** The web server delivers `grants`, the draw
   messages and the black end (REMOTE 2.22, windows granted to show apps), and `/api/windows` lists each grant's state. The desk and
   the rig still hear no show apps for `window grant`, so every grant made there is refused: the desk's `FindApp` is SW22.5's (with the

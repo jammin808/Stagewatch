@@ -12,12 +12,11 @@ window is, its view passes and its link, how a node grants a window to another n
 5's words for view passes and the two carriers they ride; §13 PeerLink, one authenticated link between two nodes, with the vectors
 every tree checks itself against; and §14 The numbers, every number the contract names, with its node kinds, doors and caps, in one
 block each tree's test reads. The scripted peer §13.20 names is in this tree, honest and as an attacker, and §14's
-`peerlink.peer.sha256` is its hash; this tree runs S1–S19, S21 and S22 with it against its PeerLink core — its connector on
-`line`, `playmap.lines.v1` and `ws`; its `/ws` acceptor, which speaks LINK, on S1–S3, S8–S10, S12's emitting half, S15's oversize
-message and S16–S18; and, for the acceptor's other rows (S14 and S15's reply bound), its acceptor's parsers, proofs, session check and
-receipt store behind the kit's stand-in. S20 runs only the peer's attack, as does S15's slow reader, until the `/ws` acceptor takes
-the rest of the acceptor's rows over; the
-connector's readers come with its playout links on the core. A node keeps 1.2 until a release of
+`peerlink.peer.sha256` is its hash; this tree runs S1–S22 with it against its PeerLink core — its connector on `line`,
+`playmap.lines.v1` and `ws`; its `/ws` acceptor, which speaks LINK, on S1–S3, S8–S10, S12's emitting half, S14 (features `final`
+and `receipts`), S15's oversize message and S16–S20; and, for the acceptor's other row (S15's reply bound), its acceptor's parsers,
+proofs, session check and receipt store behind the kit's stand-in. S15's slow reader runs only the peer's attack until the `/ws`
+acceptor keeps its reply bound; the connector's readers come with its playout links on the core. A node keeps 1.2 until a release of
 its own carries 1.3, and offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19, which carries
 1.3, does not keep of it, and this tree already keeps every rule of 1.3 that 2.19 brings. No node holds or draws a granted window
 yet. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote documentation (Stagewatch

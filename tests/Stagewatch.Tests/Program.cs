@@ -2065,6 +2065,32 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     Check((await LineStarting("OK @n1")) is { } receiptLine && receiptLine.StartsWith("OK @n1 accepted"), "companion: an @id command gets its receipt");
     await writer.WriteLineAsync("@n2 BOGUSVERB");
     Check((await LineStarting("ERROR @n2")) is not null, "companion: an @id command that fails says so with its id");
+    // 13.12.6 on Companion TCP: an id of 13.12.1's shape is kept for this address — run once, a repeat answered from the record, RECEIPTS
+    // reading it; an id of another shape (the module's c<n>, which restarts with its process) runs every time, as it always did.
+    int Nexts() { lock (bridge.Commands) return bridge.Commands.Count(c => c.Kind == ShowCommandKind.Next); }
+    var nextsBefore = Nexts();
+    await writer.WriteLineAsync("@s1-0a1b2c3d NEXT");
+    var ranOnce = await LineStarting("OK @s1-0a1b2c3d");
+    await writer.WriteLineAsync("@s1-0a1b2c3d NEXT");
+    var repeated = await LineStarting("OK @s1-0a1b2c3d");
+    await writer.WriteLineAsync("@rq1 RECEIPTS s1-0a1b2c3d s2-0a1b2c3d");
+    var asked = await LineStarting("OK @rq1");
+    await writer.WriteLineAsync("@c9 NEXT");
+    await LineStarting("OK @c9");
+    await writer.WriteLineAsync("@c9 NEXT");
+    var unshaped = await LineStarting("OK @c9");
+    await writer.WriteLineAsync("RECEIPTS s1-0a1b2c3d");
+    var noId = await LineStarting("ERROR");
+    await writer.WriteLineAsync("@rq2 RECEIPTS");
+    var none = await LineStarting("ERROR @rq2");
+    Check(ranOnce.StartsWith("OK @s1-0a1b2c3d accepted", StringComparison.Ordinal)
+          && repeated == "OK @s1-0a1b2c3d {\"ok\":true,\"stage\":\"accepted\",\"effect\":\"\",\"error\":null,\"refs\":{},\"repeat\":true}"
+          && asked.StartsWith("OK @rq1 {\"inst\":\"", StringComparison.Ordinal)
+          && asked.EndsWith("\"receipts\":{\"s1-0a1b2c3d\":{\"ok\":true,\"stage\":\"accepted\",\"effect\":\"\",\"error\":null,\"refs\":{}},\"s2-0a1b2c3d\":\"unknown\"}}", StringComparison.Ordinal)
+          && unshaped.StartsWith("OK @c9 accepted", StringComparison.Ordinal) && Nexts() - nextsBefore == 3
+          && noId == "ERROR " + Stagewatch.Companion.CompanionServer.ReceiptsNeedId && none == "ERROR @rq2 " + ReceiptRecord.AskWords,
+        $"companion: a shaped id runs once and its repeat is answered from the record, RECEIPTS reads it (unknown for an id never sent), a c<n> id runs "
+        + $"every time, and RECEIPTS with no id or no ids is refused ({ranOnce} | {repeated} | {asked} | {Nexts() - nextsBefore} runs)");
     lock (bridge.Commands) bridge.Commands.Clear();   // the routing check below counts only its own verbs
 
     foreach (var cmd in new[] { "START", "NEXT", "GOTO 3 start", "BLACKOUT toggle", "NUDGE -30", "TOGGLE", "SET 05:00", "MODE countup", "MESSAGE \"Say \\\"hi\\\"\" warn slow" })
@@ -2125,6 +2151,7 @@ await PlayoutTlsTests.Run(Check);
 await PlayoutDirectorTests.Run(Check);
 await PlayoutCueTests.Run(Check);
 PlayoutDeskTests.Run(Check);
+await ReceiptTests.Run(Check);
 SupervisorTests.Run(Check);
 SupervisorTests.Holding(Check);
 await IntegrationTests.Run(Check);

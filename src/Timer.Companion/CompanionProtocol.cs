@@ -32,7 +32,9 @@ namespace Stagewatch.Companion;
 ///   SUBSCRIBE JSON               (v2: stream SNAPSHOT/CONFIG JSON instead of TICK/STATE)
 ///   SNAPSHOT | CONFIG            (v2: one-shot SNAPSHOT, or CONFIG + SNAPSHOT)
 ///   PING [token]                 (→ PONG [token]; heartbeat. A Unix-ms token gets "PONG t1 t2 t3" for the clock offset)
-///   @<id> <command>              (Show Bus receipt: → OK @<id> <stage> <effect> / ERROR @<id> <why>)
+///   @<id> <command>              (Show Bus receipt: → OK @<id> <stage> <effect> / ERROR @<id> <why>; an id of 13.12.1's shape,
+///                                <prefix><n>-<inst>, already run from this address → OK @<id> {…,"repeat":true}, not run again)
+///   @<id> RECEIPTS <id> …        (13.12.6: → OK @<id> {"inst":…,"receipts":{<id>:{…}|"unknown"}}, 1–32 ids, this address's own)
 ///   SUBSCRIBE                    (start streaming live events; default after connect)
 ///   UNSUBSCRIBE
 ///   QUIT

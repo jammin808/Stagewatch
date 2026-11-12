@@ -131,6 +131,16 @@ Stagewatch refuses from the peer's own facts (a Patterns
 playlist item's pause, a PlayMap playlist not idle for a CUE) is `ERROR @c1 <why>`, and nothing reaches the peer. A client
 that reads `OK @id` lines takes `final` after the id as the follow-up's mark, as the module does (below).
 
+**What a request id's record keeps (2.22).** A command sent with an id of Show Bus 13.12.1's shape — 1–4 letters, a counter from
+1, a dash and the sender's inst, `@s17-11aa22bb NEXT` — is kept per client address for 10 minutes (its last 256 ids): sent again,
+it is answered from that record, `OK @s17-11aa22bb {"ok":true,"stage":"applied",…,"repeat":true}`, and never run again.
+`@rq1 RECEIPTS s17-11aa22bb s18-11aa22bb` (1–32 ids) asks what came of each: `OK @rq1 {"inst":"<Stagewatch's inst>","receipts":
+{"s17-11aa22bb":{…},"s18-11aa22bb":"unknown"}}`; `RECEIPTS` with no request id, or no id to ask about, is refused. The module's own
+`@c<n>` ids restart with its process, so they are never kept and every press runs, as before. A command the show thread ran more than
+1 s after it was read says so after its words: `OK @c4 applied Next item — ran 4200 ms after it was read (lateMs)`; one it had not run
+within the deadline is `OK @c4 accepted`, followed by its `final` line once it runs (or, 30 s on, `final accepted unconfirmed — …`; what it came to once it ran
+at last is what `RECEIPTS` then reads).
+
 **The module's playout keys (2.20).** Three actions drive Stagewatch's playout links: *Playout: the clip on air* (`PLAYOUT
 [<link>] play|pause|stop|restart|end <s>|seek <m:ss>`), *Playout: GO* (`PLAYOUT [<link>] go <playlist> [<item>] [together]` for a
 PlayMap node, `go <cue>` for a Patterns desk) and *Playout: cue* (`cue <playlist> <item>`, or `cue <cue>`). The link is picked

@@ -24,7 +24,24 @@ namespace Stagewatch.Remote;
 /// </summary>
 public sealed class WebServer : IAsyncDisposable
 {
-    private const int MaxConnections = 64;
+    /// <summary>The connections this server serves at once; past it a connection hears <see cref="Full"/> before it closes.</summary>
+    public const int MaxConnections = 64;
+
+    /// <summary>
+    /// Connections past <see cref="MaxConnections"/> answered at once with <see cref="Full"/> (13.14: a ceiling said in words before an
+    /// extra connection closes); past these too, one is closed unanswered, so a flood never holds more than this many more sockets.
+    /// </summary>
+    public const int ShedAnswered = 16;
+
+    /// <summary>How long a connection past the ceiling has to send its request's head (and its TLS handshake) before it is closed unanswered.</summary>
+    public static readonly TimeSpan ShedWithin = TimeSpan.FromSeconds(2);
+
+    /// <summary>The Retry-After, in seconds, a connection past the ceiling is answered with.</summary>
+    public const int FullRetryAfter = 5;
+
+    /// <summary>The words a connection past the ceiling hears, with 429 and <see cref="FullRetryAfter"/>.</summary>
+    public static readonly string Full = "this Stagewatch is serving its " + MaxConnections.ToString(CultureInfo.InvariantCulture)
+        + " connections — try again in " + FullRetryAfter.ToString(CultureInfo.InvariantCulture) + " s";
     private const int MaxHeaderBytes = 8192;
     /// <summary>The largest message a /ws client may send; a longer one ends the socket.</summary>
     public const int MaxWsMessageBytes = 4096;
@@ -108,6 +125,7 @@ public sealed class WebServer : IAsyncDisposable
     /// <summary>Per API key: requests this minute, when the minute started, and when it was last used.</summary>
     private readonly ConcurrentDictionary<string, (int Count, long WindowStartMs, DateTime LastUtc)> _keyUse = new();
     private readonly SemaphoreSlim _connectionSlots = new(MaxConnections, MaxConnections);
+    private readonly SemaphoreSlim _shedSlots = new(ShedAnswered, ShedAnswered);
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Frame? _frame;
@@ -140,6 +158,14 @@ public sealed class WebServer : IAsyncDisposable
     /// without waiting. Fixed when the server is made.
     /// </summary>
     public TimeProvider PreflightClock { get; init; } = TimeProvider.System;
+
+    /// <summary>
+    /// 13.12.6's record of what each LINK-verified connector's ids came to, read and kept by every socket's reader. It answers for the
+    /// node's inst, so it lives as long as that inst: a host that rebuilds its server under one inst (the desk, on a Remote settings
+    /// change) hands each server the one record, or a relinked connector would hear "unknown" for ids this inst ran, and a repeat would
+    /// run again. Fixed when the server is made; its own by default.
+    /// </summary>
+    public ReceiptRecord Receipts { get; init; } = new();
 
     public bool IsRunning => _listener is not null;
 
@@ -616,11 +642,75 @@ public sealed class WebServer : IAsyncDisposable
 
             if (!_connectionSlots.Wait(0))
             {
-                tcp.Dispose(); // over capacity: shed load rather than queue
+                // Over capacity: shed load rather than queue — in words while a few can still be answered, closed unanswered past them.
+                if (_shedSlots.Wait(0)) _ = ShedAsync(tcp, ct);
+                else tcp.Dispose();
                 continue;
             }
             _ = HandleConnectionAsync(tcp, ct);
         }
+    }
+
+    /// <summary>
+    /// A connection past <see cref="MaxConnections"/>: its request's head read within <see cref="ShedWithin"/> (over TLS when it speaks
+    /// TLS) — with its body when one of at most <see cref="HttpRequest.MaxBody"/> follows, as every head is read, so the close leaves no
+    /// unread request behind to turn into a reset — then 429 with <see cref="Full"/> and Retry-After, and closed. A WebSocket upgrade hears
+    /// the same before any upgrade. A key in force that came in clear from another machine is marked as on any request (13.6.9). Nothing of
+    /// the request is routed or run; a longer body is not drained, and its sender may see the reset instead.
+    /// </summary>
+    private async Task ShedAsync(TcpClient tcp, CancellationToken ct)
+    {
+        try
+        {
+            tcp.NoDelay = true;
+            var remote = (tcp.Client.RemoteEndPoint as IPEndPoint)?.Address ?? IPAddress.None;
+            var (stream, req, secure) = await ReadHeadAsync(tcp, ShedWithin, ct);
+            if (req is null) return;
+            NoteClear(req, remote, secure);
+            await WriteAsync(stream, 429, "application/json", JsonSerializer.SerializeToUtf8Bytes(new { ok = false, error = Full }), ct, cors: true,
+                extra: "Retry-After: " + FullRetryAfter.ToString(CultureInfo.InvariantCulture) + "\r\n");
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or OperationCanceledException or ObjectDisposedException
+                                       or System.Security.Authentication.AuthenticationException)
+        {
+            // It went away, or sent no head in time: closed unanswered, as every connection past the ceiling once was.
+        }
+        finally
+        {
+            tcp.Dispose();
+            _shedSlots.Release();
+        }
+    }
+
+    /// <summary>
+    /// A connection's request head, read within <paramref name="within"/>: over TLS when a certificate is set and its first byte is a TLS
+    /// handshake record (0x16), else plain on the same port. Null for the request when the connection ended before sending one.
+    /// </summary>
+    private async Task<(Stream Stream, HttpRequest? Request, bool Secure)> ReadHeadAsync(TcpClient tcp, TimeSpan within, CancellationToken ct)
+    {
+        Stream stream = tcp.GetStream();
+        var secure = false;
+        using var headerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        headerCts.CancelAfter(within);
+        if (Certificate is { } cert)
+        {
+            var first = new byte[1];
+            var n = await tcp.Client.ReceiveAsync(first, SocketFlags.Peek, headerCts.Token);
+            if (n == 0) return (stream, null, false);
+            if (first[0] == 0x16)
+            {
+                var ssl = new System.Net.Security.SslStream(stream, leaveInnerStreamOpen: false);
+                await ssl.AuthenticateAsServerAsync(new System.Net.Security.SslServerAuthenticationOptions
+                {
+                    ServerCertificate = cert,
+                    ClientCertificateRequired = false,
+                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                }, headerCts.Token);
+                stream = ssl;
+                secure = true;
+            }
+        }
+        return (stream, await HttpRequest.ReadAsync(stream, MaxHeaderBytes, headerCts.Token), secure);
     }
 
     private async Task HandleConnectionAsync(TcpClient tcp, CancellationToken ct)
@@ -628,35 +718,10 @@ public sealed class WebServer : IAsyncDisposable
         try
         {
             tcp.NoDelay = true;
-            Stream stream = tcp.GetStream();
             var remote = (tcp.Client.RemoteEndPoint as IPEndPoint)?.Address ?? IPAddress.None;
 
-            HttpRequest? req;
-            var secure = false;
-            using (var headerCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
-            {
-                headerCts.CancelAfter(HeaderTimeout);
-                // TLS or plain on the same port: a TLS client speaks first with a handshake record (0x16).
-                if (Certificate is { } cert)
-                {
-                    var first = new byte[1];
-                    var n = await tcp.Client.ReceiveAsync(first, SocketFlags.Peek, headerCts.Token);
-                    if (n == 0) return;
-                    if (first[0] == 0x16)
-                    {
-                        var ssl = new System.Net.Security.SslStream(stream, leaveInnerStreamOpen: false);
-                        await ssl.AuthenticateAsServerAsync(new System.Net.Security.SslServerAuthenticationOptions
-                        {
-                            ServerCertificate = cert,
-                            ClientCertificateRequired = false,
-                            EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
-                        }, headerCts.Token);
-                        stream = ssl;
-                        secure = true;
-                    }
-                }
-                req = await HttpRequest.ReadAsync(stream, MaxHeaderBytes, headerCts.Token);
-            }
+            // TLS or plain on the same port: a TLS client speaks first with a handshake record (0x16).
+            var (stream, req, secure) = await ReadHeadAsync(tcp, HeaderTimeout, ct);
             if (req is null) return;
 
             // 13.6.9: a key in force that came in clear from another machine is marked seen in clear before anything answers the
@@ -2170,7 +2235,7 @@ public sealed class WebServer : IAsyncDisposable
                 {
                     Link = link,
                     First = l.Ok
-                        ? LinkAcceptor.Verdict(link, l.Proof!, l.Lid!, [], Inst, (int)HeartbeatEvery.TotalMilliseconds)
+                        ? LinkAcceptor.Verdict(link, l.Proof!, l.Lid!, LinkCan, Inst, (int)HeartbeatEvery.TotalMilliseconds)
                         : LinkAcceptor.Refusal(l.Class!, l.Words, l.RetrySeconds),
                 };
             }
@@ -2534,6 +2599,8 @@ public sealed class WebServer : IAsyncDisposable
         catch (JsonException) { return Error("bad JSON"); }
 
         if (string.IsNullOrEmpty(verb)) return Error("missing cmd");
+        // 13.12.6: a LINK-verified link asks what became of its own ids; nothing runs.
+        if (verb == "receipts") return ReceiptsAsked(client, requestId, args);
         if (verb == "ping")
         {
             if (pingT is not { } t) return "{\"type\":\"pong\"}"u8.ToArray();
@@ -2541,26 +2608,37 @@ public sealed class WebServer : IAsyncDisposable
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             return Encoding.UTF8.GetBytes(FormattableString.Invariant($"{{\"type\":\"pong\",\"t\":{t},\"t2\":{now},\"t3\":{now}}}"));
         }
-        if (!client.CanControl && !ShowCommandParser.IsPublicVerb(verb)) return Error("read-only connection (PIN required)");
+        // The socket's link is read once, as it stands now. A link whose LINK proved a control key operates (§8.1: `operate` is a control
+        // key or the PIN), as that key's request over HTTP would; any other node link runs public verbs alone.
+        var link = client.Link;
+        var controls = link.CanControl || Operates(link);
+        if (!controls && !ShowCommandParser.IsPublicVerb(verb)) return Error("read-only connection (PIN required)");
         if (IsQuestion(verb) && !AllowQuestion(client.Remote)) return Error("please wait a little before asking again");
         if (!ShowCommandParser.TryParse(verb, args, out var cmd, out var error))
         {
             Reject(error);
             return Error(error);
         }
-        if (cmd.Kind == ShowCommandKind.Ack && !client.CanControl && CheckCrewAck(ref cmd, client.CrewKey, client.Remote, client) is { } refused)
+        if (cmd.Kind == ShowCommandKind.Ack && !controls && CheckCrewAck(ref cmd, client.CrewKey, client.Remote, client) is { } refused)
             return Error(refused);
-        if (cmd.Kind == ShowCommandKind.DeptNote && !client.CanControl && CheckDeptKey(DeptOf(cmd), client.CrewKey, client.Remote, client) is { } noteRefused)
+        if (cmd.Kind == ShowCommandKind.DeptNote && !controls && CheckDeptKey(DeptOf(cmd), client.CrewKey, client.Remote, client) is { } noteRefused)
             return Error(noteRefused);
         // Another node's air: a control page let in with no PIN set and no key proved nothing, so only this PC or a listed address,
-        // never another site's page; the socket's link is read once, as it stands now.
-        var link = client.Link;
-        var proved = link.CanControl && link.Scope is "pin" or "control";
+        // never another site's page.
+        var proved = (link.CanControl && link.Scope is "pin" or "control") || Operates(link);
+        // 13.12.6: on a LINK-verified link an id the record holds is answered from it and never run again; one it does not hold is
+        // held as running until its receipt settles it.
+        var connector = ConnectorOf(link);
+        if (requestId is not null && connector is not null && Receipts.Begin(connector, requestId, LinkNowMs) is { } held)
+            return RecordedReceipt(requestId, held);
+        Action<CommandReceipt>? settled = requestId is not null && connector is not null
+            ? r => Receipts.Keep(connector, requestId, r.RecordJson(), LinkNowMs)
+            : null;
         if (PlayoutGate.Check(cmd.Kind, CommandDoor.WebSocket, client.Sender with { Credentialed = proved }, _control.PlayoutFrom) is { } gated)
         {
             Reject(gated);
             if (requestId is null) return Error(gated);
-            _ = SendReceiptAsync(client, Task.FromResult(CommandReceipt.Refused(requestId, gated)));
+            _ = SendReceiptAsync(client, requestId, Task.FromResult(CommandReceipt.Refused(requestId, gated)), settled);
             return null;
         }
         if (PlayoutGate.Person(cmd.Kind))
@@ -2572,13 +2650,68 @@ public sealed class WebServer : IAsyncDisposable
         if (requestId is not null)
         {
             // The receipt follows when the show thread has run it; frames keep flowing meanwhile.
-            _ = SendReceiptAsync(client, _control.ExecuteWithReceiptAsync(cmd, requestId, ReceiptWait));
+            _ = SendReceiptAsync(client, requestId, _control.ExecuteWithReceiptAsync(cmd, requestId, ReceiptWait), settled);
             return null;
         }
         _control.Execute(cmd);
         return null;
 
         static byte[] Error(string e) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "error", error = e }));
+    }
+
+    /// <summary>
+    /// The features a LINK verdict names (13.6.6): <c>final</c> — an accepted command's one follow-up — and <c>receipts</c> — the record
+    /// of what each verified connector's ids came to (13.12.6). Never <c>stuck</c>: its <c>stuckMs</c> is the shipped stall mark, not yet
+    /// set from a measured stall (13.10.5, §8's row); a <c>/ws</c> link hears its show stuck by the beat all the same. Never <c>expire</c>.
+    /// </summary>
+    public static IReadOnlyList<string> LinkCan { get; } = ["final", "receipts"];
+
+    /// <summary>
+    /// The words a RECEIPTS ask hears on a link that keeps no receipts: one LINK did not verify (a bearer node link, a screen, a refused
+    /// or revoked link).
+    /// </summary>
+    public const string NoReceipts = "this link keeps no receipts: only a link whose LINK verified (its verdict lists receipts) asks for them";
+
+    /// <summary>Whether a link's LINK proved a key in force that may operate (a control key): it runs commands as that key's request would.</summary>
+    private static bool Operates(WsLink link) => link is { Lid: not null, KeyId: not null } && ApiKeys.Allows(link.KeyScope, ApiKeyScope.Control);
+
+    /// <summary>
+    /// The connector a link's record is kept for (13.12.6, per verified connector id): its node's kind and id (<c>t:id</c>) while a node
+    /// key that speaks for that id proved it; the same with the key that proved it (<c>t:id#kid</c>) when the operator's control key
+    /// proved a link whose id is only claimed, so two holders of keys that name one unheld id never read or pre-empt each other's ids.
+    /// Null on a socket LINK did not verify (it holds no lid), which keeps no record and is never answered from one.
+    /// </summary>
+    private static string? ConnectorOf(WsLink link) => link switch
+    {
+        { Lid: null } => null,
+        { Kind: { } t, Node: { } id, Verified: NodeProof.Key } => t + ":" + id,
+        { Kind: { } t, Node: { } id, KeyId: { } kid } => t + ":" + id + "#" + kid,
+        _ => null,
+    };
+
+    /// <summary>A receipt answered from the record, on a socket: §3's receipt with the id, its kept fields and <c>"repeat":true</c>.</summary>
+    private static byte[] RecordedReceipt(string id, string held)
+        => Encoding.UTF8.GetBytes("{\"type\":\"receipt\",\"id\":" + JsonSerializer.Serialize(id) + "," + held[1..]);
+
+    /// <summary>
+    /// <c>{"cmd":"receipts","args":[ids…],"id":"rq"}</c> (13.12.6): on a LINK-verified link, a receipt to the ask with this node's inst and,
+    /// for each of its own ids, its kept receipt, accepted while it still runs, or "unknown"; refused on any other socket, or for an ask
+    /// that names no id or too many. Answered at once, off the show thread.
+    /// </summary>
+    private byte[] ReceiptsAsked(WsClient client, string? requestId, IReadOnlyList<string> args)
+    {
+        if (requestId is null)
+            return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "error", error = "receipts asks with a request id: {\"cmd\":\"receipts\",\"args\":[…],\"id\":\"rq1\"}" }));
+        string? refused = null;
+        IReadOnlyList<string>? ids = null;
+        if (ConnectorOf(client.Link) is not { } connector) refused = NoReceipts;
+        else if ((ids = ReceiptRecord.AskOf(args)) is null) refused = ReceiptRecord.AskWords;
+        else
+        {
+            var answer = Receipts.Answer(connector, ids, Inst, LinkNowMs);
+            return Encoding.UTF8.GetBytes("{\"type\":\"receipt\",\"id\":" + JsonSerializer.Serialize(requestId) + ",\"ok\":true," + answer[1..]);
+        }
+        return CommandReceipt.Refused(requestId, refused).ToJson();
     }
 
     /// <summary>
@@ -2639,20 +2772,22 @@ public sealed class WebServer : IAsyncDisposable
     private static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var i) ? i : 0;
 
     /// <summary>
-    /// The receipt, and after an <c>accepted</c> that waits on another node its one follow-up (Show Bus §3: the same id with
-    /// <c>"final":true</c>, within <c>receipt.final.ms</c> — that node's final answer, or unconfirmed when it gave none in time), on this
-    /// socket. HTTP answers once, so only a socket hears the follow-up.
+    /// The receipt, and after an <c>accepted</c> its one follow-up (Show Bus §3, 13.12.4: the same id with <c>"final":true</c>, within
+    /// <c>receipt.final.ms</c> — what came of it once the show thread ran it or the node it waits on answered, or unconfirmed when nothing
+    /// did in time), on this socket. HTTP answers once, so only a socket hears the follow-up. The receipt that settles the command — the
+    /// follow-up where there is one — is handed to <paramref name="settled"/> (the link's record) whether or not the socket still takes it,
+    /// for a connector that relinks asks the record; so is what a command reported unrun at its follow-up came to once it ran, and a
+    /// receipt that never comes settles it unconfirmed (<see cref="ReceiptRecord.Deliver"/>).
     /// </summary>
-    private static async Task SendReceiptAsync(WsClient client, Task<CommandReceipt> receipt)
+    private static Task SendReceiptAsync(WsClient client, string id, Task<CommandReceipt> receipt, Action<CommandReceipt>? settled = null)
     {
-        try
+        return ReceiptRecord.Deliver(id, receipt, Send, settled);
+
+        async Task Send(CommandReceipt r)
         {
-            var first = await receipt.ConfigureAwait(false);
-            await client.SendTextAsync(first.ToJson(), CancellationToken.None).ConfigureAwait(false);
-            if (first.Final is { } pending)
-                await client.SendTextAsync((await pending.ConfigureAwait(false)).ToJson(), CancellationToken.None).ConfigureAwait(false);
+            try { await client.SendTextAsync(r.ToJson(), CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or OperationCanceledException or IOException) { }
         }
-        catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or OperationCanceledException or IOException) { }
     }
 
     private sealed class WsClient

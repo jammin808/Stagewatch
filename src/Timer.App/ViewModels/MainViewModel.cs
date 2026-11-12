@@ -989,7 +989,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         string? noCertificate = null;
         if (r.WebEnabled)
         {
-            var web = new WebServer(this, () => _store.Snapshot.Remote.Pin);   // web threads read the snapshot, never the live settings
+            // Web threads read the snapshot, never the live settings; every server this process makes answers for its one inst from one record.
+            var web = new WebServer(this, () => _store.Snapshot.Remote.Pin) { Receipts = _linkReceipts };
             web.CommandRejected += SayRefused;
             if (r.Https) web.Certificate = Certificate;
             web.RequireHttps = r.Https && r.RequireHttps && web.Certificate is not null;

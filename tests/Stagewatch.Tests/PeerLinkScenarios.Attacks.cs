@@ -636,7 +636,7 @@ static partial class PeerLinkScenarios
         }
         {
             // The peer as a slow reader: once linked it reads nothing more, so what the acceptor answers backs up on the wire. Cutting a
-            // reader past link.replies.max is the /ws acceptor's: S15's oversize row is in PeerLinkScenarios.Acceptor.cs, the reply bound comes with SW22.1c. The
+            // reader past link.replies.max is the /ws acceptor's: S15's oversize row is in PeerLinkScenarios.Acceptor.cs, the reply bound is not kept yet. The
             // stand-in keeps no reply bound, so this checks the peer's attack alone.
             await using var acceptor = Stand(PeerCarrier.Line, kit.B, [(PeerLink.KeyK(Swk), Kid(Swk), "key")]);
             await using var peer = Peer(script);

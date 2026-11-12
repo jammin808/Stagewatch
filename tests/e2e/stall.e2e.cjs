@@ -3,11 +3,13 @@
 // {"type":"beat","live":false}, every 2 s, and no frame — until the show turns over again, when a frame comes first. A link
 // dialled while the show is stuck hears its verdict, then only the stuck beat, never the frozen frame. Pings are answered
 // throughout (they never wait for the show thread), and a command sent meanwhile is only accepted, then applied once the
-// show runs. A key first used while the show is stuck is still kept when the rig is stopped. These bytes are the ones
-// Patterns' fake Stagewatch replays for a stuck show.
+// show runs; on a socket its receipt's one follow-up (final) then says it ran, and how late (lateMs, Show Bus 13.12.4–5). A key
+// first used while the show is stuck is still kept when the rig is stopped. These bytes are the ones Patterns' fake Stagewatch
+// replays for a stuck show.
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { Rig } = require('./rig.cjs');
 
 const BEAT = '{"type":"beat"}';
@@ -19,7 +21,7 @@ const STALL = 9000;
 let rig, link, key2, key3;
 const links = [];
 before(async () => {
-  rig = await Rig.create({ nodeKeys: 3 });
+  rig = await Rig.create({ nodeKeys: 3, journal: true });
   [, key2, key3] = rig.keys;
   link = await rig.link('node=pat00001&t=patterns', rig.keys[0].secret);
   links.push(link);
@@ -41,7 +43,10 @@ test('a stalled show sends the plain beat, then the stuck beat, exactly, every 2
   const pings = [];
   let t = 0;
   const pinger = setInterval(() => { t += 1; pings.push({ t, at: Date.now() }); link.send({ cmd: 'ping', t }); }, 400);
-  let stall, running, during, late;
+  let stall, running, during, late, sentAt;
+  const control = await rig.link('role=control&pin=' + encodeURIComponent(rig.pin));
+  links.push(control);
+  await control.next((j) => j.type === 'auth' && j.ok === true, 5000, "the control page's verdict");
   const from = link.messages.length;
   try {
     stall = await rig.stall(STALL);
@@ -49,6 +54,9 @@ test('a stalled show sends the plain beat, then the stuck beat, exactly, every 2
     assert.equal(typeof stall.at, 'number');
     // A command meanwhile: the show thread hasn't run it, so its receipt says only accepted.
     during = await rig.run('message Stalled');
+    // The same on a socket: accepted now, and its one follow-up once the show thread has run it.
+    sentAt = Date.now();
+    control.send({ cmd: 'note', args: ['ran late'], id: 's1-e2e0late' });
     // A show app that dials once the show is stuck: a Stagewatch stuck before that app's first frame.
     await link.inbox.wait((m) => m.text === STUCK, STUCK_AFTER + BEAT_EVERY + 2000, 'the first stuck beat', from);
     late = await rig.link('node=pm000001&t=playmap', key2.secret);
@@ -61,6 +69,23 @@ test('a stalled show sends the plain beat, then the stuck beat, exactly, every 2
   }
   assert.equal(during.ok, true, JSON.stringify(during));
   assert.equal(during.stage, 'accepted', 'a command the show thread has not run is only accepted');
+  const taken = (await control.next((j) => j.type === 'receipt' && j.id === 's1-e2e0late' && !j.final, 5000, 'the socket command taken')).json;
+  const ran = (await control.next((j) => j.type === 'receipt' && j.id === 's1-e2e0late' && j.final === true, 5000, 'its follow-up')).json;
+  assert.equal(taken.stage, 'accepted', JSON.stringify(taken));
+  assert.equal(taken.lateMs, undefined, 'accepted says nothing of lateness yet');
+  assert.equal(ran.ok, true, JSON.stringify(ran));
+  assert.equal(ran.stage, 'applied', 'its follow-up says it ran: ' + JSON.stringify(ran));
+  assert.ok(ran.lateMs >= stall.at + STALL - sentAt - 500 && ran.lateMs <= STALL + 1000, `it ran ${ran.lateMs} ms after it was read: ${JSON.stringify(ran)}`);
+  // The journal keeps a row of it (13.12.5): which command, its id, and the lateMs its receipt says.
+  const lateRow = /\(s1-e2e0late\) ran \d+(\.\d)? s after it was read — the show thread was busy; its receipt says lateMs (\d+)$/;
+  let rows = [];
+  for (let i = 0; i < 50 && !rows.some((x) => lateRow.test(x)); i++) {
+    if (i > 0) await pause(100);
+    rows = fs.existsSync(rig.journal) ? fs.readFileSync(rig.journal, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).x || '') : [];
+  }
+  const row = rows.find((x) => lateRow.test(x));
+  assert.ok(row, 'the journal keeps a row for the late command: ' + JSON.stringify(rows.slice(-5)));
+  assert.equal(Number(lateRow.exec(row)[2]), ran.lateMs, 'the row says the lateMs the follow-up says: ' + row);
 
   const S = stall.receivedAt;
   const heard = link.messages.slice(from);

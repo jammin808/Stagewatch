@@ -934,13 +934,25 @@ sealed class Rig : ICompanionBridge, IDisposable
         return shown;
     }
 
+    /// <summary>
+    /// A command with a request id, run on the owner thread as the app's show thread runs one: its receipt within the deadline, else
+    /// accepted with its follow-up within receipt.final.ms of its read (ShowReceipts); one begun more than receipt.late.ms after its read
+    /// says how late, in its receipt, the log and a journal row.
+    /// </summary>
     public async Task<CommandReceipt> ExecuteWithReceiptAsync(ShowCommand command, string id, TimeSpan timeout)
     {
         var time = TimeProvider.System;
-        var sentAt = time.GetTimestamp();
-        var done = new TaskCompletionSource<(CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readAt = time.GetTimestamp();
+        var done = new TaskCompletionSource<(CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited, long? LateMs)>(TaskCreationOptions.RunContinuationsAsynchronously);
         Post(() =>
         {
+            var late = ShowReceipts.Late(time.GetElapsedTime(readAt));
+            if (late is { } ms)
+            {
+                var line = ShowReceipts.LateLine(command.Kind, id, ms);
+                Log(line);
+                _journal?.Add(DateTime.UtcNow, JournalKind.Note, _item, line);
+            }
             // What the command makes (a message's signal, a shared proposal) rides in its receipt's refs, as the app's receipts
             // carry it, a refusal's included; the refs exist only while a receipted command runs. A command handed to a playout
             // link's peer is that peer's to answer; a line sent to another app is waited for.
@@ -950,17 +962,20 @@ sealed class Rig : ICompanionBridge, IDisposable
             var refs = ran.Refs.Count > 0 ? ran.Refs : null;
             var ids = ran.RefIds.Count > 0 ? ran.RefIds : null;
             done.TrySetResult(ok
-                ? (new CommandReceipt(id, true, "applied", words, null, refs, ids), ran.Peer, ran.Awaited)
-                : (CommandReceipt.Refused(id, words) with { Refs = refs, RefIds = ids }, null, null));
+                ? (new CommandReceipt(id, true, "applied", words, null, refs, ids), ran.Peer, ran.Awaited, late)
+                : (CommandReceipt.Refused(id, words) with { Refs = refs, RefIds = ids }, null, null, late));
         });
-        var first = await Task.WhenAny(done.Task, Task.Delay(timeout)).ConfigureAwait(false);
-        if (first != done.Task) return CommandReceipt.Accepted(id);
-        var (receipt, handed, awaited) = await done.Task.ConfigureAwait(false);
-        // As the app's: the peer's own answer within what is left of the deadline, and its one follow-up when that says accepted.
-        if (handed is { } step) return await PlayoutReceipts.Within(id, step, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false);
-        // A line sent to another app: what that app made of it within what is left of the deadline, and its one follow-up after.
-        if (awaited is { } proposal) return await DeskReceipts.Within(id, _desk, proposal, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false);
-        return receipt;
+        return await ShowReceipts.Of(id, done.Task, Complete, timeout, time, readAt).ConfigureAwait(false);
+
+        // As the app's: a peer's own answer within what is left of the deadline, and its one follow-up when that says accepted; a line
+        // sent to another app what that app made of it within what is left, and its one follow-up after.
+        async Task<CommandReceipt> Complete((CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited, long? LateMs) run, TimeSpan left)
+        {
+            var receipt = run.Peer is { } step ? await PlayoutReceipts.Within(id, step, left, time, readAt).ConfigureAwait(false)
+                : run.Awaited is { } proposal ? await DeskReceipts.Within(id, _desk, proposal, left, time, readAt).ConfigureAwait(false)
+                : run.Receipt;
+            return ShowReceipts.Noted(receipt, run.LateMs);
+        }
     }
 
     /// <summary>

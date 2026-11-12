@@ -17,40 +17,54 @@ public sealed partial class MainViewModel
     // operator's own actions are offered to Companion's recorder.
     private readonly ReceiptStack<PlayoutStep> _receipts = new();
 
-    /// <summary>IShowCommands: run a command and say what happened. Thread-safe; never waits on itself.</summary>
+    /// <summary>
+    /// 13.12.6's record of what each verified connector's ids came to on /ws: one for this process, as its inst is, handed to every web
+    /// server Remote settings rebuild, so a repeat never runs twice and RECEIPTS never forgets an id this inst ran.
+    /// </summary>
+    private readonly ReceiptRecord _linkReceipts = new();
+
+    /// <summary>
+    /// IShowCommands: run a command and say what happened. Thread-safe; never waits on itself. A command the show thread has not run within
+    /// the deadline is answered accepted, and its follow-up says what came of it once it ran (or that it had still not run) within
+    /// receipt.final.ms of its read (ShowReceipts); one it ran more than receipt.late.ms after its read says how late, in its receipt and in
+    /// a journal row.
+    /// </summary>
     public async Task<CommandReceipt> ExecuteWithReceiptAsync(ShowCommand command, string id, TimeSpan timeout)
     {
         var time = TimeProvider.System;
-        var sentAt = time.GetTimestamp();
-        (CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited) ran;
-        if (_ui.CheckAccess()) ran = RunWithReceipt(command, id);
-        else
+        var readAt = time.GetTimestamp();
+        var ran = _ui.CheckAccess()
+            ? Task.FromResult(RunWithReceipt(command, id, time, readAt))
+            : _ui.InvokeAsync(() => RunWithReceipt(command, id, time, readAt)).Task;
+        return await ShowReceipts.Of(id, ran, Complete, timeout, time, readAt).ConfigureAwait(false);
+
+        // What the run made of it within what is left of the deadline: a peer's command its peer's answer, and its one follow-up when that
+        // says accepted; a line sent to another app what that app made of it, and its one follow-up after.
+        async Task<CommandReceipt> Complete((CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited, long? LateMs) run, TimeSpan left)
         {
-            var op = _ui.InvokeAsync(() => RunWithReceipt(command, id));
-            var done = await Task.WhenAny(op.Task, Task.Delay(timeout)).ConfigureAwait(false);
-            if (done != op.Task) return CommandReceipt.Accepted(id);
-            ran = await op.Task.ConfigureAwait(false);
+            var receipt = run.Peer is { } peer ? await PlayoutReceipts.Within(id, peer, left, time, readAt).ConfigureAwait(false)
+                : run.Awaited is { } proposal ? await DeskReceipts.Within(id, Desk, proposal, left, time, readAt).ConfigureAwait(false)
+                : run.Receipt;
+            return ShowReceipts.Noted(receipt, run.LateMs);
         }
-        // A peer's command: its answer within what is left of the deadline, and its one follow-up when that says accepted.
-        if (ran.Peer is { } peer) return await PlayoutReceipts.Within(id, peer, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false);
-        // A line sent to another app: what that app made of it within what is left of the deadline, and its one follow-up after.
-        if (ran.Awaited is { } proposal) return await DeskReceipts.Within(id, Desk, proposal, timeout - time.GetElapsedTime(sentAt), time, sentAt).ConfigureAwait(false);
-        return ran.Receipt;
     }
 
     /// <summary>
     /// Show thread: run a command with notes of its own, and put back the notes (and the remote mark) it found when it ends — it may
-    /// be running inside another receipted command, whose receipt is still to come.
+    /// be running inside another receipted command, whose receipt is still to come. A command begun more than receipt.late.ms after its
+    /// read says how late, and the journal keeps a row of it.
     /// </summary>
-    private (CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited) RunWithReceipt(ShowCommand c, string id)
+    private (CommandReceipt Receipt, PlayoutStep? Peer, string? Awaited, long? LateMs) RunWithReceipt(ShowCommand c, string id, TimeProvider time, long readAt)
     {
+        var late = ShowReceipts.Late(time.GetElapsedTime(readAt));
+        if (late is { } ms) _journal.Add(DateTime.UtcNow, JournalKind.Note, _show.RundownActive ? _show.CurrentItem : -1, ShowReceipts.LateLine(c.Kind, id, ms));
         var before = StatusLine;
         var notes = _receipts.Enter();
         try { ExecuteNow(c); }
-        catch (Exception ex) { return (CommandReceipt.Refused(id, ex.Message), null, null); }
+        catch (Exception ex) { return (CommandReceipt.Refused(id, ex.Message), null, null, late); }
         finally { _receipts.Leave(notes); }
-        if (notes.Error is null && notes.Peer is { } peer) return (CommandReceipt.Accepted(id), peer, null);
-        return (notes.Receipt(id, StatusLine != before ? StatusLine : ""), null, notes.Error is null ? notes.Awaited : null);
+        if (notes.Error is null && notes.Peer is { } peer) return (CommandReceipt.Accepted(id), peer, null, late);
+        return (notes.Receipt(id, StatusLine != before ? StatusLine : ""), null, notes.Error is null ? notes.Awaited : null, late);
     }
 
     /// <summary>The action didn't happen: say why on the status line and in the sender's receipt.</summary>

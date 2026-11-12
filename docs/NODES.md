@@ -236,7 +236,9 @@ section has every message and refusal.
   crosses the network. From another machine only over TLS. A key that speaks for another node is refused there (class `binding`),
   never verified `none`. Its side calls then carry `Authorization: ShowBus lid=…, s=…` (13.7.1) instead of the key: on
   `/api/context`, `/api/peers/context`, `/api/proposals` (and below) and `/api/message` that session speaks for the key, and it ends
-  with the link. REMOTE.md's 2.22 section has every message and refusal.
+  with the link. Its verdict names `final` and `receipts` (13.12.4–6): an accepted command's one follow-up, and a record of what each of
+  its ids came to — a repeated id answered from it and never run again, `{"cmd":"receipts",…}` after a relink. REMOTE.md's 2.22
+  section has every message and refusal.
 - A key sent in clear (a bearer key with no TLS) from another machine is marked *seen in clear* on its key row and in the context,
   amber, and gets no window grant until it is replaced (Show Bus 13.6.9).
 - `cid` and `page` are ignored when `node` is there; a Stagewatch older than 2.18 ignores `node` and lists each install under its

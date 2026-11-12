@@ -210,7 +210,6 @@ static class ShowBusSpecTests
     static readonly (string Row, string Unit, string Today, Func<Numbers, bool> Differs)[] NotKeptYet =
     [
         ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
-        ("receipt.final.ms", "SW22.1c", "its receipts carry no `final`, `repeat`, `lateMs` or `frame`", _ => ReceiptTailAsToday()),
     ];
 
     /// <summary>Whether a unit ends its entry in 2.19, the release that carries 1.3: then the header names it, else §8's Stagewatch row.</summary>
@@ -1629,6 +1628,12 @@ static class ShowBusSpecTests
         Keeps(CommandReceipt.CleanId(new string('a', rid)) is not null && CommandReceipt.CleanId(new string('a', rid + 1)) is null,
             "it takes a request id that long and no longer", "request.id.chars");
         Keeps((long)WebServer.ReceiptWait.TotalMilliseconds == n.Of("receipt.deadline.ms"), "a receipt says accepted when the command is not applied within it", "receipt.deadline.ms");
+        var late = TimeSpan.FromMilliseconds(n.Of("receipt.late.ms"));
+        Keeps(ShowReceipts.LateAfter == late && ShowReceipts.Late(late) is null && ShowReceipts.Late(late + TimeSpan.FromMilliseconds(1)) == n.Of("receipt.late.ms") + 1,
+            "a command its show thread runs later than that after its read says how late, lateMs (ReceiptTests holds the receipt and the row's words; stall.e2e the rig's journal row beside its follow-up)", "receipt.late.ms");
+        Keeps((long)ShowReceipts.FinalWithin.TotalMilliseconds == n.Of("receipt.final.ms") && ReceiptTailKept(),
+            "an accepted receipt's one follow-up comes within it of the read, final, and §3's last fields ride in their order (PeerLinkScenarios holds "
+            + "final, repeat and RECEIPTS at /ws)", "receipt.final.ms");
         Keeps((long)WebServer.HeartbeatEvery.TotalMilliseconds == n.Of("link.beat.ms"), "/ws sends a frame or a beat at least that often", "link.beat.ms");
         Keeps(WebServer.MaxWsMessageBytes == n.Of("link.ws.in.bytes"), "/ws takes a message that long", "link.ws.in.bytes");
         Keeps(WebServer.WrongProofsPerMinute == n.Of("peerlink.wrong.proofs.per.minute") && WrongProofsLock(n.Of("peerlink.wrong.proofs.per.minute")),
@@ -2945,6 +2950,12 @@ static class ShowBusSpecTests
               && GrantsKept(n.Of("window.grants")),
             "showbus spec: Stagewatch keeps what §8's row names as window.grants: a window takes that many grants at most, a page grant has an "
             + "address of its own, and an app asks a window only for itself");
+        // Kept since SW22.1c, its words in the frozen row still standing: receipt.final.ms, with §3's last fields and features final and
+        // receipts on its /ws (frame, a MAY, is not sent).
+        Check(notKept.Contains("`receipt.final.ms` (today its receipts carry no `final`, `repeat`, `lateMs` or `frame`) — ends when its `/ws` speaks LINK, with "
+                  + "features `final` and `receipts`", StringComparison.Ordinal) && ReceiptTailKept(),
+            "showbus spec: Stagewatch keeps what §8's row names it without: receipt.final.ms — an accepted receipt's follow-up, final, repeat and lateMs "
+            + "in §3's order, and a LINK verdict naming final and receipts");
         // Kept since SW22.1a, its words in the frozen row still standing: its /ws speaks LINK (13.6.5) — the offer first, then one link
         // message decided by the core's proofs, the verdict's fields, a wrong-proof table of its own.
         Check(notKept.Contains("its `/ws` speaks no LINK (today a node link proves a bearer key or the operator's credential, §7.1)", StringComparison.Ordinal) && LinkKept(),
@@ -3030,11 +3041,27 @@ static class ShowBusSpecTests
         catch (JsonException) { return false; }
     }
 
-    /// <summary>Whether Stagewatch's receipts still carry none of §3's last fields.</summary>
-    static bool ReceiptTailAsToday()
+    /// <summary>
+    /// §3's last fields, kept: a receipt carries <c>final</c>, <c>repeat</c> and <c>lateMs</c> each only where it applies and in §3's order,
+    /// with no <c>frame</c> (a MAY it does not send); the record keeps a receipt's fields without <c>final</c> or <c>repeat</c>, and answers
+    /// a repeat with <c>repeat</c> before its <c>lateMs</c>; a LINK verdict names <c>final</c> and <c>receipts</c>, never <c>stuck</c> or
+    /// <c>expire</c>.
+    /// </summary>
+    static bool ReceiptTailKept()
     {
-        using var doc = JsonDocument.Parse(new CommandReceipt("a1", true, "applied", "", null).ToJson());
-        return ReceiptTail.All(f => !doc.RootElement.TryGetProperty(f, out _));
+        static List<string> Tail(byte[] json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateObject().Select(p => p.Name).Where(ReceiptTail.Contains).ToList();
+        }
+        var plain = new CommandReceipt("a1", true, "applied", "", null);
+        var all = plain with { IsFinal = true, Repeat = true, LateMs = 1500 };
+        var record = all.RecordJson();
+        var repeat = PeerReceipts.Repeat(record);
+        return Tail(plain.ToJson()).Count == 0 && Tail(all.ToJson()).SequenceEqual(["final", "repeat", "lateMs"])
+               && !record.Contains("\"final\"", StringComparison.Ordinal) && !record.Contains("\"repeat\"", StringComparison.Ordinal)
+               && repeat.EndsWith(",\"repeat\":true,\"lateMs\":1500}", StringComparison.Ordinal)
+               && WebServer.LinkCan.SequenceEqual(["final", "receipts"]);
     }
 
     /// <summary>

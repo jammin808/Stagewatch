@@ -29,6 +29,13 @@ public sealed class CompanionServer : IAsyncDisposable
     private static readonly TimeSpan WriteStallLimit = TimeSpan.FromSeconds(10);
 
     private readonly ICompanionBridge _bridge;
+    /// <summary>
+    /// 13.12.6's record of what each client's ids came to, kept per client address (Companion TCP proves no connector), for ids of 13.12.1's
+    /// shape alone: <c>@&lt;id&gt; RECEIPTS &lt;ids&gt;</c> reads it, and an id it holds is answered from it and never run again.
+    /// </summary>
+    private readonly ReceiptRecord _receipts = new();
+    /// <summary>This server's own inst for a RECEIPTS answer, when the show names none (13.12.6).</summary>
+    private readonly string _ownInst = System.Security.Cryptography.RandomNumberGenerator.GetHexString(8, lowercase: true);
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private readonly List<Client> _clients = new();
@@ -36,6 +43,17 @@ public sealed class CompanionServer : IAsyncDisposable
     private (int Version, string Line)? _configLine;
 
     public CompanionServer(ICompanionBridge bridge) { _bridge = bridge; }
+
+    /// <summary>The clock the record's ages run on: the monotonic clock in ms; a test injects its own.</summary>
+    public TimeProvider ReceiptClock { get; init; } = TimeProvider.System;
+
+    private long ReceiptNowMs => (long)ReceiptClock.GetElapsedTime(0, ReceiptClock.GetTimestamp()).TotalMilliseconds;
+
+    /// <summary>The inst a RECEIPTS answer names: the node's hello inst, or this server's own.</summary>
+    private string Inst => _bridge.OwnInst is { Length: 8 } inst && PeerLink.IsHex(inst, 8) ? inst : _ownInst;
+
+    /// <summary>The words a RECEIPTS line with no request id hears.</summary>
+    public const string ReceiptsNeedId = "RECEIPTS asks with a request id: @rq1 RECEIPTS <id> ...";
 
     public bool IsRunning => _listener is not null;
     public int Port { get; private set; }
@@ -354,42 +372,68 @@ public sealed class CompanionServer : IAsyncDisposable
         }
 
         private string? _rid;
-        private bool _ridFailed;
+        private string? _ridError;
 
         /// <summary>An error for the command being handled — with its request id when it came with one.</summary>
         private void Fail(string error)
         {
-            if (_rid is { } id) { _ridFailed = true; Enqueue($"ERROR @{id} {error}"); }
+            if (_rid is { } id) { _ridError = error; Enqueue($"ERROR @{id} {error}"); }
             else Enqueue("ERROR " + error);
         }
 
-        /// <summary>A command with a request id: through the shared grammar with a receipt, else as before ("accepted").</summary>
+        /// <summary>The connector this client's record is kept for: its address, as the socket gave it at accept.</summary>
+        private string Connector => "companion:" + (_remote.IsIPv4MappedToIPv6 ? _remote.MapToIPv4() : _remote);
+
+        /// <summary>
+        /// A command with a request id: through the shared grammar with a receipt, else as before ("accepted"). An id of 13.12.1's shape
+        /// the record holds is answered from it — <c>OK @id {…,"repeat":true}</c> — and not run again; <c>@id RECEIPTS &lt;ids&gt;</c>
+        /// reads the record (13.12.6).
+        /// </summary>
         private void HandleWithReceipt(List<string> t, string id)
         {
+            var record = _server._receipts;
+            if (t[0].Equals("RECEIPTS", StringComparison.OrdinalIgnoreCase))
+            {
+                Enqueue(ReceiptRecord.AskOf(t.Skip(1)) is { } ids
+                    ? $"OK @{id} {record.Answer(Connector, ids, _server.Inst, _server.ReceiptNowMs)}"
+                    : $"ERROR @{id} {ReceiptRecord.AskWords}");
+                return;
+            }
+            if (record.Begin(Connector, id, _server.ReceiptNowMs) is { } held)
+            {
+                Enqueue($"OK @{id} {held}");
+                return;
+            }
             if (ShowCommandParser.TryParse(t[0], t.Skip(1).ToList(), out var cmd, out _))
             {
-                if (Gate(cmd) is { } refused) { Enqueue($"ERROR @{id} {refused}"); return; }
+                if (Gate(cmd) is { } refused)
+                {
+                    Settle(CommandReceipt.Refused(id, refused));
+                    Enqueue($"ERROR @{id} {refused}");
+                    return;
+                }
                 _ = ReplyAsync(_server._bridge.ExecuteWithReceiptAsync(cmd, id, TimeSpan.FromSeconds(3)));
                 return;
             }
             _rid = id;
-            _ridFailed = false;
+            _ridError = null;
             try { Handle(t); }
             finally { _rid = null; }
-            if (!_ridFailed) Enqueue($"OK @{id}");
+            Settle(_ridError is { } error ? CommandReceipt.Refused(id, error) : new CommandReceipt(id, true, "applied", "", null));
+            if (_ridError is null) Enqueue($"OK @{id}");
 
-            // The receipt, and after an "accepted" that waits on another node its one follow-up (Show Bus §3, 13.12.4): the word final
-            // after the id, within receipt.final.ms — that node's final answer, or unconfirmed when it gave none in time.
-            async Task ReplyAsync(Task<CommandReceipt> receipt)
-            {
-                var r = await receipt.ConfigureAwait(false);
-                Enqueue(Line(r));
-                if (r.Final is { } pending) Enqueue(Line(await pending.ConfigureAwait(false)));
-            }
+            // The receipt, and after an "accepted" its one follow-up (Show Bus §3, 13.12.4): the word final after the id, within
+            // receipt.final.ms — what came of it once it ran or the node it waits on answered, or unconfirmed when nothing did in time. The
+            // receipt that settles it is kept for its repeats and RECEIPTS, and so is what a command its follow-up called unrun came to.
+            Task ReplyAsync(Task<CommandReceipt> receipt)
+                => ReceiptRecord.Deliver(id, receipt, r => { Enqueue(Line(r)); return Task.CompletedTask; }, Settle);
+
+            void Settle(CommandReceipt r) => record.Keep(Connector, id, r.RecordJson(), _server.ReceiptNowMs);
 
             string Line(CommandReceipt r)
             {
                 var words = (r.Ok ? r.Effect : r.Error ?? "refused").Replace('\n', ' ').Replace('\r', ' ');
+                if (r.LateNote is { } late) words = words.Length > 0 ? words + " — " + late : late;
                 var tag = r.IsFinal ? $"@{id} final" : $"@{id}";
                 return r.Ok ? $"OK {tag} {r.Stage}{(words.Length > 0 ? " " + words : "")}" : $"ERROR {tag} {words}";
             }
@@ -480,6 +524,9 @@ public sealed class CompanionServer : IAsyncDisposable
                     break;
                 case "QUIT":
                     _life.Cancel();
+                    break;
+                case "RECEIPTS":
+                    Fail(ReceiptsNeedId);
                     break;
                 default:
                     // Everything newer (NEXT, PREV, GOTO, BLACKOUT, TOGGLE, NUDGE, ENDAT, CLEARMESSAGE...)

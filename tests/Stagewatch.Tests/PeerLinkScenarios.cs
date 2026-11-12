@@ -16,16 +16,16 @@ using Stagewatch.Core;
 /// key is PlayoutLink's (SW23.1).
 /// </para>
 /// <para>
-/// The acceptor's rows are Stagewatch's /ws acceptor's. Its LINK runs S1–S3, S8–S10, S12's emitting half, S15's oversize message and
-/// S16–S18 against a real <see cref="Stagewatch.Remote.WebServer"/> (PeerLinkScenarios.Acceptor.cs): the offer first, the verdict's fields,
+/// The acceptor's rows are Stagewatch's /ws acceptor's. Its LINK runs S1–S3, S8–S10, S12's emitting half, S14, S15's oversize message and
+/// S16–S20 against a real <see cref="Stagewatch.Remote.WebServer"/> (PeerLinkScenarios.Acceptor.cs and .Receipts.cs): the offer first, the verdict's fields,
 /// its own wrong-proof table per (address, kid) with unknown kids uncounted, a fresh snonce and one proof a socket, the session door and
 /// S speaking for its key on the side calls' routes, the unpaired bound on the injected clock, Host and Origin checked before loopback is
-/// trusted, live revocation, a binding refusal and a key seen in clear. The rows it takes over later (S14, S15's reply bound, S20) are
-/// answered meanwhile by <see cref="CoreAcceptor"/>, the kit's stand-in, with the core's parsers, proofs, session check and receipt store,
-/// so what those checks hold is the peer's connector end — honest, or an attacker's — against the core's crypto, CheckSession and
-/// PeerReceipts; an acceptor's own decisions there are the stand-in's. S20 and S15's slow reader run no Stagewatch code yet
-/// (<see cref="PeerOnly"/>; the master's header says so beside <see cref="OnCore"/>). Stagewatch
-/// offers no enrolment and runs no forwarder, so S21's acceptor half and S20's forwarder are not its rows.
+/// trusted, live revocation, a binding refusal, a key seen in clear, final and the receipts record, its published words free of secrets,
+/// and a side call through a foreign Origin or a local forwarder. The row it does not keep yet (S15's reply bound) is answered meanwhile
+/// by <see cref="CoreAcceptor"/>, the kit's stand-in, with the core's parsers, proofs, session check and receipt store, so what those
+/// checks hold is the peer's connector end — honest, or an attacker's — against the core's crypto, CheckSession and PeerReceipts; an
+/// acceptor's own decisions there are the stand-in's. S15's slow reader runs no Stagewatch code yet (<see cref="PeerOnly"/>; the
+/// master's header says so beside <see cref="OnCore"/>). Stagewatch offers no enrolment, so S21's acceptor half is not its row.
 /// </para>
 /// <para>
 /// The carriers of Stagewatch's own links take these scenarios over as they land on the core: PlayoutLink, the desk's link to Patterns,
@@ -87,13 +87,14 @@ static partial class PeerLinkScenarios
     /// The scenarios this group runs against Stagewatch's PeerLink core — its connector, or the core behind the kit's stand-in. The
     /// master's header names them as what this tree runs against its core.
     /// </summary>
-    static readonly int[] OnCore = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22];
+    static readonly int[] OnCore = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 
     /// <summary>
-    /// The scenarios that run no Stagewatch code yet, only the peer's attack on the wire, until Stagewatch's /ws acceptor takes them over.
-    /// The master's header names them so, with S15's slow reader, a half of a row above.
+    /// The scenarios that run no Stagewatch code yet, only the peer's attack on the wire, until Stagewatch's /ws acceptor takes them over:
+    /// none whole now that S20 runs against the /ws acceptor's side-call door. The master's header names S15's slow reader, a half of a
+    /// row above, as the one part left to the peer's attack.
     /// </summary>
-    static readonly int[] PeerOnly = [20];
+    static readonly int[] PeerOnly = [];
 
     /// <summary>Every connector the scenarios made, for S19's capture of what the core published.</summary>
     static readonly List<CoreConnector> Every = [];
@@ -195,11 +196,11 @@ static partial class PeerLinkScenarios
             $"peerlink scenarios: the commands 13.20 names are the peer's, each documented at the head of its file ({string.Join(", ", named)} / {string.Join(", ", commands)})");
         var header = text[..text.IndexOf("\n## 1. ", StringComparison.Ordinal)].Replace("\n", " ", StringComparison.Ordinal);
         var onCore = Ranges(OnCore);
-        var peerOnly = Ranges(PeerOnly);
+        var peerOnly = PeerOnly.Length == 0 ? "S15's slow reader" : Ranges(PeerOnly);
         Check(OnCore.Concat(PeerOnly).Order().SequenceEqual(Enumerable.Range(1, 22)) && OnCore.Intersect(PeerOnly).Any() == false,
             "peerlink scenarios: each of S1–S22 runs against the core or checks only the peer's attack, never both");
         Check(header.Contains("this tree runs " + onCore + " with it against its PeerLink core", StringComparison.Ordinal)
-              && header.Contains(peerOnly + (PeerOnly.Length == 1 ? " runs" : " run") + " only the peer's attack", StringComparison.Ordinal)
+              && header.Contains(peerOnly + (PeerOnly.Length > 1 ? " run" : " runs") + " only the peer's attack", StringComparison.Ordinal)
               && !header.Contains(" come with the rest of the conformance kit", StringComparison.Ordinal),
             $"peerlink scenarios: the master's header says this tree runs {onCore} with the scripted peer against its core, and that {peerOnly} run only the peer's attack");
         PeerNumbers(Check, text, script);

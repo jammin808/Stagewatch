@@ -1583,6 +1583,28 @@ public sealed record CommandReceipt(string Id, bool Ok, string Stage, string Eff
     /// <summary>This receipt is the follow-up (§3's <c>final</c>): its JSON ends with <c>"final":true</c>, and a line carries the word after the id.</summary>
     public bool IsFinal { get; init; }
 
+    /// <summary>
+    /// Answered from this node's record of an id it already ran, which it did not run again (§3's <c>repeat</c>, 13.12.6): its JSON carries
+    /// <c>"repeat":true</c> after any <c>final</c>.
+    /// </summary>
+    public bool Repeat { get; init; }
+
+    /// <summary>
+    /// How late the command ran, in ms, when it ran more than <c>receipt.late.ms</c> after this node read it (§3's <c>lateMs</c>, 13.12.5);
+    /// null when it ran in time, or has not run.
+    /// </summary>
+    public long? LateMs { get; init; }
+
+    /// <summary>
+    /// On a follow-up that says the show thread had still not run the command: what came of it once it ran at last, within
+    /// <c>receipts.kept.ms</c> of its read, for the node's record alone (13.12.6: a RECEIPTS ask after a relink reads what it came to, and
+    /// a repeat is answered so) — its one follow-up has gone, so no carrier sends it. Null when it never ran in that time. Never serialised.
+    /// </summary>
+    public Task<CommandReceipt?>? Later { get; init; }
+
+    /// <summary>A line carrier's words for <see cref="LateMs"/> (a line receipt carries words, not fields): how late it ran; null when in time.</summary>
+    public string? LateNote => LateMs is { } late ? "ran " + late.ToString(System.Globalization.CultureInfo.InvariantCulture) + " ms after it was read (lateMs)" : null;
+
     /// <summary>A request id as the Show Bus allows it: 1–32 of letters, digits, '-' and '_'. Null when not.</summary>
     public static string? CleanId(string? id)
         => id is { Length: > 0 and <= 32 } && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_') ? id : null;
@@ -1599,15 +1621,39 @@ public sealed record CommandReceipt(string Id, bool Ok, string Stage, string Eff
         return all;
     }
 
-    /// <summary>The receipt's JSON, its fields in §3's order; <c>final</c>, a new last field, only on the follow-up.</summary>
+    /// <summary>
+    /// The receipt's JSON, its fields in §3's order, each of §3's four last fields only where it applies: <c>final</c> on the follow-up,
+    /// <c>repeat</c> on an answer from the record, <c>lateMs</c> on a command that ran late.
+    /// </summary>
     public byte[] ToJson()
     {
-        var fields = new Dictionary<string, object?>
-        {
-            ["type"] = "receipt", ["id"] = Id, ["ok"] = Ok, ["stage"] = Stage, ["effect"] = Effect,
-            ["error"] = Error, ["refs"] = AllRefs(),
-        };
+        var fields = new Dictionary<string, object?> { ["type"] = "receipt", ["id"] = Id };
+        foreach (var (name, value) in Fields()) fields[name] = value;
         if (IsFinal) fields["final"] = true;
+        if (Repeat) fields["repeat"] = true;
+        if (LateMs is { } late) fields["lateMs"] = late;
         return System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(fields);
+    }
+
+    /// <summary>
+    /// What a node's record keeps of this receipt (13.12.6): its fields after the id, as one JSON object in §3's order — <c>ok</c>,
+    /// <c>stage</c>, <c>effect</c>, <c>error</c>, <c>refs</c> and its <c>lateMs</c> — never <c>final</c> or <c>repeat</c>, which say how it
+    /// was answered, not what came of it.
+    /// </summary>
+    public string RecordJson()
+    {
+        var fields = new Dictionary<string, object?>();
+        foreach (var (name, value) in Fields()) fields[name] = value;
+        if (LateMs is { } late) fields["lateMs"] = late;
+        return System.Text.Json.JsonSerializer.Serialize(fields);
+    }
+
+    private IEnumerable<(string, object?)> Fields()
+    {
+        yield return ("ok", Ok);
+        yield return ("stage", Stage);
+        yield return ("effect", Effect);
+        yield return ("error", Error);
+        yield return ("refs", AllRefs());
     }
 }

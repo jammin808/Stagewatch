@@ -1248,9 +1248,9 @@ Upgrade: websocket
    A socket that sends none in time is closed.
 3. It hears the verdict, then frames as any node link: §7.1's verdict with LINK's fields after it —
    `{"type":"auth","ok":true,"scope":"node","node":{"t":"patterns","id":"9f8e7d6c","verified":"key"},"proof":"<the server proof>",
-   "lid":"<16 hex>","level":1,"can":[],"inst":"<8 hex>","beatMs":2000}`. The app checks `proof` before it takes anything; `lid`
-   names the link; `can` lists no feature yet. Or it hears a refusal, `{"type":"auth","ok":false,"error",…,"class",…,"retry":60}`,
-   and the socket stays a public viewer.
+   "lid":"<16 hex>","level":1,"can":["final","receipts"],"inst":"<8 hex>","beatMs":2000}`. The app checks `proof` before it takes
+   anything; `lid` names the link; `can` names the features this link keeps (*Receipts on a link*, below). Or it hears a refusal,
+   `{"type":"auth","ok":false,"error",…,"class",…,"retry":60}`, and the socket stays a public viewer.
 
 | `class` | When | Counted |
 |---|---|---|
@@ -1299,13 +1299,53 @@ Upgrade: websocket
   Such a key gets no window grant (§12) until it is replaced: revoke it, make a new one and turn HTTPS on. The PIN, a view pass and
   S are not keys and mark nothing; an unknown key marks nothing. The request itself is answered as before (1.4 refuses such a key).
 
-Not in this release yet: S14 at this `/ws` acceptor, which comes with the receipts (SW22.1c: the store, a repeat, `RECEIPTS`,
-`final`), since a node LINK socket runs no command that is not public over `/ws` and the scripted peer's side call sends no
-`X-Request-Id` (the kit's stand-in answers S14 meanwhile); `final`, `receipts` and `stuck` in `can` (the stuck beat itself, `{"type":"beat","live":false}`, reaches
-a verified link as it reaches every socket); the `open` answer of 13.6.7 (a
-Stagewatch with no keys refuses every LINK as `refused` today); Settings saying, while HTTPS is off, that other apps cannot link with
-keys; and the desk, context and AI facts reading the wrong-proof table (which the rig's `auth` line lists) and each node link's
-LINK-verified and oversize counts (which only the server's own node list holds).
+### Receipts on a link (Show Bus §3, 13.12.4–6)
+
+- **What a link may run.** A link whose LINK proved a control key runs show commands as that key's request over HTTP would (§8's
+  `operate`), the playout gate's credential included; a link that proved a node key runs the public verbs alone, as any node link.
+- **`final`.** A receipt that says `accepted` — the show thread did not run the command within `receipt.deadline.ms`, or it waits on
+  another node — is followed once, on the same socket, within `receipt.final.ms` (30 s) of the read, by the same id with
+  `"final":true`: what came of it once it ran, or, when the show thread still had not run it, `accepted` and `unconfirmed — the show
+  thread had not run it 30 s after it was read; it may still run — look at its state`. Every socket hears the follow-up (it did
+  only for a command waiting on another node before); HTTP answers once.
+- **`lateMs`.** A command the show thread begins more than `receipt.late.ms` (1 s) after it was read says how late at the end of its
+  receipt (`"lateMs":4200`, after `final` and `repeat`) and of its follow-up; the journal keeps a row (`Next (s2-11aa22bb) ran 4.2 s
+  after it was read — the show thread was busy; …`), as the rig's log does. On Companion TCP the words say it: `… — ran 4200 ms after
+  it was read (lateMs)`.
+- **The record (`receipts`).** For each connector a LINK verified — its node's kind and id when a node key that speaks for that id
+  proved it, the same and the key's id when a control key proved a link whose id is only claimed — the receipt that settled each of
+  its last 256 ids is kept for 10 minutes (`receipts.kept`, `receipts.kept.ms`), at most 64 connectors, the one heard from longest ago
+  forgotten first. The record lives as long as this Stagewatch's inst: a web server rebuilt by a Remote settings change keeps it. A
+  command its follow-up called unconfirmed is still watched: what it came to once it ran is what the record keeps, and a receipt that
+  never comes (the show thread went away) is kept as unconfirmed, never as running. Only an id of 13.12.1's shape is kept: 1–4 letters, a counter from 1, a dash and the connector's inst
+  (`s17-11aa22bb`), so an id that restarts with its sender's process is never answered from an older one's record. An id the record
+  holds is never run again: it is answered with its receipt and `"repeat":true` (before its `lateMs`), or `accepted` and `repeat`
+  while it still runs.
+- **`RECEIPTS`.** `{"cmd":"receipts","args":["s17-11aa22bb","s18-11aa22bb"],"id":"rq1"}` is answered at once, off the show thread:
+  `{"type":"receipt","id":"rq1","ok":true,"inst":"<this Stagewatch's inst>","receipts":{"s17-11aa22bb":{"ok":true,"stage":"applied",…},"s18-11aa22bb":"unknown"}}`
+  — each of the link's own ids its kept receipt, `accepted` while it runs, `unknown` for one it never read or no longer holds. An ask
+  that names no id, more than 32, or an id no request id can be is refused (`RECEIPTS names 1 to 32 request ids, …`); any other
+  socket — a bearer node link, a screen, a refused or revoked link — keeps no record and hears `this link keeps no receipts: only a
+  link whose LINK verified (its verdict lists receipts) asks for them`.
+- **Not `stuck`, not `expire`.** `stuckMs` 3000 is the shipped stall mark, not yet set from a measured stall of the show thread (§8's
+  row), so no verdict names `stuck` or a `stuckMs`; a link hears its show stuck all the same, by `{"type":"beat","live":false}`.
+- **Companion TCP** keeps the same record per client address (it proves no connector): `@s17-11aa22bb NEXT` run once, a second
+  `@s17-11aa22bb NEXT` answered `OK @s17-11aa22bb {…,"repeat":true}`, and `@rq1 RECEIPTS s17-11aa22bb s18-11aa22bb` answered
+  `OK @rq1 {"inst":…,"receipts":{…}}` (docs/COMPANION.md).
+
+### A connection past the ceiling hears why
+
+The web server serves 64 connections at once. The next one hears, once it has sent its request's head and any body of up to 64 KiB
+(within 2 s), `429 Too Many
+Requests` with `Retry-After: 5` and `{"ok":false,"error":"this Stagewatch is serving its 64 connections — try again in 5 s"}`, and
+closes — a WebSocket upgrade before its upgrade. Sixteen such answers are given at once; past them a connection is closed unanswered,
+as every extra connection was before (13.14).
+
+Not in this release yet: the `open` answer of 13.6.7 (a Stagewatch with no keys refuses every LINK as `refused` today); Settings
+saying, while HTTPS is off, that other apps cannot link with keys; the desk, context and AI facts reading the wrong-proof table
+(which the rig's `auth` line lists) and each node link's LINK-verified and oversize counts (which only the server's own node list
+holds); the replies a connection may leave unread (`link.replies.max`, S15's reply bound: each receipt waits on the socket's one
+send, which a reader stalled 5 s ends); and the record for a side call's `X-Request-Id` (HTTP answers once, unrecorded).
 
 ### Windows granted to show apps (Show Bus 12.5–12.7)
 

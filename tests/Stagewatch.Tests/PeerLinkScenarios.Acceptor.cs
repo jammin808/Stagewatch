@@ -10,8 +10,8 @@ using Stagewatch.Remote;
 /// <summary>
 /// The scenarios 13.20 holds every acceptor to, run against Stagewatch's own <c>/ws</c> acceptor — a real <see cref="WebServer"/>, the
 /// scripted peer connecting to it: S1–S3, S8–S10, S12's emitting half, S15's oversize message, S16, S17 and S18, the session credential
-/// speaking for its key on the side calls' routes and nowhere else, and a key seen in clear (13.6.9). The rows the acceptor keeps later stay
-/// with the kit's stand-in in the other files until they land: S14 (the receipts store), S15's reply bound, S19 and S20.
+/// speaking for its key on the side calls' routes and nowhere else, and a key seen in clear (13.6.9); S14, S19 and S20 at /ws are in
+/// PeerLinkScenarios.Receipts.cs. S15's reply bound is not kept yet (docs/WHATS_NEXT.md) and stays with the kit's stand-in.
 /// </summary>
 static partial class PeerLinkScenarios
 {
@@ -29,18 +29,34 @@ static partial class PeerLinkScenarios
     {
         public readonly ShowBusTests.BusControl Control;
         public readonly WebServer Web;
-        public readonly ShowWorkflowTests.ManualTime Clock = new(new DateTime(2026, 11, 12, 20, 0, 0, DateTimeKind.Utc));
+        public readonly ShowWorkflowTests.ManualTime Clock;
         /// <summary>The show thread's clock as the frames' hub reads it, in ms: moved by hand to make the producer stuck (S12).</summary>
         public long ShowMs;
         public int Port { get; }
 
-        public Hall(Material kit, Func<IPAddress, bool>? isThisPc = null, bool tls = true, string? pin = null, IReadOnlyList<ApiKey>? keys = null)
+        /// <param name="after">
+        /// A hall whose server this one rebuilds, as the desk rebuilds its server on a Remote settings change: the same show (its control,
+        /// keys and clock) and the receipts record handed over; null for a hall of its own.
+        /// </param>
+        public Hall(Material kit, Func<IPAddress, bool>? isThisPc = null, bool tls = true, string? pin = null, IReadOnlyList<ApiKey>? keys = null, Hall? after = null)
         {
-            Control = new ShowBusTests.BusControl { Snapshots = new SnapshotHub(() => Volatile.Read(ref ShowMs)) };
-            Control.ApiKeys = keys ?? [KeyInForce("kS", Swk)];
-            Control.Nodes.Keep(Control.ApiKeys);
-            Control.Snapshots.Publish(new ShowSnapshot { Text = "05:00", Seconds = 300, Title = "Keynote" });
-            Web = new WebServer(Control, () => pin) { LinkClock = Clock, IsThisPc = isThisPc ?? PlayoutGate.IsLoopback };
+            if (after is not null)
+            {
+                Control = after.Control;
+                Clock = after.Clock;
+            }
+            else
+            {
+                Clock = new(new DateTime(2026, 11, 12, 20, 0, 0, DateTimeKind.Utc));
+                Control = new ShowBusTests.BusControl { Snapshots = new SnapshotHub(() => Volatile.Read(ref ShowMs)) };
+                Control.ApiKeys = keys ?? [KeyInForce("kS", Swk)];
+                Control.Nodes.Keep(Control.ApiKeys);
+                Control.Snapshots.Publish(new ShowSnapshot { Text = "05:00", Seconds = 300, Title = "Keynote" });
+            }
+            Web = new WebServer(Control, () => pin)
+            {
+                LinkClock = Clock, IsThisPc = isThisPc ?? PlayoutGate.IsLoopback, Receipts = after?.Web.Receipts ?? new ReceiptRecord(),
+            };
             if (tls) Web.Certificate = kit.A.Server;
             Port = FreeTcpPort();
             Web.Start(Port, bindAll: false);
@@ -90,10 +106,14 @@ static partial class PeerLinkScenarios
         await AcceptorS12(Check, script, kit);
         await AcceptorS18(Check, script, kit);
         await AcceptorSeenInClear(Check, kit);
+        await WsAcceptorReceipts(Check, script, kit);
     }
 
     /// <summary>A control key the scenarios link with as the operator's credential (verified <c>operator</c> while no key speaks for the id).</summary>
     const string ControlSecret = "swk_23456789abcdefghijkmnpqrstuvwxyz";
+
+    /// <summary>A second control key, held by another holder, that names the same unheld id.</summary>
+    const string ControlSecret2 = "swk_3456789abcdefghijkmnpqrstuvwxyz2";
 
     // ------------------------------------------------------------------ S1 at /ws: honest, over TLS and plain on this machine
 

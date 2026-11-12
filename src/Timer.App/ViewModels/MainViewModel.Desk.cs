@@ -209,7 +209,7 @@ public sealed partial class MainViewModel
     private DeskRun RunApprovedHere(ShowCommand cmd, string id)
     {
         var sentAt = TimeProvider.System.GetTimestamp();
-        var (receipt, peer, _) = RunWithReceipt(cmd, id);
+        var (receipt, peer, _, _) = RunWithReceipt(cmd, id, TimeProvider.System, sentAt);
         if (peer is null) return new DeskRun(receipt.Ok, receipt.Ok ? receipt.Effect : receipt.Error ?? "refused");
         return new DeskRun(true, $"handed to {peer.Peer} — waiting for its answer", FinishedByPeerAsync(id, peer, sentAt));
     }
