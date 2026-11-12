@@ -40,6 +40,19 @@ public sealed partial class PeerRow : ObservableObject
     [ObservableProperty] private string _certNote = "";
     [ObservableProperty] private string _trustLabel = "";
     public CertificateWaiting? TrustWaiting { get; set; }
+    /// <summary>
+    /// The desk's door for this row as last read, once a second (<see cref="Stagewatch.Show.DeskService.Door"/>): whether its app is
+    /// asking this desk for its approved lines, whether its verbs are verified, why no line can go to it now ("" while one can), the
+    /// verbs a person fills by typing only their last words, and where the last line sent it from this desk stands ("" when none
+    /// was). The row's menu and its … button read the door again at the press, never these.
+    /// </summary>
+    [ObservableProperty] private bool _collects;
+    [ObservableProperty] private bool _verified;
+    [ObservableProperty] private string _sendBlocked = "";
+    [ObservableProperty] private string _lastSent = "";
+    [ObservableProperty] private IReadOnlyList<QuickVerb> _quickVerbs = [];
+    /// <summary>What the row's … button says when the pointer rests on it: what it opens, and why no line can go now when none can.</summary>
+    [ObservableProperty] private string _doorTip = "";
     /// <summary>Its node id, or "" for a row listed under a key that names no node id. What "Copy node id" copies.</summary>
     public string NodeId => NodeBindings.ValidId(Id) ? Id : "";
     /// <summary>Refused here and not heard (or no longer heard): the row is the desk's own, grey, and never reaches the context.</summary>
@@ -321,6 +334,7 @@ public sealed partial class MainViewModel
         {
             // A certificate a playout link or an HTTP trigger to this node waits on a person for: said on its row, with the entry its
             // menu has too, the button bound to the certificate drawn here. More than one waiting: the rest are on its right-click menu.
+            ReadDoor(row);
             var waits = CertificatesWaitingFor(row);
             var waiting = waits.FirstOrDefault();
             row.TrustWaiting = waiting;

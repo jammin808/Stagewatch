@@ -164,6 +164,14 @@ public static class VerbSyntax
         return (string.Join(' ', tokens.Take(tokens.Count - 1)), name);
     }
 
+    /// <summary>
+    /// The words every line of a form opens with: its leading literal words, each one word and no alternative, as the form writes
+    /// them — what a person types before the form's first choice or value. "" for a form that opens with none, or whose brackets
+    /// never close.
+    /// </summary>
+    public static string Lead(string form)
+        => Closes(form) ? string.Join(' ', Tokens(form).TakeWhile(IsLiteral)) : "";
+
     /// <summary>A form's nodes, in order.</summary>
     internal static FormNode[] Compile(string form) => CompileTokens(Tokens(form), tail: true);
 

@@ -31,6 +31,7 @@ static class DeskTests
         Risk(Check);
         Routes(Check);
         Readers(Check);
+        Door(Check);
         Journal(Check);
     }
 
@@ -813,6 +814,153 @@ static class DeskTests
         Check(DeskOrigin.Wire("key 'FOH\ntablet'") is { Role: "wire", Named: "key 'FOHtablet'" } && DeskOrigin.Operator is { Role: "operator", Named: "" } && DeskOrigin.Operator is { Sends: true, Decides: true }
               && DeskOrigin.Trigger() is { Sends: true, Decides: false } && DeskOrigin.Mcp is { Sends: false, Decides: false } && DeskService.Short("p17-k3m9") == "p17" && DeskService.Short("p17") == "p17",
             "desk readers: who sent or decided is a role and, apart from it, plain words; a trigger sends and never decides");
+    }
+
+    /// <summary>
+    /// The desk's door for a person at the desk itself (the Show network row's menu, the send dialog, the Copilot's Approve): what a
+    /// row offers and why an entry is greyed, in the words the send would refuse in; what sending a line would say before it is sent
+    /// — the same refusal, in the same order, as the send's own, with nothing queued or journalled; the forms a line is completed
+    /// from; where the last line sent stands; and why an approval would be refused before it is pressed.
+    /// </summary>
+    static void Door(Action<bool, string> Check)
+    {
+        var b = Room();
+        b.Hear("main", "sw2", "Hall B");
+        b.Hear("agent", "ag9", "Lectern PC");
+        b.Hear("playmap", "pm5", "PlayMap Foyer", age: 13);
+        const string never = "PlayMap Hall has not asked this desk for approved lines since this desk started — it would not collect this";
+        var quiet = b.Desk.Door("pm1");
+        Check(quiet is { Id: "pm1", Name: "PlayMap Hall", Collects: false, Verified: true, NoSend: never, NoVerbs: null, LastSent: "" }
+              && quiet.Quick.SequenceEqual(b.Desk.QuickVerbs("pm1")) && quiet.Quick.Count == 3
+              && b.Desk.Send("pm1", "STATUS", DeskOrigin.Operator).Words == quiet.NoSend,
+            $"desk door: an app that is not collecting offers no line, in the words a send is refused in; its verbs and quick verbs are still read ({quiet.NoSend})");
+        var rowsBefore = b.Rows.Count;
+        b.Desk.CollectApproved("pm1", NodeCredential.Key("kM"));
+        var open = b.Desk.Door("pm1");
+        Check(open is { Collects: true, Verified: true, NoSend: null, NoVerbs: null } && b.Desk.Door("ag1") is { Verified: true, Collects: false, Quick: [{ Head: "notice", Value: "text", Risk: "review" }] },
+            "desk door: a verified app that collects takes a line; AGMessage's notice is a quick verb on its row");
+        Check(b.Desk.Door("sw2") is { Verified: false, Collects: false, Quick.Count: 0, NoSend: "Hall B is another Stagewatch — a line goes to a show app, never a desk" } other && other.NoVerbs == other.NoSend
+              && b.Desk.Door(DeskId).NoSend is { } own && b.Desk.Door("nobody").NoSend == own && b.Desk.Door("").NoSend == own
+              && b.Desk.Door("ag9") is { Verified: false, Quick.Count: 0 } agent && agent.NoSend == own
+              && own == "nothing proves a show app on this row — a line goes to an app the show network lists by its id"
+              && b.Desk.Door("pm5") is { Name: "PlayMap Foyer", NoSend: "PlayMap Foyer is not heard — nothing would collect a line", Quick.Count: 0 },
+            $"desk door: another Stagewatch, a row that names no listed node (a Slides agent is never a Show network row) and an app no longer heard take no line, each said why ({b.Desk.Door("sw2").NoSend} · {b.Desk.Door("ag9").NoSend} · {b.Desk.Door(DeskId).NoSend} · {b.Desk.Door("nobody").NoSend} · {b.Desk.Door("pm5").NoSend})");
+        var u = new Bench();
+        u.Hear("playmap", "pm7", "PlayMap Side");
+        u.Hear("patterns", "pat7", "Patterns Side");
+        u.Post("playmap", "pm7", "PlayMap Side", NodeCredential.None, PlayMapVerbs);
+        u.Post("patterns", "pat8", "Patterns Bare", NodeCredential.Key("k8"));
+        u.Hear("patterns", "pat8", "Patterns Bare");
+        u.Desk.Queue.Collect("pm7", NodeCredential.Operator, u.Now);
+        Check(u.Desk.Door("pm7") is { Collects: true, Verified: false, Quick.Count: 0 } unproved && unproved.NoSend == u.Desk.Send("pm7", "STATUS", DeskOrigin.Operator).Words
+              && unproved.NoVerbs == unproved.NoSend && unproved.NoSend!.Contains("not verified", StringComparison.Ordinal)
+              && u.Desk.Door("pat7") is { NoSend: "Patterns Side has told this desk no verbs — Stagewatch sends only lines it can read" }
+              && u.Desk.Door("pat8") is { Verified: true, NoVerbs: "Patterns Bare lists no verbs" } && u.Desk.Verbs("pm7").Count == 0 && u.Desk.Verbs("pat8").Count == 0,
+            "desk door: verbs that prove nothing, or none at all, offer no line and no verbs — unverified is said before not collecting, as the send says it");
+        Check(b.Rows.Count == rowsBefore + 0 && u.Rows.Count == 1 && b.Desk.Queue.All().Count == 0,
+            "desk door: reading a door journals nothing and queues nothing (the one row is the send that was tried)");
+
+        // The forms a line is completed from.
+        var verbs = b.Desk.Verbs("pm1");
+        Check(verbs.Count == PlayMapVerbs.Length && verbs[0] == new DeskVerb("PLAYLIST CUE <playlist> <item>|#<n>", "PLAYLIST CUE", "review", "what PLAYLIST does")
+              && verbs.Single(v => v.Form == "BLACKOUT ON|OFF") is { Lead: "BLACKOUT", Risk: "high" } && b.Desk.Verbs("nobody").Count == 0 && b.Desk.Verbs("sw2").Count == 0,
+            $"desk door: its verbs are every form of the verified table, in its order, each with its opening words, risk and words ({verbs.Count})");
+        Check(VerbSyntax.Lead("PLAYLIST CUE <playlist> <item>|#<n>") == "PLAYLIST CUE" && VerbSyntax.Lead("UNDO") == "UNDO" && VerbSyntax.Lead("BLACKOUT ON|OFF") == "BLACKOUT"
+              && VerbSyntax.Lead("notice <text>") == "notice" && VerbSyntax.Lead("SAY [<text>]") == "SAY" && VerbSyntax.Lead("<text>") == "" && VerbSyntax.Lead("ON|OFF <x>") == ""
+              && VerbSyntax.Lead("SAY <text") == "" && VerbSyntax.Lead("") == "",
+            "desk door: a form's lead is its opening literal words, none for a form that opens with a choice or a value or never closes a bracket");
+        var split = new Bench();
+        split.Hear("patterns", "pat1", "Patterns FOH");
+        split.Post("patterns", "pat1", "Patterns FOH", NodeCredential.Key("kP"), ("VIDEO PLAY | PAUSE | STOP", "high"), ("EYE | EYE NEXT", "low"));
+        Check(split.Desk.Verbs("pat1").Select(v => (v.Form, v.Lead, v.Risk)).SequenceEqual([("VIDEO PLAY", "VIDEO PLAY", "high"), ("VIDEO PAUSE", "VIDEO PAUSE", "high"),
+                  ("VIDEO STOP", "VIDEO STOP", "high"), ("EYE", "EYE", "low"), ("EYE NEXT", "EYE NEXT", "low")]),
+            "desk door: a row of several forms is listed form by form, each at the row's risk");
+        var play = new DeskVerb("PLAYLIST CUE <playlist> <item>|#<n>", "PLAYLIST CUE", "review", "");
+        Check(DeskService.Completes(play, "") && DeskService.Completes(play, "  ") && DeskService.Completes(play, "pl") && DeskService.Completes(play, "PLAYLIST") && DeskService.Completes(play, "playlist  cue")
+              && DeskService.Completes(play, "PLAYLIST CUE show #3") && !DeskService.Completes(play, "PLAYLIST GO") && !DeskService.Completes(play, "PLAYLISTS") && !DeskService.Completes(play, "UNDO")
+              && !DeskService.Completes(play, "PLAYLIST CUEx") && DeskService.Completes(new DeskVerb("<text>", "", "low", ""), "") && !DeskService.Completes(new DeskVerb("<text>", "", "low", ""), "hi"),
+            "desk door: a form completes what is typed while the typed words open its lead, or its lead opens them — whatever their case");
+
+        // What sending would say, before it is sent: the send's own answer, with nothing queued or journalled.
+        var status = b.Desk.Preview("pm1", "STATUS");
+        var cue = b.Desk.Preview("pm1", " PLAYLIST CUE show #3 ");
+        var panic = b.Desk.Preview("pm1", "panic");
+        Check(status is { Risk: "low", Form: "STATUS", Words: "what STATUS does", Listed: true, Refused: null, Collects: true, Collecting: "PlayMap Hall is collecting from this desk" }
+              && cue is { Risk: "review", Form: "PLAYLIST CUE <playlist> <item>|#<n>", Listed: true, Refused: null } && panic is { Risk: "high", Form: "PANIC", Refused: null },
+            $"desk preview: a listed line shows its form, that form's words and risk, and would go ({status.Risk}/{cue.Risk}/{panic.Risk})");
+        Check(b.Desk.Preview("pm1", "") is { Risk: "", Form: null, Listed: false, Refused: "line is required", Forms.Count: 11 }
+              && b.Desk.Preview("pm1", "PLAY") is { Risk: "", Listed: false, Unlisted: true, Refused: "PlayMap Hall does not list 'PLAY' — see its verbs", Forms: [{ Form: "PLAYLIST CUE <playlist> <item>|#<n>" }] }
+              && b.Desk.Preview("pm1", "b") is { Forms: [{ Lead: "BIND LEARN" }, { Lead: "BLACKOUT" }] } && b.Desk.Preview("pm1", "OUTPUTS OFF") is { Risk: "", Forms.Count: 0, Refused: not null }
+              && b.Desk.Preview("pm1", "blackout on") is { Risk: "high", Form: "BLACKOUT ON|OFF", Forms: [{ Lead: "BLACKOUT" }] },
+            "desk preview: as a line is typed, the forms it could still become follow it, and no risk is shown until a form takes it");
+        string[] lines =
+        [
+            "STATUS", "PANIC", "PLAYLIST CUE show #3", "MESSAGE hello there", "OUTPUTS OFF", "PAIR hunter2", "", "   ", "LINK STAGEWATCH host hunter2", "LINK STAGEWATCH host ‹secret›",
+            "LINK STAGEWATCH host swk_x", "MESSAGE see /w/w7kq2m9xw7kq2m9xw7kq2m9xw7", "MESSAGE hi\nPANIC", "MESSAGE " + new string('x', LineFence.MaxChars),
+        ];
+        // The same lines for an app that collects, one that does not, one whose verbs prove nothing and one that told none: the
+        // preview's refusal is the send's, word for word, and null exactly when the send goes.
+        var benches = new (Bench Bench, string App)[] { (b, "pm1"), (Room(), "pm1"), (u, "pm7"), (u, "pat7") };
+        var agree = true;
+        var said = new List<string>();
+        foreach (var (bench, app) in benches)
+            foreach (var line in lines)
+            {
+                var (rows, queued) = (bench.Rows.Count, bench.Desk.Queue.All().Count);
+                var preview = bench.Desk.Preview(app, line);
+                var untouched = bench.Rows.Count == rows && bench.Desk.Queue.All().Count == queued;
+                var sent = bench.Desk.Send(app, line, DeskOrigin.Operator);
+                var same = sent.Ok ? preview.Refused is null : preview.Refused == sent.Words;
+                if (!same || !untouched) said.Add($"{app} '{LineFence.Shown(line, 30)}': preview '{preview.Refused}' / send '{(sent.Ok ? "ok" : sent.Words)}' / untouched {untouched}");
+                agree &= same && untouched;
+            }
+        Check(agree && b.Desk.Queue.All().Count == 5, $"desk preview: for {benches.Length * lines.Length} lines the preview says what the send then says, and itself queues and journals nothing ({string.Join(" · ", said)})");
+        Check(b.Desk.Preview("pm1", "LINK STAGEWATCH host hunter2") is { Risk: "", Listed: false, Unlisted: false, Form: null } secret && secret.Refused == LineFence.SecretWords("PlayMap Hall")
+              && u.Desk.Preview("pm7", "STATUS") is { Risk: "", Listed: false, Unlisted: false, Forms.Count: 0, Collects: true, Refused: not null }
+              && u.Desk.Preview("pm7", "NO SUCH VERB") is { Unlisted: false, Refused: not null }
+              && b.Desk.Preview("pm1", "MESSAGE hi\nPANIC") is { Unlisted: false, Refused: LineFence.Control }
+              && b.Desk.Preview("pm1", "OUTPUTS OFF") is { Unlisted: true } && b.Desk.Preview("pm1", "STATUS") is { Unlisted: false, Refused: null }
+              && b.Desk.Preview("nobody", "STATUS") is { Collects: false, Forms.Count: 0, Refused: { } gone } && gone.StartsWith("no app called 'nobody'", StringComparison.Ordinal)
+              && b.Desk.Preview("sw2", "STATUS").Refused is { } desk && desk.StartsWith("no app called 'sw2'", StringComparison.Ordinal),
+            "desk preview: a filled secret shows no risk; verbs that prove nothing show none and list none; a line is unlisted only when no verified form takes it, never for the fence, a secret or unverified verbs; what is no app is refused in the resolver's words");
+        b.Now = T0.AddSeconds(16);
+        b.Post("playmap", "pm1", "PlayMap Hall", NodeCredential.Key("kM"), PlayMapVerbs);
+        Check(b.Desk.Preview("pm1", "STATUS") is { Risk: "low", Listed: true, Collects: false, Refused: "PlayMap Hall has not asked this desk for approved lines in 16 s — it would not collect this" } late
+              && late.Collecting == late.Refused && b.Desk.Door("pm1").NoSend == late.Refused,
+            "desk preview: 16 s after its last collect the line still shows its risk, and the send is refused as not collecting — with time alone");
+
+        // Where the last line sent stands, on its row.
+        var r = Room();
+        r.Desk.CollectApproved("pm1", NodeCredential.Key("kM"));
+        Check(r.Desk.LastSent("pm1") == "" && r.Desk.Door("pm1").LastSent == "", "desk door: nothing sent, nothing said");
+        var first = r.Desk.Send("pm1", "STATUS", DeskOrigin.Operator).Proposal!.Id;
+        var sentWords = r.Desk.LastSent("pm1");
+        r.Desk.CollectApproved("pm1", NodeCredential.Key("kM"));
+        var heldWords = r.Desk.LastSent("pm1");
+        r.Desk.ProposalResult(first, "{\"ok\":true,\"words\":\"all green\"}", NodeCredential.Key("kM"));
+        r.Desk.SubmitProposal(Proposal("messenger", "ag1", "AGMessage", "playmap", "pm1", "PlayMap Hall", "UNDO"), NodeCredential.Key("kA"));
+        Check(sentWords == "sent to PlayMap Hall as p1 — it has not collected it yet" && heldWords == "PlayMap Hall has p1 — waiting for its answer"
+              && r.Desk.Door("pm1").LastSent == "PlayMap Hall ran STATUS: all green (p1)" && r.Desk.LastSent("ag1") == "" && r.Desk.LastSent("pat1") == "",
+            $"desk door: the row says where the last line a person sent it stands — sent, collected, then what the app did — and never another app's proposal ({r.Desk.Door("pm1").LastSent})");
+        r.Desk.Send("pm1", "MESSAGE second", DeskOrigin.Operator);
+        Check(r.Desk.LastSent("pm1") == "sent to PlayMap Hall as p3 — it has not collected it yet", "desk door: a newer line sent takes its place");
+
+        // Why an approval would be refused, before it is pressed.
+        var a = Room();
+        a.Desk.SubmitProposal(Proposal("messenger", "ag1", "AGMessage", "playmap", "pm1", "PlayMap Hall", "UNDO"), NodeCredential.Key("kA"));
+        a.Desk.SubmitProposal(Proposal("messenger", "ag1", "AGMessage", "main", "", "", "note From the board"), NodeCredential.Key("kA"));
+        var before = a.Rows.Count;
+        var blocked = a.Desk.WhyNotApprove("p1");
+        Check(blocked == never && a.Desk.WhyNotApprove("p1-k3m9") == never && a.Desk.WhyNotApprove("p2") is null && a.Desk.WhyNotApprove("p9") is null && a.Rows.Count == before
+              && a.Desk.Decide("p1", true, DeskOrigin.Operator) is { Ok: false, Proposal.State: SharedProposalState.Pending } refusedNow && refusedNow.Words == blocked,
+            $"desk door: Approve is greyed for an app that is not collecting, in the words the approval is refused in; one aimed at this desk is never greyed ({blocked})");
+        a.Desk.CollectApproved("pm1", NodeCredential.Key("kM"));
+        Check(a.Desk.WhyNotApprove("p1") is null && a.Desk.Decide("p1", true, DeskOrigin.Operator) is { Ok: true } && a.Desk.WhyNotApprove("p1") is null,
+            "desk door: once its app asks for its lines the approval is live, and a decided proposal greys nothing");
+        a.Now = T0.AddSeconds(20);
+        a.Desk.SubmitProposal(Proposal("messenger", "ag1", "AGMessage", "playmap", "pm1", "PlayMap Hall", "STATUS"), NodeCredential.Key("kA"));
+        Check(a.Desk.WhyNotApprove("p3") == "PlayMap Hall has not asked this desk for approved lines in 20 s — it would not collect this",
+            "desk door: an app silent for 20 s greys the approval again, with how long");
     }
 
     /// <summary>

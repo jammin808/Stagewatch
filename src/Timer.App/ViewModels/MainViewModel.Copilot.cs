@@ -53,6 +53,13 @@ public sealed partial class CopilotProposal : ObservableObject
     [ObservableProperty] private string _dropped = "";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsPending), nameof(IsThinking), nameof(StateText))] private ProposalState _state;
 
+    /// <summary>
+    /// Why approving this would be refused now — another app's line whose app is not asking this desk for its approved lines — in
+    /// the desk's own words; "" while it can be approved. Run ticked steps is greyed while it is set, the words beside it.
+    /// </summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanApprove))] private string _approveBlocked = "";
+    public bool CanApprove => ApproveBlocked.Length == 0;
+
     public bool IsPending => State == ProposalState.Pending && Steps.Count > 0;
     public bool IsThinking => State == ProposalState.Thinking;
     public string StateText => State switch

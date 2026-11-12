@@ -613,6 +613,24 @@ running app on a network: two copies of one install for the conflict, an old cer
   the AI's facts still carry no `collects` (release B's `PeerFact`, SW22.9); the module reads neither field yet (SW22.8); the
   Show network row's Collects mark and its menu are SW21.6's (PC work). Compiled here, never seen: the app's frame and config
   wiring (`RefreshDeskReaders`), its context rows and the Copilot list's names.
+  *Since then (SW21.6):* the desk has its door (PC work). A Show network row's right-click and its … button open one menu,
+  read from `DeskService.Door`: Send a line to <app>…, up to six quick verbs (AGMessage's `notice <text>…`, review, among
+  them: G20's desk half), Its verbs…, Copy its headline, then the key entries; an entry that cannot work is grey and says
+  why, in the words the send would refuse it in. The send dialog reads `DeskService.Preview` as the line is typed and once a
+  second: the form that takes it, its words, its risk as a word on a chip (LOW, REVIEW, HIGH, or NOT LISTED only when no
+  verified form takes the line; no chip for a line refused for anything else), whether the app collects, and the forms the
+  typed words could still become. Send is live only while the send would take the line, and goes to `DeskService.Send`
+  straight, never through the command box, so no deck recorder takes it; the box cuts nothing, so a line over 2048
+  characters is refused whole. Preview and Send share one judgement (`Judge`, the queue's read-only `WhyNotSent`), and a desk
+  full of lines counts only the lines not yet late, so the two agree at the same moment. The Copilot list's Run ticked steps
+  is grey with the reason while the target app is not collecting (G14's grey), and each row says where its last sent line
+  stands. Held by `DeskTests` (the door, previews agreeing with sends word for word over 56 cases, forms and leads, last
+  sent, the greyed Approve's reason) and `DeskRulesTests` (a late line not counted). *What this did not do:* G20's fix also
+  names the notice as a trigger action (on an item's start); there is no entry of that name — a Command trigger's
+  `peer agmessage notice <text>` line already sends it through the wire's gate. A Copilot step showing → <app>, the
+  Companion and OSC doors (SW22.8) and the copilot's steps for other apps (SW22.9) are release B's; REMOTE and FEATURES words
+  for the door are 2.21's papers. Compiled here, never seen (the maintainer's PC): the row menu and … button, the send
+  dialog, the greyed Approve, and the UI smoke's checks of them (`pwsh tools\smoke.ps1`, not run).
   *Since then (SW21.8):* one preflight (REMOTE.md, "One preflight: ready for doors"). `NetworkPreflight` (Timer.Show, pure,
   on the time it is given) judges the room once a second from the same join every other reader of the show network takes:
   ready while no row is red, a row per check — heard, context, own, key, link, clock, window. A node a person configured (a

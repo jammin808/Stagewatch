@@ -51,6 +51,31 @@ public sealed record DeskResult(string Id, string Stage, bool? Ok, string Words,
 /// <summary>A verb a person fills by typing only its last words: the form's leading words, its value's name, its risk and the row's words.</summary>
 public sealed record QuickVerb(string Head, string Value, string Risk, string Words);
 
+/// <summary>
+/// One form of an app's verified table, for a person to read and to start a line from: the form as its app wrote it, the words
+/// every line of it opens with (<see cref="VerbSyntax.Lead"/>), the row's risk and its words.
+/// </summary>
+public sealed record DeskVerb(string Form, string Lead, string Risk, string Words);
+
+/// <summary>
+/// What a Show network row's door offers for one node, as the desk stands now — the same for the row's right-click and its button.
+/// <see cref="NoSend"/> is why no line can go to it now (the words a send would be refused in, or why it is no app at all), null
+/// while one can; <see cref="NoVerbs"/> why it has no verbs to show, null while it has. <see cref="Quick"/> are the verbs a person
+/// fills by typing only their last words; <see cref="LastSent"/> is where the last line a person sent it from this desk stands,
+/// "" when none was.
+/// </summary>
+public sealed record DeskDoor(string Id, string Name, bool Collects, bool Verified, string? NoSend, string? NoVerbs, IReadOnlyList<QuickVerb> Quick, string LastSent);
+
+/// <summary>
+/// What sending a line would say, before it is sent (<see cref="DeskService.Preview"/>): the risk of the form that takes it
+/// (<c>low</c>, <c>review</c> or <c>high</c>; "" while no form does), that form and its row's words, why the send would be refused
+/// now — in the send's own words, null while it would go — whether the app collects now and the words for it, and the app's forms
+/// the typed words could still become, in its table's order; and whether it is refused because no form of its verified table takes
+/// it (<c>Unlisted</c>) — never for a line refused first for anything else (the fence, a filled secret, verbs not verified).
+/// </summary>
+public sealed record LinePreview(string Risk, string? Form, string Words, bool Listed, string? Refused, bool Collects, string Collecting, IReadOnlyList<DeskVerb> Forms,
+    bool Unlisted = false);
+
 /// <summary>What the desk service reads from its host: every delegate may be called on any thread.</summary>
 public sealed class DeskHost
 {
@@ -327,12 +352,13 @@ public sealed class DeskService : IShowApprovals
     public IReadOnlyList<QuickVerb> QuickVerbs(string appId)
     {
         var now = Now;
-        if (Apps().FirstOrDefault(a => a.Id == appId) is not { Verified: true } app) return [];
-        var node = new NodeRef(app.Kind, app.Id, app.Name);
-        var chosen = _host.Contexts.Chosen(app.Id, _host.Linked(node) is { } linked ? new HeldContext(linked, NodeProof.None, Pulled: true) : null, now, app.Kind);
-        if (chosen is not { Proof: not NodeProof.None }) return [];
+        return Apps().FirstOrDefault(a => a.Id == appId) is { Verified: true } app ? Quick(Table(app, now)) : [];
+    }
+
+    private static IReadOnlyList<QuickVerb> Quick(IReadOnlyList<PeerCommand> table)
+    {
         var quick = new List<QuickVerb>();
-        foreach (var row in chosen.Entry.Verbs.Commands)
+        foreach (var row in table)
         {
             if (VerbTable.Rank(row.Risk) > VerbTable.Rank("review")) continue;
             foreach (var form in VerbSyntax.Forms(row.Verb))
@@ -344,6 +370,72 @@ public sealed class DeskService : IShowApprovals
         }
         return quick;
     }
+
+    /// <summary>The rows of an app's table that proves something now, of its own kind — the one that rates its lines; none while nothing proves one.</summary>
+    private IReadOnlyList<PeerCommand> Table(DeskApp app, DateTime now)
+    {
+        var node = new NodeRef(app.Kind, app.Id, app.Name);
+        var chosen = _host.Contexts.Chosen(app.Id, _host.Linked(node) is { } linked ? new HeldContext(linked, NodeProof.None, Pulled: true) : null, now, app.Kind);
+        return chosen is { Proof: not NodeProof.None } ? chosen.Entry.Verbs.Commands : [];
+    }
+
+    /// <summary>
+    /// Every form of an app's verified table, in the table's order, each with the words its lines open with, its row's risk and
+    /// its words: what "Its verbs…" lists and a line is completed from. None while its table proves nothing, or for what is no app.
+    /// </summary>
+    public IReadOnlyList<DeskVerb> Verbs(string appId)
+    {
+        var now = Now;
+        return Apps().FirstOrDefault(a => a.Id == appId) is { Verified: true } app ? Forms(Table(app, now)) : [];
+    }
+
+    private static List<DeskVerb> Forms(IReadOnlyList<PeerCommand> table)
+        => table.SelectMany(row => VerbSyntax.Forms(row.Verb).Select(form => new DeskVerb(form, VerbSyntax.Lead(form), VerbTable.Normal(row.Risk), row.Words))).ToList();
+
+    /// <summary>
+    /// The door of a Show network row, by its node id (<see cref="DeskDoor"/>): whether a line can go to that node now and, when
+    /// not, why — in the words <see cref="Send"/> would refuse it in for an app (its verbs are not verified, it is not collecting),
+    /// and in the desk's own for what is no app: a row that names no node id the network lists, this Stagewatch or another, a Slides
+    /// agent, an app no longer heard. Reads only; nothing is journalled.
+    /// </summary>
+    public DeskDoor Door(string nodeId)
+    {
+        var now = Now;
+        var row = nodeId.Length == 0 ? null : _host.Network().Rows.FirstOrDefault(r => r.Peer.Id == nodeId);
+        if (row is null) return Closed(nodeId, "", "nothing proves a show app on this row — a line goes to an app the show network lists by its id");
+        var node = new NodeRef(row.Peer.Kind, row.Peer.Id, row.Peer.Name);
+        var name = NameOf(node);
+        if (nodeId == _host.Id()) return Closed(nodeId, name, "this is this Stagewatch — a line goes to another show app");
+        if (OwnKinds.Contains(node.Kind, StringComparer.Ordinal))
+            return Closed(nodeId, name, node.Kind == "main" ? $"{name} is another Stagewatch — a line goes to a show app, never a desk"
+                : $"{name} is a {ShowNetwork.AppName(node.Kind)} agent — it takes no lines from this desk");
+        if (row.Peer.Liveness == "gone") return Closed(nodeId, name, $"{name} is not heard — nothing would collect a line");
+        var app = App(node, now);
+        var table = app.Verified ? Table(app, now) : [];
+        var unverified = app.Verified ? null : Unverified(node, now);
+        return new DeskDoor(app.Id, app.Name, app.Collects, app.Verified, unverified ?? Queue.NotCollecting(node, now),
+            unverified ?? (table.Count == 0 ? $"{name} lists no verbs" : null), Quick(table), LastSent(node.Id));
+    }
+
+    private DeskDoor Closed(string id, string name, string why) => new(id, name, false, false, why, why, [], id.Length > 0 ? LastSent(id) : "");
+
+    /// <summary>
+    /// Where the last line a person sent an app from this desk stands, in <see cref="ResultOf"/>'s words — sent, collected, ran,
+    /// refused, not delivered; "" when this desk sent it none since it started.
+    /// </summary>
+    public string LastSent(string appId)
+    {
+        var own = _host.Id();
+        return Queue.All().LastOrDefault(p => p.From.Id == own && p.Target.Id == appId) is { } last && ResultOf(last.Id) is { } result ? result.Words : "";
+    }
+
+    /// <summary>
+    /// Why approving a proposal would be refused now, whoever pressed — its app has not asked for its approved lines lately, the
+    /// words <see cref="Decide"/> refuses it in — or null: it is not waiting, it is aimed at this desk, or its app collects. What a
+    /// greyed Approve says. Reads only.
+    /// </summary>
+    public string? WhyNotApprove(string id)
+        => Queue.Get(id) is { State: SharedProposalState.Pending, TargetIsDesk: false } p ? Queue.NotCollecting(p.Target, Now) : null;
 
     // ------------------------------------------------------------------ a person's line
 
@@ -361,24 +453,13 @@ public sealed class DeskService : IShowApprovals
         if (found is null) return new(false, unknown!);
         var now = Now;
         var target = new NodeRef(found.Kind, found.Id, found.Name);
-        string? refused = null;
+        SharedProposal? sent = null;
+        var (verdict, refused, unlisted) = Judge(target, line, by.Role, now);
+        // Judged a moment ago: the queue judges again as it takes the line, and its answer is the one that stands.
+        if (refused is null) (sent, refused) = Queue.ProposeApproved(Own, target, line, reason, verdict!, by.Role, now);
         // What the journal says of a refusal, and what makes two refusals the same one: the sender's words, but for a line no form
         // lists (never quoted) and an app that does not collect (its words count the seconds).
-        string? journalled = null;
-        SharedProposal? sent = null;
-        if (line.Trim().Length == 0) refused = "line is required";
-        else if (LineFence.Check(line, _host.WindowTokens?.Invoke()) is { } fenced) refused = fenced;
-        else
-        {
-            var verdict = Risk(target, line.Trim());
-            // A secret is refused in the desk's own words first; an unverified table may refuse a line, never let one through.
-            if (!verdict.Secret && !Verified(target, now)) refused = Unverified(target, now);
-            else
-            {
-                (sent, refused) = Queue.ProposeApproved(new NodeRef("main", _host.Id(), _host.Name()), target, line, reason, verdict, by.Role, now);
-                if (sent is null && !verdict.Secret && !verdict.Listed) journalled = $"{found.Name} does not list that line — see its verbs";
-            }
-        }
+        var journalled = sent is null && unlisted ? $"{found.Name} does not list that line — see its verbs" : null;
         if (sent is null)
         {
             var head = $"Refused to send to {found.Name} ({by.Role})";
@@ -388,6 +469,61 @@ public sealed class DeskService : IShowApprovals
         }
         Journal(now, $"Sent {Short(sent.Id)} to {found.Name} ({by.Role}): {sent.Line}", by.Named, found.Id);
         return new(true, $"sent to {found.Name} as {Short(sent.Id)} — it collects it and reports back", sent);
+    }
+
+    /// <summary>This desk as a line born here names its from.</summary>
+    private NodeRef Own => new("main", _host.Id(), _host.Name());
+
+    /// <summary>
+    /// A person's line judged for its app, with nothing queued or journalled — the one order of refusals <see cref="Send"/> and
+    /// <see cref="Preview"/> share: an empty line; §11's line rules; a filled secret, in the desk's own words, before an unverified
+    /// table refuses anything; verbs that are not verified; a line no form lists (<c>Unlisted</c>); an app that is not collecting;
+    /// a desk full of lines waiting. The verdict is null for a line that was never rated.
+    /// </summary>
+    private (RiskVerdict? Verdict, string? Refused, bool Unlisted) Judge(NodeRef target, string line, string role, DateTime now)
+    {
+        if (line.Trim().Length == 0) return (null, "line is required", false);
+        if (LineFence.Check(line, _host.WindowTokens?.Invoke()) is { } fenced) return (null, fenced, false);
+        var verdict = Risk(target, line.Trim());
+        // A secret is refused in the desk's own words first; an unverified table may refuse a line, never let one through.
+        if (!verdict.Secret && !Verified(target, now)) return (verdict, Unverified(target, now), false);
+        var refused = Queue.WhyNotSent(Own, target, line, verdict, role, now);
+        return (verdict, refused, refused is not null && !verdict.Secret && !verdict.Listed);
+    }
+
+    /// <summary>
+    /// What <see cref="Send"/> would say of a line for an app now, as the operator's, with nothing sent, queued or journalled: the
+    /// form that takes it with its risk and words, why it would be refused (the send's own words; null while it would go), whether
+    /// the app collects, and the forms of its verified table the typed words could still become (<see cref="Completes"/>). A send
+    /// dialog shows this as the line is typed; the press then sends the same string, and the send's answer is the one that stands.
+    /// </summary>
+    public LinePreview Preview(string app, string line)
+    {
+        var (found, unknown) = Resolve(app);
+        if (found is null) return new LinePreview("", null, "", false, unknown, false, unknown!, []);
+        var now = Now;
+        var target = new NodeRef(found.Kind, found.Id, found.Name);
+        var (verdict, refused, unlisted) = Judge(target, line, DeskOrigin.Operator.Role, now);
+        var quiet = Queue.NotCollecting(target, now);
+        var forms = found.Verified ? Forms(Table(found, now)).Where(f => Completes(f, line)).ToList() : [];
+        var listed = verdict is { Listed: true, Secret: false } && found.Verified;
+        return new LinePreview(listed ? VerbTable.Normal(verdict!.Risk) : "", listed ? verdict!.Form : null, listed ? verdict!.Words : "", listed, refused,
+            quiet is null, quiet ?? $"{found.Name} is collecting from this desk", forms, unlisted);
+    }
+
+    /// <summary>
+    /// Whether what is typed could still become a line of the form: nothing is typed yet; the typed words open the form's lead
+    /// (whatever their case); or the lead, whole, opens what is typed. A form that opens with a choice or a value has no lead, and
+    /// is listed only while nothing is typed.
+    /// </summary>
+    public static bool Completes(DeskVerb verb, string typed)
+    {
+        var words = string.Join(' ', typed.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (words.Length == 0) return true;
+        if (verb.Lead.Length == 0) return false;
+        return verb.Lead.StartsWith(words, StringComparison.OrdinalIgnoreCase)
+               || words.Equals(verb.Lead, StringComparison.OrdinalIgnoreCase)
+               || words.StartsWith(verb.Lead + " ", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Why an app's verbs set no line: it told this desk none, or what it posted proves nothing.</summary>

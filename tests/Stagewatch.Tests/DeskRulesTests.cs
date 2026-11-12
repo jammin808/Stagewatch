@@ -29,6 +29,7 @@ static class DeskRulesTests
         SelfRaise(Check);
         LastCollect(Check);
         PersonLines(Check);
+        FullCountsLate(Check);
         Json(Check);
         OwnRows(Check);
         PeerLines(Check);
@@ -311,6 +312,36 @@ static class DeskRulesTests
     }
 
     /// <summary>A proposal's JSON: §11's fields, then collected and the form that rated it.</summary>
+    /// <summary>
+    /// A desk full of lines waiting counts only the lines that are not yet late: the read-only check a dialog shows and the send
+    /// itself agree at the same moment, before and after a line passes its time.
+    /// </summary>
+    static void FullCountsLate(Action<bool, string> Check)
+    {
+        var desk = Desk(new NodeBindings(), "f5mm");
+        var self = new NodeRef("main", DeskId, "Hall A");
+        var pm1 = new NodeRef("playmap", "pm1", "PlayMap One");
+        var pm2 = new NodeRef("playmap", "pm2", "PlayMap Two");
+        var cue = Listed("review", "PLAYLIST CUE <playlist> <item>|#<n>");
+        desk.Collect("pm2", NodeCredential.Key("kM2"), T0);
+        var early = desk.ProposeApproved(self, pm2, "PLAYLIST CUE show #1", "", cue, "wire", T0.AddSeconds(1)).Proposal!;
+        for (var i = 1; i < ProposalDesk.MaxOpen; i++) desk.ProposeApproved(self, pm2, "PLAYLIST CUE show #2", "", cue, "wire", T0.AddSeconds(10));
+        var at = T0.AddSeconds(10);
+        Check(desk.All().Count(p => p.State == SharedProposalState.Approved) == ProposalDesk.MaxOpen
+              && desk.WhyNotSent(self, pm2, "PLAYLIST CUE show #3", cue, "wire", at) == "too many lines waiting for their apps"
+              && desk.ProposeApproved(self, pm2, "PLAYLIST CUE show #3", "", cue, "wire", at) is (null, "too many lines waiting for their apps"),
+            "desk full: with 200 approved lines in their time, the check and the send both refuse a new line in the same words");
+        desk.Collect("pm1", NodeCredential.Key("kM1"), T0.AddSeconds(55));
+        // The first line was decided at T0+1 and never collected: at T0+62 it is past CollectWithin; the others are not.
+        at = T0.AddSeconds(1) + ProposalDesk.CollectWithin + TimeSpan.FromSeconds(1);
+        var why = desk.WhyNotSent(self, pm1, "PLAYLIST CUE show #3", cue, "wire", at);
+        var stillApproved = desk.Get(early.Id)?.State;
+        var (sent, error) = desk.ProposeApproved(self, pm1, "PLAYLIST CUE show #3", "", cue, "wire", at);
+        Check(why is null && stillApproved == SharedProposalState.Approved && error is null && sent is { State: SharedProposalState.Approved }
+              && desk.Get(early.Id) is { State: SharedProposalState.Undelivered },
+            $"desk full: a line past its time is not counted — the check (read only, it left the late line {stillApproved}) and the send both take the new line (why '{why}', error '{error}')");
+    }
+
     static void Json(Action<bool, string> Check)
     {
         var desk = Desk(new NodeBindings(), "k3m9");

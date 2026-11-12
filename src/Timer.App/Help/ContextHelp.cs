@@ -131,6 +131,12 @@ public static class ContextHelp
     }
 
     /// <summary>
+    /// Text another app chose (its name, its forms) as a menu header draws it: every underscore doubled, so WPF draws each one and
+    /// none of them becomes the entry's access key.
+    /// </summary>
+    public static string Plain(string text) => text.Replace("_", "__", StringComparison.Ordinal);
+
+    /// <summary>
     /// A menu item that is live when <paramref name="why"/> is null, else greyed with why — the words its press would be refused in —
     /// shown when the pointer rests on it, greyed as it is.
     /// </summary>

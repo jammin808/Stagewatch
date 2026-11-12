@@ -243,20 +243,12 @@ public sealed class ProposalDesk
     /// </summary>
     public (SharedProposal? Proposal, string? Error) ProposeApproved(NodeRef from, NodeRef target, string line, string reason, RiskVerdict verdict, string by, DateTime nowUtc)
     {
-        var deskId = _deskId();
-        if (from.Kind != "main" || from.Id != deskId) return (null, "a person's line comes from this desk itself");
-        if (target.Kind == "main" || target.Id.Length == 0 || target.Id == deskId) return (null, "this desk runs its own lines — a person's line goes to another app");
-        if (!Roles.Contains(by, StringComparer.Ordinal)) return (null, "a person's line is decided by a role: " + string.Join(", ", Roles));
-        if (line.Trim().Length == 0) return (null, "line is required");
-        if (LineFence.Check(line, WindowTokens?.Invoke()) is { } fenced) return (null, fenced);
+        if (NotALine(from, target, line, verdict, by) is { } refused) return (null, refused);
         line = line.Trim();
-        if (verdict.Secret) return (null, LineFence.SecretWords(NameOf(target)));
-        if (!verdict.Listed) return (null, $"{NameOf(target)} does not list '{Shown(line)}' — see its verbs");
         lock (_lock)
         {
             Expire(nowUtc);
-            if (Quiet(target, nowUtc) is { } quiet) return (null, quiet);
-            if (_byId.Values.Count(p => p.State == SharedProposalState.Approved) >= MaxOpen) return (null, "too many lines waiting for their apps");
+            if (NotTaken(target, nowUtc) is { } full) return (null, full);
             var p = new SharedProposal(NextId(), from, target, line, Clean(reason, MaxReason), Risk(verdict.Risk), false, SharedProposalState.Approved, nowUtc,
                 nowUtc, by, Form: verdict.Form, FormWords: verdict.Words);
             _byId[p.Id] = p;
@@ -264,6 +256,48 @@ public sealed class ProposalDesk
             return (p, null);
         }
     }
+
+    /// <summary>
+    /// Why <see cref="ProposeApproved"/> would refuse this line now, in its own words and its own order, or null while it would take
+    /// it — with nothing queued, expired or raised: what a desk shows a person before they send. The answer is of this moment: the
+    /// app may stop collecting, or the desk fill, before the line is sent, and the send says so then.
+    /// </summary>
+    public string? WhyNotSent(NodeRef from, NodeRef target, string line, RiskVerdict verdict, string by, DateTime nowUtc)
+    {
+        if (NotALine(from, target, line, verdict, by) is { } refused) return refused;
+        lock (_lock) return NotTaken(target, nowUtc);
+    }
+
+    /// <summary>A person's line refused for what it is: its ends, its role, §11's line rules, a filled secret, a line its app does not list.</summary>
+    private string? NotALine(NodeRef from, NodeRef target, string line, RiskVerdict verdict, string by)
+    {
+        var deskId = _deskId();
+        if (from.Kind != "main" || from.Id != deskId) return "a person's line comes from this desk itself";
+        if (target.Kind == "main" || target.Id.Length == 0 || target.Id == deskId) return "this desk runs its own lines — a person's line goes to another app";
+        if (!Roles.Contains(by, StringComparer.Ordinal)) return "a person's line is decided by a role: " + string.Join(", ", Roles);
+        if (line.Trim().Length == 0) return "line is required";
+        if (LineFence.Check(line, WindowTokens?.Invoke()) is { } fenced) return fenced;
+        if (verdict.Secret) return LineFence.SecretWords(NameOf(target));
+        return verdict.Listed ? null : $"{NameOf(target)} does not list '{Shown(line.Trim())}' — see its verbs";
+    }
+
+    /// <summary>
+    /// A person's line refused for the desk's state: its app is not collecting, or the desk is full of lines waiting for their apps —
+    /// counting only the approved lines <see cref="Expire"/> would keep now, so a read-only check and a send agree on the same moment.
+    /// </summary>
+    private string? NotTaken(NodeRef target, DateTime nowUtc)   // under _lock
+    {
+        if (Quiet(target, nowUtc) is { } quiet) return quiet;
+        return _byId.Values.Count(p => p.State == SharedProposalState.Approved && !Late(p, nowUtc)) >= MaxOpen ? "too many lines waiting for their apps" : null;
+    }
+
+    /// <summary>
+    /// Whether an approved line for another app is past its time now: not collected within <see cref="CollectWithin"/> of its decision,
+    /// or collected and not answered within <see cref="ResultWithin"/>. What <see cref="Expire"/> turns undelivered.
+    /// </summary>
+    private static bool Late(SharedProposal p, DateTime nowUtc)
+        => p.State == SharedProposalState.Approved && !p.TargetIsDesk
+           && (p.ClaimedUtc is null ? nowUtc - p.DecidedUtc > CollectWithin : nowUtc - p.ClaimedUtc > ResultWithin);
 
     /// <summary>Why <see cref="Submit(string, NodeCredential, Func{NodeRef, string, RiskVerdict}, DateTime, Func{NodeRef, string, string?}?)"/> refuses a body it can't read as a proposal, and one that names no node it speaks for.</summary>
     public const string NotAProposal = "a proposal is a JSON object that names each key once", NoFrom = "from.t and from.id are required";
@@ -472,9 +506,7 @@ public sealed class ProposalDesk
         {
             foreach (var p in _byId.Values.ToList())
             {
-                if (p.State != SharedProposalState.Approved || p.TargetIsDesk) continue;
-                var late = p.ClaimedUtc is null ? nowUtc - p.DecidedUtc > CollectWithin : nowUtc - p.ClaimedUtc > ResultWithin;
-                if (!late) continue;
+                if (!Late(p, nowUtc)) continue;
                 var u = p with { State = SharedProposalState.Undelivered, Result = p.ClaimedUtc is null ? $"{NameOf(p.Target)} didn't collect it" : $"{NameOf(p.Target)} didn't report back" };
                 _byId[p.Id] = u;
                 changed.Add(u);

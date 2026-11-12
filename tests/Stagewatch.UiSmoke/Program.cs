@@ -163,7 +163,7 @@ public static class Program
                            $"Producer lists them, and this Stagewatch's context names them ({vm.PeerRows.Count})");
                     Expect(vm.PeerRows.Where(r => r.Name is "Patterns FOH" or "AGM backchannel").ToList() is { Count: 2 } posted
                            && posted.All(r => r is { Mark: "○", LinkLine: "posts its context unverified, so it sets no risk · not linked on /ws", KeyId: "", NodeId.Length: > 0 })
-                           && vm.ContextJson() is { } ctxRows && ctxRows.Contains("\"link\":\"\",\"verified\":\"none\"}", StringComparison.Ordinal),
+                           && vm.ContextJson() is { } ctxRows && ctxRows.Contains("\"link\":\"\",\"verified\":\"none\",\"collects\":false}", StringComparison.Ordinal),
                            "each row says what proves it (○ unverified, a shape beside the light) and how it reaches this Stagewatch; the context says the same");
 
                     // A key of its own: ✓, and "Revoke its key…" has the key to revoke. The same key pasted into a second install, and
@@ -176,6 +176,58 @@ public static class Program
                     Expect(vm.PeerRows.SingleOrDefault(r => r.Id == "9f8e7d6c") is { Mark: "✓", Apart: false, RefusalOnly: false } keyedRow && keyedRow.KeyId == patKey
                            && keyedRow.LinkLine == "posts its context with key 'Patterns FOH' · not linked on /ws" && keyedRow.MarkTip == ShowNetwork.MarkWords("key"),
                            "a key of its own: ✓, what proves it in words, and the key Revoke would revoke");
+
+                    // The desk's door (Show Bus §11, a person's line): Patterns posts its verbs under its own key. Its row's right-click
+                    // offers a line, its quick verbs and its verbs — a line greyed with why while Patterns is not asking this desk for its
+                    // approved lines. The send dialog shows the risk of the form that takes the line as it is typed, and Send is live only
+                    // once the send would take the line. Nothing is sent here.
+                    var patVerbs = pat[..^1] + ",\"commands\":[{\"verb\":\"EYE | EYE NEXT\",\"risk\":\"low\",\"words\":\"the God's Eye\"},"
+                                   + "{\"verb\":\"CUE GO <cue>\",\"risk\":\"review\",\"words\":\"runs a cue\"},{\"verb\":\"VIDEO PLAY | PAUSE\",\"risk\":\"high\",\"words\":\"the clip on air\"}]}";
+                    Expect(vm.AcceptPeerContext(patVerbs, "10.0.0.5", NodeCredential.Key(patKey)) is (200, null, NodeProof.Key), "Patterns posts its verbs under its own key");
+                    Pump(1600);
+                    const string notAsking = "has not asked this desk for approved lines";
+                    var doorRow = vm.PeerRows.SingleOrDefault(r => r.Id == "9f8e7d6c");
+                    var doorItems = doorRow is null ? new List<MenuItem>() : main.ActionsFor("show-network", new Border { DataContext = doorRow }).OfType<MenuItem>().ToList();
+                    var doorMenu = doorItems.Select(m => m.Header as string ?? "").ToList();
+                    Expect(doorRow is { Verified: true, Collects: false } && doorRow.SendBlocked.Contains(notAsking, StringComparison.Ordinal)
+                           && doorMenu.Take(4).SequenceEqual(new[] { "Send a line to Patterns FOH…", "CUE GO <cue>… (review)", "Its verbs…", "Copy its headline" })
+                           && doorItems[0] is { IsEnabled: false, ToolTip: string whySend } && whySend == doorRow.SendBlocked
+                           && doorItems[1] is { IsEnabled: false, ToolTip: string whyQuick } && whyQuick == whySend && doorItems[2].IsEnabled && doorItems[3].IsEnabled,
+                           $"the row's right-click: a line and its quick verb greyed with why while the app is not asking for its lines; its verbs and headline live ({string.Join(", ", doorMenu)})");
+                    var dialog = new SendLineWindow(vm, "9f8e7d6c", "Patterns FOH", "", verbs: false)
+                    {
+                        Owner = w, WindowStartupLocation = WindowStartupLocation.Manual, Left = -30000, Top = 0, ShowActivated = false,
+                    };
+                    dialog.Show();
+                    Pump(300);
+                    var lineBox = (TextBox)dialog.FindName("LineBox");
+                    var riskText = (TextBlock)dialog.FindName("RiskText");
+                    var sendButton = (Button)dialog.FindName("SendButton");
+                    var whyText = (TextBlock)dialog.FindName("WhyText");
+                    var allForms = dialog.Shown?.Forms.Count ?? 0;
+                    string Chip(string line) { lineBox.Text = line; Pump(30); return riskText.Text; }
+                    var chips = new[] { "EYE", "eye next", "CUE GO 3", "VIDEO PLAY", "VIDEO STOP" }.Select(Chip).ToList();
+                    var videoChip = Chip("VIDEO");
+                    var typedForms = dialog.Shown?.Forms.Select(f => f.Form).ToList() ?? new List<string>();
+                    Chip("CUE GO 3");
+                    var heldSend = !sendButton.IsEnabled && whyText.Text.Contains(notAsking, StringComparison.Ordinal) && dialog.Shown is { Risk: "review", Form: "CUE GO <cue>" };
+                    Expect(allForms == 5 && chips.SequenceEqual(new[] { "LOW", "LOW", "REVIEW", "HIGH", "NOT LISTED" }) && videoChip == "NOT LISTED"
+                           && typedForms.SequenceEqual(new[] { "VIDEO PLAY", "VIDEO PAUSE" }) && heldSend,
+                           $"the send dialog's risk chip follows typing, its forms follow the typed words, and Send is grey with why while the app is not asking ({string.Join("/", chips)}; {whyText.Text})");
+                    var patAsked = vm.CollectApproved("9f8e7d6c", NodeCredential.Key(patKey));
+                    Pump(1300);
+                    Expect(patAsked.Status == 200 && sendButton.IsEnabled && whyText.Text.Length == 0 && doorRow is { Collects: true, SendBlocked: "" }
+                           && main.ActionsFor("show-network", new Border { DataContext = doorRow }).OfType<MenuItem>().First().IsEnabled,
+                           $"once the app asks for its lines, Send and the row's Send a line are live ({patAsked.Status}; {whyText.Text})");
+                    Chip("VIDEO STOP");
+                    Expect(!sendButton.IsEnabled && whyText.Text == "Patterns FOH does not list 'VIDEO STOP' — see its verbs",
+                           $"a line no form lists keeps Send grey, in the send's own words ({whyText.Text})");
+                    // The box cuts nothing: a line over the cap reaches the service whole, which refuses it in words, never a shorter line.
+                    var overLong = "CUE GO " + new string('3', LineFence.MaxChars);
+                    var overChip = Chip(overLong);
+                    Expect(lineBox.Text.Length == overLong.Length && !sendButton.IsEnabled && whyText.Text == LineFence.TooLong && overChip.Length == 0,
+                           $"a line over {LineFence.MaxChars} characters stays whole in the box, Send grey with the length refusal and no chip ({lineBox.Text.Length}; {whyText.Text}; '{overChip}')");
+                    dialog.Close();
                     var oldSecret = vm.CreateApiKey("Old AGMessage", ApiKeyScope.Node);
                     var port = vm.WebPort ?? 19924;
                     using var twin = new ClientWebSocket();
@@ -206,9 +258,12 @@ public static class Program
                     Expect(vm.ApiKeyBindingLine(patKey).StartsWith("speaks for patterns 9f8e7d6c · refused for patterns 9f8e7d6d ", StringComparison.Ordinal),
                            $"Settings: the key's row says what it speaks for and what it was refused for ({vm.ApiKeyBindingLine(patKey)})");
                     var oldKey = vm.ApiKeys.SingleOrDefault(k => k.Name == "Old AGMessage")?.Id ?? "";
-                    var menu = twinRow is null ? new List<string>() : main.ActionsFor("show-network", new Border { DataContext = twinRow }).OfType<MenuItem>().Select(m => m.Header as string ?? "").ToList();
-                    Expect(menu.SequenceEqual(new[] { "Copy node id", "Make a key for Patterns", "Let a key speak for this node…", "Revoke its key…" }),
-                           $"the row's right-click offers its button's action and the rebind ({string.Join(", ", menu)})");
+                    var twinItems = twinRow is null ? new List<MenuItem>() : main.ActionsFor("show-network", new Border { DataContext = twinRow }).OfType<MenuItem>().ToList();
+                    var menu = twinItems.Select(m => m.Header as string ?? "").ToList();
+                    Expect(menu.Count == 7 && menu[0].StartsWith("Send a line to ", StringComparison.Ordinal) && menu[0].EndsWith('…')
+                           && menu.Skip(1).SequenceEqual(new[] { "Its verbs…", "Copy its headline", "Copy node id", "Make a key for Patterns", "Let a key speak for this node…", "Revoke its key…" })
+                           && twinItems.Take(2).All(m => m is { IsEnabled: false, ToolTip: string twinWhy } && twinWhy.Length > 0),
+                           $"the row's right-click offers the desk's door first — greyed with why for a row nothing verifies — then its button's action and the rebind ({string.Join(", ", menu)})");
                     var keyChoices = twinRow is null ? Array.Empty<KeyChoice>() : vm.KeyChoicesFor(twinRow);
                     Expect(keyChoices.Count == 2 && keyChoices[0].KeyId == patKey && keyChoices[0].Label.Contains("refused for this node", StringComparison.Ordinal)
                            && keyChoices[0].Label.EndsWith("speaks for patterns 9f8e7d6c now, and would stop", StringComparison.Ordinal)
@@ -416,6 +471,10 @@ public static class Program
             var pPat = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("Patterns FOH"));
             var pUs = vm.Proposals.FirstOrDefault(x => x.Source.StartsWith("AGM"));
             var queued = forPatterns.Status == 201 && forUs.Status == 201 && pPat is { IsPending: true } && pUs is { IsPending: true } && pPat.Steps[0].Risk == Stagewatch.Integrations.CopilotRisk.High;
+            // Run ticked steps is grey, with the reason under it, while the proposal's app is not asking for its approved lines; one aimed
+            // at this Stagewatch is never grey.
+            var greyed = pPat is { CanApprove: false } && pPat.ApproveBlocked.Contains("has not asked this desk for approved lines", StringComparison.Ordinal)
+                         && pUs is { CanApprove: true, ApproveBlocked: "" };
             // A high step is never ticked for the operator: approving it unticked approves nothing, and it still waits.
             var unticked = queued && !pPat!.Steps[0].Selected;
             vm.ApproveProposalCommand.Execute(pPat);
@@ -426,13 +485,15 @@ public static class Program
             Pump(200);
             var held = pPat is { IsPending: true } && vm.CopilotStatus.Contains("has not asked this desk for approved lines", StringComparison.Ordinal);
             var firstAsk = vm.CollectApproved("pat1", NodeCredential.Key("keyP"));
+            Pump(1300);
+            var ungreyed = pPat is { CanApprove: true, ApproveBlocked: "" };
             vm.ApproveProposalCommand.Execute(pPat);
             vm.ApproveProposalCommand.Execute(pUs);
             Pump(300);
             var collected = vm.CollectApproved("pat1", NodeCredential.Key("keyP"));
             var stolen = vm.CollectApproved("pat1", NodeCredential.Key("keyA"));
-            var okD = queued && unticked && held && firstAsk.Status == 200 && collected.Json.Contains("EYE FOCUS screen 2") && stolen.Status == 403 && pUs!.Steps[0].Result.StartsWith("done");
-            Console.WriteLine((okD ? "OK   " : "FAIL ") + $"approval desk: queued, an unticked approval approves nothing, held until its app asks, approved, collected by its own app only; ours ran here ({forPatterns.Status}/{forUs.Status}, {pUs?.Steps[0].Result}, unticked {unticked}, held {held})");
+            var okD = queued && unticked && held && greyed && ungreyed && firstAsk.Status == 200 && collected.Json.Contains("EYE FOCUS screen 2") && stolen.Status == 403 && pUs!.Steps[0].Result.StartsWith("done");
+            Console.WriteLine((okD ? "OK   " : "FAIL ") + $"approval desk: queued, an unticked approval approves nothing, held until its app asks, approved, collected by its own app only; ours ran here ({forPatterns.Status}/{forUs.Status}, {pUs?.Steps[0].Result}, unticked {unticked}, held {held}, approve greyed {greyed} then live {ungreyed})");
             if (!okD) failures++;
 
             Run(vm, "rundown Day 2");

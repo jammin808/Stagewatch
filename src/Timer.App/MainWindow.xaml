@@ -718,7 +718,13 @@
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
+                                                <!-- The row's door: this button opens the row's right-click menu itself — Send a line to it…, its quick verbs,
+                                                     Its verbs…, Copy its headline, then the key entries — so the two never differ. Resting on it says why no line can
+                                                     go now, when none can. -->
+                                                <Button Grid.Column="2" Content="&#x2026;" Click="OnPeerMore" VerticalAlignment="Top" FontSize="12" Padding="8,0" MinHeight="0" MinWidth="0" Margin="8,0,0,0"
+                                                        ToolTip="{Binding DoorTip}" AutomationProperties.Name="Send it a line, its verbs, more" />
                                                 <Ellipse Width="10" Height="10" Margin="0,4,8,0" VerticalAlignment="Top">
                                                     <Ellipse.Style>
                                                         <Style TargetType="Ellipse">
@@ -740,6 +746,9 @@
                                                                Visibility="{Binding LinkLine, Converter={StaticResource NonEmptyToVis}}" />
                                                     <TextBlock Text="{Binding Problems}" FontSize="12" Foreground="{StaticResource NeonAmberBrush}" TextWrapping="Wrap"
                                                                Visibility="{Binding Problems, Converter={StaticResource NonEmptyToVis}}" />
+                                                    <!-- Where the last line a person sent it from this desk stands: sent, collected, ran, refused or not delivered, in the desk's words. -->
+                                                    <TextBlock Text="{Binding LastSent}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap"
+                                                               Visibility="{Binding LastSent, Converter={StaticResource NonEmptyToVis}}" />
                                                     <!-- A key two apps shared: why it was refused for this one, and one press to give it a key of its own (also on right-click). -->
                                                     <TextBlock Text="{Binding KeyNote}" FontSize="12" Foreground="{StaticResource NeonAmberBrush}" TextWrapping="Wrap"
                                                                Visibility="{Binding KeyNote, Converter={StaticResource NonEmptyToVis}}" />

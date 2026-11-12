@@ -828,6 +828,17 @@ public partial class MainWindow : Window, IContextActions
                 break;
 
             case "show-network" when element.DataContext is PeerRow peer:
+                // The desk's door first, read now: a line for this app, its quick verbs, its verbs, its headline. The row's … button
+                // opens this same menu. An entry that cannot work is greyed, and says why when the pointer rests on it.
+                var door = _vm.DoorFor(peer);
+                var doorName = door.Name.Length > 0 ? door.Name : peer.Name;
+                // Its name and forms are the app's own text: drawn as written, an underscore in them is no access key.
+                yield return ContextHelp.Offer(ContextHelp.Plain($"Send a line to {doorName}…"), () => OpenSendLine(peer, doorName, ""), door.NoSend);
+                foreach (var quick in door.Quick)
+                    yield return ContextHelp.Offer(ContextHelp.Plain($"{quick.Head} <{quick.Value}>… ({quick.Risk})"), () => OpenSendLine(peer, doorName, quick.Head + " "), door.NoSend);
+                yield return ContextHelp.Offer("Its verbs…", () => OpenSendLine(peer, doorName, "", verbs: true), door.NoVerbs);
+                yield return ContextHelp.Offer("Copy its headline", () => CopyText(peer.Headline), peer.Headline.Length > 0 ? null : "it has said no headline yet");
+                yield return new Separator();
                 // The row's button (Make a key) and Settings → Remote's "Let it speak for…" and Revoke run the same code as these.
                 yield return I("Copy node id", () => CopyText(peer.NodeId), peer.NodeId.Length > 0);
                 if (peer.MakeKeyLabel.Length > 0) yield return I(peer.MakeKeyLabel, () => _vm.MakeKeyForPeerCommand.Execute(peer));
@@ -925,6 +936,33 @@ public partial class MainWindow : Window, IContextActions
         }
         if (Help.Prompt.Ask(this, "Seek", $"Move the clip on {peer} to (seconds, m:ss or h:mm:ss):", "") is { } to && to.Trim().Length > 0)
             _vm.RunVtOffer(link, action, to.Trim());
+    }
+
+    /// <summary>The Show network row's … button: the row's own right-click menu, opened under the row — the same entries, built by the same code.</summary>
+    private void OnPeerMore(object sender, RoutedEventArgs e)
+    {
+        if (sender is DependencyObject source) ContextHelp.Open(this, source, atMouse: false);
+    }
+
+    private readonly Dictionary<string, SendLineWindow> _sendLineWindows = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The send dialog for a Show network row's app: one window an app, brought forward when it is already open (a quick verb then
+    /// starts its line there). It does not block the desk — the show goes on while a line is typed.
+    /// </summary>
+    private void OpenSendLine(PeerRow peer, string name, string start, bool verbs = false)
+    {
+        if (peer.NodeId.Length == 0) return;
+        if (_sendLineWindows.TryGetValue(peer.NodeId, out var open) && open.IsLoaded)
+        {
+            if (start.Length > 0) open.Start(start);
+            open.Activate();
+            return;
+        }
+        var window = new SendLineWindow(_vm, peer.NodeId, name, start, verbs) { Owner = this };
+        _sendLineWindows[peer.NodeId] = window;
+        window.Closed += (_, _) => _sendLineWindows.Remove(peer.NodeId);
+        window.Show();
     }
 
     /// <summary>

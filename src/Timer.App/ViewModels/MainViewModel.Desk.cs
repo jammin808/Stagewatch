@@ -58,6 +58,7 @@ public sealed partial class MainViewModel
     /// </summary>
     private void RefreshDeskReaders()
     {
+        RefreshApproveBlocks();
         var (frame, config) = Desk.Refresh();
         if (frame) MarkDirty();
         if (config) BumpConfig();   // rebuilds the config from the desk's peers and publishes
@@ -95,6 +96,13 @@ public sealed partial class MainViewModel
     private void OnSharedProposal(SharedProposal p)
     {
         RefreshDeskReaders();
+        MirrorShared(p);
+        // The item just listed, or just decided, says at once whether it can be approved — not a second later.
+        RefreshApproveBlocks();
+    }
+
+    private void MirrorShared(SharedProposal p)
+    {
         var item = Proposals.FirstOrDefault(x => x.SharedId == p.Id);
         // Both ends by the names this desk knows their ids by, as its journal rows and the frame say them — never the proposal's own.
         var target = Desk.Actor(p);
@@ -233,6 +241,60 @@ public sealed partial class MainViewModel
         // The service's words as they are: the receipt's effect is the status line, the same on every host of the desk.
         StatusLine = outcome.Words;
         if (c.Kind == ShowCommandKind.Peer && outcome.Proposal is { } sent) ReceiptAwait(sent.Id);
+    }
+
+    /// <summary>What the Show network row's … button opens, in words: the same entries as the row's right-click.</summary>
+    public const string DoorOpens = "Send it a line, see its verbs, copy its headline — the same entries as right-click";
+
+    /// <summary>
+    /// The desk's door for a Show network row, read now (<see cref="DeskService.Door"/>): what its right-click menu and its … button
+    /// offer, and why an entry is greyed. Show thread.
+    /// </summary>
+    public DeskDoor DoorFor(PeerRow row) => Desk.Door(row.NodeId);
+
+    /// <summary>Show thread, once a second: the row follows its door — collecting, verified, the quick verbs, the last line sent it.</summary>
+    private void ReadDoor(PeerRow row)
+    {
+        var door = DoorFor(row);
+        row.Collects = door.Collects;
+        row.Verified = door.Verified;
+        row.SendBlocked = door.NoSend ?? "";
+        row.LastSent = door.LastSent;
+        if (!row.QuickVerbs.SequenceEqual(door.Quick)) row.QuickVerbs = door.Quick;
+        row.DoorTip = door.NoSend is { } why ? $"{DoorOpens}. No line now: {why}" : DoorOpens;
+    }
+
+    /// <summary>The forms of an app's verified verbs, for "Its verbs…" (<see cref="DeskService.Verbs"/>).</summary>
+    public IReadOnlyList<DeskVerb> PeerVerbs(string appId) => Desk.Verbs(appId);
+
+    /// <summary>What sending a line to an app would say now, with nothing sent or journalled (<see cref="DeskService.Preview"/>): the send dialog's words as a line is typed.</summary>
+    public LinePreview PreviewPeerLine(string appId, string line) => Desk.Preview(appId, line);
+
+    /// <summary>
+    /// The send dialog's press (show thread): the operator's line goes to the service as typed — never through the command box's
+    /// path, so no deck's recorder takes it — born approved by the operator, and the Copilot list and the status line follow as for
+    /// any sent line. The status line never quotes a line its app does not list; the dialog, the sender's own, does.
+    /// </summary>
+    public DeskOutcome SendPeerLine(string appId, string line)
+    {
+        var outcome = Desk.Send(appId, line, DeskOrigin.Operator);
+        if (outcome.Proposal is { } p) OnSharedProposal(p);
+        StatusLine = outcome.Ok ? outcome.Words : outcome.Shown;
+        return outcome;
+    }
+
+    /// <summary>What a sent line came to, once nothing more will come (<see cref="DeskService.Settled"/>): the send dialog waits on it.</summary>
+    public Task<DeskResult> PeerLineSettled(string id) => Desk.Settled(id);
+
+    /// <summary>
+    /// Show thread, when a proposal changes and once a second: each waiting shared proposal in the Copilot list says why approving
+    /// it would be refused now (<see cref="DeskService.WhyNotApprove"/>: its app is not asking for approved lines), so Run ticked
+    /// steps is greyed with the reason before it is pressed; "" once its app collects, and for Stagewatch's own plans.
+    /// </summary>
+    private void RefreshApproveBlocks()
+    {
+        foreach (var p in Proposals)
+            p.ApproveBlocked = p is { SharedId: { } id, State: ProposalState.Pending } ? Desk.WhyNotApprove(id) ?? "" : "";
     }
 
     private void DiscardShared(CopilotProposal p)

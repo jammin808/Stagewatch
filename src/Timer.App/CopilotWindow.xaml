@@ -132,11 +132,22 @@
                                 </ItemsControl>
                                 <TextBlock Text="{Binding Dropped}" FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,0"
                                            Visibility="{Binding Dropped, Converter={StaticResource NonEmptyToVis}}" />
-                                <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Visibility="{Binding IsPending, Converter={StaticResource BoolToVis}}">
-                                    <Button Content="Run ticked steps" Padding="12,5" Margin="0,0,8,0"
-                                            Command="{Binding DataContext.ApproveProposalCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
-                                    <Button Content="Discard" Padding="12,5"
-                                            Command="{Binding DataContext.DiscardProposalCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                <!-- Another app's line is approved only while that app asks this desk for its approved lines: until then Run ticked steps is
+                                     grey and the line under the buttons says why, in the desk's own words (△ and the words, never colour alone). It still
+                                     waits, and Discard still rejects it. -->
+                                <StackPanel Margin="0,8,0,0" Visibility="{Binding IsPending, Converter={StaticResource BoolToVis}}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="Run ticked steps" Padding="12,5" Margin="0,0,8,0" IsEnabled="{Binding CanApprove}"
+                                                ToolTip="{Binding ApproveBlocked}" ToolTipService.ShowOnDisabled="True"
+                                                ToolTipService.IsEnabled="{Binding ApproveBlocked, Converter={StaticResource NonEmptyToBool}}"
+                                                Command="{Binding DataContext.ApproveProposalCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                        <Button Content="Discard" Padding="12,5"
+                                                Command="{Binding DataContext.DiscardProposalCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}" />
+                                    </StackPanel>
+                                    <TextBlock FontSize="12" Foreground="{StaticResource AccentAmberBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
+                                               Visibility="{Binding ApproveBlocked, Converter={StaticResource NonEmptyToVis}}">
+                                        <Run Text="&#x25B3; Not yet: " /><Run Text="{Binding ApproveBlocked, Mode=OneWay}" />
+                                    </TextBlock>
                                 </StackPanel>
                             </StackPanel>
                         </Border>
