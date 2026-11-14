@@ -88,6 +88,17 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   comment, integrations/companion-module-playmap/src/link/session.ts's hello comment), the owner answered "Yes": comment lines
   only, in the same batch.
 
+- M-PMX (2026-11-14, third answer): CI's run 473 on Mapper cb9be004 was red on the Windows job at one Core test no batch
+  touched, GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound (its second taker, started on the
+  thread pool, did not begin to wait within the test's ten seconds; green unchanged on run 474). Asked whether the test may be
+  mended so that taker runs on its own thread, the owner answered "Yes". A new round-2 fix batch, fix-devicelock-test-thread, is
+  allowed with the leave tests/PlayMap.Core.Tests/Media/GpuDeviceLockTests.cs and a CARRYOVER entry: test-only, no product line.
+
+- Patterns' SDK (2026-11-14): asked whether Patterns pins its .NET SDK (OPEN L114: CI's runner image built with a newer SDK whose
+  analysis failed the build on every unit of Round 97), with patch updates only, at the cost that the maintainer's PC must have
+  that SDK's feature band installed, the owner answered "Yes". It lands as a unit Round 98 inserts (a global.json with
+  rollForward latestPatch, and CI installing the SDK it names).
+
 - Models (2026-11-14): the light stages (a round's opening, the papers' check-and-commit) stay on the cheaper model; the work
   stages stay as set on 2026-11-12.
 
