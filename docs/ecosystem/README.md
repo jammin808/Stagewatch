@@ -15,85 +15,83 @@ carry byte-identical copies of the contract, not of this folder.
 | `data/` | `gaps.json` (G01–G49), `maps-lite.json`, `master-plan.json` (the units as data), `units/*.json` (each design's units) |
 | `workflows/` | The scripts each train ran (implement → adversarial review → fold-in and one commit per unit); the two chain templates in use now (`stagewatch-chain.js`, `patterns-chain.js`); `unit-brief.py`, which builds a unit's brief from this folder; and `patterns-app-parts.sh`, which runs Patterns' App suite as foreground parts. They name this folder by its path in a cloud checkout (`/home/user/Stagewatch/docs/ecosystem`); edit `S` if the trees live elsewhere |
 
-## Where the work stands (2026-11-14): resumed
+## Where the work stands (2026-11-14)
 
-The owner paused the work on 2026-11-12 at the end of the two chains then running and lifted the pause on 2026-11-14
-("Continue development"). What follows is each tree at the pause, with what runs next; `git log` in each tree says how far
-the next units have come. Under way from 2026-11-14: Stagewatch SW22.11, SW22.11p and SW22.12; Patterns Round 97; PlayMap's
-fix batch fix-wire-state-after-proof (the owner's answer of 2026-11-14 in `owner-answers.md`).
+The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Continue development"). Every repository's work
+is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
+lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-Every repository's work is on the session's designated working branch (the same name in all five repositories); each landed
-unit was pushed as it landed. AGMessage stays with its own session.
+### Stagewatch — 2.22 closed (`4ff9064`); 2.23 waits on Patterns Round 98
 
-### Stagewatch — 2.20 and 2.21 closed; Train 5 (2.22) landed through SW22.10 (`53023da`)
-
-- Landed: 2.17 (controlled windows), 2.18 (Train 1's harms), 2.19 (Show Bus 1.3 final, the PeerLink kit, hello 1.3, the
-  interop lane `tools/test.sh interop` with CI's interop job), the brief's four lines, the temp-folder fence, 2.20 SW20.1–SW20.13
-  (playout links on the PeerLink core; the VT rows against the real apps), 2.21 SW21.1–SW21.9 (one desk for every app, one
-  report, one preflight), SW21.9m (the suite's timing races, and two product races they showed) and SW21.10, the two releases'
-  combined papers, at `d311de8`: the head the 2.20 + 2.21 release is cut on (the maintainer's PC: `tools\release.ps1`), with
-  nothing of 2.22 in it. `main` was merged in at `b6f454e`.
-- Train 5 (2.22), landed in this order: SW22.1a, SW22.1b (`/ws` speaks LINK: the offer, the verdict, S on side calls, live
-  revocation), SW22.3 (grants in Core), SW22.4 (grants reach only the app's own key-verified link), SW22.1c (final, receipts,
-  lateMs, 429 words), SW22.2 (windows in the context), SW22.4p (the interop lane at the siblings' pushed heads: Patterns
-  `d707925`, where a person's Trust is pressed through the test bench's `trust <hex>` line, and Mapper `783319e`), SW22.5
-  (window lights and words, grants made on the desk), SW22.6 (the rig grants as the app does; `grants.e2e.cjs`), SW22.7 (the
-  Companion module's window actions), SW22.8 (the Companion and OSC doors through the gate), SW22.9 (the copilot plans steps
-  for other apps and a person decides), SW22.10 (MCP proposes to other apps and a person decides).
-- The paused head's check: `tools/test.sh` (build, unit, module, holo, e2e) all green on `53023da`.
-- Next on resume, in order: SW22.11 (interop rows: windows on Patterns, proved `/ws` pairs, the MCP rows; its wait, Patterns
-  Round 96's papers, is over: move the lane's Patterns pin to Round 96's head first), then SW22.12 (2.22's papers), then
-  Train 6 per `master-plan.md`.
+- 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it).
+- 2.22 (Train 5), as landed: SW22.1a–c (`/ws` speaks LINK: the offer, the verdict, S on side calls, live revocation, final,
+  receipts), SW22.2 (windows in the context), SW22.3 and SW22.4 (grants in Core, and only on the app's own key-verified link),
+  SW22.4p (the lane at the siblings' pushed heads), SW22.5–SW22.10 (window lights and grants on the desk and the rig, the
+  Companion module's window actions, the Companion and OSC doors, the copilot and MCP proposing to other apps), SW22.11m (a
+  mends unit: the rig's `--state` file owner-only, a Companion press pushed out of the awaiting table settled as unheard, sleeps
+  on the playout, window and grant paths replaced by waits on the effect), SW22.11 (the lane at Patterns' Round 96: the proved
+  `/ws` pair, a window on Patterns, the stuck rig, MCP to PlayMap), SW22.11p (the lane at PlayMap's fixed wire, Mapper `031c9a3`:
+  two rows hold the line-wire link to no `malformed` flag) and SW22.12 (the papers).
+- The paused head's check at the close: every default lane and the interop lane green (unit 6,155; LAN 39 of 39, the laptop
+  5 of 5, offline 3 of 3).
+- Next: SW23.1 (PlayoutLink speaks LINK to Patterns and PlayMap) waits on Patterns Round 98's papers (the plan's P97.6); then
+  SW23.2 (2.23's papers), then SW24.1 per `master-plan.md`.
+- Open: the browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`) fail now and then when another
+  tree's suite runs beside them and pass on a rerun; the cause is not established beyond the load, and wants a mends unit.
 - The lane's rows assume a host no other build shares: PlayMap's own preflight reads red above 95 % CPU and closes the doors.
 - Template: `workflows/stagewatch-chain.js` (its unit list is given at launch; briefs from `unit-brief.py`; refresh the
   first sentence of its shared text, which says what is landed, before a launch).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — Round 96 closed (`fb56b4e`); Round 97 is next
+### Patterns — Round 97 closed (`f102d61`); Round 98 is next
 
-- Landed and pushed: Rounds 89–96. Round 94 is the plan's P93 (papers `fa5d76b`). Round 95 is the plan's P94 (the Eye's NETWORK
-  band, cost and marks; 95.3, a mends unit: the Core allocation fence CI showed red once, root-caused to the runtime's
-  per-thread accounting and never loosened, and the test bench's `trust <hex>` line; papers `d34e67d`, PLAN §113). Round 96
-  is the plan's P95 (PLAN §114): 96.0 the opening (`d707925`), 96.1 the Stagewatch link proves itself with LINK (`31d5056`),
-  96.2 a Stagewatch window granted to this desk (`12cdffd`), 96.3 the twin's WINDOWS word (`b2dbb5b`), 96.4 the papers
-  (`61cc822`, and `fb56b4e`, one line of them corrected). 3,459 tests, the module at 3.22.0. The round is unwalked.
-- First on resume: read CI's run 302, on `fb56b4e` (it carries `61cc822` too and was still running at the pause); a red job
-  is ours to root-cause. Run 301, on `b2dbb5b`, is green. One red is already read and written down: the run on `31d5056` failed on a test's canary alone (OPEN L110: a four-hex-digit canary that
-  a random temporary folder name can hold, about one run in 1,700); its mend, a canary no hex can hold, is not made yet and
-  belongs to Round 97's first unit.
-- Next: Round 97, the plan's P96 (97.0 the opening, the plan's P96.0; 97.1 PlayMap as a Show Bus node device, P96.1; 97.2 the
-  papers, P96.2, with the tag table's row for round 96 = `fb56b4e`).
-- Template: `workflows/patterns-chain.js` (units carry both the round's and the plan's numbers; `args.notes` adds a line to
-  one stage of one unit without touching the rest). The App suite takes about 21 minutes, longer than one command may run, and
-  stages that started it in the background ended without it three times; it now runs only by six foreground parts through
-  `workflows/patterns-app-parts.sh` (two to six minutes a part on this bench). Run one test run at a time: two App test runs
-  on one machine hear each other's mDNS answers and beacons and fail each other's tests.
+- Landed and pushed: Rounds 89–97. Round 96 is the plan's P95 (PLAN §114, last commit `fb56b4e`). Round 97 is the plan's P96
+  (PLAN §115): 97.0 the opening (`7d0907c`), 97.1 a mends unit (`c265352`: OPEN L110, a test canary no hex name can hold, and
+  the suites' other canaries of its kind), 97.2 Show Bus node devices (`68737e1`: PlayMap known, paired by proof at level 0,
+  driven, drawn in the NETWORK band), 97.3 the papers (`f102d61`).
+- CI: runs 303–305, on 97.0–97.2, were red at the build: the runner image's newer .NET SDK reports CA1860 on one test line
+  that this bench's SDK does not. 97.3 mends the line; the tree pins no SDK (no `global.json`), which is OPEN L114 and the
+  owner's to decide (a pin also binds the SDK the maintainer's PC builds with). **Read CI after every push**: a build that is
+  clean here can still fail there.
+- Next: Round 98, the plan's P97 (PLAN §116): 98.0 the opening, 98.1 TLS on 9697, 98.2 LINK and LINK PROOF on 9697, 98.3 app
+  keys, 98.4 the acceptor's list, 98.5 receipts and node devices speaking LINK, 98.6 the papers (the tag table's row for round
+  97 = `f102d61`). The owner's P-scopes is answered. Then Round 99 (the plan's P98, the Eye sees the room).
+- Template: `workflows/patterns-chain.js` (units carry both the round's and the plan's numbers; a unit with no plan is one
+  the round inserted; `args.notes` adds a line to one stage of one unit without touching the rest). The App suite runs only by
+  six foreground parts through `workflows/patterns-app-parts.sh` (two to six minutes a part on this bench). Run one test run at
+  a time: two App test runs on one machine hear each other's mDNS answers and beacons (OPEN L111).
 
-### PlayMap (repo Mapper) — waiting on round 3's integration pass (`783319e1`)
+### PlayMap (repo Mapper) — two wire fixes landed (`031c9a3d`); the rest waits on round 3's integration pass
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
   fix-proposal-sink-deadline, PM-6 fix-peerlink-core, PM-7 fix-stagewatch-timer-air, PM-8 fix-stagewatch-context-size,
-  fix-desk-unconfirmed and PM-11 fix-context-peer-rows (the context names its peers and the timer it draws; `cddf83b6`, its leave
-  extension `783319e1`). Every leave extension is in `owner-answers.md` and in a "Papers: the owner extends …" commit.
-- CI's run 472, on `783319e1`, is green.
-- Nothing can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not happened
-  in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
-- Open items each batch left are in its CARRYOVER entry's Open list.
+  fix-desk-unconfirmed, PM-11 fix-context-peer-rows (`cddf83b6`, its leave extension `783319e1`), fix-wire-state-after-proof
+  (`cb9be004`: a connection not paired at HELLO hears its greeting STATE only after "OK paired") and
+  fix-wire-greeting-after-handshake (`031c9a3d`: a connection paired at HELLO hears it only once a dialler's handshake behind
+  its HELLO is over; three comments reworded). Every leave and extension is in `owner-answers.md`.
+- CI: run 474, on `031c9a3d`, is green. Run 473, on `cb9be004`, was red on the Windows job at one Core test neither batch
+  touched (`GpuDeviceLockTests.ASharerWaitsForTheHolderAndABoundedTakeGivesUpWithinItsBound`: its second taker, started on
+  the thread pool, did not begin to wait within the test's ten seconds); it passed unchanged on run 474, so it is
+  intermittent. The likely cause, the pool starved at the start of the suite, is not reproduced; a mend (the taker on its own
+  thread) is outside every batch's leave and waits on the owner's word.
+- Open in the last batch's CARRYOVER entry, for the owner: a dialler whose next line is not in when the node next reads after
+  its HELLO is still greeted inside its handshake (a race, unmeasured); Patterns' node device on a trusted address counts one
+  discarded STATE there and says why in its own words.
+- Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
+  happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
 - Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch).
 
 ### Open findings carried into the next units
 
-- **Decided (2026-11-14), closed (SW22.11p):** PlayMap holds its greeting STATE until the proof (fix-wire-state-after-proof,
-  cb9be004, and fix-wire-greeting-after-handshake, 031c9a3, pushed); the interop lane's Mapper pin is 031c9a3 and row S4.2 holds
-  the level-0 line-wire link to no `malformed` flag and a malformed count of 0 in every read.
-- **The owner's to decide:** whether a PIN-only Stagewatch may be an open acceptor. Two stray files at the filesystem root of the cloud container (`/WebServer.cs.bak`, `/WebServer.cs.keep`, a
-  stage's mutation backups) could not be removed from the session; they are in no repository.
-- **Stagewatch, for SW22.11 or a mends unit:** the rig's `--state` file is not owner-only; the Companion module's shared
-  64-slot awaiting table can drop a playout press silently; some checks sleep before reading a command's effect; `stuck` is
-  not offered until measured; the 429 bounds are chosen, not measured.
-- **The interop lane does not prove yet:** Patterns at level 1 in the lane (SW22.11), PlayMap's timer row, AGMessage 0.6.0.
-- **Patterns:** OPEN L108–L110 (Round 96 added them); the App suite's tests share the machine's mDNS and beacon ports.
+- **The owner's to decide:** whether a PIN-only Stagewatch may be an open acceptor; whether Patterns pins its SDK (L114);
+  the mend of PlayMap's intermittent device-lock test. Three stray files at the filesystem root of the cloud container
+  (`/WebServer.cs.bak`, `/WebServer.cs.keep`, `/module.log`: stages' scratch copies, no secret in them) could not be removed
+  from the session; they are in no repository.
+- **Stagewatch:** `stuck` is not offered until measured; the 429 bounds are chosen, not measured; the sleeps SW22.11m left
+  (its list is in `docs/WHATS_NEXT.md`); the e2e page-frame checks under load.
+- **The interop lane does not prove yet:** PlayMap's timer row, AGMessage 0.6.0, the one-laptop race of PlayMap's greeting.
+- **Patterns:** OPEN L108–L114.
 
 ### AGMessage
 
