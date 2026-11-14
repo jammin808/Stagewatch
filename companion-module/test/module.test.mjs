@@ -126,6 +126,15 @@ const waitFor = (emitter, event, pred = () => true, ms = 3000) =>
 		emitter.on(event, h)
 	})
 
+/** Resolves once `done()` holds, read every 10 ms; rejects, naming `what`, if it does not within `ms`. */
+const until = async (done, what, ms = 3000) => {
+	const end = Date.now() + ms
+	while (!done()) {
+		if (Date.now() >= end) throw new Error(`timeout waiting for ${what}`)
+		await new Promise((r) => setTimeout(r, 10))
+	}
+}
+
 /** A well-behaved Stagewatch: v2 frames after SUBSCRIBE JSON, PONG to PING, records commands. */
 function stagewatch(received, { split = false, stuck = null } = {}) {
 	return (s) => {
@@ -781,7 +790,7 @@ test('2.20 a press with a request id: the peer\'s answer, its final follow-up, a
 	}
 })
 
-test('2.20 lines waiting for an answer are bounded: the oldest is forgotten, never resent', async () => {
+test('2.20 lines waiting for an answer are bounded: the oldest is pushed out, settled as unheard, never resent', async () => {
 	const received = []
 	const srv = await fakeServer(answering(received, () => []))
 	const c = new StagewatchConnection('127.0.0.1', srv.port, FAST)
@@ -789,15 +798,60 @@ test('2.20 lines waiting for an answer are bounded: the oldest is forgotten, nev
 		c.start()
 		await waitFor(c, 'status', (s) => s.kind === 'connected')
 		const ids = []
+		const settled = []
+		c.on('receipt', (r) => settled.push([r.id, r.kind]))
 		for (let i = 0; i <= MAX_PENDING; i++) ids.push(c.request(`PLAYOUT seek ${i}`))
-		await new Promise((r) => setTimeout(r, 100))
-		assert.equal(received.length, MAX_PENDING + 1, 'each sent once')
+		assert.deepEqual(settled, [[ids[0], 'unheard']], 'the oldest is settled as unheard at the 65th send, and no other')
+		await until(() => received.length >= MAX_PENDING + 1, 'every line at the fake Stagewatch')
+		assert.deepEqual(received, ids.map((id, i) => `@${id} PLAYOUT seek ${i}`), 'each sent once')
 		const lost = []
 		c.on('receipt', (r) => lost.push(r.id))
 		for (const s of srv.sockets) s.destroy()
 		await waitFor(c, 'status', (s) => s.kind === 'disconnected')
 		assert.equal(lost.length, MAX_PENDING, 'one lost receipt for each line still waiting')
-		assert.ok(!lost.includes(ids[0]), 'the oldest was forgotten when the 65th went')
+		assert.ok(!lost.includes(ids[0]), 'the oldest, pushed out when the 65th went, is not lost again')
+	} finally {
+		c.destroy()
+		await srv.close()
+	}
+})
+
+test('2.22 a playout press pushed out of the 64 waiting lines by window withdraws is never forgotten silently: its button hears it may have run', async () => {
+	const received = []
+	const srv = await fakeServer(answering(received, () => []))
+	const c = new StagewatchConnection('127.0.0.1', srv.port, FAST)
+	const receipts = []
+	c.on('receipt', (r) => receipts.push(r))
+	try {
+		c.start()
+		await waitFor(c, 'status', (s) => s.kind === 'connected')
+		const go = c.request('PLAYOUT stage-left go pl1 it1')
+		const withdraws = []
+		for (let i = 0; i < MAX_PENDING; i++) withdraws.push(c.request('WINDOW WITHDRAW all'))
+		// The press is settled on its button's log, at the send that pushed it out, as unheard, never as run or refused.
+		const unheard = receipts.filter((r) => r.id === go)
+		assert.deepEqual(unheard.map((r) => [r.kind, r.ok, r.line]), [['unheard', false, 'PLAYOUT stage-left go pl1 it1']], 'one receipt for the press pushed out')
+		assert.match(receiptWords(unheard[0]), /^no answer will be read — more than 64 lines waited for one, so it may have run \(look at Stagewatch\)$/)
+		assert.equal(routeReceipt(unheard[0], go).answer, receiptWords(unheard[0]), 'and playout_answer says so while it was the latest press')
+		assert.equal(receiptLog(unheard[0]).level, 'warn')
+		assert.equal(
+			receiptWords({ ...unheard[0], wasAccepted: true }),
+			'accepted; its final answer will not be read — more than 64 lines waited for one (look at Stagewatch)',
+			'an accepted press pushed out never reads as applied, nor as owed a final',
+		)
+		assert.deepEqual(receipts.filter((r) => r.id !== go), [], 'no window line is settled before its time')
+		await until(() => received.length === MAX_PENDING + 1, 'every line at the fake Stagewatch')
+		// Its late answer is no one's: nothing more is said for it. The answer to the last withdraw rides behind it on the same socket,
+		// and one reader reads the lines in order, so that answer heard says the late one was read first. The link dropping then
+		// says it lost only the 63 still waiting, the bound kept.
+		const last = withdraws[withdraws.length - 1]
+		for (const s of srv.sockets) s.write(`OK @${go} applied PlayMap Stage left took PLAYLIST GO pl1 it1\nOK @${last} applied withdrawn from 0 apps\n`)
+		await until(() => receipts.some((r) => r.id === last && r.kind === 'answered'), 'the answer behind the late one')
+		assert.equal(receipts.filter((r) => r.id === go).length, 1, 'the late answer read, and the press still said once')
+		for (const s of srv.sockets) s.destroy()
+		await waitFor(c, 'status', (s) => s.kind === 'disconnected')
+		assert.equal(receipts.filter((r) => r.id === go).length, 1, 'said once')
+		assert.deepEqual(receipts.filter((r) => r.kind === 'lost').map((r) => r.id).sort(), withdraws.slice(0, -1).sort(), 'the 63 lines still waiting are lost, the bound kept')
 	} finally {
 		c.destroy()
 		await srv.close()

@@ -20,7 +20,7 @@ using Stagewatch.Show;
 // "playout":[{"name","kind","address"}]};
 // nodeKeys lists only the node keys made in this run (--node-keys N makes them on a first start; --state keeps their hashes and
 // the node each speaks for, never a secret). --state keeps the windows with their grants (a grant's address is in that file, the
-// rig's own, and in no line it prints); loading repairs them as the app's settings load does, each repair said on standard error
+// rig's own, written owner-only off Windows and narrowed to that as it loads, and in no line it prints); loading repairs them as the app's settings load does, each repair said on standard error
 // (never an address) and written back at once.
 // Secrets: "pin" is "none" for no PIN, "set" when it came from --pin-file or --secrets-out is given, and the PIN itself only
 // when it came from --pin (or is the default) with no --secrets-out. With --secrets-out FILE the rig writes every secret it would
@@ -131,8 +131,8 @@ using Stagewatch.Show;
 // Exit codes: 0 stopped (Ctrl+C, the process ending, --exit-after, exit, --exit-on-eof); 2 an option it cannot take, said on
 // standard error; 3 a server could not listen; 4 --secrets-out could not be written. On 3 and 4 no secret went out, so the
 // node keys made in that start are taken out of --state again and the next start makes them afresh.
-// On the disk the rig writes only at the paths it is given: --state (with the .bak and the temporary copies AtomicFile keeps
-// beside it), --journal, --secrets-out and --tls. A starter that gives it paths in a folder of its own removes all the rig made
+// On the disk the rig writes only at the paths it is given: --state (owner-only, with the temporary copy AtomicFile makes beside it
+// while it writes, owner-only too, and no .bak), --journal, --secrets-out and --tls. A starter that gives it paths in a folder of its own removes all the rig made
 // by removing that folder once the rig has stopped (tests/e2e/rig.cjs's dispose). The .NET runtime's own debugger pipes and
 // diagnostics socket go to the temp folder, and a rig ended with SIGKILL cannot remove them: its starter turns them off
 // (rig.cjs's RIG_ENV) or gives it a temp folder of its own that it removes (the interop lane, tests/interop/lib/run.cjs).
@@ -1631,6 +1631,22 @@ sealed class Rig : ICompanionBridge, IDisposable
     private RigState LoadState()
     {
         if (_o.StateFile is not { } path || !File.Exists(path)) return new RigState();
+        // The file already holds view passes: one an older rig or a person left readable by others is narrowed as it is loaded, not at
+        // its next write, which may not come this run. Said on standard error under its own word (never the address, never "state:",
+        // which is a repair's).
+        if (!OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var mode = File.GetUnixFileMode(path);
+                if ((mode & ~AtomicFile.OwnerOnly) != 0)
+                {
+                    File.SetUnixFileMode(path, AtomicFile.OwnerOnly);
+                    Log("state file: narrowed to owner-only (it was " + Convert.ToString((int)mode, 8) + ")");
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log("state file: could not be narrowed to owner-only — " + ex.Message); }
+        }
         try
         {
             var text = File.ReadAllText(path);
@@ -1652,11 +1668,15 @@ sealed class Rig : ICompanionBridge, IDisposable
 
     private void SaveWindows(IReadOnlyList<ScreenWindow> windows) => SaveState(windows);
 
-    /// <summary>Owner thread (or the constructor, before it starts): the whole state, written atomically.</summary>
+    /// <summary>
+    /// Owner thread (or the constructor, before it starts): the whole state, written atomically and owner-only — it holds the windows'
+    /// and the page grants' addresses, which are view passes, so off Windows the file and its temporary copy are this user's alone to
+    /// read from the moment each is made, as --secrets-out and node.key are, whatever mode an older file had.
+    /// </summary>
     private void SaveState(IReadOnlyList<ScreenWindow> windows)
     {
         if (_o.StateFile is not { } path) return;
-        try { AtomicFile.Write(path, JsonSerializer.Serialize(new RigState { Windows = windows.ToList(), Keys = _keys })); }
+        try { AtomicFile.Write(path, JsonSerializer.Serialize(new RigState { Windows = windows.ToList(), Keys = _keys }), ownerOnly: true); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log("state: " + ex.Message); }
     }
 }

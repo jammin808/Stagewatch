@@ -47,8 +47,9 @@ Stagewatch (single authority)                         Companion module
 - Presses made while offline are dropped, because replaying a stale START/NEXT after a reconnect could disrupt a show.
 - A press that drives another app's air (`PLAYOUT …`, `PATTERNS …`), and a window grant or withdraw (2.22), goes with a
   request id, and Stagewatch's answer to it is read and shown, never assumed (2.20 and 2.22, below). At most 64 such lines wait
-  for an answer at once, playout and window lines together (the oldest is forgotten, never resent, and no `lost` is said for it:
-  a burst of withdraws can forget a playout press still waiting), none longer than 40 s.
+  for an answer at once, playout and window lines together, none longer than 40 s: the oldest is pushed out by the next send,
+  never resent, and settled at once on the log (and `playout_answer`, for a playout press) as an answer that will not be read and a
+  line that may have run (2.22), so a burst of withdraws never forgets a playout press without a word.
 - Free mode is reported as *Insufficient permissions* along with the reason, and retries only every 30 s.
 
 ## Protocol
@@ -159,7 +160,9 @@ log and in `$(stagewatch:playout_answer)`: `applied — PlayMap Stage left took 
 `final accepted — unconfirmed …`, Stagewatch's own word when the node gave none), `refused — <why>` — the playout gate's words
 from a PC not in May drive other show apps among them — or, when the link drops before the answer, `no answer — the link to Stagewatch
 dropped first, so it may or may not have run`, and after an `accepted`, `accepted; the link to Stagewatch dropped before any final
-answer came`. An `accepted` whose words begin `unconfirmed` is settled (Stagewatch sends no follow-up to it), and a line sent more
+answer came`. A line pushed out of the 64 waiting by a newer send (2.22) says `no answer will be read — more than 64 lines waited
+for one, so it may have run`, or after an `accepted`, `accepted; its final answer will not be read — more than 64 lines waited for
+one`. An `accepted` whose words begin `unconfirmed` is settled (Stagewatch sends no follow-up to it), and a line sent more
 than 40 s ago is forgotten without a word, since no answer to it can still come. In the variable, an earlier press's late answer
 names its line before its words. A press while offline is dropped and says so; nothing is queued. `vt_link` is the frame's
 `playout.link` (empty for vMix or none), `vt_source` its `source`; the feedback *Playout: The VT comes from…* lights a key while a

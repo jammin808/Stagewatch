@@ -11,7 +11,9 @@
 //    node's final word when the line waited on one, or Stagewatch's own once its show thread ran a line it had not run within its
 //    deadline. Each answer is a 'receipt' event naming the line it answers. A line still waiting when the socket closes — no
 //    answer yet, or an `accepted` within FINAL_WAIT_MS of its send — is one 'receipt' of kind `lost`, never a success the module did
-//    not hear; one older than that is forgotten without a word, for no answer to it could still come.
+//    not hear; one older than that is forgotten without a word, for no answer to it could still come. A line pushed out of the
+//    MAX_PENDING lines still waiting, by a newer send, is one 'receipt' of kind `unheard` at that send: its answer may still come,
+//    and will go unread, so it may have run.
 
 import { EventEmitter } from 'node:events'
 import net from 'node:net'
@@ -28,12 +30,14 @@ export type LinkStatus =
 /**
  * Stagewatch's answer to a line sent with a request id (Show Bus §3 on Companion TCP). `line` is the line as sent, without its id.
  * `answered` an `OK` or `ERROR` line for that id; `lost` the socket closed while the line still waited — with no answer yet, so it may
- * or may not have run, or after an `accepted` and before any `final`, which may or may not have been coming.
+ * or may not have run, or after an `accepted` and before any `final`, which may or may not have been coming; `unheard` the line was
+ * pushed out of the MAX_PENDING lines waiting by a newer send while it still waited, so any answer to it goes unread and it may have
+ * run.
  */
 export interface Receipt {
 	id: string
 	line: string
-	kind: 'answered' | 'lost'
+	kind: 'answered' | 'lost' | 'unheard'
 	ok: boolean
 	/** `accepted` or `applied` on an OK; "" on an ERROR, on a bare `OK @id`, and on `lost`. */
 	stage: string
@@ -44,7 +48,7 @@ export interface Receipt {
 	final: boolean
 	/** Stagewatch's words: the effect, or why not. */
 	words: string
-	/** On `lost`: whether an `accepted` had come before the socket closed (a `final` may or may not have been coming). */
+	/** On `lost` and `unheard`: whether an `accepted` had come before the line stopped waiting (a `final` may or may not have been coming). */
 	wasAccepted: boolean
 }
 
@@ -62,7 +66,10 @@ export interface ConnectionEvents {
 
 const MAX_LINE = 1024 * 1024
 
-/** Lines waiting for Stagewatch's answer at most; the oldest is forgotten (its answer then goes unread), never resent. */
+/**
+ * Lines waiting for Stagewatch's answer at most, playout and window lines together; the oldest is pushed out by the next send, never
+ * resent, and settled at once as an `unheard` receipt (its answer then goes unread), so no press is forgotten without a word.
+ */
 export const MAX_PENDING = 64
 /**
  * A line waits this long from its send, then is forgotten without a word: Stagewatch answers within its 3 s deadline and sends a
@@ -182,7 +189,14 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 		if (/[\r\n]/.test(line)) line = line.replace(/[\r\n]+/g, ' ')
 		const now = this.#now()
 		this.#expire(now)
-		while (this.#pending.size >= MAX_PENDING) this.#pending.delete(this.#pending.keys().next().value as string)
+		const pushedOut: [string, { line: string; accepted: boolean }][] = []
+		while (this.#pending.size >= MAX_PENDING) {
+			const oldest = this.#pending.keys().next().value as string
+			pushedOut.push([oldest, this.#pending.get(oldest)!])
+			this.#pending.delete(oldest)
+		}
+		for (const [old, p] of pushedOut)
+			this.emit('receipt', { id: old, line: p.line, kind: 'unheard', ok: false, stage: '', final: false, words: '', wasAccepted: p.accepted })
 		const id = `c${++this.#requestSeq}`
 		this.#pending.set(id, { line, at: now, accepted: false })
 		s.write(`@${id} ${line}\n`)
@@ -406,9 +420,14 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 
 /**
  * What a receipt says, after the line it answers: its stage (or "refused") and Stagewatch's words — the peer's own when the line
- * went on to one. A line whose answer was lost says so, and never that it ran or did not, nor that a final answer was owed.
+ * went on to one. A line whose answer was lost, or will go unread, says so, and never that it ran or did not, nor that a final answer
+ * was owed.
  */
 export function receiptWords(r: Receipt): string {
+	if (r.kind === 'unheard')
+		return r.wasAccepted
+			? `accepted; its final answer will not be read — more than ${MAX_PENDING} lines waited for one (look at Stagewatch)`
+			: `no answer will be read — more than ${MAX_PENDING} lines waited for one, so it may have run (look at Stagewatch)`
 	if (r.kind === 'lost')
 		return r.wasAccepted
 			? 'accepted; the link to Stagewatch dropped before any final answer came (look at Stagewatch)'

@@ -579,26 +579,34 @@ Scratch.Begin();
     using var osc = new OscServer(control);
     osc.Start(inPort, bindAll: false, "127.0.0.1", fbPort);
     using var sender = new UdpClient();
-    async Task Send(byte[] b) { await sender.SendAsync(b, b.Length, new IPEndPoint(IPAddress.Loopback, inPort)); await Task.Delay(80); }
+    // One receive loop reads this socket's packets in the order they were sent, so the command a packet brings landing says every
+    // packet before it was read: each check waits on that effect, never on a fixed while.
+    int Count() { lock (control.Commands) return control.Commands.Count; }
+    ShowCommand? Last() { lock (control.Commands) return control.Commands.LastOrDefault(); }
+    async Task Send(byte[] b) => await sender.SendAsync(b, b.Length, new IPEndPoint(IPAddress.Loopback, inPort));
+    // A packet that fired twice, or a packet before it that fired when it should not, shows as a count past the one expected.
+    async Task<bool> Sent(byte[] b, int commands) { await Send(b); return await PlayoutLinkTests.Until(() => Count() >= commands) && Count() == commands; }
 
-    await Send(OscCodec.EncodeMessage("/stagewatch/start"));
-    Check(control.Commands.LastOrDefault() is { Kind: ShowCommandKind.Start }, "osc: start");
+    Check(await Sent(OscCodec.EncodeMessage("/stagewatch/start"), 1) && Last() is { Kind: ShowCommandKind.Start }, "osc: start");
+    // The release is judged only once a later packet of another kind has landed: had it fired, the preset would land as the fourth.
     await Send(OscCodec.EncodeMessage("/stagewatch/next", 0));
-    Check(control.Commands.Count == 1, "osc: button release (0) ignored");
     await Send(OscCodec.EncodeMessage("/stagewatch/next", 1));
-    Check(control.Commands.Last() is { Kind: ShowCommandKind.Next }, "osc: button press (1) fires");
     await Send(OscCodec.EncodeMessage("/stagewatch/preset/3", "start"));
-    Check(control.Commands.Last() is { Kind: ShowCommandKind.Preset, Number: 3, Flag: true }, "osc: address args");
-    await Send(OscCodec.EncodeMessage("/nudge", 30.5f));
-    Check(control.Commands.Last() is { Kind: ShowCommandKind.Nudge, Number: 30.5 }, "osc: float + no prefix");
-    await Send(OscCodec.EncodeMessage("/stagewatch/message", "Wrap up", "crit"));
-    Check(control.Commands.Last() is { Kind: ShowCommandKind.Message, Text: "Wrap up", Urgency: MessageUrgency.Critical }, "osc: message");
-    var n = control.Commands.Count;
+    var landed = await PlayoutLinkTests.Until(() => Last() is { Kind: ShowCommandKind.Preset });
+    ShowCommand? second;
+    lock (control.Commands) second = control.Commands.Count > 1 ? control.Commands[1] : null;
+    Check(landed && Count() == 3, "osc: button release (0) ignored");
+    Check(landed && second is { Kind: ShowCommandKind.Next }, "osc: button press (1) fires");
+    Check(landed && Last() is { Kind: ShowCommandKind.Preset, Number: 3, Flag: true }, "osc: address args");
+    Check(await Sent(OscCodec.EncodeMessage("/nudge", 30.5f), 4) && Last() is { Kind: ShowCommandKind.Nudge, Number: 30.5 }, "osc: float + no prefix");
+    Check(await Sent(OscCodec.EncodeMessage("/stagewatch/message", "Wrap up", "crit"), 5)
+          && Last() is { Kind: ShowCommandKind.Message, Text: "Wrap up", Urgency: MessageUrgency.Critical }, "osc: message");
+    var n = Count();
     await Send(new byte[] { 1, 2, 3, 4, 5 });
     await Send(OscCodec.EncodeMessage("/stagewatch/bogus"));
-    Check(control.Commands.Count == n && osc.MessagesRejected >= 1, "osc: junk rejected, server alive");
-    await Send(OscCodec.EncodeMessage("/stagewatch/reset"));
-    Check(control.Commands.Last() is { Kind: ShowCommandKind.Reset }, "osc: still serving after junk");
+    var refused = await PlayoutLinkTests.Until(() => osc.MessagesRejected >= 1);
+    Check(refused && Count() == n, "osc: junk rejected, server alive");
+    Check(await Sent(OscCodec.EncodeMessage("/stagewatch/reset"), n + 1) && Last() is { Kind: ShowCommandKind.Reset }, "osc: still serving after junk");
 
     // Feedback: only changed fields after the first full send.
     control.Snapshots.Publish(new ShowSnapshot { Text = "10:00", Seconds = 600, Title = "A" });
@@ -1355,6 +1363,7 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
     Check(File.ReadAllText(f + ".bak") == "{\"a\":1}", "files: a torn file never replaces a good backup");
     File.WriteAllText(f, "garbage");
     Check(AtomicFile.ReadWithBackup(f, AtomicFile.IsJson, out var fromBak) == "{\"a\":1}" && fromBak, "files: a damaged file reads its backup");
+    OwnerOnlyFiles.Run(Check);
     var sp = Path.Combine(dir, "settings.json");
     using (var st = new SettingsStore(sp)) { st.Update(x => x.RundownName = "Gala"); st.SaveNow(); st.Update(x => x.RundownName = "Gala 2"); st.SaveNow(); }
     File.WriteAllText(sp, "{ torn");
@@ -2093,14 +2102,18 @@ foreach (var line in new[] { "SCREEN RELOAD", "SCREEN DISCONNECT Lobby TV", "UND
         + $"every time, and RECEIPTS with no id or no ids is refused ({ranOnce} | {repeated} | {asked} | {Nexts() - nextsBefore} runs)");
     lock (bridge.Commands) bridge.Commands.Clear();   // the routing check below counts only its own verbs
 
+    int messagesBefore;
+    lock (bridge.Messages) messagesBefore = bridge.Messages.Count;
     foreach (var cmd in new[] { "START", "NEXT", "GOTO 3 start", "BLACKOUT toggle", "NUDGE -30", "TOGGLE", "SET 05:00", "MODE countup", "MESSAGE \"Say \\\"hi\\\"\" warn slow" })
         await writer.WriteLineAsync(cmd);
-    await Task.Delay(300);
-    var kinds = bridge.Commands.Select(c => c.Kind).ToList();
-    Check(kinds.SequenceEqual(new[] { ShowCommandKind.Start, ShowCommandKind.Next, ShowCommandKind.GoTo, ShowCommandKind.Blackout,
+    // One reader runs a client's lines in order, so the MESSAGE, last, has landed only once every verb before it has.
+    var routed = await PlayoutLinkTests.Until(() => { lock (bridge.Messages) return bridge.Messages.Count > messagesBefore; });
+    List<ShowCommandKind> kinds;
+    lock (bridge.Commands) kinds = bridge.Commands.Select(c => c.Kind).ToList();
+    Check(routed && kinds.SequenceEqual(new[] { ShowCommandKind.Start, ShowCommandKind.Next, ShowCommandKind.GoTo, ShowCommandKind.Blackout,
         ShowCommandKind.Nudge, ShowCommandKind.Toggle, ShowCommandKind.SetDuration, ShowCommandKind.Mode }), "companion: verbs route through Execute (" + string.Join(",", kinds) + ")");
-    Check(bridge.Messages.LastOrDefault() == ("Say \"hi\"", MessageUrgency.Warning, FlashRate.Slow), "companion: quoted message");
-    Check(bridge.Commands.First(c => c.Kind == ShowCommandKind.GoTo) is { Number: 3, Flag: true }, "companion: GOTO args");
+    lock (bridge.Messages) Check(bridge.Messages.LastOrDefault() == ("Say \"hi\"", MessageUrgency.Warning, FlashRate.Slow), "companion: quoted message");
+    lock (bridge.Commands) Check(bridge.Commands.First(c => c.Kind == ShowCommandKind.GoTo) is { Number: 3, Flag: true }, "companion: GOTO args");
 
     await writer.WriteLineAsync("FROBNICATE");
     Check((await LineStarting("ERROR")).Contains("unknown command"), "companion: unknown verb → ERROR");

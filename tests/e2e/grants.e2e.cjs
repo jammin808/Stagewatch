@@ -168,6 +168,30 @@ test('a page grant: granted over HTTP, its address on the app\'s own link only, 
   assert.equal(tookLines(), 1, 'said once, not every second');
 });
 
+/**
+ * The --state file holds the windows' and the page grants' addresses (view passes): off Windows it is this user's alone to read
+ * (0600), as --secrets-out is, and beside it is no .bak and nothing wider. A temporary copy may be there when the rig happens to be
+ * saving (a viewer, a placement or a grant), and is owner-only too; one gone between the listing and its read was swapped in.
+ */
+function ownerOnly(file, what) {
+  if (process.platform === 'win32') return;
+  assert.equal((fs.statSync(file).mode & 0o777).toString(8), '600', `${what}: --state is owner-only`);
+  const beside = fs.readdirSync(path.dirname(file)).filter((n) => n.startsWith(path.basename(file) + '.'));
+  assert.deepEqual(beside.filter((n) => !n.endsWith('.tmp')), [], `${what}: no .bak and nothing but a temporary copy beside --state`);
+  for (const n of beside) {
+    let mode = null;
+    try { mode = fs.statSync(path.join(path.dirname(file), n)).mode & 0o777; } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    if (mode !== null) assert.equal(mode.toString(8), '600', `${what}: a temporary copy beside --state is owner-only`);
+  }
+}
+
+/** Off Windows: the fixture a test writes as the input is made 0644 (the mode a new file gets under the usual umask) and said so. */
+function wide(file) {
+  if (process.platform === 'win32') return;
+  fs.chmodSync(file, 0o644);
+  assert.equal((fs.statSync(file).mode & 0o777).toString(8), '644', 'the input --state is readable by others before the rig starts');
+}
+
 /** How many times standard error said Patterns took lobby's address, over every run so far. */
 const tookLines = () => rig.log.split("window: Patterns FOH took lobby's address").length - 1;
 
@@ -187,6 +211,7 @@ test('placement: the holder\'s own @-link places the window on its screen; a non
 
 test('--state keeps the grant: a restarted rig gives the app the same address', async () => {
   const before = [...addresses];
+  ownerOnly(rig.state, 'the state that holds the grant\'s address');
   const saved = rig.savedState().windows.find((x) => x.name === 'lobby');
   assert.deepEqual(saved.grants.map((g) => [g.node, g.t, g.name, g.how]), [[PAT.id, 'patterns', 'Patterns FOH', 'page']]);
   earlierOut.push(rig.out.items.map((l) => l.line).join('\n'), JSON.stringify(rig.ready));
@@ -377,6 +402,7 @@ test('--state repaired as it loads: each repair said once on standard error with
       ],
       keys: [],
     }));
+    wide(path.join(dir, 'windows.json'));
     fixed = new Rig(await freePort(), dir, {});
     await fixed.start();
     const said = fixed.log.split('\n').filter((l) => / state: /.test(l));
@@ -390,12 +416,17 @@ test('--state repaired as it loads: each repair said once on standard error with
     assert.equal(lobby.token, a, 'the first window keeps its address');
     assert.notEqual(stage.token, a, 'written back: the second has its new address');
     assert.deepEqual(lobby.grants.map((x) => [x.node, x.how, x.token]), [[PAT.id, 'page', g]], 'written back: the bad grant gone, the good one kept');
+    ownerOnly(fixed.state, 'a 0644 file narrowed as it loads and its repairs written back');
 
-    // Written back at once, so the next start has nothing to repair and says nothing.
+    // Written back at once, so the next start has nothing to repair and says nothing. Made readable by others again before it, it
+    // is narrowed as it loads, not at a write this start never makes, and said so with its old mode alone.
     const from = fixed.log.length;
     await fixed.stop();
+    wide(fixed.state);
     await fixed.start();
     assert.ok(!/ state: /.test(fixed.log.slice(from)), 'no repair said again: ' + fixed.log.slice(from));
+    ownerOnly(fixed.state, 'a 0644 file with nothing to repair, narrowed as it loads');
+    if (process.platform !== 'win32') assert.match(fixed.log.slice(from), / state file: narrowed to owner-only \(it was 644\)/);
     assert.equal(fixed.savedState().windows.find((w) => w.name === 'stage').token, stage.token, 'the new address lasts');
   } finally {
     if (fixed) await fixed.stop();

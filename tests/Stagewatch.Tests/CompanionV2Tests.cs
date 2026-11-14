@@ -42,8 +42,8 @@ static class CompanionV2Tests
 
         // MESSAGE from Companion reaches the bridge (the app marshals it to its own thread).
         await stream.WriteAsync("MESSAGE \"Wrap up\" warn slow\n"u8.ToArray());
-        await Task.Delay(200);
-        lock (bridge.Messages) Check(bridge.Messages.Any(m => m.Item1 == "Wrap up" && m.Item2 == MessageUrgency.Warning), "companion: MESSAGE still works");
+        Check(await PlayoutLinkTests.Until(() => { lock (bridge.Messages) return bridge.Messages.Any(m => m.Item1 == "Wrap up" && m.Item2 == MessageUrgency.Warning); }),
+            "companion: MESSAGE still works");
     }
 
     /// <summary>

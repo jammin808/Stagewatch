@@ -310,9 +310,17 @@ test('a key or a filled secret placeholder rides in no line, and is nowhere afte
 });
 
 test('the journal keeps each desk row, who and from where apart from its words', async () => {
-  await pause(300);
-  const rows = fs.readFileSync(rig.journal, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  const sent = rows.find((r) => /^Sent p\d+ to PlayMap Hall \(wire\): PLAYLIST CUE show #3$/.test(r.x));
+  // The journal's writer lands its rows a moment after the desk acts: wait on the rows themselves, never a fixed while, reading
+  // only whole lines (a row still being written has no newline yet).
+  const journal = () => {
+    const text = fs.readFileSync(rig.journal, 'utf8');
+    return text.slice(0, text.lastIndexOf('\n') + 1).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  };
+  const isSent = (r) => /^Sent p\d+ to PlayMap Hall \(wire\): PLAYLIST CUE show #3$/.test(r.x);
+  const wanted = [isSent, (r) => /^Outcome p\d+: PlayMap Hall: PLAYLIST CUE show #3 — done \(cued Intro\)$/.test(r.x),
+    (r) => /^Refused to send to PlayMap Hall \(wire\): PlayMap Hall does not list that line — see its verbs$/.test(r.x), (r) => / — not during the keynote$/.test(r.x)];
+  const rows = await until(() => { const r = journal(); return wanted.every((w) => r.some(w)) && r; }, 5000, 'the desk\'s rows in the journal');
+  const sent = rows.find(isSent);
   assert.ok(sent, 'the sent line is a desk row: ' + rows.map((r) => r.x).slice(-12).join(' | '));
   assert.equal(sent.via, 'PIN, 127.0.0.1', 'who sent it and from where is the row\'s via, never its words');
   assert.ok(rows.some((r) => /^Outcome p\d+: PlayMap Hall: PLAYLIST CUE show #3 — done \(cued Intro\)$/.test(r.x)), 'and what came of it');

@@ -915,7 +915,29 @@ running app on a network: two copies of one install for the conflict, an old cer
     wait (a miss moves the clock 250 ms more, the count stays); the redial moves in PlayoutDirectorTests and the scenarios
     (already wait on the armed timer); tests/e2e (waits on frames and events). Left for a later unit: checks that sleep a
     while before reading a command's effect (Companion's verb routing 300 ms, OSC's commands 80 ms, CompanionV2's MESSAGE
-    200 ms).
+    200 ms). *Since then (SW22.11m):* each such sleep named, and those found on the playout, window and grant paths, now waits on
+    the effect itself under the suite's deadline helper (`PlayoutLinkTests.Until`, 5 s; the e2e's `until`; the module's `until`):
+    - Mended: Program.cs's Companion block, "companion: verbs route through Execute" (waits on the MESSAGE, last of the nine
+      lines, landing, since one reader runs a client's lines in order) with "companion: quoted message" and "companion: GOTO
+      args"; Program.cs's OSC block, "osc: start" to "osc: still serving after junk" (each waits on its command landing, the
+      release and the junk on the command or the refusal after them, since one receive loop reads the packets in order);
+      `CompanionV2Tests`, "companion: MESSAGE still works"; the module's "lines waiting for an answer are bounded" (waits on
+      every line at the fake Stagewatch, and now reads them as sent); `tests/e2e/desk.e2e.cjs`, "the journal keeps each desk row"
+      (waits on the four rows it reads, whole lines only, the journal's writer landing them a moment after the desk acts).
+      `PlayoutLinkTests`' "an older desk on another PC is not followed" (waits on its pushed STATE set aside, the second, and the
+      older-desk words, then reads that nothing paired, showed or sent AUTH).
+    - Read and left, each an absence check, where a sleep is the only honest wait (nothing comes to wait on): `PlayoutCueTests`
+      (nothing stood by, sent or held before its moment), `PlayoutLinkTests` (`pastTheWait` before a desk that must hear nothing,
+      "a wrong token on this PC is red, held and unread", whose positive parts come from the greeting before the hold it waits on
+      and whose 300 ms is for the STATE pushed after the hold, which must not be taken,
+      no command sent again after a drop, no redial before its time), `PlayoutTlsTests`, `PeerLinkScenarios.Playout`'s redial
+      steps, `WindowGrantTests` ("hear no grants", "never hears a screen's identify or reload"), `PlayoutGateTests` and
+      `DeskWireTests`' "nothing refused at the door reached PlayMap" (each after the refusal it waits on), `grants.e2e.cjs` ("said
+      once", "a non-holder's link changes nothing", "still not granted"), `cues.e2e.cjs`'s `settle`, and `desk.e2e.cjs`'s pauses
+      before a count that must not grow.
+    - Left for another unit, not on these paths: Program.cs's WebSocket "control command" (200 ms) and "oversized message"
+      (300 ms), Companion's "stuck client" (200 ms before publishing) and "free mode executes nothing" (100 ms, an absence), and
+      `PeerLinkScenarios.Receipts`' 429 check (300 ms for the held connections to be taken).
   - Proof: each race was put in by a hook and taken out again (the worker 1 s late, a newer OSC frame between the first
     frame's read and send, the desk's pongs 500 ms late, the redial armed 300 ms late, the stand-in PlayMap's first ask 1 s
     late): the old code failed under each and the mended code passed. Those hooks are gone; besides the new Companion check,
@@ -1197,7 +1219,19 @@ maintainer's too.
   (`FindApp(idOnly)`, `DeskOrigin.Proposal`), not by an e2e row; the grant over TLS from another machine, and a key seen in clear,
   are the unit suite's (the rig's e2e runs on one machine's loopback). The rig's `--state` file holds the windows' and the page
   grants' addresses (view passes) in the mode a new file gets, not owner-only as `--secrets-out` and `node.key` are: it is the
-  operator's to protect, and writing it owner-only (through `AtomicFile`, its temporary copies and `.bak` too) is open.
+  operator's to protect, and writing it owner-only (through `AtomicFile`, its temporary copies and `.bak` too) is open. *Since then
+  (SW22.11m):* it is written owner-only. `AtomicFile.Write` takes `ownerOnly`: off Windows the temporary copy is made 0600, so the
+  file swapped in over an older 0644 one is 0600, and a backup, where a caller keeps one, is written whole through a 0600
+  temporary copy of its own, never copied and then narrowed. The rig keeps no `.bak` (it passes no whole check), so its folder
+  holds `--state` and, while a write is under way, its one temporary copy; a `--state` found wider as the rig loads it (an older
+  rig's, a person's copy) is narrowed then, not at its next write, and standard error says `state file: narrowed to owner-only`
+  with the mode it had. `OwnerOnlyFiles` in the suite reads the mode of the
+  temporary copy (while it waits to be swapped in), the file and the backup, each written over a 0644 one; `grants.e2e.cjs` reads
+  the rig's `--state` as 0600 with no `.bak` and no wider temporary copy beside it after a grant, after a repair written back over a
+  file made 0644, and after a restart over a 0644 file with nothing to repair; the suite's control leg holds that a plain write
+  there comes out wider, so the checks prove the flag and not the umask (a umask of 077 fails it by name). On
+  Windows the folder's own permissions hold it, as `--secrets-out`'s: the suite's Windows leg (`Bench.OnWindows`) writes owner-only
+  there and reads the file and its backup whole with no temporary copy left, and is named, not run, off Windows.
 - **Window lights and words (SW22.5, G22, G24).** A window's item is the worst over the viewers ever opened (its own address, each
   page grant, each drawing once it reported; a grant never opened counts for nothing), its words naming the app, then whom it is
   granted to with where each grant stands, then its holders' claims; the Screens window draws the same, with a Granted to column
@@ -1234,7 +1268,12 @@ maintainer's too.
     landed (docs/COMPANION.md, 2.22). The module reads `granted` as names joined by ", ", so an app's name that holds ", " matches
     only as the whole of the field; the feedback matches the name Screens → Windows shows (an app granted with no name shows as
     `<kind> <id>`), never a bare Show Bus id typed in its options; the 64 lines awaiting an answer are shared by playout and window
-    presses, so a burst of withdraws can forget a playout press still waiting, with no `lost` said for it; and with no `windows` block (no window, or a Stagewatch before 2.22) the counts read 0, not
+    presses, so a burst of withdraws can forget a playout press still waiting, with no `lost` said for it (*since then (SW22.11m):*
+    never silently: the line a newer send pushes out of the 64 is settled at that send as an `unheard` receipt, on the log and, for
+    a playout press, on `playout_answer`: `no answer will be read — more than 64 lines waited for one, so it may have run`, or after
+    an `accepted`, `accepted; its final answer will not be read`; the bound stays 64 and 40 s, one table for both kinds, for a
+    table per kind would still forget a press behind 64 playout presses; the module's test showed the loss first — a playout press
+    then 64 withdraws heard no receipt at all — and holds the mend); and with no `windows` block (no window, or a Stagewatch before 2.22) the counts read 0, not
     unknown. Companion itself has not loaded the new definitions: the maintainer's PC work, not run.
   - The WPF desk (the Granted to column, the menus, the button, the Show network entry, the help tip) is compiled here and never
     seen: a desk walk-through, and the UI smoke's new checks, are the maintainer's PC work, not run.

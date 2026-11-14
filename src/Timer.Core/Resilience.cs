@@ -10,32 +10,43 @@ namespace Stagewatch.Core;
 /// </summary>
 public static class AtomicFile
 {
+    /// <summary>Read and write for this user alone: what an owner-only file and its temporary copy and backup carry off Windows.</summary>
+    public const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
     /// <summary>Write <paramref name="text"/> to <paramref name="path"/>. With <paramref name="isWhole"/>, the old file
-    /// is kept as <c>path.bak</c> when it passes. Throws <see cref="IOException"/> / <see cref="UnauthorizedAccessException"/>.</summary>
-    public static void Write(string path, string text, Func<string, bool>? isWhole = null)
-        => Commit(path, new UTF8Encoding(false).GetBytes(text), isWhole is null ? null : () =>
+    /// is kept as <c>path.bak</c> when it passes. With <paramref name="ownerOnly"/>, off Windows the file, its temporary copy and its
+    /// backup are each readable and writable by this user alone from the moment each is made (<see cref="OwnerOnly"/>), whatever mode
+    /// an older file had; on Windows the folder's own permissions hold them. Throws <see cref="IOException"/> /
+    /// <see cref="UnauthorizedAccessException"/>.</summary>
+    public static void Write(string path, string text, Func<string, bool>? isWhole = null, bool ownerOnly = false)
+        => Commit(path, new UTF8Encoding(false).GetBytes(text), ownerOnly, isWhole is null ? null : () =>
         {
             if (!File.Exists(path)) return;
             try
             {
                 var old = File.ReadAllText(path);
-                if (old.Length > 0 && old != text && isWhole(old)) File.Copy(path, path + ".bak", overwrite: true);
+                if (old.Length > 0 && old != text && isWhole(old))
+                {
+                    if (ownerOnly) WriteOwnerOnly(path + ".bak", old);
+                    else File.Copy(path, path + ".bak", overwrite: true);
+                }
             }
             catch (IOException) { }   // the backup is a bonus; the write must still happen
         });
 
     /// <summary>Write <paramref name="bytes"/> to <paramref name="path"/>: the old file or the new one, never half of one, and no
     /// backup. Throws <see cref="IOException"/> / <see cref="UnauthorizedAccessException"/>.</summary>
-    public static void Write(string path, byte[] bytes) => Commit(path, bytes, null);
+    public static void Write(string path, byte[] bytes) => Commit(path, bytes, ownerOnly: false, null);
 
-    /// <summary>The bytes go to a temporary file flushed to the disk, <paramref name="beforeSwap"/> runs, then the file is swapped in.</summary>
-    private static void Commit(string path, byte[] bytes, Action? beforeSwap)
+    /// <summary>The bytes go to a temporary file flushed to the disk, <paramref name="beforeSwap"/> runs, then the file is swapped in.
+    /// An owner-only temporary file is made in that mode, so the file swapped in over the old one has it too.</summary>
+    private static void Commit(string path, byte[] bytes, bool ownerOnly, Action? beforeSwap)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         var tmp = $"{path}.{Environment.CurrentManagedThreadId}.{Guid.NewGuid():N}.tmp";
         try
         {
-            using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            using (var fs = new FileStream(tmp, Create(ownerOnly)))
             {
                 fs.Write(bytes, 0, bytes.Length);
                 fs.Flush(flushToDisk: true);
@@ -54,6 +65,20 @@ public static class AtomicFile
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
     }
+
+    /// <summary>A new file of its own, written through and never shared while open; off Windows owner-only from its creation when asked.</summary>
+    private static FileStreamOptions Create(bool ownerOnly)
+    {
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None, Options = FileOptions.WriteThrough };
+        if (ownerOnly && !OperatingSystem.IsWindows()) options.UnixCreateMode = OwnerOnly;
+        return options;
+    }
+
+    /// <summary>
+    /// The backup of an owner-only file, owner-only throughout: written whole to a temporary file made in that mode, then swapped in,
+    /// so neither an older backup's wider mode nor a moment between a copy and a mode change lets another user read it.
+    /// </summary>
+    private static void WriteOwnerOnly(string path, string text) => Commit(path, new UTF8Encoding(false).GetBytes(text), ownerOnly: true, null);
 
     private static void Pause(int attempt) => Task.Delay(25 * (attempt + 1)).GetAwaiter().GetResult();
 

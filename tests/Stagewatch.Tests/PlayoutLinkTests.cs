@@ -570,9 +570,10 @@ static class PlayoutLinkTests
             link.Start();
             await Task.Delay(pastTheWait);
             desk.Say(State("pushed.mp4"));
-            await Task.Delay(300);
-            r.Add((link.Pairing == PlayoutPairing.None && link.Health == LinkHealth.Starting && link.Video is null && link.SetAsideBeforePairing >= 2 && Auths(desk) == 0
-                   && link.Status == $"127.0.0.1:{desk.Port} is older than Show Bus 1.1 and pairs only on its own PC — update Patterns; nothing is taken from it until it pairs",
+            // The pushed STATE set aside (the second) is the effect waited on; what it must not do (pair, show, AUTH) is read once it has.
+            var older = $"127.0.0.1:{desk.Port} is older than Show Bus 1.1 and pairs only on its own PC — update Patterns; nothing is taken from it until it pairs";
+            var setAside = await Until(() => link.SetAsideBeforePairing >= 2 && link.Status == older);
+            r.Add((setAside && link.Pairing == PlayoutPairing.None && link.Health == LinkHealth.Starting && link.Video is null && Auths(desk) == 0,
                 $"playout pairing: an older desk on another PC is not followed even when neither side holds a token; amber, its STATEs set aside ({link.SetAsideBeforePairing}, {link.Status})"));
             return r;
         }

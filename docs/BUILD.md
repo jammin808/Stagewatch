@@ -126,7 +126,9 @@ tools/test.sh help            # what each lane does, and the variables a person 
   operator frames end with `windows` while there is one, each grant its app took is a journal row and a log line, never
   an address, and `--state` keeps the grants, repairing them as it loads as the app's settings do (each repair said on
   standard error, never a token). The `--state` file holds the windows' and the page grants' addresses, which are view
-  passes, in the mode a new file gets (not owner-only, as `--secrets-out` is): it is the operator's to protect. Lines on
+  passes, so off Windows it is written owner-only (0600) as `--secrets-out` is, its temporary copy too, whatever mode an
+  older file had (one found wider as the rig loads it is narrowed then, said on standard error as `state file: narrowed`);
+  it keeps no `.bak` (on Windows the folder's own permissions hold it). Lines on
   its standard input: `stall <ms>`
   stops its show thread that long, as a stuck show (`stalled`, then `running`); `auth` reads the lockout tables, each
   address in its open minute (`addresses` for wrong PINs, `viewPasses` for wrong window addresses, viewing codes and
