@@ -231,6 +231,12 @@ server does (the window action, the window, the app), then sends each to a real 
 file's door row: a grant asked of the operator — it reaches the show thread named a deck's, a real desk queues it, the answer is
 `accepted` in the row's words and, once rejected, its `final` in the row's last words — and a withdraw on to the show thread.
 
+**The module in 2.22.0.** The module's package moves to 2.22.0 with the app (`pwsh tools\release.ps1 -Version 2.22.0
+-ModuleVersion 2.22.0`, on the maintainer's PC); the tree's `companion-module/package.json` still reads 2.16.0 until then. Its
+tests (`npm test`, the module lane of `tools/test.sh`) run here against fake servers and a real Companion server from the suite;
+Companion itself has not loaded 2.22's definitions — the *Windows* and *Desk* actions, feedbacks, variables and presets, `ACCESS`
+greying the desk keys, a press's `unheard` answer — which is the maintainer's to see on the PC.
+
 Bad input gets `ERROR <reason>` and the connection stays open.
 
 ### v1 events (default; used by the PowerPoint add-in)

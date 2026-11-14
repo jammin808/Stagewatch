@@ -99,6 +99,9 @@ dotnet run --project src/Timer.App -c Debug
 - **No QR for a window's address.** Copy address is the way today; a QR on the Windows tab would suit phones and tablets.
 - **Window content is a page path.** A saved setup is resolved when the command runs (editing the setup later doesn't
   move the window). Patterns and PlayMap could take a window address as a browser source; nothing there does yet.
+  *Since then (2.22):* a window is granted to one show app's key-verified link, which alone hears its address (Patterns, from
+  its Round 96, holds it and shows it from its air) or is told to draw it (PlayMap's `window-draw`, which PlayMap does not draw
+  yet). A window still shows only its own Stagewatch's pages: a peer's page in a window (G46) is declined for now.
 - **The fail-safe has no timer of its own on the server.** A window's link loss is seen by the window (6 s); Stagewatch
   shows the lost link in the context once the socket closes.
 
@@ -1174,9 +1177,181 @@ maintainer's too.
   finding for PlayMap's and Stagewatch's owners (an early STATE counted malformed; *closed since (SW22.11p)* by PlayMap holding its
   greeting STATE until the proof, read by row S4.2 at Mapper 031c9a3).
 
-## /ws speaks LINK (2.22, in progress) — what moved between its units
+## Show apps prove themselves, windows travel to show apps, and every door proposes (2.22) — the units, upgrade notes, the release, and what this release did not do
 
-2.22 is not released; its papers come with its last unit. What one of its units moved to another, so the next one carries it:
+2.22 is Train 5's release: Stagewatch's `/ws` speaks LINK (Show Bus 13.6), so a show app proves its node key without sending
+it; a Stagewatch window is granted to one named show app's key-verified link and held there (Patterns shows it from its air;
+PlayMap is told to draw one, which its own later unit does); and release B of the one desk reaches the doors that carry no credential (Companion TCP and OSC),
+the copilot and MCP, each line for another app a person's decision. It ships as **2.22.0**, a release of its own: 2.20 and 2.21
+went out together as 2.21.0, cut on d311de8, and no unit of 2.22 started before that head (rule R1). REMOTE.md's 2.22 section
+has every change on the wire (its first table says where each is), FEATURES.md what operators see, COMPANION.md the deck's side
+and NODES.md what a show app dials. Patterns' half of the train is its Round 96 (its Stagewatch link speaks LINK and proves
+itself; a granted Stagewatch window staged and shown from its air), closed at fb56b4e and pinned by the lane; Patterns' Round 97
+(PlayMap known on Patterns as a Show Bus node device) is under way in its own tree, and nothing of 2.22 waits on it.
+
+### The units
+
+Each is one commit on this branch (`git log --oneline` names it `2.22 SW22.k: …`), in the order they landed. *Each unit's notes*,
+below, has what each did and left in its own words, as written when it landed.
+
+| Unit | Commit | What landed | What it left |
+|---|---|---|---|
+| SW22.1a | 22109d2 | `/ws` accepts LINK on a `link=` socket: the offer first, the verdict with the server's proof, the link's id and level 1, refusal classes, its own wrong-proof table per (address, kid), `Host` and `Origin` held for a plain socket, four unfinished sockets per address | S on side calls, a key seen in clear (SW22.1b); `final`, receipts, `lateMs` (SW22.1c); the open answer (13.6.7) |
+| SW22.1b | 1958220 | S speaks for its key on the side calls (13.7.1); a key seen in clear marked, saved and shown (13.6.9); live revocation ends S; S18, a first LINK whose key may not speak for its id, refused class `binding` | the desk, context and AI facts reading the wrong-proof table |
+| SW22.3 | 99373fb | Grants in Core: `window grant <window> <app>` and `window withdraw`, kept with the windows (at most 4), `revoke` renewing every grant's pass, the self-ask fence on a proposal, loading's repairs | no app heard yet, delivery, the door rule: SW22.4–SW22.6 |
+| SW22.4 | 536e59b | Grants reach only the app's own key-verified link (`can=`, `grants`, `window-assign` / `window-end` / `window-identify`, `grants-seen`, `window-shown`); a grant address that stops working ends black; `/api/windows`' `drawn` and `grants`; the viewer table bounded at 320 | no tombstone for a dead grant address (D15); per-turn costs unmeasured |
+| SW22.1c | ceabf3d | A LINK verdict names `final` and `receipts`: one follow-up for every accepted command, `lateMs`, the receipts record per connector (and per Companion address), `RECEIPTS`; a control key's LINK operates; the 65th connection hears 429 in words | `stuck` not offered (no measured stall); the reply bound (`link.replies.max`); a side call's `X-Request-Id` unrecorded |
+| SW22.2 | 1c601df | Windows in the context: the timer `feeds` a window only while it shows a page, no link to a health item, thirteen command rows in §6's notation, 12.10's placement claims from a key-posted holder's context; the copilot's window facts and each app's `can` | §6 P4's `serves` row per holder is not published |
+| SW22.4p | f05ebd2 | The lane at the siblings' pushed heads (Patterns d707925, PlayMap 783319e), the lane standing in for a person's Trust press; S1.5 read by Patterns' contract; PM-11's `follows` rows | Patterns at level 1, PlayMap's timer row, AGMessage 0.6.0 |
+| SW22.5 | bdc75e7 | Window lights and words over viewers, grants and claims; the operator frame's `windows`; grants made at the desk (Screens' Granted to column, Grant to ▸ / Withdraw ▸, Grant…, the Show network row's Grant a window ▸); a grant a person's act at every door; loading's repairs said and written back | the WPF desk compiled, never seen |
+| SW22.6 | 51f964f | The rig hears the show apps for a grant as the desk does, builds the window items, keeps grants in `--state`; `grants.e2e.cjs` end to end | `--state` owner-only (SW22.11m) |
+| SW22.7 | 1fbdeb2 | The Companion module reads the frame's `windows`: `window_state`, `window_holding`, `windows_open`, `windows_attention`, the `window_grant` action and presets; a grant's answer on the log | its grant press refused until SW22.8; Companion itself has not loaded the definitions |
+| SW22.8 | e383d19 | Release B's doors: `peer` and `desk` over Companion TCP and OSC from this PC or a listed address; a deck's window grant asked of the operator, approved only by a person who proved it; `ACCESS`; the module's desk actions, variables and feedbacks | a decision later than 30 s reaches the desk, not the deck's log; OSC's door has no e2e |
+| SW22.9 | 7adf405 | The copilot plans steps for other apps: a step's target by id, verbs given in two passes within a budget, each step kept only when its app's verified table lists it, run through this desk with a re-rating at the press and as it goes; no step cut, a line over 2048 characters dropped whole | the Copilot window's new parts compiled, never seen; no model asked |
+| SW22.10 | 53023da | MCP proposes to other apps: `run_command`'s `target` always a pending proposal from the agent, behind the air line's sender gate; a string `get_proposal`; `get_context`'s `peer`, verified contexts only | an agent's refusals write no journal row |
+| SW22.11m | 7350580 | A mends unit: the rig's `--state` owner-only (`AtomicFile` `ownerOnly`), a press pushed out of the module's 64 waiting lines settled as `unheard`, sleeps on the playout, window and grant paths waited on their effect | the absence checks a sleep is the only honest wait for, named |
+| SW22.11 | 15f7fc4 | The lane at Patterns' Round 96 (fb56b4e): the proved `/ws` pair (S0.2), a wrong proof from another machine (S2.8), live revocation through the rig's new `revoke` line (S2.9), a window granted to Patterns (S5.1), MCP to PlayMap (S3.5, S3.7), the stuck rig (S6.2a/b) | the verdict's scope word (held, below); S5.1w, S5.2, S5.3, S6.2c; Patterns asking for a window itself |
+| SW22.11p | 3a43ca0 | The lane at PlayMap's fixed wire (Mapper 031c9a3): S4.2 and S4.3 hold the line-wire link to no `malformed` flag and a count of 0 in every read | the paired-at-HELLO path is read by no row |
+
+Between them, three commits of the plan folder only (`Papers: …`, `docs/ecosystem/`): the resume guide at the owner's pause of
+2026-11-12, the pause lifted and the owner's answers of 2026-11-14 (PlayMap holds its greeting STATE until the proof, and holds it
+for connections trusted at HELLO too).
+
+### Upgrade notes
+
+- **A key sent in clear from another machine is marked.** From 2.22 an API key in force that arrives with no TLS from another
+  machine (a bearer key, `X-Stagewatch-Pin` or `?pin=`) is marked *seen in clear* the first time: its Settings → Remote row says
+  `seen in clear from <address> … — replace this key`, the show log says it once, and the context carries an amber `key:<id>`
+  item until the key is replaced; such a key gets no window grant. The request is still answered as before, and amber never
+  closes the doors. A show app on another PC that sends its key over plain HTTP today is marked on its first request after the
+  upgrade: revoke the key, make a new one, turn HTTPS on and give the app the new key, or have the app prove its key with LINK.
+- **Settings gain fields at the ends of old entries**: each window's `grants` (`remote.windows[].grants`) and each key's
+  `clearSeen` and `clearFrom`. A Stagewatch older than 2.22 ignores them and its next save drops them: rolled back, the windows lose
+  their grants (each app's held page goes black by Show Bus 12.9 and its grant address stops) and a key marked seen in clear reads
+  clean again, so revoke a marked key rather than roll back over it. Show files carry no grant in any version.
+- **`window revoke` renews every grant's address too**, and `window delete` ends the window's grants; the apps holding them hear
+  the new address or the end on their own links.
+- **Every accepted command now hears its `final`.** A WebSocket or Companion client that sent an id and was answered `accepted`
+  (the show thread did not run it within `receipt.deadline.ms`) gets one follow-up with the same id and `"final":true` within
+  `receipt.final.ms` (30 s); 2.21 sent one only for a command waiting on another app. A receipt may end with `lateMs`. An id of
+  13.12.1's shape sent again on a LINK-verified link, or from the same Companion address, is answered from the record with
+  `"repeat":true` and not run twice.
+- **Companion TCP's `SUBSCRIBE JSON` hears `ACCESS {json}` first**, before the first `CONFIG`, and again when the operator's list
+  changes what it says. A client that does not know the line should skip it, as it skips any unknown one.
+- **`peer` and `desk` over Companion TCP and OSC** now pass from this PC or an address in May drive other show apps (2.21 refused
+  both there); a `window grant` from those doors waits on the desk as a proposal and is never made by the press.
+- **A window grant is approved only by a person who proved it**: the desk, or `desk approve` over HTTP or a WebSocket with the
+  PIN or a control key. With no PIN set, an approval of a window grant on an address alone is refused in words, as a deck's is.
+- **The 65th connection at once hears `429`** with `Retry-After: 5` and why, where it was closed unanswered.
+- **New fields at the ends of old objects**: the operator frame ends with `windows` while there is a window (after `desk` and
+  `network`); `/api/windows`' rows end with `drawn` and `grants`; a LINK verdict is §7.1's with `proof`, `lid`, `level`, `can`,
+  `inst` and `beatMs` after it; the context's commands are thirteen rows in §6's notation beside each playout link's, and its links include `timer -feeds->
+  window:<name>`; the copilot's `other_apps` rows end with `id`, `can`, `collects`, `verbs_verified` and `verb_heads`. No public
+  frame carries `windows`, and no list, frame, context, journal row or log line carries a grant's address.
+- **The copilot keeps a long step whole**: a Stagewatch step is no longer cut at 400 characters, and any step over 2048 is
+  dropped whole with its words.
+- **The rig's `--state` is owner-only** (0600, narrowed at load if it was wider); it holds the windows' and grants' addresses.
+
+### The release (the maintainer's, on the PC)
+
+```pwsh
+pwsh tools\smoke.ps1                                           # the PC checks below
+pwsh tools\release.ps1 -Version 2.22.0 -ModuleVersion 2.22.0   # app, module, installer and release date move together
+```
+
+The tree's versions still read 2.16.0 (`src/Timer.App/Timer.App.csproj`, `companion-module/package.json`); nothing here bumps a
+version or makes a tag, and the release is cut on the PC, not here. By the owner's answers the releases go in order: 2.18 and 2.19
+each on their own last commits (and 2.17 before them if it goes on its own), 2.21.0 on d311de8 carrying 2.20, then 2.22.0 from
+the commit that carries this section. The Companion module changed (the window keys, the desk keys, `ACCESS`, `unheard`) and
+takes 2.22.0 with the app. A tag waits for CI's interop job beside the other jobs (the owner's answer S-interop-gate), at the pins
+`tools/interop/siblings.json` holds for this release — Patterns fb56b4e (its Round 96), Mapper 031c9a3 (PlayMap's two wire fix
+batches), AGMessage d0e3961 (0.5.0) — and that job fails at its first step until the maintainer makes `SIBLINGS_READ_TOKEN`
+(*The interop lane in CI*, above).
+
+**The PC checks** (`pwsh tools\smoke.ps1`): none of the desk's 2.22 work has been seen in the running app. UiSmoke's checks for
+it compile here and were never run: SW22.5's (the Screens window's Granted to column, Grant to ▸ and Withdraw ▸ on right-click,
+the Grant… button, and the Show network row's entries with Grant a window ▸). The suite's seven Windows-only checks
+(`Bench.OnWindows`) run only there: the temp fence's file held by another handle, the machine id (WMI), report file names, the
+Slides agent's real loop (PowerPoint), a trigger secret protected at rest (DPAPI), a crafted master licence file rejected, and,
+new in 2.22 (SW22.11m), an owner-only file and its backup written whole on Windows. Companion itself loading the module's new
+definitions (the window and desk actions, feedbacks, variables and presets, `ACCESS` greying the desk keys) is the maintainer's
+too.
+
+### What this release did not do
+
+- **Never seen running: every WPF desk walk-through of 2.22** — SW22.1b's Settings key row (`seen in clear … — replace this key`)
+  and status line; SW22.1c's receipts path on the desk (`MainViewModel.Receipts.cs`, a late command's journal row); SW22.5's
+  window lights and grants (the Screens window's Granted to column with its shapes, Grant to ▸ / Withdraw ▸, Grant…, the Show
+  network row's Grant a window ▸, the help tip, the took rows and loading's repairs on the status line); SW22.8's desk branch for
+  a deck's grant (`ApplyWindowCommand`), its help tips and the Copilot list naming a deck's grant; SW22.9's → <app> line, the grey
+  Run with its words, a re-rated and unticked step and the "later" outcome; SW22.10's "AI agent (MCP) → <app>" item. WPF compiles
+  on Linux and is never claimed as seen; `pwsh tools\smoke.ps1`, the seven Windows-only checks, Companion loading the module's new
+  definitions and the release itself (`tools\release.ps1 -Version 2.22.0 -ModuleVersion 2.22.0` on the PC) are the maintainer's
+  and were not run here.
+- **Declined by the owner for now (owner answer X-declines, all six declined):**
+  - **G46, a peer's page in a window.** A Stagewatch window shows only its own Stagewatch's pages (windows-for-peers D18):
+    `ValidPath` and `CanShow` refuse any address that is not a path on this Stagewatch, the window page frames only itself, and
+    its shell fails a page that is not Stagewatch's. Nothing in 2.22 opens that; the peers have little such a window could carry
+    yet (PlayMap serves no viewable page; Patterns' multiview would need its own pairing).
+  - **G49's *Link all*.** No flow mints a node key per heard app and hands it over a pinned link after a click per node: each app
+    is still given a node key of its own in Settings → Remote, and the Show network says which key speaks for which app (LINK
+    now proves that key without sending it). 2.21's ready for doors and its one report answer G49's other two parts.
+  - The other four (G19's proposal picker, G33's `WEB OPEN`/`WEB TYPE`, G34's assistant-proposable link and G21's crew-key `ACK`
+    policy) are declined in the same answer; none was a 2.22 unit (G21's is under 2.18 above).
+- **An HTTP read of a show app's grants.** A show app learns its grants only on its own key-verified node link (`grants`, the draw
+  messages); no `GET` route answers them to an app, and `/api/windows` lists them for the operator with no address. The design
+  named it for later; nothing asks for it yet.
+- **The owner's answers of 2026-11-14, and what landed of them.** PlayMap holds its greeting STATE until the proof ("PlayMap
+  changes: hold the STATE until the proof"), and holds it for connections it trusts at HELLO too: Mapper's fix batches
+  fix-wire-state-after-proof (cb9be004) and fix-wire-greeting-after-handshake (031c9a3) are pushed, and the row landed — SW22.11p
+  pins Mapper at 031c9a3, and S4.2 (and S4.3) hold the line-wire link to no `malformed` flag and a count of 0 in every read,
+  which at the old pin would have failed at the first read. No row reads the paired-at-HELLO path the second batch mends (the
+  lane's line-wire links to PlayMap pair by proof). Stagewatch's core and SHOWBUS §13.14 stayed as written, as the answer says.
+  The light stages keep the cheaper model, and development continued.
+- **Choices this release keeps where the design left room** (named by SW22.4 for this unit to keep or change, both kept): a key is
+  marked seen in clear whenever it arrives plain from another machine, whether or not this Stagewatch offers TLS (13.6.9's MUST);
+  and a draw grant whose key is marked while its link is up ends on that link with `window-end` `withdrawn`, as 12.5 gives such a
+  key no draw. **No tombstones, kept:** the black end reaches only a link open when a grant address stopped working; a page that
+  reconnects or reloads on a dead address hears the window message's end in words and `GET` answers 404, and the holder draws
+  black over either by 12.9. Keeping the black end for a later reconnect needs the page to remember it holds a grant, which is a
+  spec note first: asked of Show Bus 1.4, not made here (no measurement this round: a dead address draws one end and stops, so no
+  lockout burst has a measured cause).
+- **Open findings carried forward**, each with the unit that named it (its notes below):
+  - **The verdict's scope word** (SW22.11): Stagewatch's LINK verdict says `node` (§7.1's word, as 13.6.5 reads), where its own kit
+    and every 1.3 core rank 13.5.3's ladder (`post`), so Patterns draws a link both ends proved amber, flag `scope`. The next spec
+    edit decides between the verdict saying the ladder word on `link=1` and every connector mapping §7.1's words; until then S1.5
+    and S1c.3 accept exactly that amber, and the arm goes with the decision.
+  - **The rejection's words reach the report alone** (SW22.11): `desk reject <id> <words>` journals the words but hands
+    `Approvals.Reject` none, so `GET /api/proposals/<id>`, MCP's `get_proposal` and the context say rejected with no words.
+  - **For Patterns' owner: a gone link comes back downgraded** (SW22.11): after the cable, Patterns' record for the same typed
+    address settles at level 0, TLS at first use, its key held back and its floor null, against the level-1 floor it kept for the
+    rig's id.
+  - **No window drawn on a Linux Patterns** (SW22.11): a granted page opens only in WebView2, so S5.1 proves the grant, the staging
+    and the ready gate, never a ready window shown from the air (S5.1w: a Windows job or the walk, Patterns' QUALIFICATION row).
+  - **A comment's stated order lags** (SW22.11p): `PlayoutLink.Settle`'s summary still says the greeting STATE came before the
+    pairing; PlayMap at its pin greets after `OK paired`, and the code takes either order. For a mends unit.
+  - **S6.1's one miss, unmeasured** (SW22.11p): one implementer run's wait for the restarted rig saw not every link back within
+    20 s; the wait now keeps its last read, so a next miss names the link.
+  - **Bounds chosen, not measured**: the 429 path's 16 answers at once and 2 s for a head (SW22.1c), `ACCESS`'s resend with the next
+    frame (SW22.8), the per-second rebuild of window facts (SW22.5) and SW22.4's per-turn costs. `stuck` is offered only once a
+    measured stall sets `stuckMs`.
+  - **Not kept yet** (SW22.1a–c): 13.6.7's open answer (whether a PIN-only Stagewatch may be an open acceptor is the owner's to
+    decide), Settings saying with HTTPS off that apps cannot link with keys, the wrong-proof table and LINK counts on the desk, in
+    the context and the AI facts, the reply bound and a side call's `X-Request-Id`.
+  - **What the lane does not prove yet**: PlayMap drawing and withdrawing a window (S5.2, S5.3, its PM-W), Patterns asking for a
+    window itself (`NODES ASK WINDOW`), AGMessage's stuck row (S6.2c) and keyed rows, PlayMap's P3 timer row, AGMessage 0.6.0
+    (another session's branch; the pin stays at 0.5.0), and anything of Windows, a GPU, a display or a real network.
+  - **Words owed to the contract, for Show Bus 1.4's edit**: `refs.sharedProposal` as a string (§3 words refs "by number"), the
+    scope word above, and the black end on a later reconnect. AGMessage's copy of 1.3 has not landed, so the Landed line still
+    names Stagewatch, Patterns and Mapper.
+  - **The agent brief's lines** that name `Copilot.Classify` as a new command's risk (the table is `CommandRisk.Of`) and would name
+    `PersonHelp` are the maintainer's to change, as 2.21 said.
+  - **Outside the tree:** two stage backups (`/WebServer.cs.bak`, `/WebServer.cs.keep`) and a module test log at the cloud
+    container's filesystem root could not be removed from the session; none holds a secret, none is in the repository.
+
+### Each unit's notes: what it did, and what it left
+
+What each unit moved to another, and left, as written when it landed (*since then* marks what a later unit changed):
 
 - **S14, S19 and S20 run at this `/ws` acceptor (SW22.1c).** A LINK that proved a control key now operates, so S14's legs reach
   Stagewatch's own receipts over `/ws` (the scripted peer's side call still sends no `X-Request-Id`, and HTTP answers once, so a side

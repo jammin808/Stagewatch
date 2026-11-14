@@ -1263,7 +1263,23 @@ Stagewatch, beside its own rows, and every desk decision:
 Not in this release: MCP's `get_report` and the Companion module's report action give the HTML or CSV report only, and the desk has
 no button for `network.csv` (`report network` on the wire, or the Showcaller page's link).
 
-## 2.22: show apps prove themselves on /ws (LINK)
+## 2.22: show apps prove themselves on /ws, windows granted to show apps, and every door proposes
+
+2.22 ships as 2.22.0 (WHATS_NEXT.md has its upgrade notes, its units and what it did not do). Where each change is on this page:
+
+| Change | Section |
+|---|---|
+| LINK on `/ws`: the offer, the verdict with the server's proof, the refusal classes, the wrong-proof table, S on the side calls, a key seen in clear | "A node link proves itself", below |
+| `final` for every accepted command, `lateMs`, the receipts record and `RECEIPTS`, a control key's LINK operating | "Receipts on a link", below |
+| The 65th connection's `429` | "A connection past the ceiling hears why", below |
+| `window grant <window> <app>` and `window withdraw`, kept with the windows; `revoke` renewing every grant's address | *2.17: windows*, "Commands" and "Grants (2.22, in Core)", above |
+| D0's answer: a grant's page address rides exactly two carriers, a browser's address bar and the one verified node link to the grant's own app (Show Bus §1 rule 5); `can=`, `grants`, the draw messages, the black end, `/api/windows`' `drawn` and `grants`, placement claims, the window's light and words, the operator frame's `windows`, the show log's took rows, the rig | "Windows granted to show apps", below |
+| A grant a person's act at every door; a deck's grant asked of the operator and approved only by a person who proved it | "Windows granted to show apps" and "The decks' doors", below |
+| `peer` and `desk` over Companion TCP and OSC, `ACCESS` | "The decks' doors: Companion TCP and OSC", below |
+| The copilot's steps for other apps | "The copilot plans steps for other apps", below |
+| MCP's `run_command` `target`, a string `get_proposal`, `get_context`'s `peer` | *MCP*, "Lines for other apps (2.22, release B)", above |
+| The context's thirteen command rows, `timer -feeds-> window:<name>`, no link to a health item | "Stagewatch's own context within §14" (2.19), above |
+| The operator frame ending with `windows` while there is one | *What each route needs* (2.20 and 2.21), above |
 
 ### A node link proves itself
 
@@ -1499,8 +1515,8 @@ GET /ws?node=9f8e7d6c&t=patterns&can=pages        ← can= lists what the link o
   facts and a proposal approved by id are held by the unit suite (`WindowTests`, `WindowGrantTests`, `WindowLightTests`,
   `PlayoutGateTests`).
 
-Not in this release yet: the Companion module's grant action, feedbacks and variables. *Since then (SW22.7, SW22.8):* they landed
-(docs/COMPANION.md), and a grant from a deck is asked of the operator (below).
+The Companion module's grant action, feedbacks and variables are docs/COMPANION.md's (2.22), and a grant from a deck is asked of
+the operator (below).
 
 ### The decks' doors: Companion TCP and OSC (2.22, release B)
 
@@ -1523,5 +1539,31 @@ in **Settings → Remote → May drive other show apps**, and from nowhere else.
   Sent after `SUBSCRIBE JSON`, before the first `CONFIG`, and again with the next frame whenever the operator's list changes what it
   says; the module greys its desk keys by it and refuses a press it would refuse. `grant` is appended after the design's three
   fields.
-- **Not here:** the copilot's steps for other apps (SW22.9) and MCP's `target` (SW22.10); a `peer` or `desk` line over Companion with
-  no request id is run and answered by nothing, as Companion's other lines are (the status line and the journal say what came of it).
+- **Not here:** a `peer` or `desk` line over Companion with no request id is run and answered by nothing, as Companion's other lines
+  are (the status line and the journal say what came of it); a decision later than `receipt.final.ms` reaches the desk and the
+  journal, not the deck's log. The copilot's steps for other apps are below, and MCP's `target` is under *MCP* above.
+
+### The copilot plans steps for other apps (2.22, release B)
+
+The copilot is a model's view of the show; what it plans for another show app is that app's own line, and a person decides it.
+
+- **A step names its app by its Show Bus id** (`"target":"pm-a1b2"`; empty is this Stagewatch). A step for an app is kept only when
+  the id is an app this desk lists, that app's table of verbs is verified (its context proved by its key, or read by this
+  Stagewatch's own link), the line passes the desk's fence (no control or invisible character, no key, no window's address, at most
+  2048 characters), a form of that table lists it and it fills no secret. Its risk is the table's (`DeskService.Risk`), never the
+  model's, and a high one is never ticked for the operator. Every other step for an app is listed apart, *Not proposed for other
+  apps*, in words that name the app and why, never the line. Nothing is cut: a line over 2048 characters is dropped whole. At most
+  twelve steps in all.
+- **What the model is given.** Each `other_apps` row ends with `collects`, `verbs_verified` and `verb_heads` (the words the table's
+  forms open with); the whole table (`verbs`, `more_verbs`) only for an app the request names, or one the plan asks for in
+  `need_verbs`, honoured once by a second pass — the table's first rows within 32 KB an app and 64 KB in all. An unverified table
+  gives the model no verbs. `Help`, which the model reads, leaves `peer` and `desk` out, and a plan's `peer` or `desk` line is
+  dropped by its verb.
+- **Run ticked steps** runs the plan in order: each run of this Stagewatch's own steps is one undo batch; a step for an app goes to
+  this desk as the operator's line, to the app by its id alone (gone, it is refused, never sent to another app by a name or kind
+  word), born approved with `decidedBy` `operator`, with fixed words for its reason, and waits up to 10 s for that app's answer.
+  Before any step runs, the press asks the desk of every ticked step for an app: one the desk would refuse now (not collecting,
+  unverified, unlisted, a secret, or rated higher than the operator was shown) refuses the whole run, and the plan stays waiting. As
+  each step goes it is rated again: a line its app now rates higher is refused (`PlayMap Hall now rates this line high — tick it
+  again`), nothing queued, the step shown at its new rating and unticked. A step that does not report done stops the run, and every
+  ticked step after it says so. The plan is named beside the desk's journal row, never in the proposal.

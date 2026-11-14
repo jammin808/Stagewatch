@@ -104,8 +104,10 @@ proposes into one approval queue.
   *Built so far (Stagewatch 2.21, release A):* one queue for every app, on Stagewatch's desk. A proposal for another app is
   rated by that app's own verified table of verbs; a person sends any app a line it lists (`peer`, or the Show network row's
   menu) and decides any proposal (`desk`, Copilot, the Showcaller page), each with a receipt that is the app's own answer.
-  The copilot planning steps for other apps, MCP proposing to them and the Companion and OSC doors are release B, Stagewatch
-  2.22.
+  *Built (Stagewatch 2.22, release B):* the copilot plans steps for other apps, each rated by that app's own table and sent
+  through the desk once a person runs the plan, in order, a step that fails stopping the rest; an AI agent on MCP proposes a line
+  for another app, always a proposal a person decides; and Companion and OSC send a person's line and decision from this PC or a
+  listed address. The simulated consequence of a step for another app is not shown yet.
 - **Context, not commands.** Each node publishes what the AI may read through its manifest and MCP. The brain
   reasons over the merged state and journals, never over a screen-scrape.
 - **Explain the problem across the network.** "Why is the VT countdown blank?" can be answered by checking every
@@ -163,6 +165,8 @@ proposes into one approval queue.
      one instant (Stagewatch 2.20).
    - The cross-node approval queue: release A, a person's desk for every app (Stagewatch 2.21); release B, the copilot and MCP
      proposing to other apps and the Companion and OSC doors (Stagewatch 2.22).
+   - Show apps proving their keys on Stagewatch's `/ws` (Show Bus LINK), and a Stagewatch window granted to one show app and shown
+     on Patterns (Stagewatch 2.22, Patterns Round 96).
    - ~~Merged journals~~ One report from verified peers' lines (Stagewatch 2.21).
    - One preflight, "ready for doors" (Stagewatch 2.21).
 4. **Later**
@@ -178,9 +182,9 @@ proposes into one approval queue.
   Show Bus 1.3 does this with vectors in its own text and one scripted peer that every tree runs against itself (§13.20).
   Beside them, Stagewatch's interop lane runs the four real apps against each other at pinned commits, on one LAN and one
   show laptop (`tools/test.sh interop`; `docs/BUILD.md`, "The interop lane", says what it proves and what it does not). At
-  2.21 it runs 40 rows green — the desk, the doors and Stagewatch's playout links among them — against Patterns at its round
-  91's pin, PlayMap and AGMessage 0.5.0; a newer Patterns holds its key from a Stagewatch on another machine until a person
-  presses Trust, which the lane cannot do yet (`docs/WHATS_NEXT.md`, 2.20 and 2.21).
+  2.22 it runs 47 rows green — 39 on the LAN, 5 on the show laptop, 3 offline: the desk, the doors, Stagewatch's playout links,
+  Patterns' link proving itself on `/ws`, a window granted to Patterns and MCP proposing to PlayMap among them — against Patterns
+  at its Round 96, PlayMap at its two wire fix batches and AGMessage 0.5.0 (`docs/WHATS_NEXT.md`, 2.22).
 - **Security drift.** Auth is only as strong as the weakest node. Use the same key model and lockouts everywhere,
   and send nothing secret on discovery.
 - **Code signing** is still deferred. SmartScreen warnings will cost trust at venues, so sign before a wider

@@ -18,8 +18,8 @@ and `receipts`), S15's oversize message and S16–S20; and, for the acceptor's o
 proofs, session check and receipt store behind the kit's stand-in. S15's slow reader runs only the peer's attack until the `/ws`
 acceptor keeps its reply bound; the connector's readers come with its playout links on the core. A node keeps 1.2 until a release of
 its own carries 1.3, and offers LINK only once its tree passes §13.20. §8's Stagewatch row says what Stagewatch 2.19, which carries
-1.3, does not keep of it, and this tree already keeps every rule of 1.3 that 2.19 brings. No node holds or draws a granted window
-yet. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote documentation (Stagewatch
+1.3, does not keep of it, and this tree already keeps every rule of 1.3 that 2.19 brings. Patterns holds and shows a granted
+window from its Round 96 (Stagewatch 2.22 grants it); no node draws one yet. This page is the contract. `docs/ECOSYSTEM.md` is the why and the roadmap; each app's own remote documentation (Stagewatch
 `docs/REMOTE.md`, Patterns `docs/REMOTE.md`, PlayMap `docs/SHOWBUS-NODE.md`, AGMessage `docs/NODES.md`) shows how its endpoints
 implement this. This one is the master. Patterns' copy of 1.3 (its Round 92.4) and PlayMap's (Mapper's PM-4) have landed,
 and the Landed line below names them; AGMessage keeps its copy of 1.2 until its tree's copy of 1.3 lands and the Landed line

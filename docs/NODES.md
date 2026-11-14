@@ -273,8 +273,20 @@ section has every message and refusal.
   `signal.kept.ms` (30 s) after the answer, or after a newer message or a clear cancels it, the three fields go back to `0`, `""`,
   `""` while the message may stay on stage: keep `done` for the `messageId` you sent. A receipt's `effect` is free words; show or
   assert none of it.
-- Stagewatch's `/ws` speaks no PeerLink yet (Show Bus §13): a node link proves a bearer key or the operator's credential, at level 0
-  (§7.1). The PeerLink kit — Stagewatch's core, the vectors and the scripted peer — runs in the suite only, in 2.19.
+- **Windows granted to the app (2.22, Show Bus §12.5–12.7).** A node link says what it offers for windows in its address, `can=`
+  (`pages` for an app of kind `patterns`, `window-draw` for `playmap`; the first 32 words read). Only a link that a key bound to the
+  app's id proves (by LINK, or the bearer link with `verified:"key"`) hears its grants: `{"type":"grants",…}` after the verdict and
+  before any frame, then whole whenever they change, with `rev` rising on that link. A page grant's own address is in it only over
+  TLS or this machine's loopback, on a key never seen in clear; otherwise `cannot` says why. A draw grant comes as `window-assign`
+  (and `window-end`, `window-identify`). The app answers `grants-seen` and, for a window it draws, `window-shown`; Stagewatch takes
+  either only from that link. The app keeps a grant's address as a secret (Show Bus 12.8: wherever it would name it, its STATE,
+  context or journal names the held form `stagewatch://<this Stagewatch's id>/<window id>`), and when the grant ends a page open
+  on it hears the black end and draws black. REMOTE.md's 2.22 section has every
+  message, its words and `/api/windows`' grant rows.
+- **LINK is Stagewatch's own since 2.22**: its `/ws` is a PeerLink acceptor at level 1 (Show Bus §13; S1–S3, S8–S10, S12's emitting
+  half, S14, S15's oversize message and S16–S20 run against it in the suite with the scripted peer), and a bearer node link or
+  the operator's credential proves a link at level 0 (§7.1), as before. Stagewatch's playout links dial Patterns and PlayMap at
+  level 0 (§5); offering LINK on them is a later release's.
 
 ## 5. Playout links (Stagewatch as a Patterns and PlayMap client)
 

@@ -12,6 +12,49 @@ LTC and the time-server drift check, vMix VT countdowns and Patterns and PlayMap
 printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
 
+## 2.22: show apps prove themselves, windows for Patterns and PlayMap, and every door proposes to other apps
+
+WHATS_NEXT.md has the upgrade notes and what this release did not do, and REMOTE.md every change on the wire.
+
+- **Show apps prove their keys without sending them.** Patterns (from its Round 96) and any show app that speaks Show Bus LINK
+  prove their node key on Stagewatch's `/ws`, bound to the certificate they saw, so the key never crosses the network and another
+  machine between the two cannot pass the proof on. From another machine only over HTTPS; the 2.18 node link with the key in its
+  header still works. Revoking a key ends its link at once.
+- **A key sent in clear is marked.** A key that reached Stagewatch unencrypted from another machine says so on its row in
+  Settings → Remote (*seen in clear from … — replace this key*), in the show log and in the context, amber: revoke it, make a new
+  one and turn HTTPS on. Such a key gets no window.
+- **Give a window to a show app.** Screens → Windows → select a window → **Grant…** (or right-click → **Grant to ▸**), or the show
+  app's row in Producer → Show network → **Grant a window ▸**: Patterns gets an address of its own for that window and shows it
+  where its operator puts it (staged, then taken to air on the Patterns desk); PlayMap is told to draw it. Up to 4 apps per window.
+  The address goes only to that app's own proved link, never into a list, frame, log or the context. The **Granted to** column says
+  where each grant stands, with a shape beside its colour (✓ shown, ■ held or open, ○ sent and not yet acknowledged, or not linked, △ needs you), and the window's
+  light and words say what its viewers show, then each grant, then where its holders say they show it (*Patterns FOH says: Screen
+  2 — LED wall*). **Withdraw ▸** ends a grant; **Revoke** gives the window and every grant a new address. A grant that ends draws
+  plain black on the app, never a stale page.
+- **A grant is a person's act.** It is made at the desk, or over HTTP or a WebSocket with the PIN or a control key. A Companion or
+  OSC button asks it of you: it waits in **Copilot** as a high proposal for you to approve, and a deck can reject it but never
+  approve it.
+- **Decks drive other apps too (release B).** Companion and OSC from this PC or an address in Settings → Remote → **May drive other
+  show apps** send another app a line it lists (`PEER`) and approve or reject what waits on the desk (`DESK APPROVE|REJECT`, a high
+  one by a second press). The module's *Desk* actions, variables and feedbacks follow the desk, and Stagewatch tells each deck what
+  its address may do (`ACCESS`), so a key it would refuse is greyed.
+- **The copilot plans for every app.** Ask "we're late — cue PlayMap's next playlist and tell the board": a plan's step may be another
+  app's line, shown **→ PlayMap Hall** above it, rated by that app's own list of verbs, never by the model. **Run ticked steps**
+  sends each through the desk in order and waits for the app's answer; a step the app would now refuse, or rates higher than you
+  were shown, stops the run before anything goes, and a step that fails stops the steps after it.
+- **AI agents propose to other apps (MCP).** An agent's `run_command` with a `target` is always a proposal you decide, listed as
+  *AI agent (MCP) → <app>*, whatever Settings → Integrations allows agents to do alone. `get_context` reads another app's context
+  only while that app is proved.
+- **Every accepted command has an answer.** A command the show thread had not run in time is answered once more when it has, or
+  said unconfirmed after 30 s; a command sent again by its id is answered from the record and never runs twice; one that ran late
+  says how late.
+- **Companion**: *Windows* keys light from the windows' state (*A window is…*, *Holding page is up*, `windows_open`,
+  `windows_attention`), a grant or withdraw action with its answer on the log, the *Desk* keys and *Show apps: send a line to
+  another app*; a press that could no longer be answered says so (`unheard`) instead of being forgotten.
+- Not walked on Windows yet: every desk change above compiles and has UI smoke checks that have not been run; WHATS_NEXT.md says
+  what the release did not do. Declined for now: a peer's page in a window, and *Link all* (each app still gets a node key of its
+  own in Settings → Remote).
+
 ## 2.21 (with 2.20): playout links, one desk for every app, ready for doors, one report
 
 2.20 and 2.21 come as one release. WHATS_NEXT.md has the upgrade notes, and REMOTE.md every change on the wire.
