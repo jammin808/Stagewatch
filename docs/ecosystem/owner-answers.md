@@ -70,6 +70,18 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   gains the init-only PeerId, through the spine lane) and src/PlayMap.Engine/Host/NetworkHost.cs (HeardId, the one rule that says
   which hello a link's far end is, and its two call sites).
 
+- M-PMX (2026-11-14): the early STATE counted malformed (the finding in Stagewatch's docs/WHATS_NEXT.md, "PlayMap's early STATE
+  counted malformed") is PlayMap's to change: "PlayMap changes: hold the STATE until the proof." A new round-2 fix batch,
+  fix-wire-state-after-proof, is allowed with the leave src/PlayMap.Net/Wire/WireSession.cs (an unpaired TCP line connection's
+  greeting STATE waits for "OK paired", as the web port's line channel already does; a connection paired at connect hears it
+  after HELLO as today), the tests of the wire that hold it (tests/PlayMap.Net.Tests), the papers that word a connection's life
+  (docs/WIRE.md and the documents that quote it) and a CARRYOVER entry. Stagewatch's core and SHOWBUS §13.14 stay as written.
+
+- Models (2026-11-14): the light stages (a round's opening, the papers' check-and-commit) stay on the cheaper model; the work
+  stages stay as set on 2026-11-12.
+
+- The pause of 2026-11-12 is lifted (2026-11-14): "Continue development."
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns

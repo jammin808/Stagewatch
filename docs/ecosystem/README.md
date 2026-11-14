@@ -15,12 +15,12 @@ carry byte-identical copies of the contract, not of this folder.
 | `data/` | `gaps.json` (G01–G49), `maps-lite.json`, `master-plan.json` (the units as data), `units/*.json` (each design's units) |
 | `workflows/` | The scripts each train ran (implement → adversarial review → fold-in and one commit per unit); the two chain templates in use now (`stagewatch-chain.js`, `patterns-chain.js`); `unit-brief.py`, which builds a unit's brief from this folder; and `patterns-app-parts.sh`, which runs Patterns' App suite as foreground parts. They name this folder by its path in a cloud checkout (`/home/user/Stagewatch/docs/ecosystem`); edit `S` if the trees live elsewhere |
 
-## Where the work stands (2026-11-12): paused
+## Where the work stands (2026-11-14): resumed
 
-**Paused at the owner's word (2026-11-12): "Pause at the end of the two chains running now."** The reason is the owner's
-weekly usage limit, which resets on Saturday morning. The two chains ended: Stagewatch's Train 5 through SW22.10 and Patterns'
-Round 96 through its papers. Every tree is clean and pushed; nothing is in flight. Start nothing until the owner says so; on
-their word, the next units are the ones named under each tree below.
+The owner paused the work on 2026-11-12 at the end of the two chains then running and lifted the pause on 2026-11-14
+("Continue development"). What follows is each tree at the pause, with what runs next; `git log` in each tree says how far
+the next units have come. Under way from 2026-11-14: Stagewatch SW22.11, SW22.11p and SW22.12; Patterns Round 97; PlayMap's
+fix batch fix-wire-state-after-proof (the owner's answer of 2026-11-14 in `owner-answers.md`).
 
 Every repository's work is on the session's designated working branch (the same name in all five repositories); each landed
 unit was pushed as it landed. AGMessage stays with its own session.
@@ -84,9 +84,9 @@ unit was pushed as it landed. AGMessage stays with its own session.
 
 ### Open findings carried into the next units
 
-- **The owner's to decide:** PlayMap's link to Stagewatch carries the `malformed` flag from its first moment (a STATE frame
-  arrives after HELLO and before the proof); which side changes is not decided. Whether a PIN-only Stagewatch may be an open
-  acceptor. Two stray files at the filesystem root of the cloud container (`/WebServer.cs.bak`, `/WebServer.cs.keep`, a
+- **Decided (2026-11-14):** PlayMap holds its greeting STATE until the proof (fix-wire-state-after-proof in Mapper); once it is
+  pushed, the interop lane's Mapper pin moves and a row asserts the link carries no `malformed` flag (SW22.11p).
+- **The owner's to decide:** whether a PIN-only Stagewatch may be an open acceptor. Two stray files at the filesystem root of the cloud container (`/WebServer.cs.bak`, `/WebServer.cs.keep`, a
   stage's mutation backups) could not be removed from the session; they are in no repository.
 - **Stagewatch, for SW22.11 or a mends unit:** the rig's `--state` file is not owner-only; the Companion module's shared
   64-slot awaiting table can drop a playout press silently; some checks sleep before reading a command's effect; `stuck` is
