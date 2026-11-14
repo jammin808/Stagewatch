@@ -829,13 +829,18 @@ running app on a network: two copies of one install for the conflict, an old cer
     (level 0, `legacy`) and both wires are plain TCP off this machine (`plain`), which 13.16.2 lights amber; green waits on
     each app answering LINK (and, for the line wire, on TLS). "Both VTs named" is read as the VT naming each link's clip in
     turn, the frame carrying one VT.
-  - **Finding, for the owners (PlayMap's early STATE counted malformed)**, named here and asserted by no row: PlayMap's link
+  - **Finding, for the owners (PlayMap's early STATE counted malformed)**, named here and asserted by no row until SW22.11p: PlayMap's link
     also carries the `malformed` flag ("lines it could not read") from its first moment. PlayMap's TCP wire says its STATE right after `HELLO`, before the proof (`WireSession`, not
     strict: its `ws` channel holds the STATE until the proof), and Stagewatch's core counts every message heard during the
     handshake as malformed (13.6.3's "discarded and counted", `PeerLinkConnector.Hear`), so every level-0 line-wire link to
     PlayMap says it could not read lines it read whole. Whether an early STATE is counted apart from a malformed line
     (Stagewatch's core and SHOWBUS's §13.14 words) or PlayMap holds it until the proof (as its strict channel does) is the two
-    owners' call.
+    owners' call. *Closed (SW22.11p):* the owners decided on 2026-11-14 that PlayMap holds it ("PlayMap changes: hold the STATE
+    until the proof"), and Mapper's fix batch fix-wire-state-after-proof (cb9be004, its TCP line wire greets an unpaired connection
+    only after `OK paired`), with fix-wire-greeting-after-handshake behind it (031c9a3, a connection paired at HELLO greeted only
+    once a dialler's handshake ends), is the lane's PlayMap pin; row S4.2 now holds every read of the link, its first through the
+    settled pause and the refused GO, to no `malformed` flag and a malformed count of 0. Stagewatch's core and SHOWBUS stay as
+    written.
   - Not read yet: S6.3's `link:stage-left` (a playout link to PlayMap red while it is gone), which needs the room's rig to run
     a playout link; a cue (`--cue`) against the real apps; the TLS carrier to PlayMap.
 - **Interop rows that wait on another app.** Each is named here and not in the lane, which holds only rows that pass:
@@ -1166,7 +1171,8 @@ maintainer's too.
   AI's facts without `collects`; `network.csv` on MCP, the module and a desk button; the copilot still cutting its own steps at 400
   characters (release B; *since then (SW22.9):* refused whole over 2048, never cut); Find still listening on Patterns' 9700 beacon; and the asks of Patterns and AGMessage (an `APPLY` title
   without invisible characters and a refused proposal settled; a 2048-character line and invisible characters left out) and the
-  finding for PlayMap's and Stagewatch's owners (an early STATE counted malformed).
+  finding for PlayMap's and Stagewatch's owners (an early STATE counted malformed; *closed since (SW22.11p)* by PlayMap holding its
+  greeting STATE until the proof, read by row S4.2 at Mapper 031c9a3).
 
 ## /ws speaks LINK (2.22, in progress) — what moved between its units
 
@@ -1367,7 +1373,8 @@ maintainer's too.
     verdict's scope word (below, "The lane at Patterns' Round 96"). PlayMap's
     P3 timer row (above). AGMessage 0.6.0, which is another session's branch and not
     its main; its pin stays at 0.5.0. PlayMap's early STATE still
-    marks `malformed` (the finding under "The VT rows"). And everything the paragraph above lists as not proved.
+    marks `malformed` (the finding under "The VT rows"; *since then (SW22.11p):* closed at Mapper 031c9a3, S4.2 reading no
+    `malformed` flag and no count). And everything the paragraph above lists as not proved.
 - **Release B's doors: Companion TCP and OSC through the gate, and a deck's grant waits for the operator (SW22.8; G14, G20).**
   `peer` and `desk` pass Companion TCP and OSC from this PC or an address in May drive other show apps, as the role `deck` (the
   door's name and the address in the desk's journal row alone), and are refused from anywhere else in words naming the setting;
@@ -1582,6 +1589,42 @@ maintainer's too.
     (PlayMap) and 4.0 s (Patterns) after the rig's own stall time, with no `stuckMs` to set beside them.
   - **Not done here:** Patterns asking for a window itself (`NODES ASK WINDOW`, its 96.2) is not a row yet; nor is S5.2/S5.3 (PlayMap draws
     and withdraws, its PM-W) or S6.2c (AGMessage, F2). The revocation leg is driven only on Patterns' link: PlayMap's at its pin is level 0.
+
+- **The lane at PlayMap's fixed wire (SW22.11p).** `tools/interop/siblings.json` pins Mapper at 031c9a3 (the head of
+  `claude/serene-pasteur-bq058o`, read pushed with `git ls-remote`, built in the lane's own clone): PlayMap's fix batches
+  fix-wire-state-after-proof (cb9be004) and fix-wire-greeting-after-handshake (031c9a3), the owners' answer of 2026-11-14 to the
+  finding "PlayMap's early STATE counted malformed" (under "The VT rows", closed there). Patterns stays at fb56b4e and AGMessage at
+  d0e3961. On the committed tree one run of `tools/test.sh build interop` passed every row at the new pin (below); nothing in
+  Stagewatch's core or SHOWBUS moved.
+  - **S4.2 holds the link clean from its first read.** The VT rig's level-0 playout link to PlayMap's TCP line wire (9941, plain,
+    paired by proof with PlayMap's own token) is read in every poll from the first after the rig's ready line until it pairs, then
+    after the applied pause and after the refused GO: each read carries no `malformed` flag (the connection's) and its record's
+    `counts.malformed` is 0. The count is the link's own since the rig started, every connection it made counted, so a discard
+    before any read (13.6.3's "discarded and counted") would still show; a read that counts one fails the row at once. In the
+    two LAN runs the link paired 65 ms and 32 ms after the ready line, every read clean (`facts.noMalformed`).
+  - **S4.3 holds its link to PlayMap the same way.** The rig with both links (a rig of its own, its counts fresh) holds the
+    `stage-left` link to PlayMap to no `malformed` flag and a count of 0 in every read until it pairs and once more after the
+    applied play (`facts.noMalformed`); its link to Patterns is not held to it.
+  - **Why the rows would fail at the old pin (783319e), read from the code, not run there:** PlayMap's TCP wire said its STATE
+    straight after `HELLO`'s `OK`, before the proof; `PlayoutLink` hands a line heard before the pairing to the core
+    (`_m.Frame`), whose `Hear` in the handshake phase adds to the link's lifetime malformed count, which `Close` never resets
+    (only the per-connection count that sets the flag). So the count was at least 1 before the first poll, and the first read
+    of either row would have failed it.
+  - **A comment left for a mends unit:** `PlayoutLink.Settle`'s summary (`src/Timer.Integrations/PlayoutLink.cs`) still says
+    "the greeting STATE came before the pairing and was set aside"; PlayMap at this pin greets after `OK paired` and that STATE is
+    the first reading. The code takes either order; only the comment's stated invariant lags, and this unit changes the lane alone.
+  - **Not read by a row:** the paired-at-HELLO path that fix-wire-greeting-after-handshake mends (a connection PlayMap trusts at
+    HELLO: loopback when trusted, a listed address, a node with no token). The lane's only line-wire links to PlayMap are the VT rigs' (S4.2's, S4.3's),
+    from another namespace with PlayMap's token, so it pairs by proof; Mapper's CARRYOVER keeps open that a dialler whose next line is
+    not in when PlayMap next reads is greeted at HELLO (Stagewatch's PlayoutLink writing HELLO and its probe as two writes, unmeasured).
+  - **Validate,** `tools/test.sh build interop` on the committed tree, with S4.3 held too: the self-check 65 of 65, the LAN 39 of
+    39 (S4.2, S4.3 and S6.1 among them), the laptop 5 of 5, offline 3 of 3. Before S4.3 was held, an implementer's run was green but for S6.1 (the rig killed and restarted: "every link to
+    the restarted rig live, Patterns following it by its name again" not met within 20 s, the matrix keeping no last read) and S7.4,
+    which fails with any row before it; 37 of 39 on the LAN, 5 of 5 on the laptop, 3 of 3 offline. The LAN run alone again was 39 of
+    39, S6.1 back in 4.5 s. S6.1 reads no line-wire link PlayMap accepts (PlayMap dials the rig), so the one miss is not put down to
+    the pin; it is named here unmeasured. Its cause is not named from the code: that run's wait for the restarted rig returned
+    nothing while it waited, so the miss kept no read. S6.1's wait now throws each read that is not back yet (PlayMap's state and
+    trust, AGMessage's, Patterns' state and the name it follows), so a next miss names the link that did not come back.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

@@ -84,8 +84,9 @@ unit was pushed as it landed. AGMessage stays with its own session.
 
 ### Open findings carried into the next units
 
-- **Decided (2026-11-14):** PlayMap holds its greeting STATE until the proof (fix-wire-state-after-proof in Mapper); once it is
-  pushed, the interop lane's Mapper pin moves and a row asserts the link carries no `malformed` flag (SW22.11p).
+- **Decided (2026-11-14), closed (SW22.11p):** PlayMap holds its greeting STATE until the proof (fix-wire-state-after-proof,
+  cb9be004, and fix-wire-greeting-after-handshake, 031c9a3, pushed); the interop lane's Mapper pin is 031c9a3 and row S4.2 holds
+  the level-0 line-wire link to no `malformed` flag and a malformed count of 0 in every read.
 - **The owner's to decide:** whether a PIN-only Stagewatch may be an open acceptor. Two stray files at the filesystem root of the cloud container (`/WebServer.cs.bak`, `/WebServer.cs.keep`, a
   stage's mutation backups) could not be removed from the session; they are in no repository.
 - **Stagewatch, for SW22.11 or a mends unit:** the rig's `--state` file is not owner-only; the Companion module's shared

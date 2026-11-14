@@ -218,8 +218,9 @@ tools/test.sh help                                # every lane, and every variab
   instead (still pushed only), and `builds.json` and the matrix say how far each is from its pin: the nightly drift report,
   which moves no pin.
 - The pins are the siblings' pushed heads: Patterns fb56b4e (its round 96 closed: its Stagewatch link speaks LINK on `/ws`,
-  and a Stagewatch window granted to its desk is staged ready-gated and said shown only from the air), PlayMap 783319e (its
-  fix batch PM-11: its context names the peers it follows), AGMessage d0e3961 (0.5.0). Patterns' link proves itself to the
+  and a Stagewatch window granted to its desk is staged ready-gated and said shown only from the air), PlayMap 031c9a3 (its
+  fix batches fix-wire-state-after-proof and fix-wire-greeting-after-handshake: its line wire says its greeting STATE only
+  after a connection's proof, so a level-0 link to it counts no line it could not read), AGMessage d0e3961 (0.5.0). Patterns' link proves itself to the
   rig and the rig to it with the node key the rig made for it, pins the certificate the proof was made over and keeps a floor,
   so no person's Trust is asked on the LAN (row S0.2 reads the bench's trust line finding nothing waiting). The laptop and
   offline topologies link at 127.0.0.1.
@@ -296,8 +297,8 @@ once those are removed, for every secret of the register, in either case. A row'
 | S2.7 | lan | a node key cannot speak for another node: each such post is refused 403 with Stagewatch's words, no forged word reaches the rig's context, and every key stays bound as it was |
 | S4.5 | lan | PlayMap follows Patterns' clip and blackout, paired by proof |
 | S4.1 | lan | a rig's playout link to Patterns' wire, with Patterns' own token: paired by proof as Patterns within 5 s, amber for level 0 over plain TCP; its VT Patterns' clip's own time left within 1.5 s; `playout patterns pause` applied in Patterns' words, its STATE paused and the VT stopped within 5 s |
-| S4.2 | lan | a rig's playout link to PlayMap's wire, with PlayMap's own token and a 60 s colour item playing in its playlist `show`: paired by proof as PlayMap within 5 s; its VT the item's own time left within 1.5 s; `playout stage-left pause` applied, PlayMap's STATE paused; `playout stage-left go show #9` refused in PlayMap's own words |
-| S4.3 | lan | one rig with both links, each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context's `link:patterns` and `link:stage-left` each in its own record's light, and the VT names Patterns' running clip, then, that paused through its link, PlayMap's running item |
+| S4.2 | lan | a rig's playout link to PlayMap's wire, with PlayMap's own token and a 60 s colour item playing in its playlist `show`: paired by proof as PlayMap within 5 s; its VT the item's own time left within 1.5 s; `playout stage-left pause` applied, PlayMap's STATE paused; `playout stage-left go show #9` refused in PlayMap's own words; in every read of the link from its first after the rig's ready line through the settled pause and the refused GO, no `malformed` flag and a malformed count of 0 |
+| S4.3 | lan | one rig with both links, each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context's `link:patterns` and `link:stage-left` each in its own record's light, and the VT names Patterns' running clip, then, that paused through its link, PlayMap's running item; the link to PlayMap counts no line it could not read in any read until it pairs and after the play (S4.2's check) |
 | S4.4 | lan | on one kernel each link believes its peer's clock within 50 ms of its own, within 10 s, and the context carries no `clock:` item |
 | S6.1 | lan | the rig killed and restarted: every link lets go, then is gone, then is live again |
 | S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again; Patterns' link record, once settled, is recorded with its level, proof, TLS and floor (a finding in WHATS_NEXT: it comes back at level 0, TLS at first use) |

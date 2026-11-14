@@ -534,21 +534,45 @@ async function vtLockoutAfter(r) {
   if (counted.length) throw new Error(`the VT rig counted failures against ${counted.join(', ')}`);
 }
 
-/** The link called `name` as the VT rig's `links` line reads it, once `ok(link)` holds, within ms. */
-function vtLink(name, ok, ms, what) {
+/**
+ * The link called `name` as the VT rig's `links` line reads it, once `ok(link)` holds, within ms; `each(link)`, when given, is
+ * held of every read on the way, the one that ends the wait included.
+ */
+function vtLink(name, ok, ms, what, each = null) {
   return until(async () => {
     const l = (await apps.vt.links()).find((x) => x.name === name);
     if (!l) throw fatal(`the VT rig runs no link called ${name}`);
+    if (each) each(l);
     return ok(l) ? l : null;
   }, ms, what);
 }
 
 /**
+ * A read of a link that never counted a line it could not read: no `malformed` flag (this connection's) and a malformed count of 0
+ * (the link's own since its rig started, every connection it made counted; 13.6.3 counts every message heard before the link is up
+ * there, so a peer that says anything but its handshake's answers before the proof is caught by either). Throws, naming the
+ * record, otherwise (fatal: a count once made stays, so no later read would clear it); resolves with what it read: { at, pairing,
+ * flags, malformed }.
+ */
+function vtNoMalformed(l, at) {
+  const r = l.record;
+  const malformed = r.counts ? r.counts.malformed : undefined;
+  if (!Array.isArray(r.flags) || typeof malformed !== 'number') {
+    throw fatal(`${l.name}'s record ${at} holds no flags or no malformed count: ${JSON.stringify(r).slice(0, 300)}`);
+  }
+  if (r.flags.includes('malformed') || malformed !== 0) {
+    throw fatal(`${l.name}'s record ${at} counts lines it could not read: ${JSON.stringify({ pairing: l.pairing, state: r.state, level: r.level, flags: r.flags, counts: r.counts, words: r.words })}`);
+  }
+  return { at, pairing: l.pairing, flags: r.flags, malformed };
+}
+
+/**
  * Paired, the kind and node its peer said: the link as read, within ms of `from`. Neither app proves itself to a connector yet and
  * neither wire offers TLS, so the record says why it is amber (13.16.2): proved at level 0 (`legacy`) over plain TCP (`plain`).
+ * `each`, when given, is held of every read until then (vtLink).
  */
-async function vtPaired(name, kind, node, from, what) {
-  const l = await vtLink(name, (x) => x.pairing === 'paired' && x.kind === kind && x.node === node, S.left(from, HELLO_MS), what);
+async function vtPaired(name, kind, node, from, what, each = null) {
+  const l = await vtLink(name, (x) => x.pairing === 'paired' && x.kind === kind && x.node === node, S.left(from, HELLO_MS), what, each);
   const ms = S.inTime(from, HELLO_MS, what);
   const r = l.record;
   if (r.state !== 'live' || r.level !== 0 || r.light !== 'amber' || !r.flags.includes('legacy') || !r.flags.includes('plain')) {
@@ -654,7 +678,7 @@ test("S4.1 the rig's VT link to Patterns", row({
 
 test("S4.2 the rig's VT link to PlayMap", row({
   id: 'S4.2',
-  title: "a rig's playout link to PlayMap's wire (--playout stage-left=<PlayMap>:9941,playmap, PlayMap's own token) with PlayMap's VT setup playing: paired by proof as PlayMap within 5 s, its VT the item's own time left within 1.5 s, playout stage-left pause applied with PlayMap's STATE paused, and playout stage-left go show #9 refused in PlayMap's own words",
+  title: "a rig's playout link to PlayMap's wire (--playout stage-left=<PlayMap>:9941,playmap, PlayMap's own token) with PlayMap's VT setup playing: paired by proof as PlayMap within 5 s, its VT the item's own time left within 1.5 s, playout stage-left pause applied with PlayMap's STATE paused, and playout stage-left go show #9 refused in PlayMap's own words; the level-0 line-wire link carries no malformed flag and counts no line it could not read in any read from its first through the settled pause and the refused GO (PlayMap greets with STATE only after OK paired)",
   apps: ['stagewatch', 'playmap'],
   deadlineMs: HELLO_MS,
 }, async (r) => {
@@ -663,13 +687,23 @@ test("S4.2 the rig's VT link to PlayMap", row({
   await until(async () => (await playmapClip()).running, HELLO_MS, "PlayMap's VT setup playing");
   const vt = await vtStart('s4-2', ['stage-left']);
   const readyAt = Date.now();
-  r.facts.paired = await vtPaired('stage-left', 'playmap', ids.playmap, readyAt, "the VT rig's link to PlayMap paired");
+  // PlayMap says its greeting STATE only after OK paired, so every read of the link, the first after the ready line included,
+  // counts no line discarded before the proof. The facts keep the first read and each read whose pairing moved; every read is held.
+  const reads = [];
+  const clean = (l) => {
+    const read = vtNoMalformed(l, reads.length ? 'while it pairs' : 'at its first read');
+    if (!reads.length || reads[reads.length - 1].pairing !== read.pairing) reads.push(read);
+  };
+  r.facts.paired = await vtPaired('stage-left', 'playmap', ids.playmap, readyAt, "the VT rig's link to PlayMap paired", clean);
+  r.facts.noMalformed = reads;
+  const settled = async (at) => vtNoMalformed(await vtLink('stage-left', () => true, HELLO_MS, `the VT rig's link to PlayMap ${at}`), at);
   r.facts.vt = await vtAgrees('stage-left', 'PlayMap', ids.playmap, playmapClip, S.left(readyAt, HELLO_MS), "the VT rig's VT on PlayMap's item");
   r.facts.vtMs = S.inTime(readyAt, HELLO_MS, "the VT rig's VT on PlayMap's item");
   let sentAt = Date.now();
   r.facts.pause = await vtPlayout(['stage-left', 'pause'], 'interop-s4-2-pause', true);
   const paused = await until(async () => { const c = await playmapClip(); return c.paused === true && !c.running ? c : null; }, S.left(sentAt, HELLO_MS), "PlayMap's item paused");
   r.facts.paused = { playmap: paused, ms: S.inTime(sentAt, HELLO_MS, "PlayMap's item paused") };
+  r.facts.noMalformed.push(await settled('after the applied pause'));
   // PlayMap's own words for a GO to an item its playlist has not, said on its own wire: the oracle the receipt is held to.
   const own = await apps.playmap.say('PLAYLIST GO show #9');
   if (!/^ERR /.test(own)) throw new Error(`PlayMap answered PLAYLIST GO show #9 with ${JSON.stringify(own)}`);
@@ -680,12 +714,13 @@ test("S4.2 the rig's VT link to PlayMap", row({
   const words = own.slice(4);
   if (!r.facts.go.error.includes(words)) throw new Error(`the receipt says "${r.facts.go.error}", not PlayMap's own "${words}"`);
   r.facts.go.playmapSaid = own;
+  r.facts.noMalformed.push(await settled('after the refused GO'));
   await vtLockoutAfter(r);
 }));
 
 test('S4.3 both at once', row({
   id: 'S4.3',
-  title: "one rig with both playout links (patterns, then stage-left), each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context carries link:patterns and link:stage-left each in its own record's light, and the VT names Patterns' running clip first and, once that is paused through its link, PlayMap's running item",
+  title: "one rig with both playout links (patterns, then stage-left), each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context carries link:patterns and link:stage-left each in its own record's light, and the VT names Patterns' running clip first and, once that is paused through its link, PlayMap's running item; the link to PlayMap counts no line it could not read in any read until it pairs and after the play",
   apps: ['stagewatch', 'patterns', 'playmap'],
   deadlineMs: HELLO_MS,
 }, async (r) => {
@@ -696,7 +731,8 @@ test('S4.3 both at once', row({
   r.facts = {
     paired: {
       patterns: await vtPaired('patterns', 'patterns', ids.patterns, readyAt, "the VT rig's link to Patterns paired"),
-      'stage-left': await vtPaired('stage-left', 'playmap', ids.playmap, readyAt, "the VT rig's link to PlayMap paired"),
+      'stage-left': await vtPaired('stage-left', 'playmap', ids.playmap, readyAt, "the VT rig's link to PlayMap paired",
+        (l) => vtNoMalformed(l, 'while it pairs')),
     },
   };
   // The rig builds its context once a second: one built before both links were read paired may still say them connecting.
@@ -727,6 +763,8 @@ test('S4.3 both at once', row({
   r.facts.pause = await vtPlayout(['patterns', 'pause'], 'interop-s4-3-pause', true);
   r.facts.vtThen = await vtAgrees('stage-left', 'PlayMap', ids.playmap, playmapClip, S.left(at, HELLO_MS), "the VT on PlayMap's item once Patterns' clip is paused");
   r.facts.vtThenMs = S.inTime(at, HELLO_MS, "the VT moved to PlayMap's item");
+  // This rig's line-wire link to PlayMap is held as S4.2's is: no line counted unread from its first read through the applied play.
+  r.facts.noMalformed = vtNoMalformed(await vtLink('stage-left', () => true, HELLO_MS, "the VT rig's link to PlayMap after the play"), 'after the play');
   await vtLockoutAfter(r);
 }));
 
@@ -1937,9 +1975,11 @@ test('S6.1 the rig killed and restarted', row({
   const restartedAt = Date.now();
   // Live again as before: Patterns following the rig by the name its hello gives, not only at the address it dials, so the
   // rows after find its link settled.
+  // A read that is not there yet is thrown (not fatal), so a miss names each link's state and Patterns' name as last read.
   const back = await until(async () => {
     const l = await stagewatchLinks();
-    return allLive(l) && l.patterns.name === before.patterns.name ? l : null;
+    if (allLive(l) && l.patterns.name === before.patterns.name) return l;
+    throw new Error(`not back yet: ${JSON.stringify({ playmap: l.playmap.state, playmapTrusted: l.playmap.trusted, agmessage: l.agmessage.state, patterns: l.patterns.state, patternsName: l.patterns.name, wanted: before.patterns.name })}`);
   }, GONE_MS, 'every link to the restarted rig live, Patterns following it by its name again');
   r.facts = { before, lockoutBeforeKill: kept.read, letGo, letGoMs, gone, goneMs, restartReadyMs: sw.readyMs, back, backMs: S.since(restartedAt) };
   await lockoutAfter(r);
