@@ -77,6 +77,17 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   after HELLO as today), the tests of the wire that hold it (tests/PlayMap.Net.Tests), the papers that word a connection's life
   (docs/WIRE.md and the documents that quote it) and a CARRYOVER entry. Stagewatch's core and SHOWBUS §13.14 stay as written.
 
+- M-PMX (2026-11-14, second answer): fix-wire-state-after-proof (Mapper cb9be004) holds the greeting on a connection that pairs by
+  proof; a connection PlayMap already trusts at HELLO (loopback when the settings trust it, a listed address, a node with no token)
+  still hears it right after HELLO's OK, so a dialler still in its handshake there (Stagewatch's PlayoutLink on one laptop) may
+  still count it. Asked "should PlayMap hold the greeting there too?" the owner answered "Yes". A new round-2 fix batch,
+  fix-wire-greeting-after-handshake, is allowed with the same leave as fix-wire-state-after-proof (src/PlayMap.Net/Wire/
+  WireSession.cs, the wire's tests under tests/PlayMap.Net.Tests, the papers that word a connection's life, a CARRYOVER entry),
+  and every reader of the paired-at-HELLO order still hears its STATE. Asked whether the three comments that describe the old
+  order may be reworded (src/PlayMap.Net/Wire/WireServer.cs's class comment, src/PlayMap.Net/Links/EngineLinkClient.cs's class
+  comment, integrations/companion-module-playmap/src/link/session.ts's hello comment), the owner answered "Yes": comment lines
+  only, in the same batch.
+
 - Models (2026-11-14): the light stages (a round's opening, the papers' check-and-commit) stay on the cheaper model; the work
   stages stay as set on 2026-11-12.
 
