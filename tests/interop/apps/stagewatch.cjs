@@ -174,7 +174,48 @@ class Stagewatch {
     if (said.rig !== 'auth') throw new Error(`auth refused: ${said.error}`);
     if (!Array.isArray(said.addresses) || !Array.isArray(said.viewPasses)) throw new Error("the rig's auth line holds no PIN table or no view passes' table");
     const table = (rows) => Object.fromEntries(rows.map((a) => [a.address, a.failures]));
-    return { pins: table(said.addresses), viewPasses: table(said.viewPasses) };
+    // LINK's wrong proofs, per device and key id (a key in force only): `address kid` → failures.
+    const proofs = Object.fromEntries((said.proofs || []).map((p) => [`${p.address} ${p.kid}`, p.failures]));
+    return { pins: table(said.addresses), viewPasses: table(said.viewPasses), proofs };
+  }
+
+  /**
+   * The desk's Revoke for one of the node keys the rig made, by its id (the rig's `revoke` line): resolves with the rig's own time
+   * of it once the web server has checked every socket the key admitted again.
+   */
+  async revoke(id) {
+    const said = await this.control(`revoke ${id}`, (j) => j.rig === 'revoked' || (j.rig === 'refused' && j.line === 'revoke'));
+    if (said.rig !== 'revoked' || said.id !== id) throw new Error(`revoke ${id} answered ${JSON.stringify(said)}`);
+    return said.at;
+  }
+
+  /**
+   * The windows as --state keeps them, each by its name with its grants (node, kind, name, how), never an address: every window's
+   * and grant's address in it is registered as a secret first, so the sweep looks for each one everywhere it may not be.
+   */
+  savedWindows() {
+    const saved = JSON.parse(fs.readFileSync(this.state, 'utf8'));
+    return (saved.windows || []).map((w) => {
+      if (w.token) this.run.secrets.add(`${this.name}.window.${w.name}.token`, w.token);
+      const grants = (w.grants || []).map((g) => {
+        if (g.token) this.run.secrets.add(`${this.name}.window.${w.name}.grant.${g.node}`, g.token);
+        return { node: g.node, t: g.t, name: g.name, how: g.how };
+      });
+      return { id: w.id, name: w.name, content: w.content, rev: w.rev, grants };
+    });
+  }
+
+  /**
+   * The windows as the operator's pages read them (GET /api/windows with the PIN), each window's own address registered as a
+   * secret and left out of what this returns (D11: the path read with the PIN is redacted at capture).
+   */
+  async windows() {
+    const res = await get(`http://${this.address}/api/windows`, 5000, { 'X-Stagewatch-Pin': this.pin });
+    if (res.status !== 200 || !res.json || !Array.isArray(res.json.windows)) throw new Error(`the rig answered GET /api/windows with ${res.status}`);
+    return res.json.windows.map(({ path: address, ...w }) => {
+      if (address) this.run.secrets.add(`${this.name}.window.${w.name}.path`, address);
+      return w;
+    });
   }
 
   /**
@@ -325,6 +366,23 @@ class Stagewatch {
     const res = await get(`http://${this.address}/api/proposals/${encodeURIComponent(id)}`, 5000, { 'X-Stagewatch-Pin': this.pin });
     if (res.status !== 200 || !res.json) throw new Error(`the rig answered GET /api/proposals/${id} with ${res.status}`);
     return res.json;
+  }
+
+  /**
+   * A JSON-RPC call to the rig's MCP endpoint (POST /mcp) as an AI agent's client makes one, with the operator's PIN as its bearer:
+   * the reply's JSON.
+   */
+  async mcp(method, params) {
+    const res = await request('POST', `http://${this.address}/mcp`, { headers: { Authorization: 'Bearer ' + this.pin }, body: { jsonrpc: '2.0', id: 1, method, params } });
+    if (res.status !== 200 || !res.json) throw new Error(`the rig answered POST /mcp with ${res.status} ${res.text.slice(0, 160)}`);
+    return res.json;
+  }
+
+  /** The show report as the operator's pages read it (GET /report with the PIN): its HTML. */
+  async report() {
+    const res = await get(`http://${this.address}/report`, 5000, { 'X-Stagewatch-Pin': this.pin });
+    if (res.status !== 200) throw new Error(`the rig answered GET /report with ${res.status}`);
+    return res.text;
   }
 
   /** The room's one verdict as its route serves it (GET /api/preflight with the PIN). */

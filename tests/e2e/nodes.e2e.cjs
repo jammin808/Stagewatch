@@ -240,3 +240,29 @@ test('a restarted rig keeps what each key speaks for', async () => {
   const fresh = await dial('node=pat00009&t=patterns', key2.secret);
   assert.equal((await fresh.next(() => true, 5000, 'the verdict')).json.node.verified, 'key');
 });
+
+test('revoke <key id>: the key leaves --state, its live node link hears the key revoked and keeps the public frame, and nothing else is touched', async () => {
+  const fresh = links[links.length - 1];
+  const from = fresh.messages.length;
+  const said = await rig.control(`revoke ${key2.id}`, (j) => j.rig === 'revoked' || j.rig === 'refused');
+  assert.equal(said.rig, 'revoked', JSON.stringify(said));
+  assert.equal(said.id, key2.id);
+  const heard = await fresh.next((j) => j.type === 'auth', 5000, 'the revocation on the live link', from);
+  assert.equal(heard.json.ok, false);
+  assert.equal(heard.json.error, 'this key was revoked');
+  assert.ok(fresh.open, 'the socket stays, a public viewer');
+  await fresh.next((j) => j.type === 'state', 5000, 'the public frame after the revocation', from);
+  assert.deepEqual((await nodeLinks('pat00009')).filter((n) => n.verified === 'key'), [], 'nothing proves pat00009 any more');
+  assert.deepEqual(rig.savedState().keys.map((k) => k.id), [key1.id], '--state keeps the other key alone');
+  // Key 1's link is untouched, and the words that refuse a revoke say why, never guessed.
+  assert.equal((await nodeLinks('pat00001')).find((n) => n.verified === 'key').keyId, key1.id);
+  const again = await rig.control(`revoke ${key2.id}`, (j) => j.rig === 'revoked' || j.rig === 'refused');
+  assert.deepEqual({ rig: again.rig, line: again.line, error: again.error }, { rig: 'refused', line: 'revoke', error: `no node key has the id ${key2.id}` });
+  const bare = await rig.control('revoke', (j) => j.rig === 'refused');
+  assert.equal(bare.error, 'revoke takes one key id');
+  // A key's secret typed where its id goes is refused without a word of it said back.
+  const typed = await rig.control(`revoke ${key1.secret}`, (j) => j.rig === 'revoked' || j.rig === 'refused');
+  assert.deepEqual({ rig: typed.rig, error: typed.error }, { rig: 'refused', error: 'no node key has that id — a key id is the 8 hex the ready line names' });
+  assert.ok(!JSON.stringify(typed).includes(key1.secret.slice(4, 12)), 'no part of the secret is said back');
+  assert.deepEqual(rig.savedState().keys.map((k) => k.id), [key1.id], 'the key typed as its own id is kept');
+});

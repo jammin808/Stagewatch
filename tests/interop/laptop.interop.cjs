@@ -215,7 +215,9 @@ test('S1c.3 the rig on the laptop, and nobody locks the laptop out', row({
     { t: 'messenger', id: ids.agmessage, addr: own, helloOnly: true },
   ], HELLO_MS);
   const node = sw.ready.node;
-  const patterns = await S.patternsHears(apps.patterns, [{ kind: 'main', id: node, addr: own }], S.left(t, HELLO_MS));
+  // Patterns draws the rig it follows no better than its link's record (Show Bus 1.3 §13.16.4): `own` reads the rig's own context.
+  const ownContext = async () => { const c = await sw.context(); return { light: c.light, headline: c.headline }; };
+  const patterns = await S.patternsHears(apps.patterns, [{ kind: 'main', id: node, addr: own, linked: true, own: ownContext }], S.left(t, HELLO_MS));
   const playmap = await S.playmapHears(apps.playmap, [{ t: 'main', id: node, addr: own }], S.left(t, HELLO_MS));
   const agmessage = await S.agmessageHears(apps.agmessage, [{ t: 'main', id: node, addr: own }], S.left(t, HELLO_MS));
   const heardMs = S.inTime(t, HELLO_MS, 'the rig and every app hearing each other');

@@ -1,5 +1,5 @@
 {
- "_source": "Patterns src/Patterns.Core/Services/ShowContext.cs at d7079257 (the pin tools/interop/siblings.json holds): its 36 commands, each row verbatim and in its order, as its CONTEXT sends them; the rest is the least a context carries, this key added first",
+ "_source": "Patterns src/Patterns.Core/Services/ShowContext.cs at fb56b4e0 (the pin tools/interop/siblings.json holds): its 36 commands, each row verbatim and in its order, as its CONTEXT sends them; the rest is the least a context carries, this key added first",
  "v": 1,
  "node": {
   "t": "patterns",

@@ -16,7 +16,7 @@ const { spawnSync } = require('node:child_process');
 const { Rig, until, DLL, freePort, RIG_ENV } = require('./rig.cjs');
 const { tempDir, removeDir } = require('./temp.cjs');
 
-const UNKNOWN = 'unknown (stall <ms>, auth, heard, nodes, links, exit)';
+const UNKNOWN = 'unknown (stall <ms>, auth, heard, nodes, links, revoke <key id>, exit)';
 const rigs = [];
 async function make(options) {
   const rig = await Rig.create(options);

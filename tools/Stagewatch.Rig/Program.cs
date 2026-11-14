@@ -124,6 +124,10 @@ using Stagewatch.Show;
 //                "kind","node","pairing":"none|paired|open","clock":{"offsetMs","rttMs","errMs","apart"}|null,"record":{…}}]}: each
 //                link's kind and node as its peer said them (null before it did), where its pairing stands, the clock its matched
 //                pongs believe while paired, and its 13.16.3 record, which carries no token, proof or nonce
+//   revoke <key id>  the desk's Revoke for one of the node keys the rig made (its id as the ready line names it): the key leaves
+//                --state, and every socket it admitted is checked again at once, so a node link it proved hears that its key was
+//                revoked and keeps only the public frame → {"rig":"revoked","id","at":<unix ms>}, or refused for an id no key has
+//                (the word said back only when it is shaped like a key id, so a key typed in its place reaches no line)
 //   exit         stops the rig as Ctrl+C does → {"rig":"exiting"}
 //   anything else is refused, never guessed → {"rig":"refused","line":"<first word>","error":"…"}
 // The end of standard input ends the reader; with --exit-on-eof it also stops the rig as Ctrl+C does (so does input that can no
@@ -764,7 +768,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     public static string PlayoutTokenVariableFor(string name) => PlayoutTokenVariable + "_" + name.ToUpperInvariant().Replace('-', '_');
 
     /// <summary>The words a control line that is none of the reader's is refused with: the lines there are.</summary>
-    public const string UnknownControl = "unknown (stall <ms>, auth, heard, nodes, links, exit)";
+    public const string UnknownControl = "unknown (stall <ms>, auth, heard, nodes, links, revoke <key id>, exit)";
 
     /// <summary>
     /// One line at a time from standard input, each answered in JSON lines (a stall twice); a blank line is ignored, and an
@@ -787,6 +791,8 @@ sealed class Rig : ICompanionBridge, IDisposable
                     case "heard" when words.Length == 1: Say(Heard()); break;
                     case "nodes" when words.Length == 1: Say(NodeLinkRows()); break;
                     case "links" when words.Length == 1: Say(PlayoutLinkRows()); break;
+                    case "revoke" when words.Length == 2: Revoke(words[1]); break;
+                    case "revoke": Say(new { rig = "refused", line = "revoke", error = "revoke takes one key id" }); break;
                     case "exit" when words.Length == 1:
                         Say(new { rig = "exiting" });
                         Log("exit: stopping (control line)");
@@ -808,6 +814,34 @@ sealed class Rig : ICompanionBridge, IDisposable
 
         static string Clip(string word) => word.Length > 32 ? word[..32] : word;
     }
+
+    /// <summary>
+    /// <c>revoke &lt;key id&gt;</c>, on the owner thread (the keys' one writer), as the desk's Revoke: the key leaves the keys and
+    /// --state, and the web server checks every socket it admitted again at once, so a link it proved hears that the key was revoked
+    /// and drops to the public frame. Answered with the key's id once that check has run; an id no key has is refused.
+    /// </summary>
+    private void Revoke(string id) => Post(() =>
+    {
+        var key = _keys.FirstOrDefault(k => k.Id == id);
+        if (key is null)
+        {
+            // A word shaped like a key's id (8 hex) is said back; anything else may be a key typed where its id goes, so it is not.
+            Say(new { rig = "refused", line = "revoke", error = IsKeyId(id) ? "no node key has the id " + id : "no node key has that id — a key id is the 8 hex the ready line names" });
+            return;
+        }
+        _keys.Remove(key);
+        _apiKeys = CopyKeys(_keys);
+        _sightings.Keep(_keys);
+        SaveState(_windows.Windows);
+        _web?.CredentialsChanged();
+        var words = "API key revoked: " + key.Name;
+        Log("keys: " + words);
+        Journal(JournalKind.Note, _item, words);
+        Say(new { rig = "revoked", id = key.Id, at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+    });
+
+    /// <summary>Whether a word has the shape of a key's id (<see cref="Stagewatch.Core.ApiKeys.Create"/>: 8 lowercase hex), which a key's secret never has.</summary>
+    private static bool IsKeyId(string word) => word.Length == 8 && word.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'));
 
     /// <summary>
     /// <c>auth</c>: the web server's lockout tables as they stand, read off the show thread (a stalled show still answers): each

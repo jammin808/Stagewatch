@@ -37,7 +37,7 @@
    "from": "patterns",
    "target": "patterns",
    "line": "APPLY a3f9: Look \"Keynote blue\"",
-   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at d7079257: DeskProposals.Line(\"a3f9\", \"Look\", \"Keynote blue\")",
+   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at fb56b4e0: DeskProposals.Line(\"a3f9\", \"Look\", \"Keynote blue\")",
    "table": "patterns-context.json",
    "risk": "review",
    "form": "APPLY <proposal>"
@@ -98,7 +98,7 @@
    "from": "patterns",
    "target": "patterns",
    "line": "APPLY a3f9: Look \"Keynote\tblue\"",
-   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at d7079257: DeskProposals.Line(\"a3f9\", \"Look\", a look titled with a tab), which keeps the tab (it only shortens a title)",
+   "source": "Patterns src/Patterns.Core/Services/ShowBusNodes.cs at fb56b4e0: DeskProposals.Line(\"a3f9\", \"Look\", a look titled with a tab), which keeps the tab (it only shortens a title)",
    "table": "patterns-context.json",
    "error": "a line holds no control characters"
   },

@@ -1362,7 +1362,9 @@ maintainer's too.
     laptop, 3 of 3 offline. No row
     failed on the host's load (PlayMap's own preflight reads red above 95 % CPU and closes the doors): S8.3 and the doors rows
     passed in every run, the first of which started while another tree's build had the load average near 7.
-  - **What it still does not prove.** Patterns at level 1 (it offers no LINK at its head), so no Patterns link is green. PlayMap's
+  - **What it still does not prove.** Patterns at level 1 (it offers no LINK at its head), so no Patterns link is green. *Since then
+    (SW22.11):* at Patterns' fb56b4e its link is level 1, proved both ways, with no Trust press; it is amber, not green, by the
+    verdict's scope word (below, "The lane at Patterns' Round 96"). PlayMap's
     P3 timer row (above). AGMessage 0.6.0, which is another session's branch and not
     its main; its pin stays at 0.5.0. PlayMap's early STATE still
     marks `malformed` (the finding under "The VT rows"). And everything the paragraph above lists as not proved.
@@ -1472,11 +1474,114 @@ maintainer's too.
     queues an unlisted line from another app, rated high. The design said only "a pending shared proposal"; an AI is held to the
     table it is shown.
   - **No rig e2e for MCP's target;** the lane's S3.5 and S3.7 (MCP to PlayMap at its pin) are SW22.11's. The Copilot list's line for
-    the agent's proposal is WPF, compiled, never seen.
+    the agent's proposal is WPF, compiled, never seen. *Since then (SW22.11):* the lane holds both against the real PlayMap (below,
+    "The lane at Patterns' Round 96").
   - **An agent's refusals write no journal row** (a POST's do not either); the agent hears each as an error and the status line says
     it.
   - **The agent's from id is `mcp`, as the design writes it,** which a node may also hold; the readers keyed on the proposer tell
     them apart by the kind `mcp`, which no request may name.
+
+- **The lane at Patterns' Round 96: the proved ws pair, windows on Patterns, the stuck rig and MCP to PlayMap (SW22.11; G44, G10).**
+  `tools/interop/siblings.json` pins Patterns at fb56b4e (its round 96 closed, read pushed on its branch and built in the lane's own
+  clone); PlayMap stays at 783319e and AGMessage at d0e3961 (a later unit moves PlayMap's). The rows that passed at the old pins pass
+  at the new one, and the rows new here are written against what the apps do at their pins:
+  - **Patterns and the rig prove themselves to each other over ws (S0.2).** Patterns' link speaks LINK on `/ws`: within a quarter of a
+    second of its ready line its record is live at level 1 with both proofs, pinned by the proof at the rig's own certificate, its floor
+    `{tls, level 1, mutual}` kept, under the kid its key makes; the rig's `nodes` record holds the link proved by that key and `--state`
+    binds the key to Patterns' id. No person's Trust is asked any more: SW22.4p's press is gone from S0.1, and the bench's trust line
+    finds nothing waiting.
+  - **A wrong proof from another machine (S2.8).** The lane's own LINK client (`tests/interop/lib/link.cjs`, the kit's transcript and
+    proofs, a WebSocket over TLS held to the pin) dials from the switch under Patterns' id. The control first: with Patterns' own key it
+    hears an ok verdict whose server proof verifies with that key. Then Patterns' kid with another key's proof: refused, class `refused`,
+    retry 60, in the rig's one sentence, the socket a public viewer; the proof table counts the switch once for that kid and Patterns'
+    address never; Patterns' own link is not moved, and once the control has closed the rig's record holds Patterns' one link at its
+    address with no conflict marked on its id. Patterns' own handling of a refused proof is not driven here: a wrong key on Patterns
+    itself would count Patterns' address in the rig's proof table, which S7.4 holds at none for the whole run; Patterns' round 96
+    tests hold it against the kit.
+  - **Live revocation (S2.9), through a new rig line.** The rig had no way to revoke a key it made; `revoke <key id>` is the desk's
+    Revoke (the key leaves `--state`, `WebServer.CredentialsChanged` checks every socket at once), answered `revoked` once that ran and
+    refused for an id no key has (`tests/e2e/nodes.e2e.cjs` holds it: the live node link hears "this key was revoked" and keeps the
+    public frame, the other key's link untouched). In the lane Patterns is first restarted in its own home, so its link proves itself
+    afresh (below, why), then its key is revoked: within 5 s its record is held, refusal `key`, proof none; the rig's record holds no
+    link of Patterns' proved by a key; no address is counted (S7.4 reads it last).
+  - **Windows on Patterns (S5.1).** `window new lobby /clock` and `window grant lobby <Patterns' id>` with the PIN: the rig holds the
+    grant `held` (Patterns said `grants-seen`) and says once "Interop Patterns took lobby's address"; Patterns' STATE
+    `bus.stagewatch.windows` names it by its held form (`stagewatch://<rig>/<window>`), `granted` over `tls`, no address anywhere in
+    the row; `SCREEN 1 WINDOW lobby` is refused not ready with nothing changed; `PVW WINDOW lobby` opens EDIT SAFE by itself and stages it,
+    read "in the preview — not on air" on `PGM` (asserted whatever an earlier row left open); `SCREEN 1 TAKE` is refused by the ready gate ("Display 1's PVW holds Stagewatch window
+    'lobby', not ready … — nothing taken"); the air's look and screen are unchanged; `window delete lobby` ends the grant on both. The
+    window's and the grant's addresses are registered from `--state` and `/api/windows` as the run's secrets, so S7.1 sweeps for them.
+  - **S3.5 and S3.7, MCP to PlayMap.** An agent's `run_command` with PlayMap's id as target is only ever a pending proposal (`from`
+    `mcp`), rated `review` as PlayMap's own context rates `PLAYLIST CUE`; approved with the PIN, PlayMap collects it and runs it once (one
+    ok row in its own journal, "Stagewatch approval desk"), its playlist `cued`, the desk `done`. A second proposal (`PLAYLIST GO`) is
+    rejected with words; its record stays rejected and never collected. The absence is anchored, not slept on: a third proposal
+    (`PLAYLIST LOOP <list> ON`) approved after the rejection is collected after it and run (one ok row, the playlist looping), so
+    PlayMap read its queue after the rejection; then PlayMap's journal holds no row of the rejected line, S3.5's cue is still one row,
+    the playlist neither moved nor played, and `/report` holds the Desk row `Rejected <id> (…): … — <words>` (the proposal's own record
+    carries no words: a finding below).
+  - **The stuck rig (S6.2a, S6.2b).** The plan's words are "followers show no time within stuckMs + 4 s". The rig's verdict offers no
+    `stuck` and so carries no `stuckMs` (13.6.6 has it carry one only with `stuck`; SW22.1c left `stuck` out of `can`: no stall
+    measured), and its §8 row's 3000 is a shipped mark, not a published number. So the rows add no number of their own: they keep the
+    contract's deadline (3 s stuck plus a 2 s beat, × 1.5 + 2 s = 9.5 s), read the rig's verdict (S2.8's control) for a `stuckMs`, and
+    record `plan.stuckMs` null with the verdict's `can` beside the measured time while it offers none; the plan's stuckMs + 4 s is
+    applied by the same reader the day the verdict carries one. Patterns' link stays live and amber with its record live and proved
+    (`show` `stuck`); PlayMap's link stays live with Stagewatch's own reason.
+  - **Stagewatch's own: the verdict's scope word (held, not an app at its pin).** Stagewatch's LINK verdict says the key's scope as
+    §7.1 does, `node` (`src/Timer.Core/LinkAcceptor.cs:71`, the word from `NodeLinks.ScopeWord`, `src/Timer.Core/NodeLinks.cs:383`;
+    `docs/SHOWBUS.md` 13.6.5 and the `scope` list under 7.1 say so, and `docs/REMOTE.md` documents it). Stagewatch's own kit says
+    otherwise: its stand-in acceptor sends a 13.5.3 ladder word, `post` by default (`tools/showbus/peerlink-peer.mjs:660`, its
+    verdicts at 1193 and 1211), its own connector core ranks the ladder alone (`src/Timer.Core/PeerLink.cs:1846`), 13.5.3 names `post`
+    "Stagewatch's node scope", and 13.16.3's record holds ladder words only. Patterns' core ranks as Stagewatch's does (`Patterns
+    src/Patterns.Core/Services/PeerLinkMachine.cs:981`, ranks at 1102-1109; its link uses `post`, `StagewatchLinkService.cs:675`), so it
+    flags `scope` and draws a link both ends proved amber, "its key's scope is below what the link is used for", on the LAN and on the
+    laptop; PlayMap's core would read it alike. The side that differs is Stagewatch's verdict, against its own kit and every 1.3 core;
+    the spec text it follows (13.6.5, "the verdict is §7.1's") is the other half, so the next spec edit decides between the verdict
+    saying the ladder word on a `link=1` socket (`post` for a node key, `follow` and `operate` for read and control; REMOTE.md and the
+    verdict tests follow) and every connector mapping §7.1's words through the acceptor's §8 row. Until then S1.5 and S1c.3 accept
+    exactly that amber (level 1, both proofs, pinned or local, the one flag `scope`, the verdict's `node`) and say so in their facts;
+    the arm (`amberByRecord` in `tests/interop/lib/scenarios.cjs`) is temporary and goes with the decision, after which both rows
+    assert green. The plan's S0.2 words, "verified both ways, pinned, floor set", pass; the green the plan means does not, yet.
+  - **Findings, each an app at its pin doing otherwise (no row bent to pass):**
+    - **A gone link comes back downgraded: TLS at first use and level 0 under a kept level-1 floor.** After the rig's cable is pulled
+      and put back (S6.1b), Patterns' record for the same typed address settles live at level 0, proof `legacy`, TLS `first`, its key
+      held back ("this desk's key is bound to Stagewatch interop-sw-1 and is not sent here; BIND KEY on the Nodes page sends it here",
+      `Patterns src/Patterns.App/Services/StagewatchLinkService.cs:797`), named by the address, not the rig, and its `floor` reads
+      null. It had pinned the rig by the proof and kept the floor `{tls, level 1, mutual}` for the rig's id (S0.2). The redial resolves the typed address before the rig's hello is
+      heard again, so the target is the address's own (`StagewatchLinkService.cs:1327`, the rig's id dropped); the pin, the key's
+      binding and the floor are all looked up by that target (`:1190`, `:1194`, `:1209`), and none is found: the rig is re-pinned at
+      first use and read at level 0, a downgrade 13.16.3 would refuse with refusal `floor`, not only a key held back. It stays so
+      through the end of the run, with the rig's hellos heard again. A restart in its home proves it again (S2.9), and the rig killed
+      and restarted (S6.1) is proved again too. S6.1b still asserts every link live, and records Patterns' settled record with its
+      `tls` and `floor`, so the next pin move shows the change.
+    - **The rejection's words reach the report alone.** `desk reject <id> <words>` journals the Desk row with the words
+      (`src/Timer.Show/DeskService.cs:741`) but hands `Approvals.Reject` none (`DeskService.cs:739`; `src/Timer.Core/Approvals.cs:491-499`
+      keeps no words, and the record's `words` is the empty result, `Approvals.cs:35`). So `/report` holds "Rejected … — <words>" while
+      the proposal on the wire (`GET /api/proposals/<id>`), MCP `get_proposal` and the context say rejected with no words: readers out
+      of step. This one is Stagewatch's own; S3.7 asserts what is there (rejected, never collected, the report row) and records the
+      record's `words`, empty.
+    - **No window drawn on a Linux Patterns.** A granted page opens only in WebView2 (`Patterns src/Patterns.App/Services/WebEngine.cs:765`,
+      "Web pages inside the engine need Windows"), so on the bench the window is never ready and never on air, and the plan's "the rig's
+      `windows[0].on`" has nothing of Patterns' to show. Patterns' context links no window either (no `@`-link claim at its pin), so the
+      rig's item places nothing for it. S5.1 therefore proves the grant, staging in the preview and the ready gate, never that a ready
+      window is shown from the air: that is S5.1w (WebView2 showing the page), a Windows job or the walk. Xvfb, Mesa and Playwright do
+      not join the job: no row at these pins draws or opens a browser (D13 adds them with the first that does; SW-R6's job change is
+      still to do).
+  - **Runs.** The first run at the new pin failed S1.5 and S0.2 (the lane still waited for a Trust card Patterns no longer draws, and
+    read its amber by level 0 alone). Later runs failed the new rows on the lane's own reads, each mended in the lane: S2.9 waited for
+    the refusal word `refused` where Patterns' record says `key`, and before the restart found Patterns keyless after S6.1b (the
+    finding above); S1c.3 on the laptop met the scope amber over loopback; S2.8 held the record's `since` to the millisecond, which
+    Patterns reads again on each STATE (S6.1b's settle wait first made the same mistake and was mended the same way).
+    The rows that close the doors read every app's own context, and PlayMap's machine item goes red at 95 % CPU (`Mapper
+    src/PlayMap.Core/Fleet/HealthRecord.cs:141`, the rule at 219-221) sampled host-wide: three runs of the unit's validate met it while
+    other trees' test suites loaded this four-core bench (load 10 to 18; "1 red: cpu — CPU 98 %"), and S8.1, S8.3 or S8.4 failed with
+    S7.4 and S7.1 behind them (S8.4 had killed AGMessage). That is the bench, not a row or an app at fault: nothing about it is
+    loosened (a red machine closes the doors, as it should), S8.1 now names the red item's own words, and the lane is run in a quiet
+    window. The unit's validate then ran green: build, 6155 unit checks, 93 e2e, and the lane with 39 of 39 on the LAN, 5 of 5 on the
+    laptop and 3 of 3 offline (the lane re-run alone after the driver's last change). S2.9's revocation reached Patterns' live link in
+    9 ms; S3.7's line approved after the rejection was collected 2 s after it and ran once; the stuck rows measured no time 4.3 s
+    (PlayMap) and 4.0 s (Patterns) after the rig's own stall time, with no `stuckMs` to set beside them.
+  - **Not done here:** Patterns asking for a window itself (`NODES ASK WINDOW`, its 96.2) is not a row yet; nor is S5.2/S5.3 (PlayMap draws
+    and withdraws, its PM-W) or S6.2c (AGMessage, F2). The revocation leg is driven only on Patterns' link: PlayMap's at its pin is level 0.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

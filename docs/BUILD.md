@@ -138,7 +138,10 @@ tools/test.sh help            # what each lane does, and the variables a person 
   apps' node links on `/ws` (each by the id it named, what speaks for that id, key, operator or none, the key that admitted
   it by its id, never its secret, and its words for one it verifies none; a socket that only claims an id is not one);
   `links` reads its playout links as they stand (each link's kind and node as its peer said them, where its pairing
-  stands, the clock its matched pongs believe and its 13.16.3 record, never a token); `exit` stops it as Ctrl+C does;
+  stands, the clock its matched pongs believe and its 13.16.3 record, never a token); `revoke <key id>` is the desk's
+  Revoke for a node key the rig made (the key leaves `--state` and every socket it admitted is checked again at once, so a
+  node link it proved hears that the key was revoked; answered `revoked` once that has run, refused for an id no key has, the word said back only when it is shaped like a key id);
+  `exit` stops it as Ctrl+C does;
   anything else is
   refused and a blank line is ignored. It exits 0 when stopped, 2 on an option it can't take, 3 when a server can't
   listen and 4 when the secrets file can't be written; on 3 and 4 the node keys made in that start aren't kept.
@@ -214,13 +217,12 @@ tools/test.sh help                                # every lane, and every variab
   comes with the pin that brings it. `SW_INTEROP_HEADS=1` runs each sibling at the commit its repository has checked out
   instead (still pushed only), and `builds.json` and the matrix say how far each is from its pin: the nightly drift report,
   which moves no pin.
-- The pins are the siblings' pushed heads of 2026-11-12: Patterns d707925 (its round 96's opening, past round 95.3, whose
-  bench answers `trust <hex>`), PlayMap 783319e (its fix batch PM-11: its context names the peers it follows), AGMessage
-  d0e3961 (0.5.0). Since its round 93.2 Patterns' desk holds its node key from a Stagewatch on another machine until that
-  Stagewatch proves itself (LINK, which Patterns does not offer yet) or a person presses TRUST beside its fingerprint on the
-  Nodes page. On the LAN the lane stands in for that person (row S0.2): it reads the rig's fingerprint from the rig's ready
-  line, never from Patterns, waits for the desk to draw it, and types its first sixteen hex at the bench's trust line, before
-  PlayMap and AGMessage start. The laptop and offline topologies link at 127.0.0.1, where the key goes without a press.
+- The pins are the siblings' pushed heads: Patterns fb56b4e (its round 96 closed: its Stagewatch link speaks LINK on `/ws`,
+  and a Stagewatch window granted to its desk is staged ready-gated and said shown only from the air), PlayMap 783319e (its
+  fix batch PM-11: its context names the peers it follows), AGMessage d0e3961 (0.5.0). Patterns' link proves itself to the
+  rig and the rig to it with the node key the rig made for it, pins the certificate the proof was made over and keeps a floor,
+  so no person's Trust is asked on the LAN (row S0.2 reads the bench's trust line finding nothing waiting). The laptop and
+  offline topologies link at 127.0.0.1.
 
 **The topologies.** `tools/test.sh interop` starts `tools/interop/run.sh <topology>` once per topology inside `unshare
 --user --map-root-user --net --pid --fork --mount-proc --kill-child`, with 20 minutes to finish. The run's processes live in
@@ -277,13 +279,13 @@ once those are removed, for every secret of the register, in either case. A row'
 
 | Row | On | What it holds |
 |---|---|---|
-| S0.1 | lan | each app is ready in its own namespace, within 60 s of its start; between Patterns' start and PlayMap's the lane makes a person's Trust press at Patterns, as the room is set up, which S0.2 reads |
-| S0.2 | lan | a person trusts the rig at Patterns, pressed between Patterns' start and PlayMap's: within 5 s of Patterns' ready line its desk draws the rig's own fingerprint (read from the rig) beside TRUST while its link reads the rig's public view over TLS without its key, the rig holding no link of Patterns' and Patterns' key bound to nobody; hex of another fingerprint is refused by the one drawn, the rig's own first sixteen hex are taken, and within 5 s the key goes (Patterns' link keyed over TLS, the rig's record of it proved by that key); a second press finds nothing waiting |
+| S0.1 | lan | each app is ready in its own namespace, within 60 s of its start; between Patterns' start and PlayMap's the lane reads Patterns' link to the rig prove itself, which S0.2 asserts |
+| S0.2 | lan | Patterns links to the rig over ws, verified both ways, pinned, floor set: within 5 s of Patterns' ready line its link's record is live at level 1 with both proofs, over TLS pinned by the proof at the certificate the rig serves (read from the rig), floor `{tls, level 1, mutual}`, under the kid its key makes; the rig's `nodes` record holds the link proved by that key and `--state` binds the key to Patterns' id; the bench's trust line finds nothing waiting |
 | S1.1 | lan | Patterns hears PlayMap and AGMessage, each from its own address |
 | S1.2 | lan | PlayMap hears Patterns and AGMessage, each from its own address where its NODES says one |
 | S1.3 | lan | AGMessage hears Patterns from its own address |
 | S1.4 | lan | the rig's hello table lists Patterns, PlayMap and AGMessage, each from its own address, live and unmarked, and its context's peers are each live |
-| S1.5 | lan | every app hears the rig: kind `main`, its node id, from the rig's own address where the reader says one; Patterns draws the rig it follows no better than its link's record, amber only with that record live, amber, level 0 and `legacy`, the key taken, and the rig's own context, read from the rig, neither amber nor red with the headline Patterns draws for it |
+| S1.5 | lan | every app hears the rig: kind `main`, its node id, from the rig's own address where the reader says one; Patterns draws the rig it follows no better than its link's record, amber only with that record live and amber, the key taken, and either at level 0 and `legacy` or at level 1, both ways proved and pinned, flagged `scope` alone (the verdict's scope `node`: Stagewatch's own verdict word against its kit, held until the spec decides, WHATS_NEXT), and the rig's own context, read from the rig, neither amber nor red with the headline Patterns draws |
 | S1.6 | lan | one id is one peer: read every 500 ms for 20 s, the rig, Patterns and PlayMap (its NODES, its STATE's peers and its context's) each list every show app they hear once; PlayMap reads the rig's Show Bus 1.3 hello as live and unmarked at the rig's one address at every read, and marks an id two senders say in turn (a control: hellos of the driver's own id, sent to PlayMap alone) |
 | S2.1 | lan | PlayMap's context reaches the rig: its link paired with the rig's certificate pinned, the rig's row for it proved by its own key, and a change of it there and back within 9.5 s |
 | S2.1b | lan | PlayMap reads the rig's verdict on its node link from both ends, its link and the rig's own record (`nodes`): its link taken off until the rig holds none for it, then given the free key, which speaks for no node, at its own machine, it is refused in the rig's own words and the rig's record says that key's link verified none in them; its link live and never paired through a 7 s watch (amber in its context, no proven link in the rig's row or record); given its own key again, it is paired again with the rig's certificate still pinned, the rig's record its key's alone |
@@ -298,11 +300,15 @@ once those are removed, for every secret of the register, in either case. A row'
 | S4.3 | lan | one rig with both links, each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context's `link:patterns` and `link:stage-left` each in its own record's light, and the VT names Patterns' running clip, then, that paused through its link, PlayMap's running item |
 | S4.4 | lan | on one kernel each link believes its peer's clock within 50 ms of its own, within 10 s, and the context carries no `clock:` item |
 | S6.1 | lan | the rig killed and restarted: every link lets go, then is gone, then is live again |
-| S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again |
+| S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again; Patterns' link record, once settled, is recorded with its level, proof, TLS and floor (a finding in WHATS_NEXT: it comes back at level 0, TLS at first use) |
 | S6.2a | lan | a stuck Stagewatch: PlayMap's link stays live and shows no time, for Stagewatch's own reason, and the rig's running time again once the show turns over |
 | S3.3 | lan | Patterns' assistant proposes a look to the rig's desk (the bench's `propose look`): pending there at review as the bench's own `APPLY <id>` naming the look, approved by the operator (`desk approve <id>`), Patterns applies it once, opening EDIT SAFE with the air's look unchanged, its chip says applied once, and the rig's desk says done |
 | S3.4 | lan | the rig's desk sends Patterns `VIDEO STOP` (`peer patterns`) with a synthetic clip on its air: the clip is held at its top, the rig rates it high by Patterns' table, and the rig's desk says done in Patterns' words (`ran VIDEO STOP: OK`) |
-| S6.2b | lan | a stuck Stagewatch: Patterns' link stays live and says stuck with no time from it, and its time comes back once the rig's show turns over |
+| S2.8 | lan | a wrong proof for Patterns' key from another machine (the switch, LINK under Patterns' id and kid with another key's proof) is refused in the rig's words (class `refused`, retry 60) and keeps the public view; the proof table counts the switch once for that kid and Patterns' address never; Patterns' own link stays live and proved, its record not moved; the control first: the same client with Patterns' own key hears an ok verdict whose server proof verifies, and once it has closed the rig's record holds Patterns' one link at its address with no conflict on its id |
+| S5.1 | lan | a window granted from the rig to Patterns (`window new lobby /clock`, `window grant lobby <id>` with the PIN): the rig holds the grant `held` and says once that Patterns took its address; Patterns' STATE `bus.stagewatch.windows` names it by its held form, no address, over TLS, not ready (no web engine off Windows: a finding), shown nowhere; `SCREEN 1 WINDOW lobby` refused not ready with nothing changed, `PVW WINDOW lobby` opens EDIT SAFE and stages it on PGM (in the preview, not on air), `SCREEN 1 TAKE` refused by the ready gate with nothing taken, never said on air; deleting the window ends the grant on both (a ready window shown from the air is S5.1w's, on Windows) |
+| S3.5 | lan | an AI agent on the rig's MCP endpoint proposes `PLAYLIST CUE <list> #1` to PlayMap (`run_command` with PlayMap's id as target): a pending proposal only, rated by PlayMap's own table; the operator approves it; PlayMap collects it and runs it once (one ok journal row), its playlist cued, and the desk says done |
+| S3.7 | lan | a second MCP proposal to PlayMap rejected with words: the desk says rejected and it is never collected; a third, approved after the rejection (`PLAYLIST LOOP <list> ON`), is collected after it and run, so PlayMap read its queue after the rejection; PlayMap's journal holds no row of the rejected line and S3.5's cue still one, its playlist neither moved nor played, and `/report` holds the Desk row `Rejected <id> (…): … — <words>` (the proposal's own record carries no words: a finding in WHATS_NEXT) |
+| S6.2b | lan | a stuck Stagewatch: Patterns' link stays live and amber (its record live and proved) and says stuck with no time from it, and its time comes back once the rig's show turns over; the time to no time is recorded beside the plan's stuckMs + 4 s when the rig's verdict carries a `stuckMs`, and beside its `can` (no `stuck`, no number) while it does not |
 | S6.3 | lan | PlayMap killed: the rig's context row for it goes stale, then gone; the doors are not ready, PlayMap's heard row red and first, naming the node key that configures it; restarted, its links to the rig and to Patterns pair again and the doors are ready again |
 | S7.1 | lan, laptop, offline | no secret of the register in any log, frame, STATE, context, report or capture the run kept |
 | S7.3 | lan | unknown words are refused by Patterns, PlayMap and the rig, and by the rig's desk: a line an app's verbs do not list is refused there with the words and becomes no proposal |
@@ -310,6 +316,7 @@ once those are removed, for every secret of the register, in either case. A row'
 | S8.1 | lan | ready for doors with everything up: the rig's verdict (`/api/preflight`) ready with Patterns' and PlayMap's heard and context rows green and AGMessage's heard row green (its context row recorded, amber until it holds a key), no app's own context lighting red (the matrix's `ownItems`, S8.0), and the operator frame's `network` and the Companion module's `network_ready` saying the same |
 | S8.2 | lan | not ready, saying why (read inside S6.3): one red row, first, PlayMap's heard, naming its node key and the fix; the frame's `network` and the Companion module's `network_ready` say not ready |
 | S8.3 | lan | a stuck show is never ready: the verdict not ready and stuck with one red row within 6.5 s of the rig's stall, the Companion module's `network_ready` unknown, both ready again once the show turns over |
+| S2.9 | lan | live revocation, after Patterns restarted in its own home proves its link afresh: the rig's `revoke` of Patterns' key reaches its live link within 5 s (its record held, its refusal `key`, its proof none), the rig's record holds no link of Patterns' proved by a key and `--state` keeps no such key, and no address of the LAN is counted (a revoked key is no guess) |
 | S8.4 | lan | AGMessage, only seen (no key or link configures it), killed: its heard row amber and the doors ready at every read through the gone bound; restarted, connected again and green |
 | S1c.1 | laptop | on one laptop every app hears every other from the laptop's own addresses, and every link to the rig is live at 127.0.0.1 |
 | S1c.2 | laptop | PlayMap follows Patterns at 127.0.0.1, paired by proof |

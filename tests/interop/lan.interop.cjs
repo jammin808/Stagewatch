@@ -6,10 +6,10 @@
 // three node keys: one for Patterns and one for PlayMap, each handed over in that app's own settings, and one handed to
 // nobody, which row S2.7 tries against an id that has a key of its own and row S2.1b gives PlayMap (LINK STAGEWATCH, said
 // as its operator says it at PlayMap's own machine: on its wire at 127.0.0.1, from inside its namespace, so no key crosses
-// this LAN) before giving it its own key again. Patterns' desk sends its key to a Stagewatch on another machine only once a
-// person presses TRUST beside the rig's fingerprint: S0.1 stands in for that person between Patterns' start and PlayMap's, with
-// hex read from the rig, and S0.2 reads what the press did. The rows read PlayMap's link with the rig's certificate pinned and
-// Patterns' link carried over TLS with its key; that neither app ever sends its key in clear off its own machine is held by that app's
+// this LAN) before giving it its own key again. Patterns' link to the rig speaks LINK on /ws (its Round 96.1): each end proves
+// itself to the other with the key, Patterns pins the certificate the proof was made over and keeps a floor, and no person's
+// Trust is asked; S0.1 reads that between Patterns' start and PlayMap's, and S0.2 asserts it. The rows read PlayMap's link with
+// the rig's certificate pinned and Patterns' link carried over TLS with its key; that neither app ever sends its key in clear off its own machine is held by that app's
 // own tests (Patterns' Round 89.5, PlayMap's PM-2), not read here; the rig's verdict on a node link is read from both ends,
 // the app's link and the rig's own record of it (its `nodes` line). AGMessage is
 // given none (its keyed rows are another unit's). The rig is the room's approval desk and its one verdict, as the app is: the
@@ -51,6 +51,7 @@ const { Patterns } = require('./apps/patterns.cjs');
 const { PlayMap, DOORS: PlayMapDoors } = require('./apps/playmap.cjs');
 const { AGMessage } = require('./apps/agmessage.cjs');
 const S = require('./lib/scenarios.cjs');
+const { dialLink, kidOf } = require('./lib/link.cjs');
 
 /** The hosts in address order: .2, .3, .4, .5. */
 const HOSTS = ['stagewatch', 'patterns', 'playmap', 'agmessage'];
@@ -64,6 +65,11 @@ const STALE_MS = 11000;
 const GONE_MS = 20000;
 /** Stuck 3 s after the show thread's last turn, said on the next 2 s beat: within 9.5 s of the rig's own stall time. */
 const STUCK_MS = 9500;
+/**
+ * What the rig's own LINK verdict offered (S2.8's control reads it): its `can`, and its `stuckMs`, which 13.6.6 has it carry only
+ * when it lists `stuck`. The plan's stuck rows add 4 s to that number; the lane adds none of its own.
+ */
+let rigVerdict = null;
 /** Frames again within a beat (2 s) of the show thread turning over: within 5 s of the rig's own time. */
 const RESUME_MS = 5000;
 /** A context posted or read every 5 s: in the other app's reader within 9.5 s of the change. */
@@ -159,104 +165,61 @@ const stagewatchLinks = () => S.stagewatchLinks(apps);
 const { allLive } = S;
 
 /**
- * A person's TRUST press at Patterns (row S0.2), made as the room is set up, between Patterns' start and PlayMap's (S0.1):
- * { facts } once it was made and read, or { error } with the reason it was not; null until S0.1 reaches it.
+ * What Patterns' link to the rig said as the room was set up, between Patterns' start and PlayMap's (S0.1): { facts } once its
+ * link proved itself with LINK, or { error } with the reason it did not; null until S0.1 reaches it. Row S0.2 asserts it.
  */
-let pressed = null;
+let proved = null;
 
-/** S0.2's deadlines: Patterns' desk draws the rig's certificate beside TRUST within a hello's of its ready line (its link dials
- *  the rig at its start), and once it is pressed the key reaches the rig within the same. */
-const TRUST_MS = HELLO_MS;
+/** S0.2's deadline: Patterns' link dials the rig at its start, so it proves itself within a hello's of its ready line. */
+const PROVED_MS = HELLO_MS;
 
-/**
- * The words a reader of Patterns' link says while its key waits for a person's Trust beside `shown` (Patterns'
- * StagewatchKey.TrustWords): what the Nodes card draws beside TRUST, and STATE's bus.stagewatch headline with it.
- */
-const trustWaits = (shown) => `compare its fingerprint ${shown} and press Trust to send the key`;
+/** What Patterns' bench answers a `trust` line when nothing waits for a person's Trust (its desk's own words). */
+const NOTHING_WAITS = 'nothing waits for Trust: the Nodes card draws no certificate beside TRUST';
 
 /**
- * Stand in for the person at Patterns' desk (Show Bus 1.3 §13.6.8): its desk holds its node key from the rig, which is on another
- * machine and cannot prove itself to it, until a person compares the fingerprint the Nodes card draws with the rig's own and
- * presses TRUST. The lane reads the rig's fingerprint from the rig (its ready line: the certificate it serves), never from Patterns,
- * waits for the desk to draw that fingerprint beside TRUST (its link reading the rig's public view with no key meanwhile, and the
- * rig's own record holding no link of Patterns' and its key bound to nobody), types sixteen hex that begin another fingerprint
- * until the Nodes card, drawn on the desk's own tick, draws a certificate (then refused by the one drawn, nothing trusted), then the rig's own first sixteen hex (taken, its answer naming the rig's short
- * fingerprint), and reads the key reach the rig: Patterns' link live over TLS with its key, and the rig's nodes line holding its
- * link, proved by that key. The rig's own hex pressed a second time finds nothing waiting. Resolves with what was read; `from` is
- * Patterns' ready time.
+ * Patterns' link to the rig proving itself (Show Bus 1.3 §13.6.5, Patterns' Round 96.1): its STATE's record at level 1 with both
+ * proofs (`mutual`), pinned by the proof at the certificate the rig serves (read from the rig's own ready line, never from
+ * Patterns), its floor kept, under the kid its key makes; the rig's own record (its `nodes` line) holding Patterns' link proved by
+ * that key and --state binding the key to Patterns' id. No person's Trust is asked: the bench's trust line finds nothing waiting.
+ * Resolves with what was read; `from` is Patterns' ready time.
  */
-async function pressTrust(sw, pat, from) {
+async function linkProves(sw, pat, from) {
   const fp = sw.tls.slice('sha256:'.length);
-  const shown = shortFingerprint(sw.tls);
   const key = sw.keyFor('patterns');
-  const leaks = (what, said) => {
-    const leaked = run.secrets.foundIn(JSON.stringify(said));
-    if (leaked.length) throw new Error(`${what} holds ${leaked.join(', ')}`);
-  };
+  const kid = kidOf(key.secret);
   const rigRows = async () => (await sw.nodes()).filter((n) => n.id === pat.ready.node)
     .map(({ t, verified, keyId, links, words }) => ({ t, verified, keyId, links, words }));
-
-  // Before the press: the desk draws the rig's own fingerprint beside TRUST, and its link reads the rig's public view without the
-  // key; on the rig's side no link of Patterns' is proved by a key, and Patterns' key is bound to no node (it was never sent).
-  const waiting = await until(async () => {
+  const read = await until(async () => {
     const l = await pat.stagewatchLink();
-    if (!(l.headline || '').includes(trustWaits(shown))) throw new Error(`Patterns' link to the rig is ${l.state}, its key "${l.key}": "${l.headline}"`);
-    return l;
-  }, S.left(from, TRUST_MS), "Patterns' desk drawing the rig's fingerprint beside TRUST");
-  const offeredMs = S.inTime(from, TRUST_MS, "Patterns' desk drawing the rig's fingerprint beside TRUST");
-  const flags = (waiting.link && waiting.link.flags) || [];
-  if (waiting.state !== 'live' || waiting.carrier !== 'tls' || waiting.key === 'key' || !flags.includes('keyless')) {
-    throw new Error(`before the press Patterns' link is ${waiting.state} over ${waiting.carrier}, its key "${waiting.key}", flags ${JSON.stringify(flags)}: not the rig's public view read without the key`);
-  }
-  const rowsBefore = await rigRows();
-  if (rowsBefore.some((n) => n.verified === 'key' || n.verified === 'operator')) throw new Error(`before the press the rig holds a link of Patterns' proved by a credential: ${JSON.stringify(rowsBefore)}`);
-  const boundBefore = sw.savedKeys().find((k) => k.id === key.id);
-  if (!boundBefore || boundBefore.node !== null) throw new Error(`before the press Patterns' key is bound to ${JSON.stringify(boundBefore)}: it reached the rig`);
-
-  // The Nodes card draws on the desk's own tick, after the link's record: until it draws a certificate, hex that begins another
-  // fingerprint is answered "nothing waits"; once it does, that hex is refused by the one drawn. Neither trusts anything.
-  const wrong = (fp[0] === '0' ? '1' : '0') + fp.slice(1, 16);
-  const nothingWaits = 'nothing waits for Trust: the Nodes card draws no certificate beside TRUST';
-  let early = 0;
-  const refused = await until(async () => {
-    const said = await pat.trust(wrong);
-    leaks("the bench's answer to a wrong trust line", said);
-    if (said.ok === false && said.error === nothingWaits) { early++; throw new Error(`the bench answers "${said.error}"`); }
-    return said;
-  }, S.left(from, TRUST_MS), "Patterns' Nodes card drawing a certificate beside TRUST");
-  const drawnMs = S.inTime(from, TRUST_MS, "Patterns' Nodes card drawing a certificate beside TRUST");
-  const refusedWords = `the certificate waiting for Trust begins ${shown} — not the hex typed; nothing is trusted`;
-  if (refused.ok !== false || refused.error !== refusedWords) throw new Error(`the bench answered hex of another fingerprint with ${JSON.stringify(refused)}`);
-  const still = await pat.stagewatchLink();
-  if (still.key === 'key' || !(still.headline || '').includes(trustWaits(shown))) throw new Error(`after a refused trust line Patterns' link says its key "${still.key}": "${still.headline}"`);
-
-  // The press, with the rig's own first sixteen hex: taken, naming the rig's short fingerprint.
-  const pressedAt = Date.now();
-  const taken = await pat.trust(fp.slice(0, 16));
-  leaks("the bench's answer to the trust line", taken);
-  if (taken.ok !== true || taken.fingerprint !== shown || !/^Trusted Stagewatch /.test(taken.said || '')) throw new Error(`the bench answered the rig's own hex with ${JSON.stringify(taken)}`);
-
-  // After it the key goes, over TLS: Patterns' link live with its key, and the rig's record of it proved by that key.
-  const keyed = await until(async () => {
-    const l = await pat.stagewatchLink();
-    if (l.state !== 'live' || l.carrier !== 'tls' || l.key !== 'key') throw new Error(`Patterns' link to the rig is ${l.state} over ${l.carrier}, its key "${l.key}": "${l.headline}"`);
+    const rec = l.link || {};
+    if (l.state !== 'live' || rec.level !== 1 || rec.proof !== 'mutual') throw new Error(`Patterns' link to the rig is ${l.state}, level ${rec.level}, proof ${rec.proof}: "${rec.words}"`);
     const rows = await rigRows();
-    const proved = rows.find((n) => n.verified === 'key' && n.keyId === key.id);
-    if (!proved) throw new Error(`the rig's nodes line holds no link of Patterns' proved by its key: ${JSON.stringify(rows)}`);
-    return { link: l, rig: proved };
-  }, S.left(pressedAt, TRUST_MS), "Patterns' key reaching the rig after the press");
-  const keyedMs = S.inTime(pressedAt, TRUST_MS, "Patterns' key reaching the rig after the press");
-
-  // The offer is spent: nothing waits for Trust.
-  const spent = await pat.trust(fp.slice(0, 16));
-  if (spent.ok !== false || spent.error !== nothingWaits) throw new Error(`a second press answered ${JSON.stringify(spent)}`);
+    const row = rows.find((n) => n.verified === 'key' && n.keyId === key.id);
+    if (!row) throw new Error(`the rig's nodes line holds no link of Patterns' proved by its key: ${JSON.stringify(rows)}`);
+    return { link: l, rig: row };
+  }, S.left(from, PROVED_MS), "Patterns' link to the rig proved with LINK");
+  const provedMs = S.inTime(from, PROVED_MS, "Patterns' link to the rig proved with LINK");
+  const rec = read.link.link;
+  const wrong = [];
+  if (read.link.carrier !== 'tls' || rec.carrier !== 'ws') wrong.push(`carrier ${read.link.carrier}/${rec.carrier}, not tls over ws`);
+  if (rec.tls !== 'pinned' || rec.pin !== fp.slice(0, 16)) wrong.push(`tls ${rec.tls} at ${rec.pin}, not pinned at the rig's ${fp.slice(0, 16)}`);
+  if (rec.kid !== kid) wrong.push(`kid ${rec.kid}, not ${kid}, the one its key makes`);
+  if (!rec.floor || rec.floor.tls !== true || rec.floor.level !== 1 || rec.floor.proof !== 'mutual') wrong.push(`floor ${JSON.stringify(rec.floor)}`);
+  if (read.link.key !== 'key') wrong.push(`key "${read.link.key}"`);
+  if (rec.refusal) wrong.push(`refusal ${rec.refusal}`);
+  if (rec.peer.t !== 'main' || rec.peer.id !== NODE_ID) wrong.push(`peer ${JSON.stringify(rec.peer)}`);
+  if (wrong.length) throw new Error(`Patterns' proved link to the rig: ${wrong.join('; ')}`);
+  const bound = sw.savedKeys().find((k) => k.id === key.id);
+  if (!bound || bound.node !== pat.ready.node || bound.nodeKind !== 'patterns') throw new Error(`Patterns' key in --state is bound to ${JSON.stringify(bound)}, not Patterns`);
+  // No person's Trust: the bench's own trust line finds nothing waiting, with the rig's own hex or any other.
+  const trust = await pat.trust(fp.slice(0, 16));
+  if (trust.ok !== false || trust.error !== NOTHING_WAITS) throw new Error(`the bench answered the rig's hex with ${JSON.stringify(trust)}`);
+  const leaked = run.secrets.foundIn(JSON.stringify([read, trust]));
+  if (leaked.length) throw new Error(`what was read holds ${leaked.join(', ')}`);
   return {
-    rig: { fingerprint: shown },
-    before: { offeredMs, state: waiting.state, carrier: waiting.carrier, key: waiting.key, flags, headline: waiting.headline, rigLinks: rowsBefore, bound: boundBefore.node },
-    refused: { typed: wrong.length, drawnMs, answeredNothingWaits: early, error: refused.error },
-    taken: { typed: 16, fingerprint: taken.fingerprint, said: taken.said },
-    after: { keyedMs, state: keyed.link.state, carrier: keyed.link.carrier, key: keyed.link.key, headline: keyed.link.headline, rig: keyed.rig },
-    spent: spent.error,
+    provedMs,
+    record: { level: rec.level, proof: rec.proof, tls: rec.tls, pin: rec.pin, kid: rec.kid, scope: rec.scope, flags: rec.flags, light: rec.light, floor: rec.floor, words: rec.words },
+    rig: read.rig, bound: { node: bound.node, nodeKind: bound.nodeKind }, trust: trust.error,
   };
 }
 
@@ -280,7 +243,7 @@ function boundAsHanded(when) {
 
 test('S0.1 each app is ready in its own namespace', row({
   id: 'S0.1',
-  title: "each app is ready in its own namespace, within 60 s of its start; between Patterns' start and PlayMap's the lane makes a person's Trust press at Patterns, as the room is set up (S0.2 reads what it did)",
+  title: "each app is ready in its own namespace, within 60 s of its start; between Patterns' start and PlayMap's the lane reads Patterns' link to the rig prove itself, as the room is set up (S0.2 asserts what it read)",
   apps: HOSTS,
   deadlineMs: READY_MS,
 }, async (r) => {
@@ -299,9 +262,9 @@ test('S0.1 each app is ready in its own namespace', row({
   await pat.reachable();
   matrix.said('patterns', `bench ${pat.ready.build}, node ${pat.ready.node}`);
   ids.patterns = pat.ready.node;
-  // The person at Patterns' desk trusts the rig before the other apps start, as an operator setting up the room would; S0.2 reads
-  // what the press did, and a press that failed fails that row, not this one.
-  pressed = await pressTrust(sw, pat, pat.readyAt).then((facts) => ({ facts }), (error) => ({ error }));
+  // Patterns' link proves itself to the rig before the other apps start, as the room is set up; S0.2 asserts what was read, and
+  // a link that did not prove itself fails that row, not this one.
+  proved = await linkProves(sw, pat, pat.readyAt).then((facts) => ({ facts }), (error) => ({ error }));
 
   const pm = new PlayMap(run, lan.host('playmap'));
   apps.playmap = pm;
@@ -338,7 +301,7 @@ test('S0.1 each app is ready in its own namespace', row({
     if (app.readyMs > READY_MS) throw new Error(`${name} was ready after ${app.readyMs} ms, past ${READY_MS}`);
     readyMs[name] = app.readyMs;
   }
-  r.facts = { readyMs, addresses: Object.fromEntries(HOSTS.map((n) => [n, lan.host(n).addr])), namespaces, trustPress: pressed.error ? 'not taken (S0.2 says why)' : 'taken (S0.2)' };
+  r.facts = { readyMs, addresses: Object.fromEntries(HOSTS.map((n) => [n, lan.host(n).addr])), namespaces, linkProved: proved.error ? 'not proved (S0.2 says why)' : 'proved (S0.2)' };
   matrix.measure('readyMs', readyMs);
   // AGMessage's id on the show network, as its own context says it, and its context token, learned for the sweep.
   ids.agmessage = (await agm.context()).node.id;
@@ -410,7 +373,7 @@ test('S1.4 the rig hears all three', row({
 
 test('S1.5 every app hears the rig', row({
   id: 'S1.5',
-  title: "every app hears the rig: kind main, its --node-id, from the rig's own address where the reader says one, within 5 s of the last app ready (Patterns, whose link follows the rig, draws it no better than that link's record: amber only with the record live, amber, level 0 and legacy, the key taken, and the rig's own context, read from the rig, neither amber nor red with the headline Patterns draws)",
+  title: "every app hears the rig: kind main, its --node-id, from the rig's own address where the reader says one, within 5 s of the last app ready (Patterns, whose link follows the rig, draws it no better than that link's record: amber only with the record live and amber, the key taken, and either at level 0 and legacy or at level 1 both ways proved and pinned with the one flag scope (the verdict's scope node, a finding), and the rig's own context, read from the rig, neither amber nor red with the headline Patterns draws)",
   apps: HOSTS,
   deadlineMs: HELLO_MS,
 }, async (r) => {
@@ -475,20 +438,23 @@ test('S1.6 one id is one peer', row({
   await lockoutAfter(r);
 }));
 
-// S0.2 reads what S0.1's press did, after the hello rows, whose deadlines count from the last app ready and take no row's time
-// before them.
-test('S0.2 a person trusts the rig at Patterns', row({
+// S0.2 asserts what S0.1 read as Patterns' link proved itself, after the hello rows, whose deadlines count from the last app ready
+// and take no row's time before them.
+test('S0.2 Patterns and the rig prove themselves to each other over ws', row({
   id: 'S0.2',
-  title: "a person trusts the rig at Patterns (pressed as the room is set up, between Patterns' start and PlayMap's): within 5 s of Patterns' ready line its desk draws the rig's own fingerprint (read from the rig) beside TRUST while its link reads the rig's public view over TLS without its key, the rig holding no link of Patterns' and Patterns' key bound to nobody; within the same 5 s its Nodes card draws a certificate beside TRUST (until then hex of another fingerprint typed at the bench's trust line is answered that nothing waits), and that hex is then refused by the one drawn; the rig's own first sixteen hex are taken, naming its short fingerprint; within 5 s of the press the key goes: Patterns' link live over TLS with its key, the rig's record of it proved by that key; a second press finds nothing waiting; and the link still keyed when the row reads it",
+  title: "Patterns links to the rig over ws, verified both ways, pinned, floor set (read as the room is set up, between Patterns' start and PlayMap's): within 5 s of Patterns' ready line its link's record is live at level 1 with both proofs, over TLS pinned by the proof at the certificate the rig serves (read from the rig), its floor {tls, level 1, mutual} kept, under the kid its key makes; the rig's own record holds Patterns' link proved by that key and --state binds the key to Patterns' id; no person's Trust is asked (the bench's trust line finds nothing waiting); and the link still so when the row reads it",
   apps: ['patterns', 'stagewatch'],
-  deadlineMs: [TRUST_MS, TRUST_MS],
+  deadlineMs: PROVED_MS,
 }, async (r) => {
   r.evidence.push(run.log('patterns.out'), run.log('patterns.wire'), run.log('stagewatch.err'));
-  if (!pressed) throw new Error('S0.1 did not reach the press: Patterns never started');
-  if (pressed.error) throw pressed.error;
+  if (!proved) throw new Error('S0.1 did not reach the read: Patterns never started');
+  if (proved.error) throw proved.error;
   const now = await apps.patterns.stagewatchLink();
-  if (now.state !== 'live' || now.carrier !== 'tls' || now.key !== 'key') throw new Error(`Patterns' link to the rig is ${now.state} over ${now.carrier}, its key "${now.key}": "${now.headline}"`);
-  r.facts = { ...pressed.facts, now: { state: now.state, carrier: now.carrier, key: now.key } };
+  const rec = now.link || {};
+  if (now.state !== 'live' || rec.level !== 1 || rec.proof !== 'mutual' || rec.tls !== 'pinned' || now.key !== 'key') {
+    throw new Error(`Patterns' link to the rig is now ${now.state}, level ${rec.level}, proof ${rec.proof}, tls ${rec.tls}, key "${now.key}": "${rec.words}"`);
+  }
+  r.facts = { ...proved.facts, now: { state: now.state, level: rec.level, proof: rec.proof, tls: rec.tls, since: rec.since } };
   await lockoutAfter(r);
 }));
 
@@ -1132,13 +1098,13 @@ test('S8.1 ready with everything up', row({
   r.evidence.push(run.log('stagewatch.out'), run.log(`stagewatch.companion.${apps.stagewatch.starts}`));
   const sw = apps.stagewatch;
   // S8.0: what each app's own context lights, read from the app itself; a red one there would close the doors.
-  const own = {
-    patterns: ownLights((await apps.patterns.context()).json),
-    playmap: ownLights((await apps.playmap.context()).json),
-    agmessage: ownLights(await apps.agmessage.context()),
-  };
+  const contexts = { patterns: (await apps.patterns.context()).json, playmap: (await apps.playmap.context()).json, agmessage: await apps.agmessage.context() };
+  const own = Object.fromEntries(Object.entries(contexts).map(([app, c]) => [app, ownLights(c)]));
   matrix.measure('ownItems', own);
-  const red = Object.entries(own).flatMap(([app, items]) => Object.entries(items).filter(([, l]) => l === 'red').map(([id]) => `${app} ${id}`));
+  // A red item is named with the app's own words for it (PlayMap's machine item says which of its health rows is red: the host's CPU,
+  // memory or disk, read from the bench it shares with whatever else runs there).
+  const wordsOf = (app, id) => { const it = ((contexts[app] && contexts[app].items) || []).find((x) => x.id === id); return it && it.state ? ` ("${String(it.state).slice(0, 160)}")` : ''; };
+  const red = Object.entries(own).flatMap(([app, items]) => Object.entries(items).filter(([, l]) => l === 'red').map(([id]) => `${app} ${id}${wordsOf(app, id)}`));
   if (red.length) throw new Error(`an app's own context lights red: ${red.join(', ')}`);
   const t = Date.now();
   const verdict = await until(async () => {
@@ -1389,6 +1355,292 @@ test("S2.1b PlayMap reads the rig's verdict on its node link", row({
   await lockoutAfter(r);
 }));
 
+/** The words the rig refuses a proof in (its own table, LinkAcceptor): the same for every wrong proof, so none tells which. */
+const PROOF_REFUSED = 'the proof did not verify: a wrong key, or another machine between us';
+
+test('S2.8 a wrong proof from another machine', row({
+  id: 'S2.8',
+  title: "a wrong proof for Patterns' key from another machine is refused in the rig's own words and counted against that machine and that key alone: from the switch, LINK under Patterns' id and kid with another key's proof hears refused (class refused, retry 60) and keeps the public view; the rig's proof table counts the switch once for that kid and Patterns' address never, and neither PIN nor view-pass table counts anyone; Patterns' own link stays live and proved, its record not moved; the control first: the same client with Patterns' own key hears an ok verdict whose server proof verifies with that key, so the refusal is the proof's alone",
+  apps: ['stagewatch', 'patterns'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('stagewatch.err'), run.log('patterns.wire'));
+  const sw = apps.stagewatch;
+  const pat = apps.patterns;
+  const key = sw.keyFor('patterns');
+  const target = { host: lan.host('stagewatch').addr, port: sw.ports.http, pin: sw.tls, node: { t: 'patterns', id: ids.patterns } };
+  const before = await pat.stagewatchLink();
+  if (before.state !== 'live' || before.link.level !== 1 || before.link.proof !== 'mutual') throw new Error(`Patterns' link to the rig is ${before.state}, level ${before.link.level}, before the row`);
+  const proofsBefore = (await sw.auth()).proofs;
+  const dialledAt = Date.now();
+  // The control: this client's transcript and proof are LINK's, so the acceptor proves itself back to it with the same key.
+  const right = await dialLink({ ...target, secret: key.secret });
+  right.link.close();
+  if (!right.proved || right.verdict.node.verified !== 'key' || right.verdict.level !== 1) throw new Error(`the control's verdict did not prove the acceptor: ${JSON.stringify({ ...right.verdict, proof: undefined })}`);
+  rigVerdict = { can: right.verdict.can, stuckMs: right.verdict.stuckMs };
+  // The control spoke for Patterns' id with its own key from the switch: once it has closed, the rig's record holds Patterns' one
+  // link again, at Patterns' address, and its hello table marks no conflict on the id.
+  const patAddr = lan.host('patterns').addr;
+  const oneLink = await until(async () => {
+    const rows = (await sw.nodes()).filter((n) => n.id === ids.patterns);
+    return rows.length === 1 && rows[0].verified === 'key' && rows[0].links === 1 && rows[0].address === patAddr ? rows[0] : null;
+  }, S.left(dialledAt, HELLO_MS), "the rig's record holding Patterns' one link after the control closed");
+  const heardRow = ((await sw.heard()).peers || []).find((p) => p.id === ids.patterns);
+  if (!heardRow || heardRow.conflict) throw new Error(`the rig's hello table ${heardRow ? `marks Patterns' id in conflict: ${JSON.stringify(heardRow.conflict)}` : 'has no row for Patterns'}`);
+  // The wrong proof: Patterns' kid, another key's proof (a key nobody holds, made here and used for nothing else).
+  const sentAt = Date.now();
+  const wrong = await dialLink({ ...target, secret: 'swk_' + hex(16), kid: right.kid });
+  const said = wrong.verdict;
+  if (said.ok !== false || said.class !== 'refused' || said.error !== PROOF_REFUSED || said.retry !== 60) {
+    wrong.link.close();
+    throw new Error(`the wrong proof was answered ${JSON.stringify(said)}`);
+  }
+  const view = await wrong.link.next((m) => m.type === 'state', S.left(sentAt, HELLO_MS), 'the public frame after the refusal', wrong.link.messages.indexOf(said) + 1);
+  wrong.link.close();
+  const tables = await sw.auth();
+  const counted = (addr) => (tables.proofs[`${addr} ${right.kid}`] || 0) - (proofsBefore[`${addr} ${right.kid}`] || 0);
+  if (counted(lan.map.switch) !== 1) throw new Error(`the rig counted ${counted(lan.map.switch)} wrong proofs against the switch for ${right.kid}, not 1: ${JSON.stringify(tables.proofs)}`);
+  const atPatterns =Object.entries(tables.proofs).filter(([k]) => k.startsWith(patAddr + ' '));
+  if (atPatterns.length) throw new Error(`the rig counts wrong proofs against Patterns' address: ${JSON.stringify(atPatterns)}`);
+  const after = await pat.stagewatchLink();
+  // Not moved: still live and proved, live since before the control was dialled (the record's `since` is its wall time of entering
+  // the state, read again on each STATE, so it is held to that moment and not to the millisecond).
+  if (after.state !== 'live' || after.link.level !== 1 || after.link.proof !== 'mutual' || after.link.since > dialledAt) {
+    throw new Error(`Patterns' link moved: ${before.link.state}@${before.link.since} → ${after.link.state}@${after.link.since}, level ${after.link.level}, proof ${after.link.proof}`);
+  }
+  r.facts = {
+    control: { ok: right.verdict.ok, proved: right.proved, verified: right.verdict.node.verified, level: right.verdict.level, scope: right.verdict.scope, can: right.verdict.can },
+    wrong: { class: said.class, error: said.error, retry: said.retry, publicFrame: view.type },
+    proofs: { switch: counted(lan.map.switch), patterns: 0, kid: right.kid },
+    rigRecord: { links: oneLink.links, verified: oneLink.verified, keyId: oneLink.keyId, conflict: heardRow.conflict || null },
+    patterns: { state: after.state, level: after.link.level, proof: after.link.proof, since: after.link.since },
+  };
+  await lockoutAfter(r);
+}));
+
+/** S5.1's window and where a Linux bench is with it: a page grant is opened by WebView2 alone (Patterns' WebEngine). */
+const S5_WINDOW = 'lobby';
+const NOT_OPEN = 'its page is not open on this desk yet';
+
+test('S5.1 a window granted to Patterns, staged in the preview, gated, never said on air', row({
+  id: 'S5.1',
+  title: "a window granted from the rig to Patterns reaches Patterns' desk, is staged in the preview, gated and never said on air: window new lobby /clock and window grant lobby <Patterns' id> with the PIN; the rig holds the grant acknowledged (held) and says once that Patterns took its address; Patterns' STATE bus.stagewatch.windows names it by its held form and never an address, granted over TLS, not ready because its page cannot open on this bench (no web engine off Windows, the finding), shown nowhere; SCREEN 1 WINDOW lobby is refused not ready with nothing changed, PVW WINDOW lobby opens EDIT SAFE by itself and stages it on PGM, read in the preview and not on air, the take is refused by the ready gate with nothing taken, and STATE never says it on air; a withdraw ends the grant on both (that it is shown from the air once ready is S5.1w's, a Windows walk)",
+  apps: ['stagewatch', 'patterns'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('stagewatch.err'), run.log('patterns.wire'));
+  const sw = apps.stagewatch;
+  const pat = apps.patterns;
+  const ok = async (segments, id, what) => {
+    const said = await sw.api(segments, id);
+    if (said.status !== 200 || !said.json || said.json.ok !== true) throw new Error(`${what} answered ${said.status} ${said.text.slice(0, 200)}`);
+    return said.json;
+  };
+  await ok(['window', 'new', S5_WINDOW, '/clock'], 'interop-s5-1-new', 'window new');
+  const errFrom = sw.proc.err.items.length;
+  const grantedAt = Date.now();
+  const granted = await ok(['window', 'grant', S5_WINDOW, ids.patterns], 'interop-s5-1-grant', 'window grant');
+  // --state now holds the window's and the grant's addresses: registered, so the sweep looks for them everywhere they may not be.
+  const saved = sw.savedWindows().find((w) => w.name === S5_WINDOW);
+  if (!saved || saved.grants.length !== 1 || saved.grants[0].node !== ids.patterns || saved.grants[0].how !== 'page') throw new Error(`--state keeps ${JSON.stringify(saved)}`);
+  const held = await until(async () => {
+    const w = (await sw.windows()).find((x) => x.name === S5_WINDOW);
+    const g = w && (w.grants || []).find((x) => x.node === ids.patterns);
+    return g && g.state === 'held' ? { w, g } : null;
+  }, S.left(grantedAt, HELLO_MS), "the rig holding Patterns' grant acknowledged");
+  const heldMs = S.inTime(grantedAt, HELLO_MS, "the rig holding Patterns' grant acknowledged");
+  const took = await sw.proc.err.wait((l) => l.line.includes(`took ${S5_WINDOW}'s address`), S.left(grantedAt, HELLO_MS), "the rig's took line", errFrom);
+  // Patterns' own STATE: the grant by its held form, its address kept off every reader.
+  const seen = await until(async () => {
+    const st = await pat.state();
+    const w = (st.bus.stagewatch.windows || []).find((x) => x.name === S5_WINDOW);
+    return w && w.granted === true ? { st, w } : null;
+  }, S.left(grantedAt, HELLO_MS), "Patterns' STATE naming the granted window");
+  const w = seen.w;
+  const wrong = [];
+  if (w.how !== 'page' || w.link !== 'tls' || w.cannot !== '') wrong.push(`how ${w.how}, link ${w.link}, cannot "${w.cannot}"`);
+  if (w.window !== held.w.id) wrong.push(`window ${w.window}, not the rig's ${held.w.id}`);
+  if (w.ready !== false || w.why !== NOT_OPEN) wrong.push(`ready ${w.ready} "${w.why}"`);
+  if (w.shown !== '' || w.screens.length || w.staged.length) wrong.push(`shown "${w.shown}" on ${JSON.stringify(w.screens)}, staged ${JSON.stringify(w.staged)}`);
+  if (/\/w\//.test(w.held) || run.secrets.foundIn(JSON.stringify(seen.st.bus.stagewatch)).length) wrong.push(`held "${w.held}" or the row carries an address`);
+  if (wrong.length) throw new Error(`Patterns' window row: ${wrong.join('; ')}`);
+  const before = { airLook: seen.st.airLook, screen: seen.st.screens[0], editSafe: seen.st.editSafe };
+  // Live on a screen only when ready: refused, nothing changed.
+  const live = await pat.say(`SCREEN 1 WINDOW ${S5_WINDOW}`);
+  if (!/^ERR .*not ready on this desk — its page is not open on this desk yet; nothing changed/.test(live)) throw new Error(`SCREEN 1 WINDOW answered ${JSON.stringify(live.slice(0, 240))}`);
+  // Staged in the programme's preview, then the take refused by the gate, nothing taken.
+  const staged = await pat.say(`PVW WINDOW ${S5_WINDOW}`);
+  if (!/^OK( |$)/.test(staged)) throw new Error(`PVW WINDOW answered ${JSON.stringify(staged.slice(0, 240))}`);
+  const take = await pat.say('SCREEN 1 TAKE');
+  if (!/^ERR .*PVW holds Stagewatch window 'lobby', not ready — its page is not open on this desk yet — nothing taken/.test(take)) throw new Error(`SCREEN 1 TAKE answered ${JSON.stringify(take.slice(0, 240))}`);
+  const st = await pat.state();
+  const row2 = (st.bus.stagewatch.windows || []).find((x) => x.name === S5_WINDOW);
+  // The preview stages it and the air never has it: never on air nor outputs closed. PVW WINDOW opens EDIT SAFE by itself (Patterns'
+  // REMOTE.md), so the staged row is held here, whatever an earlier row left open. The take is refused by the ready gate (the page
+  // cannot open on this bench), so this row proves staging and the gate, not that a ready window is shown from the air.
+  if (!row2 || row2.screens.length || row2.shown === 'on air' || row2.shown === 'outputs closed') throw new Error(`after the refused take Patterns says the window is "${row2 && row2.shown}" on ${JSON.stringify(row2 && row2.screens)}`);
+  if (st.editSafe !== true) throw new Error(`after PVW WINDOW Patterns' EDIT SAFE is ${st.editSafe}, not open`);
+  if (row2.shown !== 'in the preview — not on air' || !row2.staged.includes('PGM')) throw new Error(`the staged window reads "${row2.shown}", staged ${JSON.stringify(row2.staged)}`);
+  if (st.airLook !== before.airLook || JSON.stringify(st.screens[0]) !== JSON.stringify(before.screen)) throw new Error(`the air moved: look ${before.airLook} → ${st.airLook}, screen ${JSON.stringify(st.screens[0])}`);
+  // What the preview had again, then the window withdrawn: the grant ends on both.
+  const back = await pat.say('PVW PROGRAM');
+  const goneAt = Date.now();
+  await ok(['window', 'delete', S5_WINDOW], 'interop-s5-1-delete', 'window delete');
+  await until(async () => (((await pat.state()).bus.stagewatch.windows || []).some((x) => x.name === S5_WINDOW) ? null : true), S.left(goneAt, HELLO_MS), "Patterns' grant ended");
+  const goneMs = S.inTime(goneAt, HELLO_MS, "Patterns' grant ended");
+  if (sw.savedWindows().some((x) => x.name === S5_WINDOW)) throw new Error('--state still keeps the deleted window');
+  r.facts = {
+    grant: { effect: granted.effect, rigState: held.g.state, heldMs, took: took.line.replace(/^\S+ /, '') },
+    patterns: { how: w.how, link: w.link, held: w.held, ready: w.ready, why: w.why, shown: w.shown, editSafe: { before: before.editSafe, afterStage: st.editSafe } },
+    gate: { live: live.slice(0, 200), staged: staged.slice(0, 120), take: take.slice(0, 200), afterTake: { shown: row2.shown, screens: row2.screens, staged: row2.staged } },
+    restored: back.slice(0, 120),
+    withdrawn: { ms: goneMs },
+  };
+  await lockoutAfter(r);
+}));
+
+/** A line an AI agent proposes to PlayMap through the rig's MCP endpoint (run_command with a target): its reply text. */
+async function mcpPropose(line, reason) {
+  const said = await apps.stagewatch.mcp('tools/call', { name: 'run_command', arguments: { command: line, target: ids.playmap, reason } });
+  const text = said && said.result && said.result.content && said.result.content[0] && said.result.content[0].text;
+  if (typeof text !== 'string') throw new Error(`MCP run_command answered ${JSON.stringify(said).slice(0, 300)}`);
+  const id = /Queued for the operator's approval as (p\d+-[a-z0-9]+)/.exec(text);
+  if (said.result.isError || !id) throw new Error(`MCP run_command did not queue "${line}": ${text.slice(0, 300)}`);
+  return { text, id: id[1] };
+}
+
+/** PlayMap's journal rows (its own file in its home, one JSON line each) whose line is `line`. */
+function playmapJournalRows(line) {
+  const file = path.join(apps.playmap.folders.home, 'playmap.journal.jsonl');
+  const rows = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }) : [];
+  return rows.filter((x) => x && x.line === line);
+}
+
+/** S3.5's playlist on PlayMap, made for the MCP rows and taken away by S3.7. */
+let mcpList = null;
+
+/** PlayMap's word on its own wire for a setup line: its answer after OK. */
+async function playmapOk(line, what) {
+  const said = await apps.playmap.say(line);
+  if (!/^OK( |$)/.test(said)) throw new Error(`PlayMap answered ${what} with ${JSON.stringify(said.slice(0, 200))}`);
+  return said.slice(3).trim();
+}
+
+test('S3.5 an MCP agent → PlayMap', row({
+  id: 'S3.5',
+  title: "an AI agent on the rig's MCP endpoint proposes a line to PlayMap (run_command with PlayMap's id as target): it is only ever a proposal, pending on the rig's desk for PlayMap, rated by PlayMap's own verified table; the operator approves it (desk approve with the PIN); PlayMap collects it and runs it once (its journal holds the line once, ok), its STATE says the playlist cued, and the rig's desk says done",
+  apps: ['stagewatch', 'playmap'],
+  deadlineMs: DESK_MS,
+}, async (r) => {
+  r.evidence.push(run.log('stagewatch.out'), run.log('playmap.wire'), apps.playmap.engineLog);
+  const sw = apps.stagewatch;
+  const pm = apps.playmap;
+  mcpList = await playmapOk('PLAYLIST NEW mcp', 'PLAYLIST NEW');
+  await playmapOk(`PLAYLIST ADD ${mcpList} color:#203020 Cue`, 'PLAYLIST ADD');
+  const line = `PLAYLIST CUE ${mcpList} #1`;
+  const table = ((await pm.context()).json.commands || []).find((c) => c.verb.startsWith('PLAYLIST CUE '));
+  if (!table) throw new Error("PlayMap's context lists no PLAYLIST CUE row");
+  const proposedAt = Date.now();
+  const asked = await mcpPropose(line, 'the next cue');
+  const pending = await deskHas((p) => p.id === asked.id && p.state === 'pending', S.left(proposedAt, DESK_MS), 'the MCP proposal pending on the rig\'s desk');
+  if (pending.target.id !== ids.playmap || pending.line !== line) throw new Error(`the proposal is ${JSON.stringify({ target: pending.target, line: pending.line })}`);
+  if (pending.risk !== table.risk) throw new Error(`the rig rates "${line}" ${pending.risk}, not ${table.risk} as PlayMap's own table says`);
+  if (playmapJournalRows(line).length) throw new Error('PlayMap ran the line before anyone approved it');
+  const decided = await sw.api(['desk', 'approve', asked.id], 'interop-s3-5');
+  if (decided.status !== 200 || !decided.json || decided.json.ok !== true) throw new Error(`desk approve ${asked.id} answered ${decided.status} ${decided.text.slice(0, 200)}`);
+  const done = await deskDone(asked.id, S.left(proposedAt, DESK_MS), "the rig's desk saying done for the MCP proposal");
+  const doneMs = S.inTime(proposedAt, DESK_MS, "the rig's desk saying done for the MCP proposal");
+  const cued = await until(async () => {
+    const pl = ((await pm.state()).playlists || []).find((x) => x.id === mcpList);
+    return pl && pl.state === 'cued' ? pl : null;
+  }, S.left(proposedAt, DESK_MS), "PlayMap's playlist cued");
+  const ran = playmapJournalRows(line);
+  if (ran.length !== 1 || ran[0].ok !== true) throw new Error(`PlayMap's journal holds ${JSON.stringify(ran)} for "${line}", not one ok row`);
+  r.facts = {
+    mcp: asked.text.slice(0, 200),
+    proposal: { id: asked.id, from: pending.from, risk: pending.risk, tableRisk: table.risk },
+    decided: { status: decided.status, stage: decided.json.stage },
+    desk: { state: done.state, decidedBy: done.decidedBy, ms: doneMs },
+    playmap: { state: cued.state, item: cued.item, journal: { who: ran[0].who, text: ran[0].text } },
+  };
+  await lockoutAfter(r);
+}));
+
+test('S3.7 a rejection never runs, and is reported', row({
+  id: 'S3.7',
+  title: "a second MCP proposal to PlayMap (PLAYLIST GO), rejected by the operator with words (desk reject with the PIN): the rig's desk says rejected and never collected; a third, approved after the rejection (PLAYLIST LOOP ON), is collected and run by PlayMap, so PlayMap read its queue after the rejection; the rejected line has no row in PlayMap's journal, its playlist neither moved nor played, S3.5's cue still one row, and the rig's show report holds the Desk row \"Rejected … — <words>\" (the words reach the report alone: the proposal's own record carries none, a finding)",
+  apps: ['stagewatch', 'playmap'],
+  deadlineMs: DESK_MS,
+}, async (r) => {
+  r.evidence.push(run.log('stagewatch.out'), apps.playmap.engineLog);
+  const sw = apps.stagewatch;
+  const pm = apps.playmap;
+  if (!mcpList) throw new Error('S3.5 made no playlist');
+  const line = `PLAYLIST GO ${mcpList} #1`;
+  const cue = `PLAYLIST CUE ${mcpList} #1`;
+  const words = 'not before the speaker is off';
+  const proposedAt = Date.now();
+  const asked = await mcpPropose(line, 'the cue after');
+  await deskHas((p) => p.id === asked.id && p.state === 'pending', S.left(proposedAt, DESK_MS), 'the second MCP proposal pending');
+  const before = ((await pm.state()).playlists || []).find((x) => x.id === mcpList);
+  const decided = await sw.api(['desk', 'reject', asked.id, ...words.split(' ')], 'interop-s3-7');
+  if (decided.status !== 200 || !decided.json || decided.json.ok !== true) throw new Error(`desk reject ${asked.id} answered ${decided.status} ${decided.text.slice(0, 200)}`);
+  const rejected = await until(async () => { const p = await sw.proposal(asked.id); return p.state === 'rejected' ? p : null; }, S.left(proposedAt, DESK_MS), 'the proposal rejected');
+  // The anchor: a line approved after the rejection is collected and run, so PlayMap read its queue after the rejection; a
+  // rejected one is never handed to it (its record never says collected).
+  const sentinelAt = Date.now();
+  const sentinelLine = `PLAYLIST LOOP ${mcpList} ON`;
+  const sentinel = await mcpPropose(sentinelLine, 'wrap the list');
+  await deskHas((p) => p.id === sentinel.id && p.state === 'pending', S.left(sentinelAt, DESK_MS), 'the third MCP proposal pending');
+  const approved = await sw.api(['desk', 'approve', sentinel.id], 'interop-s3-7-sentinel');
+  if (approved.status !== 200 || !approved.json || approved.json.ok !== true) throw new Error(`desk approve ${sentinel.id} answered ${approved.status} ${approved.text.slice(0, 200)}`);
+  const ranAfter = await deskDone(sentinel.id, S.left(sentinelAt, DESK_MS), "the rig's desk saying done for the line approved after the rejection");
+  if (!(ranAfter.collected > rejected.decided)) throw new Error(`the line approved after the rejection was collected at ${ranAfter.collected}, not after the rejection at ${rejected.decided}`);
+  const looped = await until(async () => {
+    const pl = ((await pm.state()).playlists || []).find((x) => x.id === mcpList);
+    return pl && pl.loop === true ? pl : null;
+  }, S.left(sentinelAt, DESK_MS), "PlayMap's playlist looping");
+  const sentinelRows = playmapJournalRows(sentinelLine);
+  if (sentinelRows.length !== 1 || sentinelRows[0].ok !== true) throw new Error(`PlayMap's journal holds ${JSON.stringify(sentinelRows)} for "${sentinelLine}", not one ok row`);
+  const still = await sw.proposal(asked.id);
+  if (still.state !== 'rejected' || still.collected !== null) throw new Error(`the rejected proposal now reads ${still.state}, collected ${still.collected}`);
+  const ran = playmapJournalRows(line);
+  if (ran.length) throw new Error(`PlayMap ran the rejected line: ${JSON.stringify(ran)}`);
+  const cued = playmapJournalRows(cue);
+  if (cued.length !== 1) throw new Error(`PlayMap's journal holds ${cued.length} rows of S3.5's "${cue}", not one`);
+  const after = ((await pm.state()).playlists || []).find((x) => x.id === mcpList);
+  if (!after || after.state !== before.state || after.index !== before.index) throw new Error(`PlayMap's playlist moved after the rejection: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+  // The report as a reader sees it (its markup gone, its entities read): the desk's row "Rejected <id> (<who>): <title> — <words>".
+  const text = (await sw.report()).replace(/<[^>]+>/g, '\n').replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&quot;/g, '"').replace(/&#x27;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const short = asked.id.split('-')[0];
+  const desk = text.split('\n').map((l) => l.trim()).find((l) => l.startsWith(`Rejected ${short} (`) && l.endsWith(` — ${words}`));
+  if (!desk) throw new Error(`the rig's report holds no Desk row "Rejected ${short} (…): … — ${words}"`);
+  await playmapOk(`PLAYLIST DELETE ${mcpList}`, 'PLAYLIST DELETE');
+  mcpList = null;
+  r.facts = {
+    // `words` is the proposal's own record: Approvals.Reject keeps no words of the operator's, so it reads empty (a finding, docs/WHATS_NEXT.md).
+    proposal: { id: asked.id, state: still.state, decided: rejected.decided, collected: still.collected, words: still.words === undefined ? null : still.words },
+    afterRejection: { id: sentinel.id, line: sentinelLine, collected: ranAfter.collected, state: ranAfter.state, loop: looped.loop, journalRows: sentinelRows.length },
+    playmap: { journalRows: 0, cueRows: cued.length, playlist: { state: after.state, index: after.index } },
+    report: desk.slice(0, 240),
+  };
+  await lockoutAfter(r);
+}));
+
+/**
+ * The plan's stuck words beside a measured time: followers show no time within stuckMs + 4 s, where a stuckMs exists. The rig's
+ * verdict carries one only when its `can` lists `stuck`; while it does not, there is no number to add 4 s to, and the row keeps the
+ * contract's deadline (3 s stuck plus a 2 s beat, × 1.5 + 2 s) and says so rather than make one up.
+ */
+function stuckPlan(measuredMs) {
+  const can = rigVerdict ? rigVerdict.can : null;
+  if (rigVerdict && can.includes('stuck') && Number.isInteger(rigVerdict.stuckMs)) {
+    return { stuckMs: rigVerdict.stuckMs, withinMs: rigVerdict.stuckMs + 4000, within: measuredMs <= rigVerdict.stuckMs + 4000, measuredMs };
+  }
+  return { stuckMs: null, can, measuredMs, note: rigVerdict ? "the rig's verdict lists no stuck and carries no stuckMs at this head" : "no verdict of the rig's was read (S2.8 did not run)" };
+}
+
 test('S6.2a a stuck Stagewatch: PlayMap shows no time', row({
   id: 'S6.2a',
   title: "a stuck Stagewatch: PlayMap's link stays live and shows no time because Stagewatch says it is stuck, and the rig's running time again once the show turns over",
@@ -1461,7 +1713,8 @@ test('S6.2a a stuck Stagewatch: PlayMap shows no time', row({
     before: { text: first.timer.text, seconds: first.timer.seconds },
     stall: { ms: STALL_MS, rigSaid: runningAt - stall.stalledAt },
     noTimeMs,
-    blank: { state: blank.state, why: blank.timer.why },
+    plan: stuckPlan(noTimeMs),
+    blank: { state: blank.state, why: blank.timer.why, light: blank.light === undefined ? null : blank.light },
     stuckSamples: samples,
     resumeMs,
     after: { text: back.timer.text, seconds: after.seconds, rigSeconds: rig, movedS: Math.round(moved * 10) / 10 },
@@ -1471,7 +1724,7 @@ test('S6.2a a stuck Stagewatch: PlayMap shows no time', row({
 
 test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
   id: 'S6.2b',
-  title: "a stuck Stagewatch: Patterns' link stays live and says stuck with no time from it, and its time comes back once the rig's show turns over",
+  title: "a stuck Stagewatch: Patterns' link stays live and amber (its record live and proved) and says stuck with no time from it, and its time comes back once the rig's show turns over; the time to no time is recorded beside the plan's stuckMs + 4 s, or beside the rig's verdict offering no stuckMs",
   apps: ['stagewatch', 'patterns'],
   deadlineMs: [STUCK_MS, RESUME_MS],
 }, async (r) => {
@@ -1488,8 +1741,11 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
     if (l.stuck !== true) return null;
     if (l.state !== 'live') throw new Error(`Patterns says stuck, but its link is ${l.state}`);
     if (l.text !== '') throw new Error(`Patterns says stuck and still shows "${l.text}"`);
+    // The link stays live and amber: its record live and proved (not the silence a stale link would show), its row amber.
+    if (!l.link || l.link.state !== 'live' || l.link.level !== 1) throw new Error(`Patterns says stuck, but its link's record is ${l.link && l.link.state}, level ${l.link && l.link.level}`);
+    if (l.light !== 'amber') throw new Error(`Patterns says stuck with its row ${l.light}, not amber`);
     return l;
-  }, S.left(stall.stalledAt, STUCK_MS), 'Patterns saying the rig is stuck, its link live, with no time');
+  }, S.left(stall.stalledAt, STUCK_MS), 'Patterns saying the rig is stuck, its link live and amber, with no time');
   const stuckMs = S.since(stall.stalledAt);
   if (stuckMs > STUCK_MS) throw new Error(`Patterns said stuck ${stuckMs} ms after the stall, past ${STUCK_MS}`);
   // Until the rig turns over Patterns never shows a time from it; a time read back is held against the rig's own turn-over time.
@@ -1516,7 +1772,8 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
     before: { text: first.text, light: first.light },
     stall: { ms: STALL_MS, rigSaid: runningAt - stall.stalledAt },
     stuckMs,
-    stuck: { state: stuck.state, light: stuck.light, headline: stuck.headline },
+    plan: stuckPlan(stuckMs),
+    stuck: { state: stuck.state, light: stuck.light, headline: stuck.headline, record: { state: stuck.link.state, show: stuck.link.show, light: stuck.link.light, level: stuck.link.level } },
     stuckSamples: samples,
     resumeMs,
     after: { text: back.text, light: back.light },
@@ -1719,7 +1976,19 @@ test("S6.1b the rig's cable pulled", row({
   await lan.cable('stagewatch', 'up');
   const upAt = Date.now();
   const back = await until(async () => { const l = await stagewatchLinks(); return allLive(l) ? l : null; }, GONE_MS, 'every link to the rig live again');
-  r.facts = { before, stale, staleMs, gone, goneMs, back, backMs: S.since(upAt) };
+  // What Patterns' link's record says once it has settled live again: the same state, level, proof, TLS and floor read for 2 s on
+  // end (recorded, not asserted: at this pin the redial after a gone link is a public view at level 0, TLS at first use, under the
+  // floor it kept, a finding docs/WHATS_NEXT.md names; S2.9 restarts Patterns).
+  let seen = { key: '', since: 0 };
+  const rec = await until(async () => {
+    const l = (await apps.patterns.stagewatchLink()).link || {};
+    // Not `since`: Patterns reads it again from the wall clock on each STATE, so it moves by milliseconds between reads.
+    const key = JSON.stringify([l.state, l.level, l.proof, l.tls, l.floor]);
+    if (key !== seen.key) seen = { key, since: Date.now() };
+    return l.state === 'live' && Date.now() - seen.since >= 2000 ? l : null;
+  }, GONE_MS, "Patterns' link record settled live after the cable");
+  r.facts = { before, stale, staleMs, gone, goneMs, back, backMs: S.since(upAt),
+    patternsRecord: { state: rec.state, level: rec.level, proof: rec.proof, tls: rec.tls, floor: rec.floor || null, words: rec.words } };
   await lockoutAfter(r);
 }));
 
@@ -1770,6 +2039,45 @@ test('S8.4 a seen-only node leaving does not block', row({
     amber: { ms: amberMs, words: amber.words },
     watch,
     restart: { readyMs: agm.readyMs, stage: linked, greenMs: S.inTime(restartedAt, GONE_MS, "AGMessage's heard row green again"), words: green.words },
+  };
+  await lockoutAfter(r);
+}));
+
+test("S2.9 Patterns' key revoked on its live link", row({
+  id: 'S2.9',
+  title: "live revocation, after Patterns restarted in its own home proves its link afresh (within 5 s of its ready line, as S0.2 reads it): the rig revokes Patterns' node key (the desk's Revoke, the rig's revoke line, answered once every socket the key admitted was checked again); within 5 s Patterns' link hears it refused on its live socket and says so, its record no longer live and proved but held, its refusal `key` (13.16.3's word for a key the acceptor refused) and its proof none; the rig's own record holds no link of Patterns' proved by any key and --state keeps no such key; and a revoked key is no guess: no address of this LAN is counted in either table, and the proof table counts none at Patterns' address",
+  apps: ['stagewatch', 'patterns'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log(`stagewatch.${apps.stagewatch.starts}.err`), run.log('patterns.wire'));
+  const sw = apps.stagewatch;
+  const pat = apps.patterns;
+  const key = sw.keyFor('patterns');
+  // Patterns restarted in its own home, with its key, so its link proves itself afresh (a link that went gone, as in S6.1b, comes
+  // back at this pin as a public view at level 0 with the key held back: a finding, not this row's).
+  const was = (await pat.stagewatchLink()).link || {};
+  await pat.stop();
+  await pat.start(pat.stagewatch, READY_MS, key);
+  pat.checkReady();
+  if (pat.ready.node !== ids.patterns) throw new Error(`Patterns came back as ${pat.ready.node}, not ${ids.patterns}`);
+  const reproved = await linkProves(sw, pat, pat.readyAt);
+  const at = await sw.revoke(key.id);
+  const refused = await until(async () => {
+    const l = await pat.stagewatchLink();
+    const rec = l.link || {};
+    return rec.state === 'held' && rec.refusal === 'key' && rec.proof === 'none' ? l : null;
+  }, S.left(at, HELLO_MS), "Patterns' link refused once its key was revoked");
+  const refusedMs = S.inTime(at, HELLO_MS, "Patterns' link refused once its key was revoked");
+  const rows = (await sw.nodes()).filter((n) => n.id === ids.patterns && n.verified === 'key');
+  if (rows.length) throw new Error(`the rig still holds a link of Patterns' proved by a key: ${JSON.stringify(rows)}`);
+  if (sw.savedKeys().some((k) => k.id === key.id)) throw new Error("--state still keeps Patterns' revoked key");
+  const proofs = Object.entries((await sw.auth()).proofs).filter(([k]) => k.startsWith(lan.host('patterns').addr + ' '));
+  if (proofs.length) throw new Error(`the rig counts wrong proofs at Patterns' address: ${JSON.stringify(proofs)}`);
+  const rec = refused.link;
+  r.facts = {
+    beforeRestart: { state: was.state, level: was.level, proof: was.proof }, reproved: { provedMs: reproved.provedMs, level: reproved.record.level, proof: reproved.record.proof },
+    revokedAt: at, refusedMs,
+    patterns: { state: refused.state, record: { state: rec.state, refusal: rec.refusal, level: rec.level, proof: rec.proof, light: rec.light, words: rec.words }, headline: refused.headline },
   };
   await lockoutAfter(r);
 }));
