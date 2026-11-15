@@ -19,9 +19,13 @@ ports are still there) are each refused with exit 2 and the reason, so no link i
 Standard output, line 1: {"topology":"lan","switch":"10.99.0.1","hosts":{"rig":{"addr":"10.99.0.2","ns":"/proc/<pid>/ns/net"},
 ...}}: a host's ns is the network namespace to run its app in (nsenter --net=<ns>). Then one JSON line for each line read on
 standard input: "down <host>" / "up <host>" pull or put back that host's cable, its far end, so the host keeps its own
-addresses and routes as a machine whose cable is pulled does ({"cable":"<host>","state":"down"}); anything else is refused
-({"error":"unknown (down <host>, up <host>)"}). The end of standard input ends this process, and the namespaces' holders end
-with it: they wait on a pipe only this process holds open, never on standard input.
+addresses and routes as a machine whose cable is pulled does ({"cable":"<host>","state":"down"}); "drop <host> <addr>:<port>"
+ends, from inside that host, every established TCP connection it holds to <addr>:<port> as its kernel ends one it aborts (the
+sock_diag destroy request: the host's socket fails and the far end is sent a reset), leaving every other connection, the cable
+and the routes as they were ({"dropped":"<host>","to":"<addr>:<port>","connections":<n>}, n the connections it ended, 0 when it
+held none); anything else is refused ({"error":"unknown (down <host>, up <host>, drop <host> <addr>:<port>)"}). The end of
+standard input ends this process, and the namespaces' holders end with it: they wait on a pipe only this process holds open,
+never on standard input.
 Exit codes: 0 the input ended; 2 a command line it cannot take, or a namespace it will not build in (above); 3 the kernel
 refused (no namespaces, no bridge or veth for an unprivileged namespace, no right to make links): its words are standard
 output's one line, {"error":"..."}.
@@ -45,6 +49,9 @@ RTA_OIF = 4
 RT_TABLE_MAIN, RTPROT_BOOT, RT_SCOPE_LINK, RTN_UNICAST = 254, 3, 253, 1
 IFF_UP = 0x1
 SIOCGIFFLAGS = 0x8913
+NETLINK_SOCK_DIAG, SOCK_DIAG_BY_FAMILY, SOCK_DESTROY = 4, 20, 21
+NLM_F_DUMP, NLMSG_DONE = 0x300, 3
+TCP_ESTABLISHED = 1
 
 SUBNET = '10.99.0.'
 SWITCH = SUBNET + '1'
@@ -204,6 +211,58 @@ def in_namespace(pid, setup):
         os.close(home)
 
 
+def sock_id(sid):
+    """The (dst address, dst port) of an inet_diag_sockid (48 bytes: ports, then source and destination, each 16, in network
+    order; then the interface and the cookie in this machine's order)."""
+    return socket.inet_ntoa(sid[20:24]), struct.unpack('>H', sid[2:4])[0]
+
+
+def drop(ns, addr, port):
+    """End every established IPv4 TCP connection the namespace at ns holds to addr:port, as its kernel aborts one (the socket
+    fails with ECONNABORTED and the far end is sent a reset); returns how many it ended. Every other connection is left."""
+    home = os.open('/proc/self/ns/net', os.O_RDONLY)
+    try:
+        enter(ns)
+        with socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_SOCK_DIAG) as nl:
+            nl.bind((0, 0))
+            any_id = struct.pack('>HH', 0, 0) + bytes(32) + struct.pack('=III', 0, 0xffffffff, 0xffffffff)
+            nl.send(struct.pack('=IHHII', 16 + 56, SOCK_DIAG_BY_FAMILY, NLM_F_REQUEST | NLM_F_DUMP, 1, 0)
+                    + struct.pack('=BBBxI', socket.AF_INET, socket.IPPROTO_TCP, 0, 1 << TCP_ESTABLISHED) + any_id)
+            found, done = [], False
+            while not done:
+                data = nl.recv(65536)
+                at = 0
+                while at + 16 <= len(data):
+                    size, mtype = struct.unpack_from('=IH', data, at)
+                    if mtype == NLMSG_DONE:
+                        done = True
+                        break
+                    if mtype == NLMSG_ERROR:
+                        code = struct.unpack_from('=i', data, at + 16)[0]
+                        raise OSError(-code, os.strerror(-code))
+                    sid = data[at + 20:at + 68]                 # inet_diag_msg: family, state, timer, retrans, then the id
+                    if sock_id(sid) == (addr, port):
+                        found.append(sid)
+                    if size < 16:
+                        break
+                    at += (size + 3) & ~3
+            for seq, sid in enumerate(found, start=2):
+                nl.send(struct.pack('=IHHII', 16 + 56, SOCK_DESTROY, NLM_F_REQUEST | NLM_F_ACK, seq, 0)
+                        + struct.pack('=BBBxI', socket.AF_INET, socket.IPPROTO_TCP, 0, 0xffffffff) + sid)
+                while True:
+                    data = nl.recv(65536)
+                    mtype, _, got = struct.unpack_from('=HHI', data, 4)
+                    if mtype == NLMSG_ERROR and got == seq:
+                        code = struct.unpack_from('=i', data, 16)[0]
+                        if code and code != -errno.ENOENT:     # one that ended on its own since the dump is not an error
+                            raise OSError(-code, os.strerror(-code))
+                        break
+            return len(found)
+    finally:
+        os.setns(home, os.CLONE_NEWNET)
+        os.close(home)
+
+
 def lan(names):
     """The switch in this namespace and one host namespace per name; returns (map, cables) where cables[name] is the netlink
     socket and the link name that pull that host's cable."""
@@ -320,10 +379,25 @@ def say(obj):
     sys.stdout.flush()
 
 
-def serve(cables):
+DROP_TO = re.compile(r'^(10\.99\.0\.\d{1,3}|127\.0\.0\.1):(\d{1,5})$')
+
+
+def serve(cables, hosts):
     for line in sys.stdin:
         word, _, name = line.strip().partition(' ')
-        if word in ('down', 'up') and name in cables:
+        if word == 'drop':
+            host, _, to = name.partition(' ')
+            found = DROP_TO.match(to)
+            if host not in hosts or not found or not 0 < int(found.group(2)) < 65536:
+                say({'error': 'drop takes a host of this topology and the address:port of this LAN it holds connections to'})
+                continue
+            try:
+                n = drop(hosts[host]['ns'], found.group(1), int(found.group(2)))
+                say({'dropped': host, 'to': to, 'connections': n})
+            except OSError as err:
+                say({'error': f'the connections of {host} to {to} were not dropped: {err.strerror} (the kernel ends a socket '
+                              'for sock_diag only with CONFIG_INET_DIAG_DESTROY)'})
+        elif word in ('down', 'up') and name in cables:
             nl, port = cables[name]
             try:
                 nl.set_link(port, up=word == 'up')
@@ -333,7 +407,7 @@ def serve(cables):
         elif word in ('down', 'up') and not cables:
             say({'error': 'this topology has no cable'})
         else:
-            say({'error': 'unknown (down <host>, up <host>)'})
+            say({'error': 'unknown (down <host>, up <host>, drop <host> <addr>:<port>)'})
 
 
 def main(argv):
@@ -373,7 +447,7 @@ def main(argv):
         say({'error': str(refused)})
         return 3
     say(lan_map)
-    serve(cables)
+    serve(cables, lan_map['hosts'])
     return 0
 
 

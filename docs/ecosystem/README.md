@@ -45,11 +45,13 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   restarted Stagewatch's port opening and its first hello takes the address form, holds back the key bound to the node, and
   stays live at level 0 with nothing looking again (S6.1 restarts the rig beside Patterns' fifth redial). No key went to the
   unproved address. The mend is Patterns' Round 99.7 (below).
-- Next: SW23.1p (to insert once 99.7 is pushed: the lane's Patterns pin moved to it, S6.1b checks the link's name as well as
-  its liveness, `tools/test.sh build unit e2e interop` until the LAN lane is whole), then SW23.2 (2.23's papers), then SW24.1
-  per `master-plan.md`. Open in SW23.1: a lane row for a redial with the enrolled key (S4.7).
-- Open: the browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`) fail now and then when another
-  tree's suite runs beside them and pass on a rerun; the cause is not established beyond the load, and wants a mends unit.
+- SW23.1p (inserted once 99.7 was pushed: the lane's Patterns pin moved to `ff01e34`, S6.1 and S6.1b hold Patterns
+  following the rig as its node by its key, S4.7 the redial with the enrolled key a row; LAN 41 of 41, the laptop 5 of 5,
+  offline 3 of 3; `docs/WHATS_NEXT.md` says what it found). Next: SW23.2 (2.23's papers), then SW24.1 per `master-plan.md`.
+  Open: the one-way-loss GO row (S4.8).
+- The browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`), which failed now and then beside
+  another tree's load, had a race of the check's own (a frame index read once, before the window's reveal); SW23.1p names it
+  and mends the check (`docs/WHATS_NEXT.md`).
 - The lane's rows assume a host no other build shares: PlayMap's own preflight reads red above 95 % CPU and closes the doors.
 - Template: `workflows/stagewatch-chain.js` (its unit list is given at launch; briefs from `unit-brief.py`; refresh the
   first sentence of its shared text, which says what is landed, before a launch).

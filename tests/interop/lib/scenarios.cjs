@@ -293,10 +293,13 @@ async function stagewatchLinks(apps) {
   const pm = (await apps.playmap.state()).links.stagewatch;
   const agm = (await apps.agmessage.hostHealth()).stage;
   const pat = (await apps.patterns.state()).bus.stagewatch;
+  const rec = pat.link || {};
   return {
     playmap: { state: pm.state, host: pm.host, text: pm.timer && pm.timer.text, trusted: pm.timer && pm.timer.trusted },
     agmessage: { state: agm },
-    patterns: { state: pat.state, name: pat.name, text: pat.text, stuck: pat.stuck },
+    // Its link's record beside the row: whom it names (peer), the level and proof it stands at, and the kid it proved with.
+    patterns: { state: pat.state, name: pat.name, text: pat.text, stuck: pat.stuck,
+      record: { state: rec.state, peer: rec.peer ? rec.peer.id : null, level: rec.level, proof: rec.proof, kid: rec.kid, tls: rec.tls } },
   };
 }
 

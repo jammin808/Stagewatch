@@ -228,8 +228,9 @@ tools/test.sh help                                # every lane, and every variab
   comes with the pin that brings it. `SW_INTEROP_HEADS=1` runs each sibling at the commit its repository has checked out
   instead (still pushed only), and `builds.json` and the matrix say how far each is from its pin: the nightly drift report,
   which moves no pin.
-- The pins are the siblings' pushed heads: Patterns 2515017 (its round 98 closed: its wire, 9697, is a LINK acceptor with app
-  keys, lists the link it accepted in STATE's `decks` rows, and tells TLS from plain by a connection's first byte, writing
+- The pins are the siblings' pushed heads: Patterns ff01e34 (its Round 99.7: a typed-address Stagewatch link that dialled
+  the bare address looks again at who is heard there and redials once as the node whose key it holds; its round 98, closed
+  at 2515017, made its wire, 9697, a LINK acceptor with app keys, lists the link it accepted in STATE's `decks` rows, and tells TLS from plain by a connection's first byte, writing
   nothing before it, so every client of it speaks first: the lane's own wire client says its `HELLO` and then hears the `NONCE`
   that byte brought, row S0.1 holds that a connection which says nothing for 1.5 s hears nothing, and the VT rigs' playout
   links to it speak first too; its hello does not say `cap peerlink` yet, and the rigs' links to it stay level 0, amber,
@@ -247,7 +248,9 @@ process of the run ends with it, a crashed driver's included. The namespaces do 
 them as its user does, so a Unix socket bound to a path (a build server's pipe, a session bus) stays reachable. No app is
 pointed at one: each app's environment is the lane's own (its `PATH`, and a home and a temporary folder of its own), with no
 session bus or display in it. `tools/interop/lan.py` builds the topology with rtnetlink, and only in a fresh namespace made
-for the run.
+for the run; it pulls a host's cable (its bridge port down) and drops one host's TCP connections to one address and port
+(the kernel's sock_diag destroy, from inside that host: its socket aborted, the far end sent a reset), so a row can end one
+connection and leave the cable and every other link as they were.
 
 | Topology | What it is | Its driver |
 |---|---|---|
@@ -315,8 +318,9 @@ once those are removed, for every secret of the register, in either case. A row'
 | S4.3 | lan | one rig with both links, each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context's `link:patterns` and `link:stage-left` each in its own record's light, and the VT names Patterns' running clip, then, that paused through its link, PlayMap's running item; the link to PlayMap counts no line it could not read in any read until it pairs and after the play (S4.2's check) |
 | S4.4 | lan | on one kernel each link believes its peer's clock within 50 ms of its own, within 10 s, and the context carries no `clock:` item |
 | S4.6 | lan | the rig's link to Patterns' wire set to TLS (`wss`), with Patterns' own token: verified both ways by LINK with the code inside TLS, pinned by the proof to the certificate Patterns' wire shows, its floor set, listed among Patterns' `decks` rows as a level-1 app link, the key Patterns enrolled adopted by kid, and `playout patterns pause` applied |
-| S6.1 | lan | the rig killed and restarted: every link lets go, then is gone, then is live again |
-| S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again; Patterns' link record, once settled, is recorded with its level, proof, TLS and floor (a finding in WHATS_NEXT: it comes back at level 0, TLS at first use) |
+| S4.7 | lan | S4.6's link dropped alone (`lan.py`'s drop of the rig host's one connection to Patterns' wire): proved both ways again within 5 s with the key Patterns enrolled for it (its kid, never the code), pinned as before and floored; Patterns lists it from the rig's node verified `link` at `follow`; the link says its scope and refuses `playout patterns play`, nothing sent; Patterns' own link to the room's rig untouched |
+| S6.1 | lan | the rig killed and restarted: every link lets go, then is gone, then is live again, Patterns following the rig as the node its key is bound to (its record naming the rig's id at level 1, both ways proved, under that key's kid) |
+| S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again, Patterns following the rig as its node by its key (S6.1's check), and its link record, settled, still the rig's id at level 1, both ways proved, pinned and under the floor it kept |
 | S6.2a | lan | a stuck Stagewatch: PlayMap's link stays live and shows no time, for Stagewatch's own reason, and the rig's running time again once the show turns over |
 | S3.3 | lan | Patterns' assistant proposes a look to the rig's desk (the bench's `propose look`): pending there at review as the bench's own `APPLY <id>` naming the look, approved by the operator (`desk approve <id>`), Patterns applies it once, opening EDIT SAFE with the air's look unchanged, its chip says applied once, and the rig's desk says done |
 | S3.4 | lan | the rig's desk sends Patterns `VIDEO STOP` (`peer patterns`) with a synthetic clip on its air: the clip is held at its top, the rig rates it high by Patterns' table, and the rig's desk says done in Patterns' words (`ran VIDEO STOP: OK`) |

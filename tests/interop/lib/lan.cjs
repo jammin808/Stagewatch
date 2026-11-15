@@ -1,5 +1,6 @@
 // The LAN of a run: tools/interop/lan.py started in the driver's own network namespace (the switch room), its first line the
-// map of hosts, then cables pulled and put back through its standard input. Ending its input ends it and its namespaces'
+// map of hosts, then cables pulled and put back, and a host's TCP connections to one address and port ended (drop), through its
+// standard input. Ending its input ends it and its namespaces'
 // holders; an app already running in a namespace keeps that namespace until the run's PID namespace ends.
 'use strict';
 const { spawn } = require('node:child_process');
@@ -52,6 +53,18 @@ class Lan {
     const said = await this.lines.wait((l) => l.json.cable === name || l.json.error, 5000, `the cable of ${name} ${state}`, from);
     if (said.json.error) throw new Error(`lan.py: ${said.json.error}`);
     return said.json;
+  }
+
+  /**
+   * End, from inside host `name`, every established TCP connection it holds to addr:port (lan.py's drop: its socket aborted, the far
+   * end sent a reset), every other connection and the cable left as they were; resolves with how many it ended.
+   */
+  async drop(name, addr, port) {
+    const from = this.lines.items.length;
+    this.proc.stdin.write(`drop ${name} ${addr}:${port}\n`);
+    const said = await this.lines.wait((l) => l.json.dropped === name || l.json.error, 5000, `the connections of ${name} to ${addr}:${port} dropped`, from);
+    if (said.json.error) throw new Error(`lan.py: ${said.json.error}`);
+    return said.json.connections;
   }
 
   async close() {

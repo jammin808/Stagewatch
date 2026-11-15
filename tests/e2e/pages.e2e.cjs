@@ -60,13 +60,14 @@ for (const [page, drew] of PAGES) {
     win.on('websocket', (ws) => sockets.push(ws.url()));
     await win.goto(rig.base + w.path);
     await win.waitForFunction((x) => document.documentElement.getAttribute('data-showing') === x, page, { timeout: 8000 });
-    const front = await win.evaluate(() => [...document.querySelectorAll('iframe')].findIndex((f) => getComputedStyle(f).visibility === 'visible'));
-    const framed = win.frameLocator('iframe').nth(front);
-    // The window says what it shows once its front frame is chosen, which can be before that page has drawn its first frame (or
-    // has its elements at all): its drawing is read until it holds, within the same 8 s, never once.
+    // The window says what it shows once its front frame is chosen (window.js's swapIn), and any state frame that arrives
+    // before that frame's reveal two painted frames later paints the word while no frame is visible yet; the page may also not
+    // have drawn its first frame (or have its elements at all). So the visible frame is found, and its drawing read, on each try
+    // until both hold, within the same 8 s, never once (a frame index read as -1 would name the last, hidden frame).
     let drewInside = false;
     for (const end = Date.now() + 8000; !drewInside && Date.now() < end;) {
-      drewInside = await framed.locator('body').evaluate(drew).catch(() => false);
+      const front = await win.evaluate(() => [...document.querySelectorAll('iframe')].findIndex((f) => getComputedStyle(f).visibility === 'visible'));
+      drewInside = front >= 0 && await win.frameLocator('iframe').nth(front).locator('body').evaluate(drew).catch(() => false);
       if (!drewInside) await new Promise((r) => setTimeout(r, 100));
     }
     assert.ok(drewInside, `${page} drew inside the window`);

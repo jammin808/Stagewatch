@@ -19,7 +19,8 @@
 // with PlayMap configured by the node key bound to it and AGMessage only seen. The VT rows (S4.1–S4.4) run a second rig beside
 // the room's, in its namespace on ports of its own and off the show network, with playout links to Patterns' and PlayMap's wires,
 // each paired by proof with that app's own token (handed over in that link's own variable of the rig's environment), and stop it
-// once they end, so the room's rig, its doors and its rows are as they were. The rows run in order, each a node:test test
+// once they end (S4.6 leaves its rig up for S4.7, which drops that rig's one connection to Patterns' wire with lan.py's drop and
+// stops it), so the room's rig, its doors and its rows are as they were. The rows run in order, each a node:test test
 // that writes its matrix row; S0.1 starts the apps (the rig first, which the others link to) and every later row reads the
 // apps it started; the rows that stall the rig or take an app down (and back) come after the others, S7.4 (no address ever
 // counted) last but one, and S7.1 (no secret anywhere) last, as it stops the apps to sweep what they left (the rig's
@@ -164,6 +165,24 @@ let readyAt = 0;
 /** Every app's view of its Stagewatch link (lib/scenarios.cjs). */
 const stagewatchLinks = () => S.stagewatchLinks(apps);
 const { allLive } = S;
+
+/**
+ * What keeps Patterns' link to the rig, as `l` (stagewatchLinks) read it, from following the rig as the node its key is bound to:
+ * its row names the rig by `name` (the name its hello gave before the row), and its record names the rig's node id and stands at
+ * the level the rig's key gives it, proved both ways (live, level 1, mutual, under the kid that key makes). A link that dialled the
+ * bare address and stays on its public view (level 0, the key held back) is live too, and is caught here. Empty when it follows.
+ */
+function notFollowingByKey(l, name) {
+  const rec = l.patterns.record;
+  const kid = kidOf(apps.stagewatch.keyFor('patterns').secret);
+  const wrong = [];
+  if (l.patterns.name !== name) wrong.push(`Patterns names it "${l.patterns.name}", not "${name}"`);
+  if (rec.peer !== NODE_ID) wrong.push(`its record names ${rec.peer}, not ${NODE_ID}`);
+  if (rec.state !== 'live' || rec.level !== 1 || rec.proof !== 'mutual' || rec.kid !== kid) {
+    wrong.push(`its record is ${rec.state} at level ${rec.level}, proof ${rec.proof}, kid ${rec.kid}, not live at level 1, mutual, kid ${kid}`);
+  }
+  return wrong;
+}
 
 /**
  * What Patterns' link to the rig said as the room was set up, between Patterns' start and PlayMap's (S0.1): { facts } once its
@@ -814,6 +833,9 @@ function patternsWireFingerprint() {
   });
 }
 
+/** What S4.6 left for S4.7: the kid of the key Patterns enrolled for the rig's link and the pin that link holds; null otherwise. */
+let s46 = null;
+
 test('S4.6 the rig links to Patterns over line by proof', row({
   id: 'S4.6',
   title: "a rig's playout link to Patterns' wire set to TLS (--playout patterns=<Patterns>:9697,patterns,wss, Patterns' own token): Stagewatch links to Patterns over line, verified both ways — LINK proved with the pairing code inside TLS and Patterns' own proof checked — within 5 s of its ready line, pinned by that proof to the certificate Patterns' wire shows, its floor set (TLS, PeerLink 1, mutual), Patterns' STATE listing it among its decks rows as a level-1 app link from the rig's node, verified by the code, the key Patterns enrolled for it adopted by its kid alone, and playout patterns pause applied in Patterns' words",
@@ -850,6 +872,80 @@ test('S4.6 the rig links to Patterns over line by proof', row({
     r.facts.pause = await vtPlayout(['patterns', 'pause'], 'interop-s4-6', true);
     if (!/VIDEO PAUSE/.test(r.facts.pause.effect || '')) throw new Error(`the receipt's effect is "${r.facts.pause.effect}", not Patterns' answer to VIDEO PAUSE`);
     r.facts.paused = await until(async () => { const c = await patternsClip(); return c.paused === true && !c.running ? c : null; }, S.left(sentAt, HELLO_MS), "Patterns' clip paused");
+    await vtLockoutAfter(r);
+    // The rig stays up, its link live on the key it adopted: S4.7 redials it and stops it.
+    s46 = { enrolled: l.enrolled, pin: rec.pin, readyAt };
+  } catch (e) {
+    r.facts = r.facts || {};
+    r.facts.vtStopped = await vtStop();
+    throw e;
+  }
+}));
+
+test('S4.7 the rig redials Patterns with the key it enrolled', row({
+  id: 'S4.7',
+  title: "S4.6's link dropped alone (its one TCP connection to Patterns' wire ended from the rig's host, lan.py's drop: the cable, the room's rig and Patterns' own link to it untouched): within 5 s the rig's link is verified both ways again, LINK proved with the key Patterns enrolled for it (the kid S4.6 adopted, never the code), pinned as before and under its floor; Patterns lists it at level 1 from the rig's node, verified by that key (`link`) at follow; the link says its scope and refuses `playout patterns play` on the rig, nothing sent, Patterns' clip still paused; and Patterns' own link to the room's rig still follows it as its node by its key",
+  apps: ['stagewatch', 'patterns'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('vt-s4-6.out'), run.log('vt-s4-6.err'), run.log('patterns.wire'), run.log('lan.out'));
+  try {
+    if (!apps.vt || !s46) throw new Error("S4.6's rig is not running on the key it adopted");
+    const room = await until(async () => { const l = await stagewatchLinks(); return allLive(l) && !notFollowingByKey(l, l.patterns.name).length ? l : null; },
+      HELLO_MS, "Patterns' link to the room's rig following it by its key");
+    // Before the drop the link stands on the code it proved inside TLS (S4.6: kid `code`, scope operate); a record under the
+    // enrolled key's kid is therefore one a later connection proved.
+    const was = (await apps.vt.links()).find((x) => x.name === 'patterns');
+    if (!was || was.record.kid !== 'code' || was.pairing !== 'paired') throw new Error(`before the drop the rig's link to Patterns is ${JSON.stringify(was && { pairing: was.pairing, kid: was.record.kid })}, not paired on the code`);
+    const dropped = await lan.drop('stagewatch', lan.host('patterns').addr, apps.patterns.wire.port);
+    const droppedAt = Date.now();
+    if (dropped !== 1) throw new Error(`the rig's host held ${dropped} connections to Patterns' wire, not the VT link's one`);
+    // Proved again on a connection of its own: the enrolled key's kid in LINK, both ways, as the link's record says it.
+    const l = await vtLink('patterns', (x) => x.pairing === 'paired' && x.record && x.record.proof === 'mutual' && x.record.kid === s46.enrolled,
+      S.left(droppedAt, HELLO_MS), "the rig's link to Patterns proved again with the enrolled key");
+    const ms = S.inTime(droppedAt, HELLO_MS, "the rig's link to Patterns proved again with the enrolled key");
+    const rec = l.record;
+    const wrong = [];
+    if (rec.state !== 'live' || rec.level !== 1 || rec.carrier !== 'line') wrong.push(`${rec.state} at level ${rec.level} on ${rec.carrier}`);
+    if (rec.scope !== 'follow') wrong.push(`scope ${rec.scope}, not the follow Patterns enrols a key at`);
+    // Amber for its scope alone: the one flag `scope`, never `legacy` or `plain`.
+    if (rec.light !== 'amber' || !Array.isArray(rec.flags) || rec.flags.length !== 1 || rec.flags[0] !== 'scope') wrong.push(`light ${rec.light} flags ${JSON.stringify(rec.flags)}, not amber for the one flag scope`);
+    if (rec.tls !== 'pinned' || rec.pin !== s46.pin) wrong.push(`tls ${rec.tls} at ${rec.pin}, not pinned at ${s46.pin} as before`);
+    if (!rec.floor || rec.floor.tls !== true || rec.floor.level !== 1 || rec.floor.proof !== 'mutual') wrong.push(`floor ${JSON.stringify(rec.floor)}`);
+    if (l.enrolled !== s46.enrolled) wrong.push(`enrolled ${JSON.stringify(l.enrolled)}, not ${s46.enrolled}`);
+    if (!new RegExp(`^PeerLink 1 · proved both ways with enrolled key ${s46.enrolled.slice(0, 8)} · scope follow · pinned `).test(l.standing || '')) wrong.push(`standing "${l.standing}"`);
+    if (!/stands this link at scope follow/.test(l.scopeHeld || '')) wrong.push(`scopeHeld ${JSON.stringify(l.scopeHeld)}`);
+    if (wrong.length) throw new Error(`the rig's link to Patterns after the drop: ${wrong.join('; ')} — "${rec.words}"`);
+    // Patterns' own list: the rig's node at level 1, verified by the key it enrolled (`link`), at follow, live.
+    const deck = await until(async () => ((await apps.patterns.state()).decks || []).find((d) => d.level === 1 && d.t === 'stagewatch' && d.id === VT_NODE
+      && !d.ended && d.kid === s46.enrolled) || null, S.left(droppedAt, HELLO_MS), "Patterns' decks rows listing the rig's link by the enrolled key");
+    if (deck.verified !== 'link' || deck.scope !== 'follow' || deck.tls !== true) throw new Error(`Patterns lists the redialled link as ${JSON.stringify(deck)}`);
+    // At follow the rig sends no playout command: refused on the rig in its scope's words, nothing sent, Patterns' clip as it was.
+    const before = await patternsClip();
+    const sent = await apps.vt.api(['playout', 'patterns', 'play'], 'interop-s4-7');
+    const j = sent.json || {};
+    if (j.ok !== false || !/stands this link at scope follow/.test(j.error || '') || !/nothing sent/.test(j.error || '') || (j.refs && j.refs.peerRequest)) {
+      throw new Error(`playout patterns play at follow answered ${sent.status} ${sent.text.slice(0, 300)}`);
+    }
+    await sleep(1000);
+    const after = await patternsClip();
+    if (!before.paused || after.running || after.paused !== true) throw new Error(`Patterns' clip moved: ${JSON.stringify({ before, after })}`);
+    // No connection from the rig stands on the code after the drop: Patterns lists none from its node verified by the code but
+    // ended (the dropped one), so the redial proved with the enrolled key alone, not the code beside it.
+    const coded = ((await apps.patterns.state()).decks || []).filter((d) => d.level === 1 && d.id === VT_NODE && !d.ended && (d.verified === 'code' || d.kid === 'code'));
+    if (coded.length) throw new Error(`after the drop Patterns still lists the rig's link verified by the code: ${JSON.stringify(coded)}`);
+    // The drop was the VT link's alone: the room's rig is still followed by Patterns as its node, by its key, on its own connection.
+    const still = await stagewatchLinks();
+    const roomWrong = allLive(still) ? notFollowingByKey(still, room.patterns.name) : ['not every link to the room\'s rig is live'];
+    if (roomWrong.length) throw new Error(`the drop reached the room's links: ${roomWrong.join('; ')}`);
+    r.facts = {
+      dropped, ms,
+      record: { level: rec.level, proof: rec.proof, kid: rec.kid, scope: rec.scope, tls: rec.tls, pin: rec.pin, floor: rec.floor, light: rec.light, flags: rec.flags },
+      standing: l.standing, scopeHeld: l.scopeHeld,
+      patterns: { level: deck.level, t: deck.t, id: deck.id, verified: deck.verified, scope: deck.scope, tls: deck.tls, kid: deck.kid },
+      play: { status: sent.status, error: j.error }, clip: { before: before.paused, after: after.paused },
+      room: { patterns: still.patterns.record },
+    };
     await vtLockoutAfter(r);
   } finally {
     r.facts = r.facts || {};
@@ -2007,7 +2103,8 @@ test('S6.1 the rig killed and restarted', row({
 }, async (r) => {
   r.evidence.push(run.log('stagewatch.out'), run.log('stagewatch.2.out'), run.log('playmap.wire'), run.log('patterns.wire'));
   const sw = apps.stagewatch;
-  const before = await until(async () => { const l = await stagewatchLinks(); return allLive(l) ? l : null; }, HELLO_MS, 'every link to the rig live');
+  const before = await until(async () => { const l = await stagewatchLinks(); return allLive(l) && !notFollowingByKey(l, l.patterns.name).length ? l : null; },
+    HELLO_MS, 'every link to the rig live, Patterns following it as its node by its key');
   // The killed rig's lockout tables go with it: they are read before the kill, and the restarted rig's after the row.
   const kept = await S.readLockout(sw, lanAddresses());
   if (kept.counted.length) throw new Error(`before the kill the rig counted failures against ${kept.counted.join(', ')}`);
@@ -2035,26 +2132,30 @@ test('S6.1 the rig killed and restarted', row({
   await sw.start(READY_MS);
   sw.checkReady();
   const restartedAt = Date.now();
-  // Live again as before: Patterns following the rig by the name its hello gives, not only at the address it dials, so the
-  // rows after find its link settled.
+  // Live again as before: Patterns following the rig by the name its hello gives, not only at the address it dials, as the node
+  // its key is bound to and at the level that key gives (notFollowingByKey), so the rows after find its link settled. A redial
+  // that lands between the restarted rig's port opening and its first hello takes the bare address; Patterns looks again at who
+  // is there and moves once to the node (its Round 99.7), so the row waits for that move within the gone bound.
   // A read that is not there yet is thrown (not fatal), so a miss names each link's state and Patterns' name as last read.
   const back = await until(async () => {
     const l = await stagewatchLinks();
-    if (allLive(l) && l.patterns.name === before.patterns.name) return l;
-    throw new Error(`not back yet: ${JSON.stringify({ playmap: l.playmap.state, playmapTrusted: l.playmap.trusted, agmessage: l.agmessage.state, patterns: l.patterns.state, patternsName: l.patterns.name, wanted: before.patterns.name })}`);
-  }, GONE_MS, 'every link to the restarted rig live, Patterns following it by its name again');
+    const notYet = notFollowingByKey(l, before.patterns.name);
+    if (allLive(l) && notYet.length === 0) return l;
+    throw new Error(`not back yet: ${JSON.stringify({ playmap: l.playmap.state, playmapTrusted: l.playmap.trusted, agmessage: l.agmessage.state, patterns: l.patterns.state, patternsName: l.patterns.name, wanted: before.patterns.name, patternsRecord: l.patterns.record })}${notYet.length ? `; ${notYet.join('; ')}` : ''}`);
+  }, GONE_MS, 'every link to the restarted rig live, Patterns following it as its node by its key again');
   r.facts = { before, lockoutBeforeKill: kept.read, letGo, letGoMs, gone, goneMs, restartReadyMs: sw.readyMs, back, backMs: S.since(restartedAt) };
   await lockoutAfter(r);
 }));
 
 test("S6.1b the rig's cable pulled", row({
   id: 'S6.1b',
-  title: "the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again",
+  title: "the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again, Patterns following the rig as its node by its key (its record naming the rig's id at level 1, both ways proved) and settled so pinned, under its floor",
   apps: HOSTS,
   deadlineMs: [STALE_MS, GONE_MS, GONE_MS],
 }, async (r) => {
   r.evidence.push(run.log('lan.out'), run.log('playmap.wire'), run.log('patterns.wire'));
-  const before = await until(async () => { const l = await stagewatchLinks(); return allLive(l) ? l : null; }, HELLO_MS, 'every link to the rig live');
+  const before = await until(async () => { const l = await stagewatchLinks(); return allLive(l) && !notFollowingByKey(l, l.patterns.name).length ? l : null; },
+    HELLO_MS, 'every link to the rig live, Patterns following it as its node by its key');
   await lan.cable('stagewatch', 'down');
   const downAt = Date.now();
   // Silence, not a reset: each link says stale within 11 s, with no time on PlayMap.
@@ -2077,20 +2178,34 @@ test("S6.1b the rig's cable pulled", row({
   const goneMs = S.since(downAt);
   await lan.cable('stagewatch', 'up');
   const upAt = Date.now();
-  const back = await until(async () => { const l = await stagewatchLinks(); return allLive(l) ? l : null; }, GONE_MS, 'every link to the rig live again');
-  // What Patterns' link's record says once it has settled live again: the same state, level, proof, TLS and floor read for 2 s on
-  // end (recorded, not asserted: at this pin the redial after a gone link is a public view at level 0, TLS at first use, under the
-  // floor it kept, a finding docs/WHATS_NEXT.md names; S2.9 restarts Patterns).
+  // Live again, and Patterns not only live but following the rig as the node its key is bound to, at the level that key gives:
+  // S6.1's check (notFollowingByKey). Its redials while the cable is out find no hello at the typed address, so the one that lands
+  // once the cable is back may take the bare address and its public view (level 0, the key held back), which is live as well; the
+  // row holds that Patterns looks again at who is there and moves once to the rig's node (its Round 99.7), within the gone bound.
+  const back = await until(async () => {
+    const l = await stagewatchLinks();
+    const notYet = notFollowingByKey(l, before.patterns.name);
+    if (allLive(l) && notYet.length === 0) return l;
+    throw new Error(`not back yet: ${JSON.stringify({ playmap: l.playmap.state, agmessage: l.agmessage.state, patterns: l.patterns.state, patternsRecord: l.patterns.record })}${notYet.length ? `; ${notYet.join('; ')}` : ''}`);
+  }, GONE_MS, 'every link to the rig live again, Patterns following it as its node by its key');
+  // Then what Patterns' link's record says once it has settled: the same state, level, proof, TLS and floor read for 2 s on end,
+  // still the rig's node at level 1 and both ways proved, pinned by the proof and under the floor it kept for the rig's id (S0.2's
+  // {tls, level 1, mutual}): the redial after a gone link is no downgrade to TLS at first use or to level 0 under a kept floor.
   let seen = { key: '', since: 0 };
   const rec = await until(async () => {
     const l = (await apps.patterns.stagewatchLink()).link || {};
     // Not `since`: Patterns reads it again from the wall clock on each STATE, so it moves by milliseconds between reads.
-    const key = JSON.stringify([l.state, l.level, l.proof, l.tls, l.floor]);
+    const key = JSON.stringify([l.state, l.level, l.proof, l.tls, l.floor, l.peer && l.peer.id]);
     if (key !== seen.key) seen = { key, since: Date.now() };
     return l.state === 'live' && Date.now() - seen.since >= 2000 ? l : null;
   }, GONE_MS, "Patterns' link record settled live after the cable");
-  r.facts = { before, stale, staleMs, gone, goneMs, back, backMs: S.since(upAt),
-    patternsRecord: { state: rec.state, level: rec.level, proof: rec.proof, tls: rec.tls, floor: rec.floor || null, words: rec.words } };
+  const settled = { state: rec.state, peer: rec.peer ? rec.peer.id : null, level: rec.level, proof: rec.proof, tls: rec.tls, floor: rec.floor || null, words: rec.words };
+  r.facts = { before, stale, staleMs, gone, goneMs, back, backMs: S.since(upAt), patternsRecord: settled };
+  const wrong = [];
+  if (settled.peer !== NODE_ID || settled.level !== 1 || settled.proof !== 'mutual') wrong.push(`it names ${settled.peer} at level ${settled.level}, proof ${settled.proof}`);
+  if (settled.tls !== 'pinned') wrong.push(`tls ${settled.tls}, not pinned`);
+  if (!settled.floor || settled.floor.tls !== true || settled.floor.level !== 1 || settled.floor.proof !== 'mutual') wrong.push(`floor ${JSON.stringify(settled.floor)}`);
+  if (wrong.length) throw new Error(`Patterns' link record settled after the cable: ${wrong.join('; ')} — "${settled.words}"`);
   await lockoutAfter(r);
 }));
 
@@ -2155,8 +2270,8 @@ test("S2.9 Patterns' key revoked on its live link", row({
   const sw = apps.stagewatch;
   const pat = apps.patterns;
   const key = sw.keyFor('patterns');
-  // Patterns restarted in its own home, with its key, so its link proves itself afresh (a link that went gone, as in S6.1b, comes
-  // back at this pin as a public view at level 0 with the key held back: a finding, not this row's).
+  // Patterns restarted in its own home, with its key, so its link proves itself afresh from its first dial (S6.1 and S6.1b hold
+  // a link that went gone coming back as the rig's node by its key; this row holds the proof after Patterns' own restart).
   const was = (await pat.stagewatchLink()).link || {};
   await pat.stop();
   await pat.start(pat.stagewatch, READY_MS, key);

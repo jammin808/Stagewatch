@@ -1958,9 +1958,10 @@ What each unit moved to another, and left, as written when it landed (*since the
     - A GO caught by a pulled cable is not a lane row. `lan.py` pulls a cable both ways, and a pulled cable does not lose an
       answer while it delivers its command: TCP delivers both late, or the link drops before the command is retransmitted.
       Losing one direction needs tc or netfilter in the namespace. The row is held against the scripted peer instead.
-      **Open lane row (S4.7, for the plan's unit table):** "a GO caught by a one-way loss: unconfirmed, then RECEIPTS, then
-      applied, run once" — `lan.py` drops Patterns→rig packets (nft in the namespace) once Patterns' wire log shows the
-      `CUE GO` read, then lets them through; it lands with that netfilter step.
+      **Open lane row (S4.8, for the plan's unit table; it was named S4.7 here before that number went to the redial with the
+      enrolled key, SW23.1p):** "a GO caught by a one-way loss: unconfirmed, then RECEIPTS, then applied, run once" —
+      `lan.py` drops Patterns→rig packets (nft in the namespace) once Patterns' wire log shows the `CUE GO` read, then lets
+      them through; it lands with that netfilter step.
     - A Patterns link set to `auto` with a token does not try TLS first; it dials plain at level 0 as 2.22 did, and its
       standing points to `wss` or an issued key. **A question for the owner, tied to enrolment's scope:** should `auto` try
       TLS first against a Patterns desk (fixing G08's plain token for the default setup)? It would prove the code inside TLS,
@@ -1982,6 +1983,67 @@ What each unit moved to another, and left, as written when it landed (*since the
     Nothing this unit changed runs in the room's rig (it runs no playout link). The mend is Patterns': resolve a live
     address-target link again when a hello names the node at that address (or wait one hello period before dialling a
     typed address its node has left).
+
+- **The interop lane made whole again (SW23.1p).** Nothing of Stagewatch's product changed: the lane proved no defect of
+  Stagewatch's own.
+  - **The pins.** `tools/interop/siblings.json` pins Patterns at ff01e34 (its Round 99.7, seen pushed on
+    `claude/serene-pasteur-bq058o`); Mapper stays at 2ae7ac7b and AGMessage at d0e3961. Patterns' rounds 99.0 to 99.2 ride
+    with the pin (the Eye's network: one card per proved id, its context's items by short ids, a `link:<id>` item for each
+    link its wire accepted; one projection for the lights of STATE's `bus` rows, the Nodes cards and the context). No row
+    reads the words or fields those moved: the rows read Patterns' `bus.stagewatch` row (its state, name, text and link
+    record), its `decks` rows and its context's light and headline, and each held as before at the new pin.
+  - **The finding, S6.1.** At 2515017 S6.1 (the rig killed and restarted) was red in every run of SW23.1: Patterns' link to
+    the rig named the node only while its hello was live, so a redial landing between the restarted rig's port opening and
+    its first hello took the bare address (`addr:10.99.0.2:19940`), held back the key bound to `node:interop-sw-1`, and stayed
+    live on the public view at level 0 with nothing looking again. No key went to the unproved address. Patterns' Round 99.7
+    is the mend: a live typed-address link looks again at who is heard at that address and redials once as the node whose
+    key it holds. S6.1 passes as written at ff01e34, and is held tighter: Patterns must follow the rig as the node its key is
+    bound to (its record naming `interop-sw-1`, live at level 1, both ways proved, under the kid that key makes:
+    `notFollowingByKey` in `tests/interop/lan.interop.cjs`), not only by the hello's name.
+  - **S7.4 had no cause of its own.** S7.4 ("no app's address is ever counted") fails whenever a row before it did not pass,
+    because a row that throws never reads the lockout tables after it (`nobodyCounted`, its first check). At 2515017 its
+    first check named S6.1, the only row before it that did not pass, so it threw before it read a table: the restarted
+    rig's tables were never read for S6.1's window at that pin (S6.1 threw before its own `lockoutAfter`), and those runs'
+    matrices are overwritten. At ff01e34 S6.1's `lockoutAfter` and S7.4's own read both show no address counted in either
+    table. In this unit's runs it went red the same way twice, behind S8.1 and S8.4, each red for the bench's load (below),
+    never for an address.
+  - **S6.1b now holds whom the link follows.** It passed before only because it read the link live, which a link on the
+    address's public view is too. It now waits, within the gone bound after the cable is back, for S6.1's check, then holds
+    the settled record: the rig's id at level 1, both ways proved, `tls` pinned and the floor `{tls, level 1, mutual}` kept
+    (the downgrade SW22.11 recorded, TLS at first use and level 0 under a kept floor, would fail it). One run caught the race
+    here: the redial after the cable landed on the address (public view, key held back) and Patterns logged "Rig Hall
+    (Stagewatch interop-sw-1) is heard at 10.99.0.2:19940 — dialling it again as that Stagewatch" 1.4 s later, after which
+    the row read the link proved by the key, so the lane has seen 99.7's move do its work.
+  - **S4.7, the redial with the enrolled key, is a row.** `tools/interop/lan.py` takes `drop <host> <addr>:<port>`: from inside
+    that host it ends every established TCP connection to that address and port with the kernel's sock_diag destroy (the
+    socket aborted, the far end sent a reset; this kernel has `CONFIG_INET_DIAG_DESTROY`, a kernel without it says so in the
+    row's words). S4.6 now leaves its VT rig up, its link standing on the code with the key Patterns enrolled adopted, and S4.7
+    drops that one connection: the rig's link proves itself again within 5 s (0.5 to 0.6 s in the runs) with the enrolled key
+    (its kid, scope `follow`, pinned at the same pin, under its floor, amber for the one flag `scope`); Patterns lists it from
+    `interop-sw-vt` verified `link` at `follow`, and no connection from that node still standing on the code; the link says its scope and refuses `playout patterns play` on the rig, 409, nothing sent, Patterns' clip
+    still paused; and Patterns' own link to the room's rig is untouched, still following it by its key. The cable stays in,
+    so the second-rig-at-one-address case SW23.1 met is not this row's. The one-way-loss GO row is renumbered S4.8 and stays
+    open (above).
+  - **The bench's load.** This host is shared with another tree's chain. In two LAN runs PlayMap's machine item read CPU
+    97 to 98 % while that tree built (`dotnet build Patterns.sln`, its compiler server busy), red, so its doors closed: S8.1
+    failed in one run, S8.4 in the other (S7.1 behind it, as S8.4 had killed AGMessage and the row's restart was never
+    reached). Each was the bench, by the row's own words ("1 red: cpu — CPU 98 %"), not a row or an app; the rows are
+    unchanged and the lane was run again at a quieter moment.
+  - **Validate,** `tools/test.sh build unit`, `e2e` and `interop` at the new pins: the unit suite 6230 passed, 0 failed; e2e
+    93 of 93; the interop self-check 75 of 75; the LAN 41 of 41 (S4.7 among them, S6.1 and S6.1b with their checks); the laptop
+    5 of 5; offline 3 of 3.
+  - **The e2e page-frame checks' race, named and mended.** The e2e lane's "draws a frame … inside a window" checks
+    (`tests/e2e/pages.e2e.cjs`; `/countdown`, `/audience` and `/holding` had failed now and then beside another tree's load)
+    failed twice in this unit's validate, each at the full 8 s while the pages beside it drew in under 0.5 s. The cause is the
+    check's, not the load's: `window.js`'s `swapIn` sets the front frame at once and reveals it two painted frames later
+    (`afterPaint`, at most 150 ms), and a state frame arriving in between paints `data-showing` as the page while no frame is
+    visible yet; the check read the visible frame's index once, got -1, and Playwright's `nth(-1)` named the last frame, the
+    hidden one, which never draws. The check now finds the visible frame on each try within the same 8 s. What the window
+    reports to Stagewatch is said after the reveal, so the receipt is honest; only the page's own `data-showing` attribute can
+    lead the reveal by those two frames (noted, not changed: no product change in this unit).
+  - **Still open.** The one-way-loss GO (S4.8) waits for a netfilter step; a CI runner's kernel without
+    `CONFIG_INET_DIAG_DESTROY` would fail S4.7 in its words (not proved here: Stagewatch's CI runs the lane only on main).
+    Patterns' hello still says no `cap peerlink` (its 98.10), and PlayMap offers no LINK (PM-9b).
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 
