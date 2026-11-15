@@ -82,7 +82,8 @@ On connect the server sends `READY stagewatch/2`, then either `STATE …` (licen
 ladders:[{id,name}], departments:[…], room, ladder}`, and from 2.20 `playoutLinks:[{name,kind,label}]` last: each playout link
 switched on under the licence, its kind as its peer's STATE said it (`playmap`, `patterns`; as Settings set it until then, empty
 for neither) and its peer as people read it (`PlayMap Stage left`, `Patterns`). A link whose kind is heard sends `CONFIG` again.
-The snapshot's `playout` (the clip feeding the VT) ends with `link` and `node`: the link's name and its peer's node id.
+The snapshot's `playout` (the clip feeding the VT) ends with `link` and `node`: the link's name and its peer's node id. From 2.23
+it ends with `level`, `proof` and `scope` after them: what that link stands on (Show Bus 13.16.3); the module does not read them yet.
 
 `RECORD <command line>` is sent to JSON clients whenever the operator does something in Stagewatch itself
 (`nudge 60`, `next`, `message "Wrap up" warn slow`…). The Companion module turns these into actions while a
@@ -236,6 +237,15 @@ file's door row: a grant asked of the operator — it reaches the show thread na
 tests (`npm test`, the module lane of `tools/test.sh`) run here against fake servers and a real Companion server from the suite;
 Companion itself has not loaded 2.22's definitions — the *Windows* and *Desk* actions, feedbacks, variables and presets, `ACCESS`
 greying the desk keys, a press's `unheard` answer — which is the maintainer's to see on the PC.
+
+**The module in 2.23.0.** No file of the module changed in 2.23; its package moves to 2.23.0 with the app (`pwsh tools\release.ps1
+-Version 2.23.0 -ModuleVersion 2.23.0`, on the maintainer's PC), and `companion-module/package.json` still reads 2.16.0 until then.
+What a deck sees of 2.23 is Stagewatch's: a playout press to a Patterns link that Patterns stood at `follow` or `post` (a link on a
+key Patterns enrolled, until its operator raises it) is refused before anything is sent, and the press's log and
+`$(stagewatch:playout_answer)` say `refused — ` with the scope and who raises it; a `CUE GO` that Patterns answers `Requested` is
+`accepted — …` and then its `final`; and `PLAYOUT <link> floor lower` is refused from Companion TCP, whoever sends it, as `PLAYOUT
+<link> trust <hex>` is. The module's tests (`npm test`, the module lane of `tools/test.sh`) are unchanged; Companion itself loading
+2.22's definitions is still the maintainer's to see.
 
 Bad input gets `ERROR <reason>` and the connection stays open.
 

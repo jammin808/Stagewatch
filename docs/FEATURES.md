@@ -12,6 +12,32 @@ LTC and the time-server drift check, vMix VT countdowns and Patterns and PlayMap
 printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
 
+## 2.23: playout links prove themselves to Patterns
+
+WHATS_NEXT.md has the upgrade notes and what this release did not do, and REMOTE.md every change on the wire.
+
+- **The Patterns link proves itself both ways.** Against a Patterns desk from its Round 98, a playout link proves its key without
+  sending it and checks Patterns' proof before it takes anything from it, so a machine between the two cannot pass itself off as
+  Patterns. Give the link an app key Patterns issued (`ptk_…`, made on Patterns' Nodes page with KEY MAKE) in the token's place —
+  the best setup, plain or TLS — or keep the pairing token and set the link's transport to **wss**: the token then proves itself
+  inside TLS, the link is pinned to Patterns' certificate and keeps a floor, so it never falls back to less without you. A link
+  left on **auto** with a token works as in 2.22 and says how it would prove itself both ways.
+- **The key Patterns enrols.** A token proved inside TLS makes Patterns enrol a key for this link at `follow`; the desk keeps it
+  sealed beside the token and says so by its id on the status line. From the link's next connection it stands on that key, and
+  a `follow` key may read Patterns but not drive it — **until Patterns' operator raises it (KEY BIND), VT presses to that desk are
+  refused before anything is sent.** For a link that must keep driving after a cable blip or a restart, use an issued key at
+  `drive`.
+- **The link says what it may do before you press.** A link Patterns allows only to follow or post stays amber, its status says
+  why and who raises it, and the VT chip's entries are greyed with the same words.
+- **When something is refused, the way back is on the status line.** Right-click it: *Lower …'s floor* (when you know the desk
+  now proves itself with less, an older build for one) and *Forget the key … enrolled for this link* (when Patterns no longer
+  holds it), each with one row in the show log. Neither can be done from a deck, a browser, OSC, an AI or a script.
+- **GO answers honestly.** On a link that proved itself both ways, a Patterns `CUE GO` reads *accepted* until Patterns says it ran
+  (or did not), with how late; a GO caught by a dropped cable is asked about once the link is back and never sent twice.
+- **PlayMap** nodes are linked as in 2.22 (level 0, amber, *legacy*) until PlayMap's own side of the proof lands.
+- Not walked on Windows yet: the status line's entries, the greyed VT entries and the enrolment words compile and have not been
+  seen; WHATS_NEXT.md says what the release did not do.
+
 ## 2.22: show apps prove themselves, windows for Patterns and PlayMap, and every door proposes to other apps
 
 WHATS_NEXT.md has the upgrade notes and what this release did not do, and REMOTE.md every change on the wire.

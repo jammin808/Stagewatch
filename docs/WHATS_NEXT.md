@@ -1801,9 +1801,174 @@ What each unit moved to another, and left, as written when it landed (*since the
     nothing while it waited, so the miss kept no read. S6.1's wait now throws each read that is not back yet (PlayMap's state and
     trust, AGMessage's, Patterns' state and the name it follows), so a next miss names the link that did not come back.
 
-## Train 6 (2.23) — the units so far
+## Playout links prove themselves to Patterns, and the lane stands on Patterns' acceptor (2.23) — the units, upgrade notes, the release, and what this release did not do
 
-2.23 is Train 6's release; its papers are SW23.2's. This section keeps each unit's notes as it lands.
+2.23 is Train 6's release: Stagewatch's playout link to a Patterns desk proves itself with LINK (Show Bus 13.6) on Patterns' own
+line wire, by what the operator gave it, and takes Patterns' verdict only once Patterns' own proof checks out; it adopts the key
+Patterns enrols, reads its scope before any press, and records a floor a person lowers on the desk. It ships as **2.23.0**, a
+release of its own after 2.22.0 (cut on 4ff9064); no unit of 2.23 started before that head (rule R1). REMOTE.md's 2.23 section has
+every change on the wire, FEATURES.md what operators see, COMPANION.md the deck's side and NODES.md §5 the link itself. Patterns'
+half of the train is its Round 98 (its wire on 9697 a LINK acceptor: TLS told from plain by the client's first byte, LINK and
+LINK PROOF, app keys `ptk_` scoped follow, post, drive and operate, enrolment of a key at `follow` by a pairing token proved over
+TLS, the accepted link listed in STATE's `decks` rows and on its Nodes page, receipts with `CUE GO`'s final and `lateMs`), closed
+at 2515017, and its Round 99.7 (ff01e34), which mends its own Stagewatch link on the typed-address path; the lane pins ff01e34.
+PlayMap's half (Mapper's PM-9b: LINK on 9941, TLS sniffed, final and receipts) has not landed, so by rule R3 its rows wait for it:
+**a playout link to a PlayMap node stays at level 0 until PlayMap's acceptor lands** — legacy, amber, and it says so — and no unit
+of 2.23 waits on it.
+
+### The units
+
+Each is one commit on this branch (`git log --oneline` names it `Stagewatch 2.23 SW23.k: …`), in the order they landed. *Each
+unit's notes*, below, has what each did and left in its own words, as written when it landed.
+
+| Unit | Commit | What landed | What it left |
+|---|---|---|---|
+| SW23.0 | a466d83 | The lane on Patterns' Round 98 (2515017) and Mapper 2ae7ac7b; `tools/interop/sdk.sh` asks dotnet in each clone for the SDK its `global.json` names, and the interop jobs install it; the lane's wire client speaks first (98.1's first-byte door, held in S0.1); `PlayoutLinkTests.SpeaksFirst` | the workflow change unproved from this branch (CI runs only on main, tags and pull requests) |
+| SW23.1 | f907c4a | PlayoutLink speaks LINK to Patterns by one rule (`PlayoutProof.OffersLink`); enrolment (13.5.7), the key sealed beside the token; scope before a press; `CUE GO`'s `Requested` then its final; RECEIPTS after a drop; `playout <link> floor lower`; the readers' standing; PlayMap's seam at level 0; lane row S4.6 | **committed with the LAN lane at 38 of 40** (below); the redial with the enrolled key not a row; `auto` not trying TLS first (an owner question); Patterns' CLOSE read as a refusal (a contract question) |
+| SW23.1p | 857539f | The lane at Patterns' Round 99.7 (ff01e34): S6.1 and S6.1b hold Patterns following the rig as its node by its key; S4.7, the redial with the enrolled key, a row (`lan.py drop`); S7.4 read with no cause of its own; the e2e page-frame check's race named and mended | S4.8, the one-way-loss GO; S4.7 on a CI runner's kernel unproved |
+
+The release's papers (SW23.2) also correct one sentence of the product's: a GO asked together to a Patterns desk whose clock was
+measured over a plain link off this PC said it schedules nothing "until Patterns offers TLS on its wire (its Round 97)", which it
+now does (its tree's Round 98); the row now says "until the link dials Patterns' TLS door (set it to wss)", and
+`PlayoutCueTests` holds those words.
+
+Between 2.22's head and SW23.0, and between SW23.1 and SW23.1p, eight commits of the plan folder only (`Papers: …`, `Ecosystem:
+…`, `docs/ecosystem/`): the resume guide after 2.22, the owner's answers of 2026-11-14 and 2026-11-15 (PlayMap's device-lock,
+ShownLineTests and pool-bound test mends; Patterns' SDK pin), where the work stood as Round 98 landed and closed, and the resume
+guide at Round 99.2 and SW23.1.
+
+**SW23.1 was committed off green.** f907c4a went in with the LAN lane at 38 of 40 — S6.1 and S7.4 red in each of its four LAN runs
+— against the rule that a unit commits only on green. The cause was a defect in Patterns' Stagewatch link, not in SW23.1: at
+2515017, on the typed-address path, Patterns' link named the node only while that node's hello was live, so a redial landing
+between the restarted rig's port opening and its first hello took the bare address, held back the key bound to the rig's node and
+stayed live at level 0 with nothing looking again (S6.1 restarts the rig beside Patterns' fifth redial). No key went to the
+unproved address. S7.4 failed only because a row before it had not passed. Patterns' Round 99.7 (ff01e34) mended it: a live
+typed-address link looks again at who is heard there and redials once as the node whose key it holds. SW23.1p (857539f) moved the
+pin to ff01e34 and proved the lane whole: LAN 41 of 41 (S4.7 new, S6.1 and S6.1b held tighter), the laptop 5 of 5, offline 3 of 3,
+the self-check 75, the unit suite 6230 passed and 0 failed, e2e 93 of 93 (its commit, and its notes below). Nothing of
+Stagewatch's product changed between the two.
+
+### Upgrade notes
+
+- **A Patterns link proves itself with LINK where it can.** With an app key Patterns issued (`ptk_…`, KEY MAKE on its Nodes page)
+  typed in the token's place, the link goes by LINK only, plain or TLS, and the key never crosses the wire. With the pairing token,
+  it goes by LINK only inside TLS: a link set to `wss`, or one pinned or floored, dials TLS on Patterns' own wire port (9697 tells
+  TLS from plain by the first byte). A link set to `auto` with a token, neither pinned nor floored, dials plain at level 0 as 2.22
+  did, and its standing says how it would prove both ways (`wss`, or an issued key). A Patterns that answers LINK as an unknown
+  command (a build before its Round 98) stays at level 0, amber, `legacy`, in 2.22's words; with an app key the link sends it no
+  proof and says that desk takes no app key.
+- **A link that proved the token inside TLS stands at `follow` from its first redial.** Patterns enrols a key at `follow` for a
+  code proved over TLS; the link adopts it, the desk seals it beside the token, and from the next dial (a cable blip, a restart)
+  it proves that key — and refuses every playout command here, nothing sent, until Patterns' operator raises the key (KEY BIND on
+  its Nodes page). The status line and the show log say so by the key's kid at enrolment, before any press. **For a link that must
+  keep driving across a redial, give it an app key Patterns issued at `drive`**, typed in the token's place.
+- **A link Patterns stood at `follow` or `post` refuses VIDEO, CUE GO and CUE STANDBY here first**, nothing sent, in words that name
+  the scope and who raises it; its light stays amber while live, and the VT chip's entries are greyed with the same words.
+- **A key Patterns no longer holds** (KEY REVOKE, or replaced by a new enrolment) refuses every link that proves it; the refusal
+  says so with its kid, and the status line's right-click offers *Forget the key … enrolled for this link*, after which the link
+  proves its token inside TLS again and adopts the key Patterns enrols anew. Typing the token again does the same.
+- **Settings gain a field at the end of each playout link**: `enrolled` (the enrolled key, DPAPI-protected for this Windows user
+  beside the token, tagged by the token, so a token changed since starts without it). A Stagewatch older than 2.23 ignores it and
+  its next save drops it: rolled back, the link proves its token as 2.22 did.
+- **`floor` is no longer a name a link may have**, as `trust` is not: a playout link called `floor` in a 2.22 settings file is left
+  out at load, with a note that says why. Rename it before the upgrade.
+- **New command `playout <link> floor lower`**, desk-only like `playout <link> trust`: refused at every door (OSC, Companion, HTTP, a
+  WebSocket, MCP, from this PC or with a credential) and by every executor, never a proposal, never in the context's commands. A
+  person lowers a recorded floor on the status line's right-click, beside the link that refuses, with one journal row.
+- **Patterns' `CUE GO` reads as Patterns answers it**: `Requested` is accepted, and its `OK @id final …` (or `ERR @id final …`) is
+  the outcome, `lateMs` counted. A command written as a connection drops is unconfirmed until, once the link proves itself again,
+  `RECEIPTS` reads it from Patterns' record: it is never sent twice.
+- **A timed GO to a Patterns desk over TLS** is held on this PC and sent half its round trip before the instant (Patterns takes no
+  `AT`, but a clock measured over TLS may time a command); over plain TCP off this PC it is held to the instant by this PC's clock
+  alone, as in 2.22, and its row now names `wss` as the way to time it.
+- **Patterns' operator's CLOSE of the link** reads as a refusal and is held a minute (`peerlink.hold.refused.ms`), not the thirty
+  seconds 13.15.3 gives a disconnect (the contract question below).
+- **New fields at the ends of old objects**: the frame's `playout` row ends with `level`, `proof` and `scope` after `node`; the
+  `link:<name>` context item's words end with the link's standing (its level, proof, key by kid and scope); the copilot's
+  `playout_links` rows end with `standing` and `scopeHeld`; the rig's `links` line ends with `standing`, `enrolled` (a kid) and
+  `scopeHeld`; the rig's `--playout` takes a transport after the kind (`NAME=HOST:PORT,patterns,wss`).
+
+### The release (the maintainer's, on the PC)
+
+```pwsh
+pwsh tools\smoke.ps1                                           # the PC checks below
+pwsh tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0   # app, module, installer and release date move together
+```
+
+The tree's versions still read 2.16.0 (`src/Timer.App/Timer.App.csproj`, `companion-module/package.json`); nothing here bumps a
+version or makes a tag, and the release is cut on the PC, not here. 2.23.0 goes after 2.22.0, from the commit that carries this
+section. No file of the Companion module changed in 2.23; it takes 2.23.0 with the app, as each release's module does. A tag waits
+for CI's interop job beside the other jobs (the owner's answer S-interop-gate), at the pins `tools/interop/siblings.json` holds for
+this release, each sibling built with the SDK its own `global.json` names (`tools/interop/sdk.sh`; CI installs it beside
+Stagewatch's own `10.0.x`):
+
+| Sibling | Pin | What it is | SDK |
+|---|---|---|---|
+| Patterns | ff01e34 | its Round 99.7, on Round 98's acceptor (2515017) and Round 99.0–99.2 | 10.0.115 (`global.json`, `rollForward` `latestPatch`: dotnet refuses a machine with only another feature band) |
+| Mapper (PlayMap) | 2ae7ac7b | tests only since 031c9a3 (its device-lock, ShownLineTests and pool-bound test mends); no LINK yet | names none (no `global.json`): the newest SDK the machine has |
+| AGMessage | d0e3961 | 0.5.0 (`engines` Node ≥ 24.11) | not .NET |
+
+Stagewatch has no `global.json` and builds with the newest .NET 10 SDK; this bench's is 10.0.115. **Stagewatch's CI runs only on
+main, tags and pull requests**, so nothing of 2.23 has run there from this branch: SW23.0's change to the interop jobs and
+`interop-heads.yml` is checked with actionlint only, and the first run on main (or a run by hand, *The interop lane in CI*, above)
+is its proof — the job fails at its first step until `SIBLINGS_READ_TOKEN` exists, should the maintainer not have made it since
+2.22 (this session cannot see the repository's secrets).
+
+**The PC checks** (`pwsh tools\smoke.ps1`): none of 2.23's desk work has been seen in the running app, and 2.23 adds no UiSmoke
+check. The suite's seven Windows-only checks (`Bench.OnWindows`) run only there, as in 2.22: the temp fence's file held by
+another handle, the machine id (WMI), report file names, the Slides agent's real loop (PowerPoint), a trigger secret protected at
+rest (DPAPI), a crafted master licence file rejected, and an owner-only file and its backup written whole on Windows. The
+enrolled key is sealed by the same `ProtectedKey` that the DPAPI check holds; its seal has no check of its own.
+
+### What this release did not do
+
+- **Never seen running: the WPF desk walk-through of 2.23** — the status line's right-click entries *Lower …'s floor* and *Forget the
+  key … enrolled for this link*, the enrolment words on the status line, the VT chip's entries greyed by scope, the Settings link
+  rows with an app key or a `wss` transport. WPF compiles on Linux and is never claimed as seen; the walk-through, `pwsh
+  tools\smoke.ps1`, the seven Windows-only checks and the release itself (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`)
+  are the maintainer's, on the PC, and were not run here.
+- **PlayMap at level 0 until its acceptor lands.** No LINK goes to a PlayMap node on any carrier (its `playmap.lines.v1` channel or
+  its TCP wire), whatever the link holds: `PlayoutProof.PlayMapSpeaksLink` is the seam that ends it, held against the scripted peer
+  offering LINK on both carriers. It waits for Mapper's PM-9b (LINK on 9941, TLS sniffed, final and receipts) and PM-9c (LINK on
+  `playmap.lines.v1`); the lane's PlayMap rows read level 0 meanwhile.
+- **Patterns' hello does not say `cap peerlink` yet**, and Stagewatch never decides LINK by it (a cap is a hint, 13.4.2). Patterns
+  holds the cap back while its 13.20 conformance table (`ShowBusSpecTests.Conformance.cs` at ff01e34) has a row not kept, and each
+  such row names what ends it: the acceptor's S15 (the cut past `link.replies.max` over the peer's real socket: a test against the
+  peer whose reader stops while more than that many STATE asks wait); its Stagewatch link's S1 and S14 (they end when that link —
+  Patterns' own `ws` connector to Stagewatch's `/ws`, which no Stagewatch unit changes — sends a command with a receipt and runs
+  it through the peer); and its node device's rows S1, S2, S4–S7, S11–S14 and S17–S19 (they end when PlayMap's 9941 answers LINK
+  and a Patterns unit sends LINK through its node session's seam — PM-9b again). Patterns' next round may cite lane row S4.6 for
+  its acceptor's S1 over a real Stagewatch connector, and `PlayoutLink S14 — a GO caught by a pulled cable runs once` for the
+  receipts half of S14; neither ends its own link's rows.
+- **The contract question: an operator's disconnect over a line wire.** Patterns' Nodes page CLOSE ends an app link with `ERR LINK
+  refused — …'s operator closed this link — the key stays in force; link again after the hold` (its OPEN L115): the line carrier
+  has no disconnect word. Stagewatch reads what was said, a refusal, and holds `peerlink.hold.refused.ms` (a minute) where 13.15.3
+  asks thirty seconds (`peerlink.hold.disconnect.ms`) after an acceptor operator's disconnect, and it does not guess a disconnect
+  from a refusal's words. The question, for the owner and Show Bus 1.4's edit: should 13.6.4's table give the line carrier a
+  `disconnect` (or `closed`) class that a connector holds for 13.15.3's time? Patterns' L115 closes with that edit.
+- **An owner question tied to enrolment: should `auto` try TLS first against a Patterns desk?** It would end G08's plain token for
+  the default setup, prove the code inside TLS and so enrol — and the link would then stand at `follow` from its first redial until
+  Patterns' operator raises the key. Today only a link set to `wss`, pinned or floored takes that path, by the operator's choice.
+- **What the lane does not prove yet**: S4.8, a GO caught by a one-way loss (unconfirmed, then RECEIPTS, then applied, run once),
+  waits for a netfilter step in `lan.py`, and is held against the scripted peer meanwhile; S4.7 on a CI runner's kernel (one without
+  `CONFIG_INET_DIAG_DESTROY` fails it in its words), since Stagewatch's CI runs the lane only on main; nothing of S14 over the real
+  link; PlayMap at level 1; AGMessage 0.6.0 (another session's branch; the pin stays at 0.5.0); and anything of Windows, a GPU, a
+  display or a real network. 2.22's list (*What the lane does not prove yet*, above) stands otherwise.
+- **Open, for a later mends unit: the e2e lane's browser page-frame checks** (`tests/e2e/pages.e2e.cjs`'s "draws a frame … inside a
+  window" for `/countdown`, `/audience` and `/holding`) have failed now and then while another tree's suite ran beside them, and
+  passed on a rerun. SW23.1 and SW23.1p each found and mended a race of the check's own (a frame's text read once before the page
+  drew; the visible frame's index read once before the window's reveal), but no run has shown those were the only causes: the
+  failures under load are not root-caused, and a next sighting is read before anything else is changed.
+- **The bench is shared**: PlayMap's own preflight reads red above 95 % CPU and closes its doors, so a LAN run beside another tree's
+  build can fail S8.1 or S8.4 (and S7.1 or S7.4 behind them) for the bench, in those rows' own words (SW23.1p's notes).
+- **Open findings carried forward from 2.22** stand as written there (*What this release did not do*, 2.22), with these changes: the
+  finding for Patterns' owner that a gone link comes back downgraded is now held by S6.1b at ff01e34 (the settled record at level 1,
+  mutual, `tls` pinned, its floor kept). S6.1's one miss that SW22.11p named is still unmeasured: the race 99.7 mends is a
+  candidate for it, not proved its cause.
+
+### Each unit's notes: what it did, and what it left
+
+What each unit moved to another, and left, as written when it landed (*since then* marks what a later unit changed):
 
 - **The lane at Patterns' Round 98 (SW23.0).** Nothing of Stagewatch's product changed. `tools/interop/siblings.json` pins
   Patterns at 2515017 (its Round 98 closed) and Mapper at 2ae7ac7b (PlayMap's tests only since 031c9a3: the device lock's

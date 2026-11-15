@@ -107,6 +107,7 @@ One grammar is shared by every transport — HTTP, WebSocket, OSC and the Compan
 | `peer` | `<app> <line>` | Send one line another show app lists, born approved by you (2.21; HTTP and a WebSocket only, with the PIN or a control key). See *A person's line to another app* below |
 | `desk` | `approve <id> [high]` · `approve next` · `reject <id>\|next [why]` | Decide a proposal on the shared approval queue (2.21; as `peer`) |
 | `playout` | `<link> trust <8+ hex of its certificate>` | Refused on every transport, whoever sends it (2.20): trusting a playout link's certificate is a person's choice on the Stagewatch desk, beside its fingerprint (right-click its node on the Show network, or the status line). In the grammar only so that it is refused in words, never as unknown |
+| `playout` | `<link> floor lower` | Refused on every transport, whoever sends it (2.23): lowering the floor a playout link's proof recorded lets its peer prove itself with less than it did (an older build, no LINK, no TLS), so it is a person's choice on the Stagewatch desk, beside the link that refuses (right-click the status line). In the grammar only so that it is refused in words, never as unknown |
 
 ### HTTP
 
@@ -209,6 +210,12 @@ certificate is trusted by a person on the desk, beside its fingerprint, never by
 
 ```
 trusting a playout link's certificate is a person's choice on the Stagewatch desk, beside its fingerprint (right-click its node on the Show network, or the status line) — refused from MCP, whoever sends it
+```
+
+`playout <link> floor lower` (2.23) is refused the same way, at every door and by every executor, and never made a proposal:
+
+```
+lowering a playout link's floor is a person's choice on the Stagewatch desk, beside the link that refuses (right-click the status line) — refused from OSC, whoever sends it
 ```
 
 With a request id the refusal is a refused receipt under that id (HTTP 403, a WebSocket `receipt`, Companion `ERROR @id`).
@@ -391,7 +398,10 @@ why. The receipt's `effect` ends with what was done, in the stage it reached: `�
 while the node has not answered (or never does), `… · scheduled for 20:00:01.250 (± 3 ms)` only once its answer says it took
 the GO (applied or accepted), the node's own words alone when it refuses it, and `… · not timed: <why> — sent at once` for one
 sent untimed. The show log has the same rows: one as it goes, one more once the node took it. A Patterns desk takes no `AT`
-(its wire has no TLS until its Round 97), so its GO asked together goes at once and says so. The clock believed is the sample
+(its wire had no TLS before its Round 98), so its GO asked together goes at once and says so. *Since 2.23:* a Patterns link that
+dials Patterns' TLS door measures its clock over TLS, so a GO of a together start to it is held here and sent half its round trip
+before the instant (Patterns still takes no `AT`); one over plain TCP off this PC is held to the instant by this PC's clock alone,
+and its row names `wss` as the way to time it. The clock believed is the sample
 with the smallest round trip among the last 8 (Show Bus 13.11.3), one each 2 s, so it can be older than 10 s while fresher ones
 are kept: a timed GO then falls back and says its clock is not fit.
 
@@ -1567,3 +1577,127 @@ The copilot is a model's view of the show; what it plans for another show app is
   each step goes it is rated again: a line its app now rates higher is refused (`PlayMap Hall now rates this line high — tick it
   again`), nothing queued, the step shown at its new rating and unticked. A step that does not report done stops the run, and every
   ticked step after it says so. The plan is named beside the desk's journal row, never in the proposal.
+
+## 2.23: playout links prove themselves to Patterns
+
+2.23 ships as 2.23.0 (WHATS_NEXT.md has its upgrade notes, its units and what it did not do). It changes Stagewatch's side of the
+playout links, the connector a desk dials to a Patterns desk or a PlayMap node; nothing of `/ws`, HTTP, OSC or Companion TCP
+changes but the refusal of the new desk-only line. Where each change is on this page:
+
+| Change | Section |
+|---|---|
+| A playout link to a Patterns desk proves itself with LINK on Patterns' line wire, by one rule; pinned by the proof, floored | "A playout link proves itself to a Patterns desk", below |
+| Enrolment: the key Patterns enrols for a pairing token proved inside TLS, adopted and sealed | "The key Patterns enrols", below |
+| Scope: a link Patterns stood at `follow` or `post` refuses the playout commands here first | "Scope before a press", below |
+| `CUE GO`'s `Requested` and its final, `lateMs`, `RECEIPTS` after a drop | "Receipts on the line", below |
+| `playout <link> floor lower`, desk-only like `playout <link> trust` | *Commands* and "Who may drive another app's air (2.20)", above; "Floors and the trust verbs", below |
+| A timed GO to a Patterns desk over TLS | "A GO at one instant" (2.20), above, and "The timed GO's TLS rule", below |
+| Patterns' operator's CLOSE, read as a refusal | "Patterns' CLOSE", below |
+| PlayMap at level 0 | "PlayMap: level 0 until its acceptor lands", below |
+| The frame's `playout` row, the `link:<name>` item, the copilot's facts and the rig's `links` line and `--playout` | "What every reader shows", below |
+
+### A playout link proves itself to a Patterns desk
+
+Patterns' wire on 9697 (its Round 98) is a PeerLink acceptor on the `line` carrier (Show Bus 13.6.4): it tells TLS from plain by the
+client's first byte and writes nothing before it. A playout link speaks first — `HELLO Stagewatch` and its probe as the socket comes
+up, as 2.22 did — and then decides LINK by one rule (`PlayoutProof.OffersLink`):
+
+- **Never by a hello's `cap peerlink`.** A cap is a hint (13.4.2), and Patterns' hello holds it back while its own conformance table
+  has a row not kept. LINK is chosen by what the operator gave the link and by the connection it is on.
+- **An app key Patterns issued** (13.5.1's shape, `ptk_…`, typed in the token's place) goes by LINK only, plain or TLS; it never goes
+  as plain `AUTH` or `AUTH-PROOF`, and the key never crosses the wire.
+- **A key a verdict enrolled** (below) goes by LINK only.
+- **The pairing token** goes by LINK, as the code (kid `code`), only inside TLS; on a plain socket it stays 13.6.8's level 0, one
+  `AUTH-PROOF`, as 2.22 proved it.
+- **TLS**: a Patterns link set to `wss`, or pinned, or floored, dials TLS on the wire's own port. Set to `auto` and neither pinned nor
+  floored, it dials plain, as in 2.22, and its standing says how it would prove both ways.
+- **No Show Bus id of its own, no LINK**: the desk gives the link its node id; the rig gives `--node-id`.
+
+The exchange is `@l1 LINK 1 stagewatch <id> <cnonce> <kid>`, Patterns' verdict with its server proof, then `@l1 LINK PROOF <hex>`;
+no `AUTH`, no key and no proof of the token in any other form. The verdict is taken only once Patterns' own proof checks out: a
+verdict whose proof is the link's own (a machine between, passing it on) is not taken, not pinned and not floored. A verified link
+is level 1, proof `mutual`, with its kid and scope; over TLS it is pinned by the proof to the certificate Patterns' wire showed, and
+it records a floor (13.9.3: TLS, level 1, mutual) that a later dial must meet. A Patterns that answers LINK as an unknown command (a
+build before its Round 98) stays at level 0, amber, `legacy` ("Patterns cannot prove itself yet — an older build"), and the code is
+proved by one `AUTH-PROOF`; with an app key the link sends no proof and says that desk takes no app key. A refused key, a revoked
+one and one bound to another connector are each held a minute, red, with no second LINK (S2, S17, S18).
+
+### The key Patterns enrols
+
+A pairing token proved inside TLS to Patterns enrols a key at `follow` (13.5.7), and the verdict names its kid. The link derives
+the key, HMAC-SHA256(K_code, "enrol\n" ‖ T), takes it only when the kid matches, and proves with it from its next dial on, so a
+second link enrols no second key; the link up now still stands on the code (its record says kid `code`, scope `operate`). The desk
+seals the key for this Windows user beside the token in Settings (`enrolled`, DPAPI, tagged by the token, so a token changed since
+starts without it). The key reaches no frame, log, journal row, context or the settings' clear text; readers name its kid alone.
+
+A link standing on an enrolled key is at `follow` until Patterns' operator raises the key (KEY BIND on its Nodes page): a `wss`
+link that drove at `operate` on the code stands at `follow` from its first redial, and the desk's status line and the show log say
+so by kid at enrolment, before any press. A link that must keep driving across a redial is given an app key Patterns issued at
+`drive` (KEY MAKE). A key Patterns no longer holds refuses every link that proves it; the refusal names its kid and the way back:
+the status line's right-click entry *Forget the key … enrolled for this link* (desk-only, one journal row) clears the sealed copy,
+and once the refusal's hold ends the link proves its token inside TLS again and adopts the key Patterns enrols anew.
+
+### Scope before a press
+
+Every command a playout link writes to Patterns is `drive`'s (Patterns' AppKeyScopes): `VIDEO`, `CUE GO`, `CUE STANDBY`. A link
+Patterns stood at `follow` or `post` refuses each here first, nothing sent, in words that name the scope and who raises it, with
+the same `409` and refused receipt as any refusal before a send. Before any press the link's status carries those words and its
+light stays amber, never green, whatever its STATE says; the VT chip's entries are greyed with them, and its record's `scope` flag
+is amber. A refusal Patterns itself sends is shown in Patterns' words.
+
+### Receipts on the line
+
+A verified link takes the verdict's `final` and `receipts` (13.12.4–6). Patterns' `CUE GO` answered `OK @id {"outcome":"Requested",…}`
+reads `accepted` and settles nothing; its `OK @id final {…,"stage":"applied",…}` is the outcome, applied, and a `lateMs` in it is
+counted; a GO answered `Confirm` reads accepted, and its `ERR @id final not run — …` is the outcome, refused. A command written as a
+connection drops is unconfirmed; once the link proves itself again `@rqN RECEIPTS <ids>` asks for it, and it reads from Patterns'
+record — never sent again. A receipt on the wire, on a WebSocket and on Companion TCP carries these outcomes as 2.20's table says.
+
+### Floors and the trust verbs
+
+`playout <link> floor lower` (`ShowCommandKind.PlayoutFloor`, appended) is in the grammar and the help, rated high, never among the
+context's commands, never a step of a plan or a proposal, and refused at every door and by every executor, as `playout <link>
+trust <hex>` is: a person lowers a recorded floor on the desk, from the status line's right-click (*Lower …'s floor*), beside the
+link that refuses for it, with one journal row. A link that holds only the pairing token and is refused on a plain socket for a
+floor of PeerLink 1 says the withholding is its own — the token goes by LINK only inside TLS: set the link to `wss`, or lower the
+floor — never that the peer offers less. A changed certificate is still trusted by typing 8 hex of it on the desk (2.20).
+
+### The timed GO's TLS rule
+
+A GO is timed only on a clock that may time a command (13.11.6): one measured over TLS, or on a link to this PC. Patterns takes no
+`AT`, so a GO of a together start to a Patterns desk is held on this PC: over TLS, sent half its round trip before the instant; over
+plain TCP off this PC, at the instant by this PC's clock alone, its row saying it schedules nothing "until the link dials Patterns'
+TLS door (set it to wss)". A PlayMap node's GO takes `AT` only on a clock fit and measured over TLS or on this PC, as in 2.20.
+
+### Patterns' CLOSE
+
+Patterns' Nodes page CLOSE ends an app link with `ERR LINK refused — …'s operator closed this link — the key stays in force; link
+again after the hold` (its OPEN L115: the line carrier has no disconnect word). The link reads what was said, a refusal, and holds
+`peerlink.hold.refused.ms` (a minute); 13.15.3 asks `peerlink.hold.disconnect.ms` (30 s) after an acceptor operator's disconnect.
+It does not guess a disconnect from a refusal's words. Whether 13.6.4 should give the line carrier a disconnect class is a question
+for the owner and Show Bus 1.4 (WHATS_NEXT.md).
+
+### PlayMap: level 0 until its acceptor lands
+
+No LINK goes to a PlayMap node on any carrier — its `playmap.lines.v1` channel or its TCP wire — whatever the link holds (a link set
+to PlayMap, heard as PlayMap, or holding a `pmk_` key): PlayMap offers no LINK yet (Mapper's PM-9b). Its links greet and pair at
+level 0 as in 2.22, amber, `legacy`, and say so; `PlayoutProof.PlayMapSpeaksLink` is the seam that ends it, held against the
+scripted peer offering LINK on both carriers.
+
+### What every reader shows
+
+- **The frame's `playout` row** (the clip feeding the VT) ends with `level`, `proof` (`mutual`, `legacy`, `open`, `none`) and `scope`
+  after `node`: what the link the clip came from stands on.
+- **The `link:<name>` context item** ends its words with the link's standing: "PeerLink 1 · proved both ways with key … · scope …",
+  "enrolled key …" for a key Patterns enrolled; a Patterns desk proved at level 0 by the token on a plain socket adds how it would
+  prove both ways (`wss`, or an app key Patterns issued).
+- **The copilot's `playout_links` rows** end with `standing` and `scopeHeld` (why the scope holds every playout command back, or
+  null): a line the link would refuse is never worth proposing.
+- **The rig's `links` line** ends with `standing`, `enrolled` (a kid, or null) and `scopeHeld`; `--playout` takes a transport after
+  the kind: `--playout NAME=HOST:PORT[,patterns|playmap|auto[,tcp|wss|auto]]`.
+
+Held by the suite against the scripted peer as Patterns' line acceptor (`PeerLinkScenarios.PlayoutLink.cs`: S1 with an issued key
+over plain and with the code inside TLS, S2, S4–S7, S11–S14, S17, S18, S21, S22 and PlayMap's seam), and over the real Patterns at
+the lane's pin by rows S4.6 (LINK verified both ways with the code inside TLS, pinned, floored, Patterns' `decks` listing it, the
+enrolled kid adopted, a pause applied) and S4.7 (one connection dropped: proved again within 5 s with the enrolled key at `follow`,
+a play refused here with nothing sent).

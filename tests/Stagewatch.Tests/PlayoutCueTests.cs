@@ -115,7 +115,7 @@ static class PlayoutCueTests
               $"playout timing: a Patterns desk on a channel that may time is held here half its round trip before the instant ({set[1].Words})");
         Check(set[2] is { When: PlayoutWhen.Hold, SendAtMs: t } && set[2].Words.StartsWith($"held here, to be sent at {W(t)} by this PC's clock alone: Patterns FOH takes no AT", StringComparison.Ordinal)
               && set[2].Words.Contains("plain TCP off this PC", StringComparison.Ordinal) && set[2].Words.Contains("13.11.6", StringComparison.Ordinal)
-              && set[2].Words.Contains("Round 97", StringComparison.Ordinal),
+              && set[2].Words.Contains("until the link dials Patterns' TLS door (set it to wss)", StringComparison.Ordinal),
               $"playout timing: a clock measured over plain TCP off this PC schedules nothing, its round trip included — held to the instant by this PC's clock, and the row says why and until when ({set[2].Words})");
         Check(set[3] is { When: PlayoutWhen.Hold, SendAtMs: t - 5 }
               && set[3].Words.EndsWith($"PlayMap Stage right's clock is not fit for a GO 300 ms ahead (a sample at most 10 s old, off by at most {Ms(PlayoutDirector.ToleranceMs(Lead))} ms)", StringComparison.Ordinal),

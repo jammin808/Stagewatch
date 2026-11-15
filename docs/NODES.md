@@ -285,17 +285,18 @@ section has every message and refusal.
   message, its words and `/api/windows`' grant rows.
 - **LINK is Stagewatch's own since 2.22**: its `/ws` is a PeerLink acceptor at level 1 (Show Bus §13; S1–S3, S8–S10, S12's emitting
   half, S14, S15's oversize message and S16–S20 run against it in the suite with the scripted peer), and a bearer node link or
-  the operator's credential proves a link at level 0 (§7.1), as before. Stagewatch's playout links dial Patterns and PlayMap at
-  level 0 (§5); offering LINK on them is a later release's.
+  the operator's credential proves a link at level 0 (§7.1), as before. Stagewatch's playout links offer LINK to a Patterns desk
+  since 2.23 (§5) and dial PlayMap at level 0 until PlayMap answers LINK.
 
 ## 5. Playout links (Stagewatch as a Patterns and PlayMap client)
 
 Stagewatch reads the clip on air in Patterns desks and PlayMap nodes over their own line wires, as playout sources beside vMix, and
 drives them. Each link Settings → Integrations names — at most `playout.links` (8), each by a name such as `stage-left`; the 2.17
-*Patterns video* box became link `patterns` — runs on its own on Stagewatch's PeerLink core (Show Bus §13) at level 0: it keeps §13's
-rules a connector keeps on its own, and offers no LINK yet. A link runs while it is switched on and the licence (Production) runs
-playout links; its transport (`auto`, `tcp` or `wss`) says how it reaches its peer, and a PlayMap node is reached over TLS where
-it can be (*TLS to a PlayMap node*, below).
+*Patterns video* box became link `patterns` — runs on its own on Stagewatch's PeerLink core (Show Bus §13): it keeps §13's rules a
+connector keeps on its own, at level 0 by default, and since 2.23 proves itself with LINK to a Patterns desk where what it holds and
+the connection allow (*LINK to a Patterns desk*, below); to a PlayMap node it offers no LINK yet. A link runs while it is switched
+on and the licence (Production) runs playout links; its transport (`auto`, `tcp` or `wss`) says how it reaches its peer, and a
+PlayMap node is reached over TLS where it can be (*TLS to a PlayMap node*, below).
 
 - **Connect:** TCP at the link's address and port — `patterns.wire.port` (9697) unless another is set; a PlayMap node's line wire is
   9941 (Find, §2, fills each in). Stagewatch sends `HELLO Stagewatch` and a Show Bus 1.1 probe
@@ -344,6 +345,17 @@ it can be (*TLS to a PlayMap node*, below).
   sent on it. A paired link on the line wire to a node off this PC moves to TLS when its hello names the door, between commands,
   never with one waiting for its answer. Plain `AUTH` never goes on the TLS line channel (PlayMap takes proofs only there). A clock
   measured over TLS may time a command, as one on this PC may (13.11.6).
+- **LINK to a Patterns desk (2.23):** Patterns' wire (its Round 98) is a LINK acceptor on 9697 that tells TLS from plain by the
+  first byte. The link offers `LINK 1 stagewatch <its id> <cnonce> <kid>` and `LINK PROOF` (13.6.4) by one rule
+  (`PlayoutProof.OffersLink`), never by a hello's `cap peerlink`: an app key Patterns issued (`ptk_…`, in the token's place) or a
+  key Patterns enrolled for the link goes by LINK only, plain or TLS; the pairing token goes by LINK, as the code, only inside TLS
+  (a link set to `wss`, pinned or floored dials TLS on the wire's own port), and on a plain socket stays the level-0 `AUTH-PROOF`
+  below; with no Show Bus id of its own the link offers none. The verdict is taken only once Patterns' proof checks out; over TLS
+  the link is pinned by that proof and records a floor a later dial must meet, lowered only by a person on the desk (`playout
+  <link> floor lower` is refused at every door). A code proved inside TLS enrols a key at `follow`: the link adopts it by kid, the
+  desk seals it beside the token, and from the next dial the link stands on it, refusing VIDEO, CUE GO and CUE STANDBY here (they
+  are `drive`'s) until Patterns' operator raises the key. A Patterns that answers LINK as unknown (before its Round 98) stays at
+  level 0, `legacy`. REMOTE.md's 2.23 section has the whole exchange, the receipts and every reader.
 - **Kind:** the peer's kind is what its STATE says — a whole STATE with no `t` is a Patterns desk, `"t":"playmap"` a PlayMap node —
   and Settings may set it. A peer that answers as another kind than the one set is amber with both kinds named, and sent nothing; one
   that names a kind Stagewatch does not speak to is sent nothing either, nor is one whose STATE names another node id than the one
@@ -427,7 +439,7 @@ it can be (*TLS to a PlayMap node*, below).
   as long as the lead gives) and measured over TLS or on a link to this PC gets `AT` = that instant plus the link's offset, sent at
   once. Any other GO of the same start is held on this PC and sent untimed half its round trip before the instant — or at the
   instant itself, by this PC's clock alone, when its clock was measured over a plain link off this PC, which may be shown and
-  schedules nothing (a Patterns desk's 9697 until its Round 97); a lone GO (the one whose link is up) is never held: at its instant
+  schedules nothing (a Patterns desk's 9697 dialled plain; set the link to `wss` to time it); a lone GO (the one whose link is up) is never held: at its instant
   when fit, else at once; when any GO of a start whose link is up has no clock sample at all, nothing is together and every GO
   goes at once; and a GO whose link is not up and paired is sent nothing — its own row says why — and takes no timing from the
   others. Each says what it did, in its row and its receipt, as an attempt until the node answers: a GO with `AT` is "sent with AT

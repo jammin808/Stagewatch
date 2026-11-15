@@ -12,11 +12,11 @@ Pro countdown timer and show-calling tool for corporate events. Windows 10/11. P
 - [`docs/LICENSING.md`](docs/LICENSING.md) — trial / tiers / master serial / threat model
 - [`docs/COMPANION.md`](docs/COMPANION.md) — BitFocus Companion module spec
 - [`docs/POWERPOINT.md`](docs/POWERPOINT.md) — installing the PowerPoint add-in
-- [`docs/REMOTE.md`](docs/REMOTE.md) — browser pages, windows Stagewatch controls (`/w/<token>`), show apps on `/ws` (node links, one key per app), Show Bus 1.3's changes (2.19), playout links to Patterns and PlayMap (2.20), the approval desk for every app, `peer` and `desk`, ready for doors and the show network report (2.21), show apps proving themselves on `/ws` (LINK), windows granted to show apps, the decks', the copilot's and MCP's lines for other apps (2.22), what each route needs, HTTP API, WebSocket, OSC, MCP, running order
+- [`docs/REMOTE.md`](docs/REMOTE.md) — browser pages, windows Stagewatch controls (`/w/<token>`), show apps on `/ws` (node links, one key per app), Show Bus 1.3's changes (2.19), playout links to Patterns and PlayMap (2.20), the approval desk for every app, `peer` and `desk`, ready for doors and the show network report (2.21), show apps proving themselves on `/ws` (LINK), windows granted to show apps, the decks', the copilot's and MCP's lines for other apps (2.22), playout links proving themselves to Patterns (2.23), what each route needs, HTTP API, WebSocket, OSC, MCP, running order
 - [`docs/NODES.md`](docs/NODES.md) — Stagewatch's node page, written from the code and held to it by the suite: the hello it says and what it hears, presenter PCs, reading and driving it, each show app's link, the Patterns link, its numbers
 - [`docs/SHOWBUS.md`](docs/SHOWBUS.md) — Show Bus 1.3, the contract between Stagewatch, Patterns, PlayMap and AGMessage (this tree holds the master)
 - [`docs/ECOSYSTEM.md`](docs/ECOSYSTEM.md) — why the four apps share one contract, and where it is going
-- [`docs/FEATURES.md`](docs/FEATURES.md) — what's new in each release (2.22 first) and how to use it
+- [`docs/FEATURES.md`](docs/FEATURES.md) — what's new in each release (2.23 first) and how to use it
 - [`docs/WHATS_NEXT.md`](docs/WHATS_NEXT.md) — each release's upgrade notes, how it is released, and what it did not do
 
 ## Solution layout
@@ -56,8 +56,8 @@ pwsh tools\release.ps1 -Bump minor  # or -Version 3.0.0 -ModuleVersion 3.0.0, or
 ```
 
 The releases after 2.16 go in order on the maintainer's PC: 2.18 and 2.19 each on their own last commits, 2.21.0 (carrying 2.20)
-on d311de8, then 2.22.0 (`pwsh tools\release.ps1 -Version 2.22.0 -ModuleVersion 2.22.0`); `docs/WHATS_NEXT.md` says what goes first
-and what the PC checks are.
+on d311de8, 2.22.0 on 4ff9064, then 2.23.0 (`pwsh tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`); `docs/WHATS_NEXT.md`
+says what goes first and what the PC checks are.
 
 ## Build (TL;DR)
 

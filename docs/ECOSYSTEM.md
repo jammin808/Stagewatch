@@ -167,6 +167,8 @@ proposes into one approval queue.
      proposing to other apps and the Companion and OSC doors (Stagewatch 2.22).
    - Show apps proving their keys on Stagewatch's `/ws` (Show Bus LINK), and a Stagewatch window granted to one show app and shown
      on Patterns (Stagewatch 2.22, Patterns Round 96).
+   - Stagewatch's playout links proving themselves to a Patterns desk with LINK, the key Patterns enrols adopted and its scope read
+     before a press (Stagewatch 2.23, Patterns Round 98); to PlayMap once its acceptor lands.
    - ~~Merged journals~~ One report from verified peers' lines (Stagewatch 2.21).
    - One preflight, "ready for doors" (Stagewatch 2.21).
 4. **Later**
@@ -182,9 +184,10 @@ proposes into one approval queue.
   Show Bus 1.3 does this with vectors in its own text and one scripted peer that every tree runs against itself (§13.20).
   Beside them, Stagewatch's interop lane runs the four real apps against each other at pinned commits, on one LAN and one
   show laptop (`tools/test.sh interop`; `docs/BUILD.md`, "The interop lane", says what it proves and what it does not). At
-  2.22 it runs 47 rows green — 39 on the LAN, 5 on the show laptop, 3 offline: the desk, the doors, Stagewatch's playout links,
+  2.23 it runs 49 rows green — 41 on the LAN, 5 on the show laptop, 3 offline: the desk, the doors, Stagewatch's playout links
+  (the one to Patterns proved both ways with LINK, and proved again after a dropped connection with the key Patterns enrolled),
   Patterns' link proving itself on `/ws`, a window granted to Patterns and MCP proposing to PlayMap among them — against Patterns
-  at its Round 96, PlayMap at its two wire fix batches and AGMessage 0.5.0 (`docs/WHATS_NEXT.md`, 2.22).
+  at its Round 99.7, PlayMap at 2ae7ac7b and AGMessage 0.5.0 (`docs/WHATS_NEXT.md`, 2.23).
 - **Security drift.** Auth is only as strong as the weakest node. Use the same key model and lockouts everywhere,
   and send nothing secret on discovery.
 - **Code signing** is still deferred. SmartScreen warnings will cost trust at venues, so sign before a wider

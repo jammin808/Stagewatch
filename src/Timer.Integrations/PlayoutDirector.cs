@@ -436,7 +436,7 @@ public sealed class PlayoutDirector
             var lead = leadMs.ToString(CultureInfo.InvariantCulture);
             if (m.Kind != PlayoutRules.PlayMap)
                 return m.MayTime ? $"{m.Peer} takes no AT"
-                    : $"{m.Peer} takes no AT, and its clock, measured over plain TCP off this PC, schedules nothing (Show Bus 13.11.6) until Patterns offers TLS on its wire (its Round 97)";
+                    : $"{m.Peer} takes no AT, and its clock, measured over plain TCP off this PC, schedules nothing (Show Bus 13.11.6) until the link dials Patterns' TLS door (set it to wss)";
             return m.MayTime
                 ? $"{m.Peer}'s clock is not fit for a GO {lead} ms ahead (a sample at most {(PeerLink.ClockFreshMs / 1000).ToString(CultureInfo.InvariantCulture)} s old, off by at most {tolerance.ToString(CultureInfo.InvariantCulture)} ms)"
                 : $"{m.Peer}'s clock is measured over plain TCP off this PC and schedules nothing (Show Bus 13.11.6) until the link reaches the node's TLS door";
