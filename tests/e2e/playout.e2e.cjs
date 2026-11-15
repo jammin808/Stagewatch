@@ -124,9 +124,22 @@ test('the links pair by proof and every reader takes them: ready line, context i
       && verbs.includes('playout stage-left go <playlist> [<item>] [together]') && verbs.includes('playout patterns go <cue>') && c;
   }, 15000, 'both links paired and their kinds heard, in the context');
   const byId = Object.fromEntries(items.items.map((i) => [i.id, i]));
-  assert.deepEqual([byId['link:stage-left'].kind, byId['link:stage-left'].label, byId['link:stage-left'].light], ['playout', 'PlayMap Stage left', 'amber'],
+  assert.deepEqual([byId['link:stage-left'].kind, byId['link:stage-left'].label, byId['link:stage-left'].light], ['link', 'PlayMap Stage left', 'amber'],
     'a level-0 link is amber in the context: its record is legacy, whatever its own line says');
-  assert.deepEqual([byId['link:patterns'].kind, byId['link:patterns'].label, byId['link:patterns'].light], ['playout', 'Patterns', 'amber']);
+  assert.deepEqual([byId['link:patterns'].kind, byId['link:patterns'].label, byId['link:patterns'].light], ['link', 'Patterns', 'amber']);
+  // Show Bus §6 P2 at level 0: each link's one row runs to the node its peer's own STATE (PlayMap's id) or context (Patterns') named,
+  // in the record's light, and its words say that node is not proved; nothing runs from the timer to a link.
+  const rows = await until(async () => {
+    const c = await rig.context();
+    const ls = (c.links || []).filter((l) => l.from === 'link:stage-left' || l.from === 'link:patterns');
+    return ls.length === 2 && c;
+  }, 15000, "both links' rows to their nodes, in the context");
+  assert.deepEqual(rows.links.filter((l) => l.from.startsWith('link:')).map((l) => `${l.from} -${l.kind}-> ${l.to} ${l.light}`).sort(),
+    [`link:patterns -controls-> @9f8e7d6c amber`, `link:stage-left -controls-> @${PLAYMAP_ID} amber`]);
+  assert.ok(!(rows.links || []).some((l) => l.from === 'timer' && l.to.startsWith('link:')), 'no row runs from the timer to a link');
+  const now = Object.fromEntries(rows.items.map((i) => [i.id, i]));
+  assert.ok(now['link:stage-left'].state.includes(`node ${PLAYMAP_ID}, not proved`) && now['link:patterns'].state.includes('node 9f8e7d6c, not proved'),
+    'each link says the node at its other end, not proved: ' + now['link:stage-left'].state + ' | ' + now['link:patterns'].state);
   const verbs = items.commands.map((c) => c.verb);
   assert.ok(verbs.includes('playout stage-left go <playlist> [<item>] [together]') && verbs.includes('playout stage-left cue <playlist> <item>'),
     'the context offers a PlayMap node its playlist verbs, a GO together among them: ' + verbs.join(' | '));

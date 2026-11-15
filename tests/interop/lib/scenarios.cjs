@@ -41,9 +41,22 @@ function amberByRecord(st, app) {
   return null;
 }
 
+/**
+ * A Stagewatch's own light and headline as a row reads them from its context, and the links it accepted on /ws at level 0 that make
+ * it amber, if any make it so. Show Bus 1.3 §6 P2 and 13.16.5 (Stagewatch 2.24): a link a bound node key proves and that runs no LINK
+ * — PlayMap's and AGMessage's at these pins — is amber over green on the acceptor, its item `link:ws:<id>` saying "level 0"; the
+ * headline leaves them out, so it stays the show's own. `acceptedLevel0` lists their ids only when every amber or red item is such a
+ * link; otherwise it is null, and an amber context is the show's own.
+ */
+function ownLight(c) {
+  const urgent = (c.items || []).filter((i) => i.light === 'amber' || i.light === 'red');
+  const level0 = urgent.length > 0 && urgent.every((i) => i.light === 'amber' && /^link:ws:/.test(i.id) && /^level 0/.test(i.state || ''));
+  return { light: c.light, headline: c.headline, acceptedLevel0: level0 ? urgent.map((i) => i.id.slice('link:ws:'.length)).sort() : null };
+}
+
 /** What each reason amberByRecord gives says, in a row's facts. */
 const AMBER_BY = {
-  level0: "its link's record at level 0 (Show Bus 1.3 §13.16.4); the app's own context neither amber nor red, with this headline",
+  level0: "its link's record at level 0 (Show Bus 1.3 §13.16.4); the app's own context neither amber nor red, with this headline — or, from Stagewatch 2.24, amber only by the links it accepted on /ws at level 0 (13.16.5, named in the row's own fact), which its headline leaves out",
   scope: "its link's record at level 1, flagged scope alone: the rig's verdict says scope node, which Patterns ranks below post (Stagewatch's verdict word, held until decided: docs/WHATS_NEXT.md); the app's own context neither amber nor red, with this headline",
 };
 
@@ -52,7 +65,9 @@ const AMBER_BY = {
  *  (`linked`) may be amber for its link's record alone (amberByRecord: at level 0, or at level 1 flagged scope alone): Patterns draws that row the worse
  *  of the app's own context light and the record (Show Bus 1.3 §13.16.4; red over amber over green over grey), so `own()`, read
  *  from that app itself and never from Patterns, must say neither amber nor red (green, or grey for a timer at rest) with the
- *  very headline Patterns' row carries — then nothing but the record is amber. The read says so. Resolves with what it read. */
+ *  very headline Patterns' row carries — then nothing but the record is amber. The one amber of its own it may have is 13.16.5's
+ *  for the links it accepted at level 0 (ownLight's acceptedLevel0: every one of its amber items such a link, its headline the
+ *  show's own): never a fault of its show, and the read names them. The read says so. Resolves with what it read. */
 async function patternsHears(pat, peers, ms) {
   return until(async () => {
     const st = await pat.state();
@@ -63,22 +78,22 @@ async function patternsHears(pat, peers, ms) {
       const app = apps.find((a) => a.kind === p.kind && a.id === p.id);
       if (!app) throw new Error(`Patterns' bus.apps has no ${p.kind} ${p.id}: ${JSON.stringify(apps.map((a) => `${a.kind}:${a.id}`))}`);
       let amberBy = null;
-      let ownLight = '';
+      let ownSaid = '';
       const byRecord = p.linked && p.own && app.light === 'amber' ? amberByRecord(st, app) : null;
       if (byRecord) {
         const own = await p.own();
-        if (own.light === 'amber' || own.light === 'red' || own.headline !== app.headline) {
+        if (own.light === 'red' || (own.light === 'amber' && !(own.acceptedLevel0 && own.acceptedLevel0.length)) || own.headline !== app.headline) {
           throw new Error(`Patterns draws ${p.kind} ${p.id} amber "${app.headline}" while that app's own context says ${own.light} "${own.headline}": not its link's record alone`);
         }
         amberBy = byRecord;
-        ownLight = own.light;
+        ownSaid = own.light === 'amber' ? `amber by the links it accepted at level 0: ${own.acceptedLevel0.join(', ')}` : own.light;
       }
       if (app.light === 'red' || (app.light === 'amber' && !amberBy)) throw new Error(`Patterns hears ${p.kind} ${p.id} but not live: ${app.light} "${app.headline}"`);
       const card = (eye.nodes || []).find((n) => n.id === `app:${p.id}`);
       if (!card) throw new Error(`Patterns' EYE has no card app:${p.id}`);
       const words = [card.sub, ...(card.words || [])].join(' · ');
       if (!addrsOf(p).some((a) => namesAddress(words, a))) throw new Error(`Patterns' EYE card for ${p.kind} ${p.id} names no ${said(addrsOf(p))}: "${card.sub}"`);
-      read[p.kind] = { id: p.id, light: app.light, headline: app.headline, eye: card.sub, ...(amberBy ? { amberBy: AMBER_BY[amberBy], own: ownLight } : {}) };
+      read[p.kind] = { id: p.id, light: app.light, headline: app.headline, eye: card.sub, ...(amberBy ? { amberBy: AMBER_BY[amberBy], own: ownSaid } : {}) };
     }
     return read;
   }, ms, 'Patterns hearing ' + peers.map((p) => p.kind).join(' and '));
@@ -502,6 +517,7 @@ async function noSecretAnywhere({ run, matrix, apps }) {
 }
 
 module.exports = {
+  ownLight,
   patternsHears, playmapHears, agmessageHears, rigHears, oneIdOnePeer, playmapUnmarked, playmapMarksConflict, rigShowsContext,
   playmapFollowsPatterns, unknownWordsRefused, noSecretAnywhere,
   stagewatchLinks, allLive, stillHeld, readLockout, lockoutAfter, nobodyCounted, namesAddress, since, left, inTime, HELLO_ONLY,

@@ -1075,6 +1075,34 @@ public sealed class PlayoutLink : IPlayoutSource
         }
     }
 
+    /// <summary>
+    /// The node at this link's other end, as the context's row names it (Show Bus §6 P2), from what the peer itself said and never from a
+    /// guess. While a connection is up: the id LINK proved on it (<c>Proved</c>), else the id the peer named on it — its STATE's or its
+    /// context's — and none at all while its STATE answers as another kind or node than its settings name (13.4.3: its words say who
+    /// answered) or it named none. While no connection is up: the id an earlier LINK on this link bound it to, not proved now, else none.
+    /// Never the id the settings name alone: that is the operator's expectation, not the peer's word. A clock is measured only on a
+    /// paired connection (<see cref="Clock"/>), so the clock beside this id is always the one this id's own connection measured.
+    /// </summary>
+    public (string? Id, bool Proved) PeerNode
+    {
+        get
+        {
+            var pub = _pub;
+            if (Problem(pub.Reading?.State) is not null) return (null, false);
+            if (pub.Connected)
+            {
+                if (pub.Pairing != PlayoutPairing.None && pub.Record is { Proof: "mutual", PeerId: { Length: > 0 } proved }) return (proved, true);
+                return pub.NodeId is { Length: > 0 } named ? (named, false) : (null, false);
+            }
+            string? bound;
+            lock (_gate) bound = _m.ProvedId;
+            return (bound is { Length: > 0 } ? bound : null, false);
+        }
+    }
+
+    /// <summary>This link's primary use, the kind of its context row (<see cref="PlayoutProof.Use"/>): controls, or follows at a reading scope.</summary>
+    public string Use => PlayoutProof.Use(Kind ?? (_setKind == PlayoutRules.Auto ? _pub.Record.PeerT : _setKind), _pub.Record);
+
     /// <summary>The kid of the key a peer enrolled for this link, adopted, or null (13.5.7); never the key.</summary>
     public string? EnrolledKid
     {

@@ -108,9 +108,11 @@ test('a message that asks for its acknowledgement: the receipt names its signal,
   const seen = await contextWith((i) => i.light === 'green', 'the context acknowledged');
   assert.equal(seen.item.state, 'acknowledged');
   const recent = seen.context.recent.map((r) => r.text).join('\n');
-  assert.match(recent, / Signal: Message speaker: Wrap up/, 'the journal keeps the signal, not a plain message row');
-  assert.match(recent, / Ack: Message speaker: Wrap up \(Done by Patterns FOH \(127\.0\.0\.1\)\)/, 'the journal keeps the answer');
-  assert.doesNotMatch(recent, / Message: Wrap up/, 'one row for the message that asked for its acknowledgement');
+  // Show Bus §6 P8: a message's words stay on this desk; the context's recent lines say a message went and who answered it.
+  assert.match(recent, / Signal: Message speaker \(its words stay on this desk\)/, 'the journal keeps the signal, not a plain message row');
+  assert.match(recent, / Ack: Message speaker \(its words stay on this desk\) \(Done by Patterns FOH \(127\.0\.0\.1\)\)/, 'the journal keeps the answer');
+  assert.doesNotMatch(recent, /Wrap up/, "no recent line carries the message's words");
+  assert.doesNotMatch(recent, / Message: /, 'one row for the message that asked for its acknowledgement');
 
   // The same ACK again would change nothing: the signal is still listed, so the door lets it in, and the show refuses it.
   from = link.messages.length;

@@ -1082,6 +1082,9 @@ public sealed class PeerLinkConnector
     /// <summary>The node kind this link is for: the one a verified link or the operator bound it to, else the settings'.</summary>
     public string? NodeKind => _boundT ?? _s.Kind;
 
+    /// <summary>The node id a LINK verdict on this link bound it to (now, kept from an earlier run, or by the operator's Accept new id); null while none did.</summary>
+    public string? ProvedId => _boundId;
+
     // ------------------------------------------------------------------ what happened
 
     /// <summary>

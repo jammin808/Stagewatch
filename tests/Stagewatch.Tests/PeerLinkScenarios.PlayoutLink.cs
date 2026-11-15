@@ -99,6 +99,11 @@ static partial class PeerLinkScenarios
                   && (tls ? rec.Tls == "pinned" && rec.Light == "green" && rec.Floor is { Tls: true, Level: 1, Proof: "mutual" } : rec.Flags.Contains("plain") && rec.Light == "amber")
                   && verified.ValueKind == JsonValueKind.Object && Str(verified, "kid") == kid,
                 $"peerlink scenarios: {name} — the record is live at level 1, proof mutual, kid {kid}, {(tls ? "pinned by the proof, a floor over TLS, green" : "plain off this machine, amber")} ({rec.ToJson()}) {peer.Faults}");
+            var fact = PlayoutLinkTests.FactOf(link);
+            Check(link.PeerNode is (PatternsId, true) && link.Use == "controls"
+                  && Stagewatch.Show.ShowContext.PlayoutRows([fact]) is [{ From: "link:patterns", To: "@" + PatternsId, Kind: "controls" } row] && row.Light == rec.Light
+                  && Stagewatch.Show.ShowContext.PeerWords(fact) == "node " + PatternsId,
+                $"peerlink scenarios: {name} — the context names the node LINK proved, its one row controls it at scope {rec.Scope} in the record's light ({link.PeerNode}, {link.Use})");
             Check(read.Count >= 3 && read[0] == "HELLO Stagewatch" && read[1].StartsWith("@l1 LINK 1 stagewatch " + SelfId + " ", StringComparison.Ordinal)
                   && read[1].EndsWith(" " + kid, StringComparison.Ordinal) && read.Count(l => l.StartsWith("@l2 LINK PROOF ", StringComparison.Ordinal)) == 1
                   && !read.Any(l => l.Contains("AUTH", StringComparison.Ordinal)) && Found(read, Canaries(Ptk, Code, CodeTyped)) is null,
@@ -471,6 +476,12 @@ static partial class PeerLinkScenarios
         var conn = await PairedOn(peer);
         await peer.Ask(new { @do = "close", conn });
         await PlayoutLinkTests.Until(() => clock.OneShotWaiting);
+        // Down, the context names the node the earlier LINK bound, not proved now, and no clock: none is measured with no connection.
+        var down = PlayoutLinkTests.FactOf(link);
+        Check(!link.Connected && link.PeerNode is (PatternsId, false) && link.Clock is null
+              && Stagewatch.Show.ShowContext.PlayoutItems([down]).All(i => !i.Id.StartsWith("clock:", StringComparison.Ordinal))
+              && Stagewatch.Show.ShowContext.PeerWords(down) == "node " + PatternsId + ", not proved",
+            $"peerlink scenarios: {Name} — with its connection down the link names the node an earlier LINK bound, not proved, and no clock ({link.PeerNode})");
         await Step(clock, link.RecordNow().NextMs ?? 1000);
         var again = await PlayoutLinkTests.Until(() => link.Pairing == PlayoutPairing.Paired && link.RecordNow().Kid == kid);
         var second = peer.Events.LastOrDefault(e => Ev(e, "link") && Str(e, "role") == "acceptor");
@@ -478,6 +489,10 @@ static partial class PeerLinkScenarios
         var rec = Seen(link);
         Check(again && Str(second, "kid") == kid && Str(second, "verified") == "link" && enrolments == 1 && rec.Scope == "follow" && rec.Flags.Contains("scope") && rec.Light == "amber",
             $"peerlink scenarios: {Name} — the next link proves with the enrolled key, never the code; no second key is enrolled; it stands at follow, amber for its scope ({rec.ToJson()}) {peer.Faults}");
+        // §6 P2's K at follow: a key that only reads its peer follows it; the context never says it controls what the key does not let it.
+        Check(link.PeerNode is (PatternsId, true) && link.Use == "follows"
+              && Stagewatch.Show.ShowContext.PlayoutRows([PlayoutLinkTests.FactOf(link)]) is [{ To: "@" + PatternsId, Kind: "follows" }],
+            $"peerlink scenarios: {Name} — at follow the link's one row follows the node LINK proved, never controls ({link.PeerNode}, {link.Use})");
         // Its first whole STATE says live; the desk's status and light still say the scope before any press, never green.
         var said = await PlayoutLinkTests.Until(() => link.Reading is not null && link.Status.Contains("scope follow", StringComparison.Ordinal));
         Check(said && link.Health != LinkHealth.Ok && link.Status.Contains("Nodes page", StringComparison.Ordinal)

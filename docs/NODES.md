@@ -409,9 +409,12 @@ PlayMap node is reached over TLS where it can be (*TLS to a PlayMap node*, below
 - **Its light** in Settings is the link's own: green once paired and live, amber while stale or pairing or when the peer is told
   what to fix, red when refused or held, and never green while the link is down or dialling. The PeerLink core's record of the link
   (Show Bus 13.16.3) is amber at this level — `legacy`: the peer cannot prove itself to this link yet, so anything at its address
-  could answer — and `plain` off this PC; the context's `link:<name>` item (kind `playout`, labelled with its peer: "PlayMap Stage
+  could answer — and `plain` off this PC; the context's `link:<name>` item (kind `link`, labelled with its peer: "PlayMap Stage
   left", "Patterns"), and so the Show network, the AI's facts and Companion that read that context, takes that record's light, its
-  flags in words beside the link's own words; `clock:<name>` (kind `health`) is amber while CLOCKS APART.
+  flags in words beside the link's own words and the node at its other end ("node pm5e6f7a, not proved" at this level); its one row
+  `{"from":"link:<name>","to":"@<node id>","kind":"controls"}` names the id the peer's own STATE gave (none while it gave none), and
+  `clock:<node id>` (kind `health`) is green with the offset and its error once its clock is measured, amber while CLOCKS APART (Show
+  Bus §6 P2, 2.24).
 - **Commands:** a fixed set, by the peer's kind, nothing else:
   - the clip on air, to either: `VIDEO END <n>` — `playout [<link>] end [seconds]` (default 10), `patterns end`, the *Last 10 s*
     button (on the link feeding the VT); `VIDEO RESTART`; and, Round 86 desks and PlayMap only (detected from the precise fields),

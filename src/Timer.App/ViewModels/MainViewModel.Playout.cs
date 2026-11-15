@@ -246,7 +246,9 @@ public sealed partial class MainViewModel
             if (_playout[s.Name] is not { } link) continue;
             var record = link.Record;
             var clock = link.Clock;
-            yield return new PlayoutLinkFact(s.Name, link.Peer, record.Light, link.Status, record.Flags, clock?.OffsetMs, clock?.ErrMs, link.ClockApart, link.Standing);
+            var (node, proved) = link.PeerNode;
+            yield return new PlayoutLinkFact(s.Name, link.Peer, record.Light, link.Status, record.Flags, clock?.OffsetMs, clock?.ErrMs, link.ClockApart, link.Standing,
+                node, proved, link.Use);
         }
     }
 

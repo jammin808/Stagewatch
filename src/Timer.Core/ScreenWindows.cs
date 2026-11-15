@@ -167,12 +167,23 @@ public sealed record GrantObserved(
 public sealed record WindowFact(string Name, string Showing, bool Page, ContextItem Item, string Granted, string On)
 {
     /// <summary>
-    /// Whether the timer feeds the window now (D11: only while it shows a page): it is given a page and it says it shows the revision it
-    /// was sent (its item green). A window nobody has opened, one still switching, one that could not show its page or one whose link
-    /// dropped is given a page the timer does not yet, or no longer, feed.
+    /// Whether the timer feeds the window now (D11: only while it shows a page that draws the timer): it is given a page, the page draws
+    /// the timer (<see cref="ScreenWindows.DrawsTimer"/>) and the window says it shows the revision it was sent (its item green). A window
+    /// nobody has opened, one still switching, one that could not show its page or one whose link dropped is given a page the timer does
+    /// not yet, or no longer, feed: a page sent is an attempt, a page shown the fact.
     /// </summary>
-    public bool Fed => Page && Item.Light == Light.Green;
+    public bool Fed => Page && Item.Light == Light.Green && ScreenWindows.DrawsTimer(Showing);
+
+    /// <summary>
+    /// The show apps that hold the window by a grant on their own key-verified link (Show Bus 12.5, §6 P4), each with its row's light
+    /// (<see cref="ScreenWindows.HolderLight"/>): green while it reports the window shown, amber while it opens. A grant to an app not linked by its own key proves no holder and is
+    /// not here; neither is a plain browser on the window's own address, which the item's words describe.
+    /// </summary>
+    public IReadOnlyList<WindowHolder> Holders { get; init; } = [];
 }
+
+/// <summary>One holder of a window (§6 P4): the node a grant on its key-verified link names, and the light of its <c>serves</c> row.</summary>
+public sealed record WindowHolder(string Node, string Light);
 
 /// <summary>One entry of the desk's grant menus (Screens' Grant to ▸ and Withdraw ▸, the Show network row's Grant a window ▸): its words and the line it runs.</summary>
 public sealed record GrantChoice(string Label, string Line);
@@ -780,6 +791,10 @@ public static class ScreenWindows
                 : Worst(w, viewers);
             if (said)
             {
+                // A plain browser on the window's own address is described, never named as a holder (§6 P4 is for grants proved by a
+                // key): its device and its address's class, on this PC or on the network, never its address, the window's or its own.
+                if (viewers?.FirstOrDefault(v => v.WindowId == w.Id && v.Via.Length == 0 && v.Connected > 0) is { } browser)
+                    state += " · " + BrowserWords(browser.Device, browser.Address);
                 var granted = GrantedWords(w, grants);
                 if (granted.Length > 0) state += " · granted to " + granted;
                 var name = w.Name.ToLowerInvariant();
@@ -789,6 +804,17 @@ public static class ScreenWindows
             items.Add(new ContextItem(ItemId(w.Name), "screen", "Window " + w.Name, light, state));
         }
         return items;
+    }
+
+    /// <summary>
+    /// A plain browser that holds a window by its own address, in the item's words: "a browser (Chrome on Windows) on this PC", or "on the
+    /// network" — the class of its address, never the address.
+    /// </summary>
+    public static string BrowserWords(string device, string address)
+    {
+        var local = System.Net.IPAddress.TryParse(address.Trim('[', ']'), out var ip) && System.Net.IPAddress.IsLoopback(ip);
+        var what = device.Trim().Length > 0 ? $"a browser ({ShowBusText.Cut(device.Trim(), 40)})" : "a browser";
+        return what + (local ? " on this PC" : " on the network");
     }
 
     /// <summary>What one viewer of a window last said, as the light reads it: its links now, the revision it shows, its content and hold, when it said so, why it could not.</summary>
@@ -864,12 +890,46 @@ public static class ScreenWindows
     public static bool ShowsPage(ScreenWindow w) => !w.Hold && w.Content is not (Holding or Black);
 
     /// <summary>
+    /// The pages that draw the show's timer (the context's <c>timer -feeds-&gt; window</c>, D11): the speaker's viewer, the studio clock
+    /// (unless <c>timer=0</c> hides its timer line), the holographic viewer, the showcaller's page and the agenda (its break countdown is
+    /// the timer). A designed layout, a countdown to a running-order item, the timeline, Q&amp;A and every other page do not count, nor
+    /// do the holding page and black.
+    /// </summary>
+    public static readonly IReadOnlyList<string> TimerPages = ["/viewer", "/clock", "/holo", "/producer", "/audience"];
+
+    /// <summary>Whether a window's content is one of <see cref="TimerPages"/>, its query aside, a studio clock with <c>timer=0</c> not.</summary>
+    public static bool DrawsTimer(string content)
+    {
+        if (content is Holding or Black || content.Length == 0 || content[0] != '/') return false;
+        var q = content.IndexOf('?', StringComparison.Ordinal);
+        var path = (q < 0 ? content : content[..q]).TrimEnd('/');
+        if (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)) path = path[..^5];
+        if (!TimerPages.Contains(path, StringComparer.OrdinalIgnoreCase)) return false;
+        var query = q < 0 ? "" : content[(q + 1)..];
+        return !(path.Equals("/clock", StringComparison.OrdinalIgnoreCase)
+                 && query.Split('&').Any(p => p.Equals("timer=0", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// The light of a holder's <c>serves</c> row by its grant's state (Show Bus §6 P4): green while the holder reports the window shown,
+    /// amber while it opens — the window went to it (<c>sent</c>) or its page is open and not yet showing (<c>open</c>) — and no row
+    /// otherwise: a grant Stagewatch never sent (<c>waiting</c>, <c>plain</c>, <c>key-in-clear</c>, <c>cannot</c>) or one the holder
+    /// holds or can no longer show (<c>held</c>, <c>stale</c>) serves nobody now, and an attempt is never drawn as an edge.
+    /// </summary>
+    public static string? HolderLight(string state) => state switch
+    {
+        "shown" => Light.Green,
+        "sent" or "open" => Light.Amber,
+        _ => null,
+    };
+
+    /// <summary>
     /// The windows as the context and the copilot read them, in the windows' order (<see cref="WindowFact"/>): each with its item from
     /// <paramref name="items"/> (by <see cref="ItemId"/>; grey and unopened when none is given), its grants by name, and the
     /// <paramref name="placements"/> that name it, at most <see cref="WindowPlacements.MaxPerWindow"/>.
     /// </summary>
     public static IReadOnlyList<WindowFact> Facts(IReadOnlyList<ScreenWindow> windows, IReadOnlyList<ContextItem> items,
-        IReadOnlyList<WindowPlacement>? placements = null)
+        IReadOnlyList<WindowPlacement>? placements = null, IReadOnlyList<GrantObserved>? grants = null)
     {
         var byId = new Dictionary<string, ContextItem>(StringComparer.Ordinal);
         foreach (var i in items) byId.TryAdd(i.Id, i);
@@ -882,7 +942,12 @@ public static class ScreenWindows
                 .Select(g => g.Name.Length > 0 ? g.Name : NodeBindings.Describe(g.Kind, g.Node)));
             var name = w.Name.ToLowerInvariant();
             var on = string.Join("; ", (placements ?? []).Where(p => p.Window == name).Take(WindowPlacements.MaxPerWindow).Select(p => p.Words));
-            facts.Add(new WindowFact(w.Name, w.Hold ? Holding : w.Content, ShowsPage(w), item, granted, on));
+            // §6 P4: a holder only where its grant is on its own key-verified link and the window went to it (HolderLight).
+            var holders = (w.Grants ?? []).OfType<WindowGrant>()
+                .Select(g => grants?.FirstOrDefault(o => o.WindowId == w.Id && o.Node == g.Node) is { Linked: true } o && HolderLight(o.State) is { } light
+                    ? new WindowHolder(g.Node, light) : null)
+                .OfType<WindowHolder>().ToList();
+            facts.Add(new WindowFact(w.Name, w.Hold ? Holding : w.Content, ShowsPage(w), item, granted, on) { Holders = holders });
         }
         return facts;
     }

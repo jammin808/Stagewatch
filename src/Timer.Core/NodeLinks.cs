@@ -118,10 +118,11 @@ public sealed record WsRecheck(WsLink Link, byte[]? Message, bool Close);
 /// none). <see cref="Id"/> is null for a key that names no node id; <see cref="Verified"/> is what speaks for the id.
 /// <see cref="Linked"/> counts its sockets that LINK verified (Show Bus 13.6), and <see cref="Oversize"/> the messages past /ws's bound
 /// they sent and stayed up for (13.14). <see cref="Can"/> is what its newest socket offers for windows (12.6's <c>can=</c>, as
-/// <see cref="WindowGrants.Offered"/> keeps it).
+/// <see cref="WindowGrants.Offered"/> keeps it), and <see cref="Carrier"/> what carries its first socket: <c>tls</c>, <c>local</c> (this
+/// machine's loopback) or <c>plain</c> (<see cref="WindowGrants.LinkTls"/>…), "" where nothing said.
 /// </summary>
 public sealed record NodeLinkFact(string Kind, string? Id, NodeProof Verified, string? KeyId, string KeyName, string Address, DateTime ConnectedUtc, int Links, string? Words,
-    int Linked = 0, int Oversize = 0, IReadOnlyList<string>? Can = null);
+    int Linked = 0, int Oversize = 0, IReadOnlyList<string>? Can = null, string Carrier = "");
 
 /// <summary>
 /// Who is on /ws (Show Bus §7.1): a browser screen, a claim, or a show app's node link. A socket that names a node

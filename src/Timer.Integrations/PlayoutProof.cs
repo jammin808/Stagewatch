@@ -120,6 +120,14 @@ public static class PlayoutProof
     public static bool ScopeAllows(string? kind, string? scope)
         => kind != PlayoutRules.Patterns || scope is null or "none" or "drive" or "operate";
 
+    /// <summary>
+    /// A playout link's primary use (Show Bus §6 P2's K, the kind of its one row to its peer node), the one rule: <c>controls</c> where its
+    /// scope lets it run the peer's show verbs (<see cref="ScopeAllows"/> — a level-0 link, or one LINK stood at drive or above), else
+    /// <c>follows</c>: a link stood at follow or post only reads its peer, so no reader is told it controls what its key does not let it.
+    /// </summary>
+    public static string Use(string? kind, PeerLinkRecord record)
+        => ScopeAllows(kind, record.Proof == "mutual" ? record.Scope : null) ? "controls" : "follows";
+
     /// <summary>What a link at <paramref name="scope"/> may do to <paramref name="peer"/>, in the words the desk shows before a press; "" when it is not held by scope.</summary>
     public static string ScopeWords(string? kind, string? scope, string peer)
         => ScopeAllows(kind, scope) ? ""

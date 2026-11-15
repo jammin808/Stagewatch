@@ -595,6 +595,13 @@ static class PlayoutTlsTests
               && link.Kept.Pin is null && link.TrustWaiting is null && sent.Ticket is null && sent.Error is { } e && e.Contains("answers as node pm999999", StringComparison.Ordinal)
               && !node.Heard.Any(l => l.Contains("VIDEO", StringComparison.Ordinal)) && link.Status.Contains("answers as node pm999999", StringComparison.Ordinal),
               $"playout tls: another node at the address is amber with both ids, sent nothing, read for nothing and pinned nothing ({link.Status})");
+        // Show Bus §6 P2: the node that answered is no node this link names in the context — no row to either id, its words saying so,
+        // and no clock under either id, though the connection is paired.
+        var fact = PlayoutLinkTests.FactOf(link);
+        var items = Stagewatch.Show.ShowContext.PlayoutItems([fact]);
+        Check(link.PeerNode is (null, false) && Stagewatch.Show.ShowContext.PlayoutRows([fact]).Count == 0
+              && items is [{ Id: "link:stage-left" } only] && only.State.Contains("no node id proved or named yet", StringComparison.Ordinal),
+              $"playout tls: a link that answers as another node has no row and no clock in the context, and says it names no node ({link.PeerNode}; {string.Join(" | ", items.Select(i => i.Id + " " + i.State))})");
     }
 
     static async Task PinnedNeverPlain(Action<bool, string> Check, KitCert cert)

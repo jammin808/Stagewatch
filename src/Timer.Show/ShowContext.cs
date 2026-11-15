@@ -6,10 +6,11 @@ using Stagewatch.Core;
 namespace Stagewatch.Show;
 
 /// <summary>
-/// What Stagewatch knows about the room when it builds its context (gathered on the owner thread): <see cref="Links"/> are the links it
-/// runs (its timer follows a playout link and hears any other; an item of kind <c>health</c> among them gets no link),
-/// <see cref="Windows"/> its windows (the timer feeds each one while it shows a page) and <see cref="Health"/> its own health items, which no link
-/// names (D11).
+/// What Stagewatch knows about the room when it builds its context (gathered on the owner thread): <see cref="Links"/> are its link
+/// items — each integration's, each playout link's (<see cref="ShowContext.PlayoutItems"/>) and each link it accepted on <c>/ws</c>
+/// (<see cref="ShowContext.Accepted"/>) — <see cref="Windows"/> its windows (the timer feeds each one while it shows a page that draws the
+/// timer, and each serves the holders its grants prove), <see cref="Health"/> its own health items, which no row names (D11), and
+/// <see cref="Rows"/> the one row each PeerLink item has to the node at its other end (Show Bus §6 P2), the connector's and the acceptor's.
 /// </summary>
 public sealed record ContextInput(
     string NodeId,
@@ -24,7 +25,8 @@ public sealed record ContextInput(
     double GoLatencyP95Ms,
     IReadOnlyList<PlayoutRow>? Playout = null,
     IReadOnlyList<WindowFact>? Windows = null,
-    IReadOnlyList<ContextItem>? Health = null);
+    IReadOnlyList<ContextItem>? Health = null,
+    IReadOnlyList<ContextLink>? Rows = null);
 
 /// <summary>
 /// A playout link a peer or an AI may propose lines for: its name, as people read it, the peer's kind once known
@@ -34,11 +36,14 @@ public sealed record ContextInput(
 public sealed record PlayoutRow(string Name, string Label, string Kind, bool Starts);
 
 /// <summary>
-/// A playout link as its context items take it (Show Bus 13.16.4): its name (the items' ids are built from it alone), its peer as
+/// A playout link as its context items take it (Show Bus 13.16.4): its name (the link item's id is built from it alone), its peer as
 /// people read it, the light of its record (13.16.3) and the words that go with it, and its clock as its matched pongs believe it.
+/// <see cref="PeerId"/> is the node at its other end — the id its LINK proved (<see cref="Proved"/>), else the id the peer's own answer
+/// named on the link (its STATE or its context), null while neither did: never one the settings name or a guess. <see cref="Use"/> is the
+/// link's row kind, its primary use (<c>PlayoutProof.Use</c>, the one rule): <c>controls</c>, or <c>follows</c> where its scope only reads.
 /// </summary>
 public sealed record PlayoutLinkFact(string Name, string Peer, string Light, string Words, IReadOnlyList<string>? Flags = null, double? ClockOffsetMs = null,
-    long? ClockErrMs = null, bool ClockApart = false, string Standing = "");
+    long? ClockErrMs = null, bool ClockApart = false, string Standing = "", string? PeerId = null, bool Proved = false, string Use = "controls");
 
 /// <summary>
 /// Stagewatch's Show Bus context (§6): its light, a one-line headline and its parts — the timer, the schedule, each
@@ -67,6 +72,9 @@ public static class ShowContext
 
     /// <summary>§14 <c>context.peers</c>.</summary>
     public const int MaxPeers = 32;
+
+    /// <summary>§14 <c>context.items.first</c>: the items an Eye draws first, among which P7 puts every item with a row to another node, as far as reds and ambers leave room.</summary>
+    public const int ItemsFirst = 12;
 
     /// <summary>§14 <c>context.headline.chars</c>, the context's headline and each peer's.</summary>
     public const int HeadlineChars = 200;
@@ -154,26 +162,131 @@ public static class ShowContext
     }
 
     /// <summary>
-    /// Each playout link's items, pure: <c>link:&lt;name&gt;</c> (kind <c>playout</c>), labelled with its peer, in its record's light
-    /// (13.16.4: no reader derives a light of its own — a level-0 link is amber, <c>legacy</c>) and its words; and while its clock is
-    /// apart (13.11.5: the offset less its error past <c>clock.apart.ms</c>) one amber <c>clock:&lt;name&gt;</c> (kind <c>health</c>). The
-    /// ids come from the link's name alone, which no other integration's slug may take (<see cref="PlayoutRules.Reserved"/>).
+    /// Each playout link's items, pure (Show Bus §6 P2, 13.16.4): <c>link:&lt;name&gt;</c> of kind <c>link</c>, labelled with its peer, in its
+    /// record's light (no reader derives a light of its own — a level-0 link is amber, <c>legacy</c>) and its words: the link's own, the
+    /// node at its other end (<see cref="PeerWords"/>: proved, named and not proved, or none yet), its flags' and what it stands on, its
+    /// scope among them. Then, for each link whose clock its matched pongs measured and whose node is known, one <c>clock:&lt;node id&gt;</c>
+    /// (kind <c>health</c>): green with its offset and error, amber while apart (13.11.5: the offset less its error past
+    /// <c>clock.apart.ms</c>). No item for a clock nobody measured, none for a link that names no node, and none under an id another link's
+    /// clock took first: one node's clock is never said under another's id. The link item's id comes from the link's name alone, which no
+    /// other integration's slug may take (<see cref="PlayoutRules.Reserved"/>).
     /// </summary>
     public static IReadOnlyList<ContextItem> PlayoutItems(IEnumerable<PlayoutLinkFact> links)
     {
         var items = new List<ContextItem>();
+        var clocks = new List<ContextItem>();
+        var clocked = new HashSet<string>(StringComparer.Ordinal);
         foreach (var l in links)
         {
             var light = l.Light is Light.Green or Light.Amber or Light.Red ? l.Light : Light.Grey;
             var flags = (l.Flags ?? []).Select(FlagWords).Where(w => w.Length > 0).ToList();
-            // What the link stands on (13.16.3: its level, proof, key by kid and scope) follows its words and flags.
-            var words = flags.Count == 0 ? l.Words : l.Words + " · " + string.Join(" · ", flags);
-            items.Add(new ContextItem("link:" + l.Name, "playout", l.Peer, light, l.Standing.Length == 0 ? words : words + " · " + l.Standing));
-            if (l is { ClockApart: true, ClockOffsetMs: { } offset })
-                items.Add(new ContextItem("clock:" + l.Name, "health", "Clock vs " + l.Peer, Light.Amber,
-                    FormattableString.Invariant($"CLOCKS APART: {l.Peer}'s clock is {Math.Abs(offset) / 1000:0.0} s {(offset > 0 ? "ahead" : "behind")} (± {l.ClockErrMs ?? 0} ms)")));
+            // The link's own words, the node at its other end, then what it stands on (13.16.3: its level, proof, key by kid and scope).
+            var parts = new List<string> { l.Words, PeerWords(l) };
+            parts.AddRange(flags);
+            if (l.Standing.Length > 0) parts.Add(l.Standing);
+            items.Add(new ContextItem("link:" + l.Name, "link", l.Peer, light, string.Join(" · ", parts.Where(p => p.Length > 0))));
+            if (l.ClockOffsetMs is not { } offset || NodeOf(l) is not { } id || !clocked.Add(id)) continue;
+            var err = l.ClockErrMs ?? 0;
+            clocks.Add(l.ClockApart
+                ? new ContextItem("clock:" + id, "health", "Clock vs " + l.Peer, Light.Amber,
+                    FormattableString.Invariant($"CLOCKS APART: {l.Peer}'s clock is {Math.Abs(offset) / 1000:0.0} s {(offset > 0 ? "ahead" : "behind")} (± {err} ms)"))
+                : new ContextItem("clock:" + id, "health", "Clock vs " + l.Peer, Light.Green,
+                    FormattableString.Invariant($"{l.Peer}'s clock is {offset:+0;-0;0} ms from this PC's (± {err} ms)")));
         }
-        return items;
+        return [.. items, .. clocks];
+    }
+
+    /// <summary>
+    /// The one row each playout link has to the node at its other end (Show Bus §6 P2: the connector's, from its link item to
+    /// <c>@&lt;node id&gt;</c>, of the link's primary use, in its record's light), pure. A link that names no node has none: its words say so.
+    /// </summary>
+    public static IReadOnlyList<ContextLink> PlayoutRows(IEnumerable<PlayoutLinkFact> links)
+        => links.Where(l => NodeOf(l) is not null)
+            .Select(l => new ContextLink("link:" + l.Name, "@" + NodeOf(l), l.Use is "controls" or "follows" or "sends" ? l.Use : "follows",
+                l.Light is Light.Green or Light.Amber or Light.Red ? l.Light : Light.Grey))
+            .ToList();
+
+    /// <summary>The node a playout link's row names: its <see cref="PlayoutLinkFact.PeerId"/> while that is a §2 id an end may carry, else null.</summary>
+    private static string? NodeOf(PlayoutLinkFact l) => l.PeerId is { } id && PeerContexts.ValidEnd("@" + id) ? id : null;
+
+    /// <summary>
+    /// The node at a playout link's other end in words (§6 P2): "node 9f8e7d6c" once its LINK proved it, "node 9f8e7d6c, not proved" for an
+    /// id only the peer's answer named (a level-0 link), and "no node id proved or named yet" while neither did — then the link has no row.
+    /// </summary>
+    public static string PeerWords(PlayoutLinkFact l)
+        => NodeOf(l) is not { } id ? "no node id proved or named yet" : l.Proved ? "node " + id : "node " + id + ", not proved";
+
+    /// <summary>The id of the one item that counts and names the links this Stagewatch accepted on <c>/ws</c> that nothing proves (§6 P2).</summary>
+    public const string UnprovedId = "link:unproved";
+
+    /// <summary>The words every accepted link's item starts with while a bound node key proves it and it runs no LINK (13.16.5's <c>legacy</c>).</summary>
+    public const string AcceptedLevel0 = "level 0: a bound node key proves it, no LINK";
+
+    /// <summary>Whether an item is one of the links this Stagewatch accepted on <c>/ws</c> (<see cref="Accepted"/>): <c>link:ws:&lt;id&gt;</c> or <see cref="UnprovedId"/>.</summary>
+    public static bool IsAccepted(ContextItem i) => i.Id.StartsWith("link:ws:", StringComparison.Ordinal) || i.Id == UnprovedId;
+
+    /// <summary>
+    /// A context's link items as the network preflight checks them (<see cref="NetworkPreflight"/>): each integration's and each playout
+    /// link's, and a clock while it is apart. A link this Stagewatch accepted is not among them — the preflight's node rows already judge
+    /// each node it hears — and nor is a clock that is not apart, which has nothing to look at.
+    /// </summary>
+    public static IReadOnlyList<ContextItem> PreflightItems(IEnumerable<ContextItem> links)
+        => links.Where(i => !IsAccepted(i) && !(i.Id.StartsWith("clock:", StringComparison.Ordinal) && i.Light == Light.Green)).ToList();
+
+    /// <summary>
+    /// The links this Stagewatch accepted on <c>/ws</c> as its context's items and rows (Show Bus §6 P2 as acceptor, 13.16.5), pure: one
+    /// <c>link:ws:&lt;node id&gt;</c> item of kind <c>link</c> for each node whose link LINK verified, or whose bound node key proves it, with
+    /// its one row <c>@&lt;node id&gt; -follows-&gt; link:ws:&lt;node id&gt;</c>. P2 has an acceptor name K from what the connector has done
+    /// on the link; this desk keeps no record of that per link yet, so it names every accepted link by what a node link always does —
+    /// it reads this desk's frames and context — and never <c>controls</c>, a right it would be guessing at. A link whose connector has
+    /// also run a show verb (AGMessage putting a message on the stage under its node key) is still said <c>follows</c> until the acceptor
+    /// records use.
+    /// Its light is 13.16.5's: green when LINK verified it, amber over green when it is level 0 (a bound key proves it and it runs no LINK),
+    /// plain from another machine, or its key was seen in clear (<paramref name="seenInClear"/>, by key id); its words its kind and name,
+    /// how it was proved, by which key (by name, never the key), its scope, its carrier, its sockets and since when. Every other link it took
+    /// — the operator's credential at level 0, one that proves no id, a key two installs share — is folded into one amber
+    /// <see cref="UnprovedId"/> item that counts and names them, with no row: an id nothing proved draws no edge. Never an address.
+    /// </summary>
+    public static (IReadOnlyList<ContextItem> Items, IReadOnlyList<ContextLink> Rows) Accepted(NetworkView view, ShowClock clock,
+        IReadOnlySet<string>? seenInClear = null)
+    {
+        var items = new List<ContextItem>();
+        var rows = new List<ContextLink>();
+        var unproved = new List<string>();
+        foreach (var r in view.Rows)
+        {
+            foreach (var u in r.Unproven) unproved.Add(Who(u, r.Peer.Name));
+            if (r.Link is not { Id: { } id } l) continue;
+            var proved = l.Linked > 0 || l.Verified == NodeProof.Key;
+            if (!proved || !PeerContexts.ValidEnd("@" + id))
+            {
+                unproved.Add(Who(l, r.Peer.Name));
+                continue;
+            }
+            var seen = l.KeyId is { } kid && seenInClear?.Contains(kid) == true;
+            var plain = l.Carrier == WindowGrants.LinkPlain;
+            var light = l.Linked == 0 || plain || seen ? Light.Amber : Light.Green;
+            // What proves it first (the headline takes a link's words up to their first " · "), its name in the label.
+            var parts = new List<string> { l.Linked > 0 ? "PeerLink 1, LINK verified" : AcceptedLevel0 };
+            parts.Add(l.Verified == NodeProof.Key ? (l.KeyName.Length > 0 ? $"key '{l.KeyName}'" : "a node key") + " · scope node" : "the operator's credential");
+            parts.Add(l.Carrier switch { WindowGrants.LinkTls => "over TLS", WindowGrants.LinkLocal => "on this PC", WindowGrants.LinkPlain => "plain TCP from another machine", _ => "" });
+            if (seen) parts.Add("its key was seen in clear — replace this key");
+            if (l.Links > 1) parts.Add(l.Links.ToString(CultureInfo.InvariantCulture) + " links");
+            parts.Add(string.Create(CultureInfo.InvariantCulture, $"since {clock.ToShow(l.ConnectedUtc):HH:mm:ss}"));
+            var item = "link:ws:" + id;
+            items.Add(new ContextItem(item, "link", r.Peer.Name.Length > 0 ? ShowBusText.Name(r.Peer.Name) : ShowNetwork.AppName(l.Kind) + " " + id, light,
+                string.Join(" · ", parts.Where(p => p.Length > 0))));
+            rows.Add(new ContextLink("@" + id, item, "follows", light));
+        }
+        foreach (var a in view.Apart) unproved.Add(Who(a, ""));
+        if (unproved.Count > 0)
+            items.Add(new ContextItem(UnprovedId, "link", "Links not proved", Light.Amber,
+                $"{unproved.Count.ToString(CultureInfo.InvariantCulture)} connection{(unproved.Count == 1 ? "" : "s")} not proved: " + string.Join(", ", unproved)));
+        return (items, rows);
+
+        // A link that proves nothing, named by what it said, never by an address or a key.
+        static string Who(NodeLinkFact l, string name) => name.Length > 0 ? ShowBusText.Name(name)
+            : l.Id is { } id ? NodeBindings.Describe(l.Kind, id) : l.KeyName.Length > 0 ? $"a link under key '{l.KeyName}'" : "a link that names no node";
     }
 
     /// <summary>
@@ -224,17 +337,18 @@ public static class ShowContext
             : f.Phase == TimerPhase.Overtime ? Light.Red
             : f.Phase is TimerPhase.WrapUp or TimerPhase.Warning ? Light.Amber
             : Light.Green;
-        var timerState = x.ShowThreadStuck ? "the show thread has stopped turning over"
+        var timerState = x.ShowThreadStuck ? StuckWords
             : f.Mode == TimerMode.TimeOfDay ? "showing the time of day"
             : f.State == TimerState.Idle ? "idle"
             : $"{(f.State == TimerState.Paused ? "paused" : counting ? "running" : f.State.ToString().ToLowerInvariant())}, " +
               (f.Seconds < 0 ? $"{TimerTick.FormatSeconds(-f.Seconds)} over" : $"{f.Text} left");
         items.Add(new ContextItem("timer", "timer", f.Title.Length > 0 ? f.Title : "Timer", timerLight, timerState));
 
-        // The schedule.
+        // The schedule. P5: a stuck show thread turns every counting item red, its words the show stuck in place of a time.
         if (f.ItemCount > 0)
         {
-            var schedLight = f.HardOutMarginSeconds is < 0 ? Light.Red
+            var schedLight = x.ShowThreadStuck ? Light.Red
+                : f.HardOutMarginSeconds is < 0 ? Light.Red
                 : f.OffsetSeconds is > 120 ? Light.Amber
                 : f.OffsetSeconds is null ? Light.Grey : Light.Green;
             var parts = new List<string>();
@@ -242,8 +356,15 @@ public static class ShowContext
             if (f.HardOutText.Length > 0) parts.Add(f.HardOutText);
             if (f.ForecastText.Length > 0) parts.Add(f.ForecastText);
             items.Add(new ContextItem("schedule", "schedule", $"Running order {(f.ItemIndex >= 0 ? $"item {f.ItemIndex + 1} of {f.ItemCount}" : $"{f.ItemCount} items")}",
-                schedLight, parts.Count > 0 ? string.Join(" · ", parts) : "not started"));
+                schedLight, x.ShowThreadStuck ? StuckWords : parts.Count > 0 ? string.Join(" · ", parts) : "not started"));
         }
+
+        // The VT countdown its screens show (P3: a clip's time left is the peer's; this item is the countdown Stagewatch draws of it, and
+        // its feeds row names the node it comes from). A counting item: P5 holds for it too.
+        if (VtShown(f) is { } vt)
+            items.Add(new ContextItem(VtId, "timer", "VT countdown", x.ShowThreadStuck ? Light.Red : vt.Running ? Light.Green : Light.Grey,
+                x.ShowThreadStuck ? StuckWords
+                : $"{(vt.Title.Length > 0 ? vt.Title : "the clip")} on {vt.Source}: {TimerTick.FormatSeconds(Math.Max(0, vt.RemainingSeconds))} left{(vt.Running ? "" : ", not running")}"));
 
         // Departments and the speaker's cues: each target's newest cue.
         foreach (var g in f.Signals.GroupBy(s => s.Target).Select(grp => grp.Last()))
@@ -257,8 +378,10 @@ public static class ShowContext
                 SignalKind.Go => g.State == SignalState.Sent ? "GO sent" : "GO done",
                 _ => g.State == SignalState.Sent ? $"{g.Kind.ToString().ToLowerInvariant()} sent" : $"{g.Kind.ToString().ToLowerInvariant()} {g.State.ToString().ToLowerInvariant()}",
             };
+            // P8: a department's cue words are the show's own ("LX 12"); what a message or a nudge says is written for a person, never sent.
+            var words = g.Kind is SignalKind.Message or SignalKind.Nudge || g.Text.Length == 0 ? "" : ": " + g.Text;
             items.Add(new ContextItem("cue:" + g.Target.ToLowerInvariant(), g.Kind is SignalKind.Standby or SignalKind.Go ? "department" : "cue", g.Target, cueLight,
-                what + (g.Text.Length > 0 ? ": " + g.Text : "") + (g.Escalated ? " — NO ACKNOWLEDGEMENT" : "") + (g.By.Length > 0 ? $" ({g.By})" : "")));
+                what + words + (g.Escalated ? " — NO ACKNOWLEDGEMENT" : "") + (g.By.Length > 0 ? $" ({g.By})" : "")));
         }
 
         // The message on the speaker's screen.
@@ -273,6 +396,13 @@ public static class ShowContext
         if (x.GoLatencyP95Ms > GoLatency.AmberMs)
             items.Add(new ContextItem("go-latency", "health", "GO to screen", Light.Amber, $"95% of GOs take {x.GoLatencyP95Ms:0} ms or less — slower than it should be"));
 
+        // P7: reds, then ambers, then the items with a row to another node as far as ItemsFirst leaves room, then the rest, each in the
+        // order above: what an Eye draws of this node before it is opened holds its problems and its chain ends, and its timer stays near
+        // the top however many links it has.
+        var crossing = Links(x).SelectMany(l => l.To.StartsWith('@') ? new[] { l.From } : l.From.StartsWith('@') ? new[] { l.To } : Array.Empty<string>()).ToHashSet(StringComparer.Ordinal);
+        var urgent = items.Where(i => i.Light is Light.Red).Concat(items.Where(i => i.Light is Light.Amber)).ToList();
+        var ends = items.Where(i => i.Light is not (Light.Red or Light.Amber) && crossing.Contains(i.Id)).Take(Math.Max(0, ItemsFirst - urgent.Count)).ToList();
+        items = [.. urgent, .. ends, .. items.Where(i => !urgent.Contains(i) && !ends.Contains(i))];
         var light = Light.Worst(items.Select(i => i.Light));
         var standing = f.Signals.Where(s => s.Kind == SignalKind.Standby).Select(s => s.Target).ToList();
         var headline = new List<string>
@@ -283,8 +413,15 @@ public static class ShowContext
         if (f.ItemCount > 0 && f.OffsetSeconds is { } off && Math.Abs(off) >= 30)
             headline.Add(off > 0 ? $"{TimerTick.FormatSeconds(off)} behind" : $"{TimerTick.FormatSeconds(-off)} ahead");
         if (standing.Count > 0) headline.Add(string.Join(", ", standing) + " standing by");
-        var worst = items.Where(i => i.Light == Light.Red).Concat(items.Where(i => i.Light == Light.Amber && i.Id is not "timer" and not "schedule" && !i.Id.StartsWith("cue:", StringComparison.Ordinal))).FirstOrDefault();
-        if (worst is not null && worst.Id != "timer") headline.Add($"{worst.Label}: {worst.State}");
+        // A link this desk accepted on /ws is amber over green while 13.16.5 says so (level 0, plain, a key seen in clear), and so is
+        // the one that counts the unproved ones: their light stands on their items, which P7 puts first, and never in the headline. The
+        // headline is the line peers quote from a context they pull on a beat (Patterns every 5 s), so it says the show's own state
+        // and does not change each time another app's link joins or leaves this desk.
+        var worst = items.Where(i => i.Light == Light.Red).Concat(items.Where(i => i.Light == Light.Amber && i.Id is not "timer" and not "schedule" && !i.Id.StartsWith("cue:", StringComparison.Ordinal)
+            && !IsAccepted(i))).FirstOrDefault();
+        // A link's words run from what it is to what it stands on; the headline takes the first part alone, so it stays one line.
+        if (worst is not null && worst.Id != "timer")
+            headline.Add($"{worst.Label}: {(worst.Kind == "link" && worst.State.IndexOf(" · ", StringComparison.Ordinal) is var cut and > 0 ? worst.State[..cut] : worst.State)}");
         return (light, ShowBusText.Cut(string.Join(" · ", headline), HeadlineChars), items.Select(Sized).ToList());
     }
 
@@ -329,7 +466,7 @@ public static class ShowContext
             Links(x).Select(Part.Of).ToList(),
             // This show's own rows alone: what another node's journal told this desk (a peer row) is never said again as Stagewatch's.
             ShowJournal.LastOwn(x.Journal, MaxRecent).Select(e => Part.Of(new DateTimeOffset(DateTime.SpecifyKind(e.Utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
-                ShowBusText.Cut(string.Create(CultureInfo.InvariantCulture, $"{x.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {e.Text}"), RecentChars))).ToList(),
+                ShowBusText.Cut(string.Create(CultureInfo.InvariantCulture, $"{x.Clock.ToShow(e.Utc):HH:mm:ss} {e.Kind}: {PublicText(e)}"), RecentChars))).ToList(),
             CommandsFor(x.Playout).Select(Part.Of).ToList());
         // The usual context fits: one serialization, as it is sent. Only one over a count or the bytes is measured part by part.
         var json = Json(whole);
@@ -340,19 +477,122 @@ public static class ShowContext
     }
 
     /// <summary>
-    /// The context's links, each from the timer (D11): it follows each playout link and hears every other link it runs; it feeds each
-    /// window only while that window shows a page (<see cref="WindowFact.Fed"/>: given one and saying it shows it), and nothing while it
-    /// is held, on its holding page, black, unopened, switching or cut off; and no link names a health item (<c>clock:*</c>,
-    /// <c>go-latency</c>, a key seen in clear, the hello), which is the node's own state, not a thing its timer reaches.
+    /// The context's rows (Show Bus §6 P2–P4), pure. Each PeerLink item's one row to the node at its other end (<see cref="ContextInput.Rows"/>:
+    /// the connector's and the acceptor's), and nothing else from a link: no row runs from the timer to a link. The timer feeds a window
+    /// only while the window says it shows the page it was given and that page draws the timer (<see cref="WindowFact.Fed"/>,
+    /// <see cref="ScreenWindows.DrawsTimer"/>); a window serves each holder a grant on its key-verified link proves (P4, its light the
+    /// grant's: green shown, amber while it opens); and the VT countdown, while a screen draws it, is fed by the node of the playout link
+    /// its clip comes over (P3), the row's end and light that link's own row's. No row names a health item (<c>clock:*</c>, <c>go-latency</c>, a key seen in clear, the hello). A row
+    /// whose own end is no item of this context, or whose other end breaks §6's rules, is left out.
     /// </summary>
     public static IReadOnlyList<ContextLink> Links(ContextInput x)
     {
+        var own = x.Links.Select(l => Sized(l).Id).ToHashSet(StringComparer.Ordinal);
         var links = new List<ContextLink>();
-        foreach (var l in x.Links.Select(Sized))
-            if (l.Kind != "health") links.Add(new ContextLink("timer", l.Id, l.Kind == "playout" ? "follows" : "hears", l.Light));
+        foreach (var r in x.Rows ?? [])
+        {
+            var inward = r.From.StartsWith('@');
+            var (mine, other) = inward ? (ShowBusText.Clip(r.To, IdChars), r.From) : (ShowBusText.Clip(r.From, IdChars), r.To);
+            if (own.Contains(mine) && other.StartsWith('@') && PeerContexts.ValidEnd(other) && ShowBusKinds.Links.Contains(r.Kind))
+                links.Add(inward ? new ContextLink(other, mine, r.Kind, Light.Clean(r.Light)) : new ContextLink(mine, other, r.Kind, Light.Clean(r.Light)));
+        }
         foreach (var w in x.Windows ?? [])
-            if (w.Fed) links.Add(new ContextLink("timer", Sized(w.Item).Id, "feeds", Light.Green));
+        {
+            var id = Sized(w.Item).Id;
+            if (w.Fed) links.Add(new ContextLink("timer", id, "feeds", Light.Green));
+            foreach (var h in w.Holders ?? [])
+                if (PeerContexts.ValidEnd("@" + h.Node)) links.Add(new ContextLink(id, "@" + h.Node, "serves", Light.Clean(h.Light)));
+        }
+        if (VtShown(x.Frame) is { Link.Length: > 0 } vt
+            && links.FirstOrDefault(l => l.From == "link:" + vt.Link && l.To.StartsWith('@')) is { } via)
+            links.Add(new ContextLink(via.To, VtId, "feeds", via.Light));
         return links;
+    }
+
+    /// <summary>The VT countdown's item id: what Stagewatch's screens draw of the clip a playout link or vMix plays out.</summary>
+    public const string VtId = "vt";
+
+    /// <summary>
+    /// The clip the VT countdown shows while Stagewatch's screens draw it — a clip feeds the VT and the show's display elements put the
+    /// countdown on the speaker's screens (<see cref="DisplayElements.Playout"/>) — else null: no <see cref="VtId"/> item and no row.
+    /// </summary>
+    private static PlayoutView? VtShown(ShowSnapshot f) => f.Playout is { } vt && f.Elements.HasFlag(DisplayElements.Playout) ? vt : null;
+
+    /// <summary>What a counting item says while the show thread is stuck (§6 P5), in place of a time.</summary>
+    public const string StuckWords = "the show thread has stopped turning over — no time shown";
+
+    /// <summary>
+    /// An answer's own words after the signal's (" (Done by Patterns FOH (127.0.0.1))"): the parenthesis that closes the line, read back to
+    /// the one that opens it, past <paramref name="after"/> and starting with a signal state's word; "" when the line ends in none.
+    /// </summary>
+    private static string AckSuffix(string text, int after)
+    {
+        if (!text.EndsWith(')')) return "";
+        var depth = 0;
+        for (var i = text.Length - 1; i > after; i--)
+        {
+            depth += text[i] == ')' ? 1 : text[i] == '(' ? -1 : 0;
+            if (depth != 0) continue;
+            var inside = text[(i + 1)..^1];
+            return text[i - 1] == ' ' && Enum.GetNames<SignalState>().Any(st => inside == st || inside.StartsWith(st + " by ", StringComparison.Ordinal)) ? text[(i - 1)..] : "";
+        }
+        return "";
+    }
+
+    /// <summary>
+    /// A journal line as the context's <c>recent</c> may carry it (§6 P8): its own words, but for what one person writes for another — a
+    /// message's text and an audience question's, a message or nudge signal's words, and the same words inside a line the approval desk
+    /// or the assistant wrote down (<see cref="WithoutMessageWords"/>) — which stay on this desk.
+    /// </summary>
+    public static string PublicText(JournalEntry e)
+    {
+        switch (e.Kind)
+        {
+            case JournalKind.Desk or JournalKind.Note: return WithoutMessageWords(e.Text);
+            case JournalKind.Message: return "a message went to the speaker's screen (its words stay on this desk)";
+            case JournalKind.Question: return "an audience question came in (its words stay on this desk)";
+            case JournalKind.Signal or JournalKind.Ack or JournalKind.Escalated
+                when (e.Text.StartsWith(nameof(SignalKind.Message) + " ", StringComparison.Ordinal) || e.Text.StartsWith(nameof(SignalKind.Nudge) + " ", StringComparison.Ordinal))
+                     && e.Text.IndexOf(':', StringComparison.Ordinal) is var colon and > 0:
+            {
+                // An answer keeps who gave it and how ("(Done by Sam)"), the show's own words, after the words it leaves out.
+                var by = e.Kind == JournalKind.Ack ? AckSuffix(e.Text, colon) : "";
+                return e.Text[..colon] + " (its words stay on this desk)" + by;
+            }
+            default: return e.Text;
+        }
+    }
+
+    /// <summary>The verbs of a line that puts a person's words on a screen (Stagewatch's <c>message</c>, AGMessage's <c>notice</c>), and the signals whose words are a person's (<c>signal message|nudge</c>).</summary>
+    private static readonly string[] MessageVerbs = ["message", "msg", "notice"], SignalVerbs = ["signal", "cue"], PersonalSignals = ["message", "msg", "nudge", "haptic", "buzz"];
+
+    /// <summary>
+    /// A row that quotes a command line (the approval desk's "Proposed ab12: AGMessage → Stagewatch: message "Wrap up"", "Sent …: …",
+    /// "Outcome …: Stagewatch: … — applied (…)", the assistant's "AI agent proposed: …") with a message's or a personal signal's words left
+    /// out (§6 P8): the line from its verb on becomes the verb alone — and a signal's kind — and "(its words stay on this desk)", and an
+    /// outcome keeps its state word but not its result, which may echo the words. A line found after any ": " counts, so words quoted
+    /// in a proposer's name cannot hide one; a row with no such line is its own words.
+    /// </summary>
+    public static string WithoutMessageWords(string text)
+    {
+        for (var at = text.IndexOf(": ", StringComparison.Ordinal); at >= 0; at = text.IndexOf(": ", at + 2, StringComparison.Ordinal))
+        {
+            var words = text[(at + 2)..].TrimStart().Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) continue;
+            var verb = words[0].ToLowerInvariant();
+            var kept = MessageVerbs.Contains(verb) ? words[0]
+                : SignalVerbs.Contains(verb) && words.Length > 1 && PersonalSignals.Contains(words[1].ToLowerInvariant()) ? words[0] + " " + words[1]
+                : null;
+            if (kept is null) continue;
+            var state = "";
+            if (text.StartsWith("Outcome ", StringComparison.Ordinal) && text.LastIndexOf(" — ", StringComparison.Ordinal) is var dash and > 0)
+            {
+                var word = text[(dash + 3)..].Split(' ', 2)[0];
+                if (Enum.GetNames<SharedProposalState>().Any(n => n.Equals(word, StringComparison.OrdinalIgnoreCase))) state = " — " + word;
+            }
+            return text[..(at + 2)] + kept + " (its words stay on this desk)" + state;
+        }
+        return text;
     }
 
     /// <summary>An item within §14's item sizes — its id and kind clipped, a word each; its label and state cut — its light one of §6's four.</summary>

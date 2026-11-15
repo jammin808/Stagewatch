@@ -349,15 +349,36 @@ static class PlayoutDirectorTests
 
     static void Readers(Action<bool, string> Check)
     {
-        var items = ShowContext.PlayoutItems([
-            new PlayoutLinkFact("stage-left", "PlayMap Stage left", "amber", "Show: 1:23 left", ["plain", "legacy"], -2400.4, 3, ClockApart: true),
-            new PlayoutLinkFact("patterns", "Patterns", "green", "VT1: 0:42 left"),
-            new PlayoutLinkFact("foh", "Patterns Foh", "purple", "dialling")]);
-        Check(items is [{ Id: "link:stage-left", Kind: "playout", Label: "PlayMap Stage left", Light: "amber" } a, { Id: "clock:stage-left", Kind: "health", Light: "amber" } c,
-                        { Id: "link:patterns", Light: "green", State: "VT1: 0:42 left" }, { Id: "link:foh", Light: "grey" }]
-              && a.State == "Show: 1:23 left · plain TCP — its wire offers no TLS · proved at level 0 — the peer does not prove itself to this link"
-              && c.State == "CLOCKS APART: PlayMap Stage left's clock is 2.4 s behind (± 3 ms)" && c.Label == "Clock vs PlayMap Stage left",
-              "playout readers: link:<name> in its record's light with its flags in words, clock:<name> while apart, ids from the name alone, an unknown light grey");
+        PlayoutLinkFact[] linkFacts =
+        [
+            new("stage-left", "PlayMap Stage left", "amber", "Show: 1:23 left", ["plain", "legacy"], -2400.4, 3, ClockApart: true, PeerId: "pm5e6f7a"),
+            new("patterns", "Patterns", "green", "VT1: 0:42 left", ClockOffsetMs: 4.4, ClockErrMs: 2, Standing: "PeerLink 1 · proved both ways with key 7c1d0a2b · scope drive",
+                PeerId: "9f8e7d6c", Proved: true),
+            new("foh", "Patterns Foh", "purple", "dialling", ClockOffsetMs: 9, ClockErrMs: 1),
+            new("again", "Patterns again", "green", "VT1: 0:42 left", ClockOffsetMs: 300, ClockErrMs: 1, PeerId: "9f8e7d6c", Proved: true, Use: "follows"),
+        ];
+        var items = ShowContext.PlayoutItems(linkFacts);
+        Check(items is [{ Id: "link:stage-left", Kind: "link", Label: "PlayMap Stage left", Light: "amber" } a, { Id: "link:patterns", Kind: "link", Light: "green" } p,
+                        { Id: "link:foh", Light: "grey" } f, { Id: "link:again" }, { Id: "clock:pm5e6f7a", Kind: "health", Light: "amber" } c, { Id: "clock:9f8e7d6c", Light: "green" } g]
+              && a.State == "Show: 1:23 left · node pm5e6f7a, not proved · plain TCP — its wire offers no TLS · proved at level 0 — the peer does not prove itself to this link"
+              && p.State == "VT1: 0:42 left · node 9f8e7d6c · PeerLink 1 · proved both ways with key 7c1d0a2b · scope drive"
+              && f.State == "dialling · no node id proved or named yet"
+              && c.State == "CLOCKS APART: PlayMap Stage left's clock is 2.4 s behind (± 3 ms)" && c.Label == "Clock vs PlayMap Stage left"
+              && g.State == "Patterns's clock is +4 ms from this PC's (± 2 ms)",
+              "playout readers: link:<name> of kind link in its record's light, the node at its other end in its words (proved, named and not proved, "
+              + "or none yet) before its flags and standing; clock:<node id> for each measured clock, green or apart, none for a link that names no node "
+              + "and one per node: " + string.Join(" | ", items.Select(i => $"{i.Id} {i.Light} {i.State}")));
+        var rows = ShowContext.PlayoutRows(linkFacts);
+        Check(rows is [("link:stage-left", "@pm5e6f7a", "controls", "amber"), ("link:patterns", "@9f8e7d6c", "controls", "green"), ("link:again", "@9f8e7d6c", "follows", "green")],
+            "playout readers (§6 P2): one row per link that names its node, to @<node id>, of its use and in its record's light; none for a link that names none ("
+            + string.Join(", ", rows) + ")");
+        var notRead = new PeerLinkRecord("patterns", "9f8e7d6c", "Patterns", "line", 1, "pinned", "", "mutual", "7c1d0a2b", "follow", "live", "", "live", [], "amber", "△",
+            "", 0, null, 0, null, null, null, null, 0, false, new PeerCounts(0, 0, 0, 0, 0, 0), null);
+        Check(PlayoutProof.Use(PlayoutRules.Patterns, notRead) == "follows" && PlayoutProof.Use(PlayoutRules.Patterns, notRead with { Scope = "post" }) == "follows"
+              && PlayoutProof.Use(PlayoutRules.Patterns, notRead with { Scope = "drive" }) == "controls"
+              && PlayoutProof.Use(PlayoutRules.Patterns, notRead with { Proof = "legacy", Scope = "none" }) == "controls"
+              && PlayoutProof.Use(PlayoutRules.PlayMap, notRead) == "controls",
+            "playout readers (§6 P2's K, one rule): a Patterns link LINK stood at follow or post follows, never controls; at drive, at level 0 or to PlayMap it controls");
 
         var cfg = Encoding.UTF8.GetString(SnapshotJson.SerializeConfig(new RemoteConfig([], [], [], Features: ["vmix"],
             PlayoutLinks: [("stage-left", "playmap", "PlayMap Stage left"), ("patterns", "", "Patterns")])));

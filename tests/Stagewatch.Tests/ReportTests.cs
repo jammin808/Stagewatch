@@ -293,10 +293,14 @@ static class ReportTests
         var context = ShowContext.Build(new ContextInput(DeskTests.DeskId, "Hall A", Heard.AddMinutes(1), new ShowSnapshot { Title = "Keynote" }, false, [], [], journal, Utc, 0));
         using var doc = JsonDocument.Parse(context);
         var recent = doc.RootElement.GetProperty("recent").EnumerateArray().Select(r => r.GetProperty("text").GetString()!).ToList();
-        Check(recent.SequenceEqual([
-                "03:19:55 ShowOpened: Summit", "03:20:00 Note: Doors at seven", "03:20:03 Note: Copilot asked: are we late?",
-                "03:20:05 Desk: Proposed p17: AGM → this Stagewatch: message \"Two minutes\" warn off ack", "03:20:10 Desk: Rejected p18 (deck): AI agent → Stage left: UNDO — not now",
-                "03:20:19 Note: AI agent proposed: nudge 60 — waits for approval"])
+        // The copilot is this desk's own assistant and reads its rows whole; the context other nodes and their AIs read leaves a proposed
+        // message's words on this desk (Show Bus §6 P8), the verb said.
+        string[] own = [
+            "03:19:55 ShowOpened: Summit", "03:20:00 Note: Doors at seven", "03:20:03 Note: Copilot asked: are we late?",
+            "03:20:05 Desk: Proposed p17: AGM → this Stagewatch: message \"Two minutes\" warn off ack", "03:20:10 Desk: Rejected p18 (deck): AI agent → Stage left: UNDO — not now",
+            "03:20:19 Note: AI agent proposed: nudge 60 — waits for approval"];
+        Check(recent.SequenceEqual(own.Select(l => l.Replace("message \"Two minutes\" warn off ack", "message (its words stay on this desk)", StringComparison.Ordinal)))
+              && !context.Contains("Two minutes", StringComparison.Ordinal)
               && !context.Contains("PEER LINE", StringComparison.Ordinal) && !context.Contains("PLAYLIST GO", StringComparison.Ordinal) && !context.Contains("joins the report", StringComparison.Ordinal),
             $"report: Stagewatch's own recent holds its own rows — forty peer lines after them push none out, and no peer row is in it ({string.Join(" | ", recent)})");
         Check(ShowJournal.LastOwn(journal, 3).Select(e => e.Text).SequenceEqual([
@@ -306,7 +310,7 @@ static class ReportTests
         var copilot = AiContext.Copilot(new CopilotFacts(Heard.AddMinutes(1), Utc, "{}"u8.ToArray(), "{}"u8.ToArray(), [], [], [], 0, OverrunModel.Learn([]), [], journal));
         using var facts = JsonDocument.Parse(copilot);
         var said = facts.RootElement.GetProperty("recent").EnumerateArray().Select(r => r.GetString()!).ToList();
-        Check(said.SequenceEqual(recent) && facts.RootElement.GetProperty("now").GetString() == "2026-10-25 03:21:15"
+        Check(said.SequenceEqual(own) && facts.RootElement.GetProperty("now").GetString() == "2026-10-25 03:21:15"
               && !copilot.Contains("PEER LINE", StringComparison.Ordinal) && !copilot.Contains("Peer:", StringComparison.Ordinal) && !copilot.Contains("PLAYLIST GO", StringComparison.Ordinal)
               && !copilot.Contains("joins the report", StringComparison.Ordinal) && !copilot.Contains("HYPERLINK", StringComparison.Ordinal),
             $"report: the copilot's recent lines are this show's own rows too — forty peer lines after them push none out, and no peer row is among its facts' journal ({string.Join(" | ", said)})");

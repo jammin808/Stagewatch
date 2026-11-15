@@ -75,6 +75,16 @@ static class PlayoutLinkTests
             Time = time ?? TimeProvider.System, Jitter = jitter,
         });
 
+    /// <summary>
+    /// A link's context fact as the desk and the rig build it (MainViewModel.PlayoutLinkFacts, the rig's Context): its record, its words,
+    /// its clock, and the node at its other end read once from <see cref="PlayoutLink.PeerNode"/>, its row's kind <see cref="PlayoutLink.Use"/>.
+    /// </summary>
+    internal static Stagewatch.Show.PlayoutLinkFact FactOf(PlayoutLink l)
+    {
+        var (node, proved) = l.PeerNode;
+        return new(l.LinkName, l.Peer, l.Record.Light, l.Status, l.Record.Flags, l.Clock?.OffsetMs, l.Clock?.ErrMs, l.ClockApart, l.Standing, node, proved, l.Use);
+    }
+
     /// <summary>The seam playing a desk on another PC from loopback.</summary>
     internal static bool Remote(IPAddress _) => false;
 
@@ -751,9 +761,18 @@ static class PlayoutLinkTests
         var nodes = ShowBusSpecTests.Master() is { } master ? File.ReadAllText(Path.Combine(Path.GetDirectoryName(master)!, "NODES.md")) : "";
         var items = Stagewatch.Show.ShowContext.PlayoutItems([new Stagewatch.Show.PlayoutLinkFact(link.LinkName, link.Peer, link.Record.Light, link.Status, link.Record.Flags)]);
         Check(link.Record is { Light: "amber", Proof: "legacy" } rec && rec.Flags.Contains("legacy") && link.Health == LinkHealth.Ok
-              && items is [{ Id: "link:patterns", Kind: "playout", Light: "amber" } item] && item.State.Contains("proved at level 0", StringComparison.Ordinal)
+              && items is [{ Id: "link:patterns", Kind: "link", Light: "amber" } item] && item.State.Contains("proved at level 0", StringComparison.Ordinal)
               && Regex.Replace(nodes, @"\s+", " ").Contains("Companion that read that context, takes that record's light", StringComparison.Ordinal),
               $"playout light: a level-0 link's record is amber (legacy), and the context's item takes it while the desk's line is green from its pairing, as NODES.md §5 says ({link.Record.Light}, {link.Health})");
+        // Show Bus §6 P2 at level 0: the node is the id the peer's own context named on this link, not proved; its one row controls it,
+        // in the record's light; its clock, measured on this connection, is said under that id.
+        var fact = FactOf(link);
+        var own = Stagewatch.Show.ShowContext.PlayoutItems([fact]);
+        var rows = Stagewatch.Show.ShowContext.PlayoutRows([fact]);
+        Check(link.PeerNode is ("9f8e7d6c", false) && link.Use == "controls"
+              && own is [{ Id: "link:patterns" } li, { Id: "clock:9f8e7d6c", Light: "amber" }] && li.State.Contains("node 9f8e7d6c, not proved", StringComparison.Ordinal)
+              && rows is [{ From: "link:patterns", To: "@9f8e7d6c", Kind: "controls", Light: "amber" }],
+              $"playout context: a level-0 link names the node its peer's context gave, not proved, with one controls row and its clock under that id ({link.PeerNode}; {string.Join(" | ", own.Select(i => i.Id + " " + i.State))})");
     }
 
     /// <summary>

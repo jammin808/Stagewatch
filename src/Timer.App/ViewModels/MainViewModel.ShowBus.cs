@@ -149,17 +149,22 @@ public sealed partial class MainViewModel
         // After the join is published: the desk hears peers' lines from the network of this second — a key revoked or bound to another
         // id in the last one proves nothing now — and expires what no app collected before its readers below are told.
         ExpireShared();
-        var links = LinkItems();
+        var facts = PlayoutLinkFacts().ToList();
+        var links = LinkItems(facts);
+        // Show Bus §6 P2: each link it accepted on /ws, by this second's join, as an item and its one row; each playout link's one row.
+        var accepted = ShowContext.Accepted(view, ShowClock, _sightings.All().Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal));
+        links.AddRange(accepted.Items);
+        IReadOnlyList<ContextLink> rows = [.. ShowContext.PlayoutRows(facts), .. accepted.Rows];
         var grants = WindowGrantStatus();
         var windows = WindowFacts(grants);
         RefreshWindowReaders(windows, grants);
         var health = HealthItems();
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
             now, _hub.Latest, _hub.ProducerStuck, links, Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
-            PlayoutRows(), windows, health);
+            PlayoutRows(), windows, health, rows);
         _contextJson = ShowContext.Build(input);
         SyncPeerRows(now, view);
-        RefreshPreflight(now, view, [.. links, .. windows.Select(w => w.Item), .. health]);
+        RefreshPreflight(now, view, [.. ShowContext.PreflightItems(links), .. windows.Select(w => w.Item), .. health]);
         RefreshPlayoutConfig();
         RefreshDeskReaders();
         var hello = OwnHello;
@@ -194,22 +199,24 @@ public sealed partial class MainViewModel
     }
 
     /// <summary>
-    /// Every link this Stagewatch runs, as context items (off ones left out): each integration's by its own light, each playout link's
-    /// by its record (<see cref="ShowContext.PlayoutItems"/>: <c>link:&lt;name&gt;</c> and, while its clock is apart, <c>clock:&lt;name&gt;</c>,
-    /// a health item no link names). Its windows (<see cref="WindowFacts"/>) and its own health (<see cref="HealthItems"/>) go apart.
+    /// Every link this Stagewatch runs, as context items (off ones left out): each integration's by its own light, of kind <c>link</c>
+    /// (vMix's among them, §6 P6), with no row (none is a Show Bus node), and each playout link's by its record
+    /// (<see cref="ShowContext.PlayoutItems"/>: <c>link:&lt;name&gt;</c> of kind <c>link</c> and, for a clock it measured,
+    /// <c>clock:&lt;node id&gt;</c>, a health item no row names). Its windows (<see cref="WindowFacts"/>) and its own health
+    /// (<see cref="HealthItems"/>) go apart.
     /// </summary>
-    private List<ContextItem> LinkItems()
+    private List<ContextItem> LinkItems(IReadOnlyList<PlayoutLinkFact> facts)
     {
         var list = new List<ContextItem>();
         foreach (var (name, health, status) in IntegrationStatus(playout: false))
         {
             if (health == LinkHealth.Off) continue;
             var light = health switch { LinkHealth.Ok => Light.Green, LinkHealth.Starting => Light.Amber, _ => Light.Red };
-            list.Add(new ContextItem("link:" + name.ToLowerInvariant().Replace(' ', '-'), name is "vMix" ? "playout" : "link", name, light, status));
+            list.Add(new ContextItem("link:" + name.ToLowerInvariant().Replace(' ', '-'), "link", name, light, status));
         }
         // 13.16.4: each playout link's light is its record's; 13.11.5: its clock apart when the offset less its error is past
         // clock.apart.ms, from its matched pongs alone (13.10.2).
-        list.AddRange(ShowContext.PlayoutItems(PlayoutLinkFacts()));
+        list.AddRange(ShowContext.PlayoutItems(facts));
         return list;
     }
 

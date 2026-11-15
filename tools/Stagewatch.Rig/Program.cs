@@ -1407,10 +1407,16 @@ sealed class Rig : ICompanionBridge, IDisposable
     private string Context()
     {
         var now = DateTime.UtcNow;
-        // As the app: each playout link's record (its light and flags) beside its own words, and its clock while apart; its windows and
-        // its own health go apart, so its timer feeds a window only while it shows a page and no link names a health item (D11).
-        var links = ShowContext.PlayoutItems(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>()
-            .Select(l => new PlayoutLinkFact(l.LinkName, l.Peer, l.Record.Light, l.Status, l.Record.Flags, l.Clock?.OffsetMs, l.Clock?.ErrMs, l.ClockApart, l.Standing))).ToList();
+        // As the app: each playout link's record (its light and flags) beside its own words, the node at its other end read once, and
+        // its clock under that node's id once measured; its windows and its own health go apart, and no row names a health item (D11).
+        var facts = _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>()
+            .Select(l =>
+            {
+                var (node, proved) = l.PeerNode;
+                return new PlayoutLinkFact(l.LinkName, l.Peer, l.Record.Light, l.Status, l.Record.Flags, l.Clock?.OffsetMs, l.Clock?.ErrMs, l.ClockApart, l.Standing,
+                    node, proved, l.Use);
+            }).ToList();
+        var links = ShowContext.PlayoutItems(facts).ToList();
         // As the app: each key seen in clear (13.6.9), amber, from where and when.
         var health = ShowContext.ClearSeenItems(_sightings.All(), id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name).ToList();
         var hello = _beacon?.Status ?? HelloStatus.NotYet;
@@ -1434,6 +1440,10 @@ sealed class Rig : ICompanionBridge, IDisposable
         foreach (var c in view.Conflicts.Where(c => !_conflictsLogged.Contains(c.Id))) Log($"hello: {c.Conflict} — its hello adds no peers row while the mark stands");
         _conflictsLogged = view.Conflicts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
         _network = view;
+        // As the app (Show Bus §6 P2): each playout link's one row to its node, and each link it accepted on /ws as an item and a row.
+        var accepted = ShowContext.Accepted(view, ShowClock.For("UTC"), _sightings.All().Select(k => k.KeyId).ToHashSet(StringComparer.Ordinal));
+        links.AddRange(accepted.Items);
+        IReadOnlyList<ContextLink> nodeRows = [.. ShowContext.PlayoutRows(facts), .. accepted.Rows];
         // As the app: the windows from one read of the list, each item the worst over its viewers (its own address, each grant's), with
         // whom it is granted to and what its holders claim (12.10: only from a context a key bound to the holder's id proves, while its
         // grant has a viewer on it); the frame's windows and the show log's took rows from the same facts.
@@ -1443,15 +1453,15 @@ sealed class Rig : ICompanionBridge, IDisposable
             _nodeId, WindowPlacements.Holders(windows, grants));
         var windowItems = ScreenWindows.ContextItems(windows, _web?.WindowStatus() ?? Array.Empty<WindowObserved>(),
             _web?.ViewerStatus() ?? Array.Empty<ViewerObserved>(), grants, placements);
-        var windowFacts = ScreenWindows.Facts(windows, windowItems, placements);
+        var windowFacts = ScreenWindows.Facts(windows, windowItems, placements, grants);
         RefreshWindowReaders(windows, windowFacts, grants);
-        Preflight(now, view, [.. links, .. windowFacts.Select(w => w.Item), .. health]);
+        Preflight(now, view, [.. ShowContext.PreflightItems(links), .. windowFacts.Select(w => w.Item), .. health]);
         // As the app: no rows for a link whose peer answers as another kind than its settings name, which is sent nothing.
         var rows = _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>().Where(l => l.WrongKind is null)
             .Select(l => new PlayoutRow(l.LinkName, l.Peer, l.Kind ?? "", Starts: l.Kind is not null)).ToList();
         return ShowContext.Build(new ContextInput(_nodeId, _o.Room, now, Snapshots.Latest, Snapshots.ProducerStuck, links,
             _desk.Collecting(view.Rows.Select(r => r.Peer)), (IReadOnlyList<JournalEntry>?)_journal?.Entries ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0, rows,
-            windowFacts, health));
+            windowFacts, health, nodeRows));
     }
 
     private HashSet<string> _conflictsLogged = new(StringComparer.Ordinal);   // owner thread: the ids in conflict it logged

@@ -436,9 +436,10 @@ with words that start `unconfirmed —` and say it may have run.
 Every reader takes the links: the frame's `playout` row (the clip feeding the VT) ends with `link` and `node`, the link's
 name and its peer's node id (empty for vMix); the config ends with `playoutLinks`, each link switched on under the licence —
 `{"name":"stage-left","kind":"playmap","label":"PlayMap Stage left"}`, its kind as heard (or as set; empty while neither);
-the context has a `link:<name>` item (kind `playout`) per link in its PeerLink record's light — amber at Show Bus level 0,
-"proved at level 0 — the peer does not prove itself to this link" — with `clock:<name>` (kind `health`) amber while its clock
-is apart, each link's verbs among the commands, and the context it pulled from its peer among the peers — only for the node
+the context has a `link:<name>` item (kind `link`) per link in its PeerLink record's light — amber at Show Bus level 0,
+"proved at level 0 — the peer does not prove itself to this link" — with its one row to `@<node id>` (2.24, §6 P2: `controls`, or
+`follows` for a link its key stands at follow or post) and `clock:<node id>` (kind `health`) green with its error once measured,
+amber while its clock is apart, each link's verbs among the commands, and the context it pulled from its peer among the peers — only for the node
 id the peer's STATE gives, when it gives one. A peer that answers as another kind than Settings set feeds none of these but
 its `link:<name>` item, which says why: no clip, no verbs, no context.
 
@@ -1173,11 +1174,22 @@ its rate, which has its own count per key (600 requests a minute, 429 with `Retr
   (2.21): every form of it, written out, is a line this desk's parser takes, at a risk no lower than its own, so
   `message <phrase> [info|warn|crit [off|slow|fast [ack]]]` takes a message of one word or in double quotes, and its urgency
   before its flash, as the parser reads it.
-- **Links (2.22).** The timer `follows` each playout link and `hears` every other link it runs. It `feeds` a window
-  (`timer -feeds-> window:<name>`) only while that window shows a page: it is given one and says it shows the revision it was sent
-  (its item green). None while it is held, on its holding page or black, nor while nobody has opened it, it is still switching, it
-  could not show its page or its link dropped. No link names a health item (`clock:<link>`, `go-latency`, a `key:<id>` seen in
-  clear, `bus:hello`); each is an item still. The items run links, then windows, then health.
+- **Links (2.24, Show Bus §6 P1–P8).** No row runs from the timer to a link. Each PeerLink item has its one row to `@<node id>`:
+  a playout link's `link:<name> -controls-> @<node id>` (`follows` for a link its key stands at follow or post), naming the id its
+  LINK proved or, at level 0, the id the peer's own STATE or context gave, "not proved" in its words, and no row while it gave none
+  or answers as another node; a link Stagewatch accepted on `/ws` is `link:ws:<id>` with its row `@<id> -follows-> link:ws:<id>`,
+  amber at level 0, plain from another machine or with its key seen in clear (13.16.5), and the ones nothing proves fold into
+  `link:unproved`, with no row; their amber stands on their items, never in the headline, which stays the show's own.
+  The timer `feeds` a window (`timer -feeds-> window:<name>`) only while it shows a page that draws the timer (`/viewer`, `/clock`
+  but with `timer=0`, `/holo`, `/producer`, `/audience`) and says it shows the revision it was sent (its item green): none while it
+  is held, on its holding page or black, nobody has opened it, it is still switching, it could not show its page or its link
+  dropped. A window `serves` `@<holder id>` for each grant on its holder's key-verified link, green once shown, amber while sent or
+  open, none otherwise; a plain browser on its own address is said in its words by device and "on this PC" or "on the network",
+  never as a row. While a screen draws the VT countdown it is the item `vt`, fed by the node of its link (`@<node id> -feeds-> vt`,
+  the link row's light). No row names a health item (`clock:<node id>`, green with its error once a link measured its peer's clock
+  and amber while apart; `go-latency`; a `key:<id>` seen in clear; `bus:hello`); each is an item still. The items run reds, ambers,
+  the items with a row to another node (up to `context.items.first`), then the rest. A recent line keeps no message's, question's,
+  personal signal's or proposed `message`/`notice` line's words.
 - **Trimming.** A context over a count or 64 KiB is trimmed, each step only until it fits, in §6's order: the oldest recent lines;
   grey links, then the other links; commands that are not panic, air or transport, from the end; grey items, then green. Only if it
   still does not fit: amber states, then red ones, cut to 40 characters (Stagewatch's own length; §6 leaves it to the sender); then

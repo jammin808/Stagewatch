@@ -55,7 +55,7 @@ static class WindowLightTests
 
         // A TV showing it and a grant never opened: green, the TV's words.
         var tv = ScreenWindows.ContextItems([w], [], [Viewer("", 1, 3, T0), Viewer(Pat, 0, 0, null, ScreenWindows.HowPage)]);
-        Check(tv is [{ Light: Light.Green }] && tv[0].State.StartsWith("showing /clock · granted to Patterns FOH", StringComparison.Ordinal),
+        Check(tv is [{ Light: Light.Green }] && tv[0].State.StartsWith("showing /clock · a browser (TV) on the network · granted to Patterns FOH", StringComparison.Ordinal),
             $"window lights: a TV showing it and a grant never opened is green ({tv[0].State})");
 
         // A TV showing it and a grant whose page was open and dropped: amber, the grant's words named by its app.
@@ -79,12 +79,19 @@ static class WindowLightTests
 
         // A viewer of a pass the window no longer holds (its grant withdrawn) counts for nothing.
         var gone = ScreenWindows.ContextItems([Lobby()], [], [Viewer("", 1, 3, T0), Viewer(Pat, 0, 3, T0, ScreenWindows.HowPage)]);
-        Check(gone is [{ Light: Light.Green, State: "showing /clock" }], $"window lights: a withdrawn grant's viewer counts for nothing ({gone[0].State})");
+        Check(gone is [{ Light: Light.Green, State: "showing /clock · a browser (TV) on the network" }], $"window lights: a withdrawn grant's viewer counts for nothing ({gone[0].State})");
+
+        // A plain browser on the window's own address is said by its device and its address's class, never its address, nor as a holder.
+        var here = ScreenWindows.ContextItems([Lobby()], [], [new ViewerObserved("wlobby1", "", "", 1, 3, "/clock", false, 40, T0, "", "Chrome on Windows", "127.0.0.1")]);
+        var facts = ScreenWindows.Facts([Lobby()], here);
+        Check(here is [{ State: "showing /clock · a browser (Chrome on Windows) on this PC" }] && facts[0].Holders.Count == 0
+              && ScreenWindows.BrowserWords("", "::1") == "a browser on this PC" && ScreenWindows.BrowserWords("TV", "10.0.0.5") == "a browser (TV) on the network",
+            $"window lights: a plain browser is said by its device and its address's class, never its address, and holds no serves row ({here[0].State})");
 
         // The claims follow the grants, in the holders' words, at most eight.
         var claims = Enumerable.Range(1, 10).Select(i => new WindowPlacement("lobby", Pat, "Patterns FOH", "screen:" + i, "Screen " + i + " — LED wall")).ToList();
         var said = ScreenWindows.ContextItems([w], [], [Viewer("", 1, 3, T0), Viewer(Pat, 1, 3, T0, ScreenWindows.HowPage)], [Grant(Pat, ScreenWindows.HowPage, "shown", 1)], claims);
-        Check(said[0].State.StartsWith("showing /clock · granted to Patterns FOH (shows it) · Patterns FOH says: Screen 1 — LED wall; Patterns FOH says: Screen 2", StringComparison.Ordinal)
+        Check(said[0].State.StartsWith("showing /clock · a browser (TV) on the network · granted to Patterns FOH (shows it) · Patterns FOH says: Screen 1 — LED wall; Patterns FOH says: Screen 2", StringComparison.Ordinal)
               && said[0].State.Split("says:").Length - 1 == WindowPlacements.MaxPerWindow,
             $"window lights: the claim words follow the grants, at most {WindowPlacements.MaxPerWindow} ({said[0].State})");
         Check(!said[0].State.Contains(page.Token, StringComparison.Ordinal) && !said[0].State.Contains(w.Token, StringComparison.Ordinal),

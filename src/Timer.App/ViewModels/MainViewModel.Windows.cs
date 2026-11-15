@@ -122,6 +122,6 @@ public sealed partial class MainViewModel
             _nodeId, holders);
         // Worst over every viewer (its own address, each grant's), with whom it is granted to and what its holders claim (12.10).
         var items = ScreenWindows.ContextItems(windows, WindowStatus(), _web?.ViewerStatus() ?? Array.Empty<ViewerObserved>(), grants, placements);
-        return ScreenWindows.Facts(windows, items, placements);
+        return ScreenWindows.Facts(windows, items, placements, grants);
     }
 }

@@ -101,22 +101,7 @@ static class ShowBusSpecTests
     /// changes the check fails, and the entry leaves this table for a check of the rule kept (the row's words, frozen with 1.3, still
     /// say what 2.19 did).
     /// </summary>
-    static readonly (string Rule, string Of, string Unit, string Today, Func<bool> Differs)[] RulesNotKeptYet =
-    [
-        ("P2", "for its links", "SW24.1", "its only rows run from its timer, its Patterns link is an item of kind `playout`, and no row names a peer",
-            OwnRowsAsToday),
-        ("P2", "for the node links it accepts on `/ws`", "SW24.1", "it lists them only as `peers` rows, with `link` and `verified`", AcceptedLinksAsToday),
-        ("P3", "for the clip time it shows from Patterns", "SW24.1", "its screens show Patterns' clip time, and no row names Patterns' item",
-            ClipTimeAsToday),
-        ("P5", "for its schedule", "SW24.1", "a stuck show thread turns its timer red and leaves its schedule's light as the frame gives it",
-            StuckScheduleAsToday),
-        ("P6", "for its vMix link", "SW24.1", "an item of kind `playout`", VmixAsToday),
-        ("P7", "for its order", "SW24.1", "its timer is its first item whatever its light", TimerFirstAsToday),
-        ("P8", "for its messages", "SW24.1",
-            "a cue item carries the text of a message it sent, a speaker message sent with an ack among them, and `recent` carries the text "
-            + "of every message and audience question its journal holds",
-            MessagesAsToday),
-    ];
+    static readonly (string Rule, string Of, string Unit, string Today, Func<bool> Differs)[] RulesNotKeptYet = [];
 
     const string WindowsHeading = "## 12. Windows (1.3)";
 
@@ -207,10 +192,7 @@ static class ShowBusSpecTests
     /// leaves this table for a check in <see cref="TodaysCode"/>. The header names the rows a unit of 2.19 ends (<see cref="In219"/>),
     /// which 2.19 keeps before it ships 1.3; §8's Stagewatch row names the rest, each in its Today words.
     /// </summary>
-    static readonly (string Row, string Unit, string Today, Func<Numbers, bool> Differs)[] NotKeptYet =
-    [
-        ("context.items.first", "SW24.1", "its timer is its first item whatever its light, ahead of a red or amber one", _ => TimerFirstAsToday()),
-    ];
+    static readonly (string Row, string Unit, string Today, Func<Numbers, bool> Differs)[] NotKeptYet = [];
 
     /// <summary>Whether a unit ends its entry in 2.19, the release that carries 1.3: then the header names it, else §8's Stagewatch row.</summary>
     static bool In219(string unit) => unit.StartsWith("SW19.", StringComparison.Ordinal);
@@ -2175,16 +2157,17 @@ static class ShowBusSpecTests
     /// </summary>
     static (int Headline, int Label, int State, int Recent) OwnSizes()
     {
-        var message = new string('m', 500);
+        // A department's cue words are the show's own, so they are sent, cut; a message's are never sent (P8).
+        var cue = new string('m', 500);
         var frame = Running() with
         {
             Title = new string('t', 300),
-            Signals = new[] { new SignalView(2, SignalKind.Message, "speaker", message, SignalState.Sent, false, 5, "") }.ToEquatableArray(),
+            Signals = new[] { new SignalView(2, SignalKind.Standby, "Lighting", cue, SignalState.Sent, false, 5, "") }.ToEquatableArray(),
         };
-        var input = Own(frame, false, [], [], journal: [new(Tonight, JournalKind.Message, 0, message), new(Tonight, JournalKind.Note, 0, new string('n', 1000))]);
+        var input = Own(frame, false, [], [], journal: [new(Tonight, JournalKind.Note, 0, cue), new(Tonight, JournalKind.Note, 0, new string('n', 1000))]);
         var sent = ShowBusTests.Read(ShowContext.Build(input));
         return (sent.Headline.Length, sent.Items.FirstOrDefault(i => i.Id == "timer")?.Label.Length ?? 0,
-            sent.Items.FirstOrDefault(i => i.Id == "cue:speaker")?.State.Length ?? 0, sent.Recent.Select(r => r.Length).DefaultIfEmpty(0).Max());
+            sent.Items.FirstOrDefault(i => i.Id == "cue:lighting")?.State.Length ?? 0, sent.Recent.Select(r => r.Length).DefaultIfEmpty(0).Max());
     }
 
     /// <summary>
@@ -2209,8 +2192,12 @@ static class ShowBusSpecTests
         var (headline, label, state, recent) = OwnSizes();
         Keeps(headline == n.Of("context.headline.chars") && label == n.Of("context.item.label.chars") && state == n.Of("context.item.state.chars")
               && recent == n.Of("context.recent.chars"),
-            $"its own context sends a 300-character title, a 500-character message and a 1000-character note cut to those sizes ({headline}, {label}, {state}, {recent})",
+            $"its own context sends a 300-character title, a 500-character cue and a 1000-character note cut to those sizes ({headline}, {label}, {state}, {recent})",
             "context.headline.chars", "context.item.label.chars", "context.item.state.chars", "context.recent.chars");
+
+        Keeps(ShowContext.ItemsFirst == n.Of("context.items.first") && OrderKept(n.Of("context.items.first")),
+            "its reds and ambers come first, then every item with a row to another node, so such an item is among that many first behind them",
+            "context.items.first");
 
         var room = ShowBusTests.Crowded(Tonight, windows: 64, links: 8, departments: 30, recent: 20, peers: 32, words: 160, letter: '€', name: '€');
         var sent = ShowBusTests.Read(ShowContext.Build(room));
@@ -2303,32 +2290,34 @@ static class ShowBusSpecTests
         var windows = ScreenWindows.ContextItems([lobby], [new WindowObserved(lobby.Id, 1, 3, "/clock", true, 40, Tonight, "", "", "")]);
         var patterns = new PeerSummary("patterns", "9f8e7d6c", "Patterns FOH", Light.Red, "Projector 1 mismatch", "10.0.0.5", 1, true);
         var input = Own(Running(), false,
-            [new ContextItem("link:patterns", "playout", "Patterns", Light.Green, "VT1: 0:42 left"), new ContextItem("link:osc", "link", "OSC", Light.Green, "listening"),
-             new ContextItem("clock:patterns", "health", "Clock vs Patterns", Light.Amber, "CLOCKS APART"), .. windows],
-            [patterns], 120);
+            [new ContextItem("link:patterns", "link", "Patterns", Light.Green, "VT1: 0:42 left · node 9f8e7d6c"), new ContextItem("link:osc", "link", "OSC", Light.Green, "listening"),
+             new ContextItem("clock:9f8e7d6c", "health", "Clock vs Patterns", Light.Amber, "CLOCKS APART"), .. windows],
+            [patterns], 120) with { Rows = [new ContextLink("link:patterns", "@9f8e7d6c", "controls", Light.Green)] };
         var (light, headline, items) = ShowContext.Assess(input);
         var json = ShowContext.Build(input);
 
-        // P6, for its own parts but its vMix link (P6's entry): the kinds the context builder and the desk's link items write. Its
-        // playout links' kind is P2's entry; their clocks' items are health.
-        var linkItems = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems()") ?? "";
-        var own = items.Where(i => i.Id != "link:patterns").Select(i => i.Kind).Distinct().ToList();
-        var playoutItems = ShowContext.PlayoutItems([new PlayoutLinkFact("stage-left", "PlayMap Stage left", Light.Amber, "Show: 0:42 left", ["legacy"], 2400, 3, ClockApart: true)]);
-        Check(own.Count >= 7 && own.All(ShowBusKinds.Known)
-              && linkItems.Contains("? \"playout\" : \"link\"", StringComparison.Ordinal) && linkItems.Contains("ShowContext.PlayoutItems(", StringComparison.Ordinal)
-              && playoutItems is [{ Id: "link:stage-left", Kind: "playout" }, { Id: "clock:stage-left", Kind: "health" }],
-            "showbus spec: Stagewatch keeps P6 for its own parts but its vMix link: its timer, schedule, cues, message, links, health and windows are the kind "
-            + "table's words, and every integration but vMix and the playout links is a link (" + string.Join(", ", own) + ")");
+        // P6 (kept since SW24.1, vMix's link and the playout links among them): the kinds the context builder and the desk's link items
+        // write are the table's — every integration's link, vMix's too, and every playout link is a link; their clocks' items are health.
+        var linkItems = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems(IReadOnlyList<PlayoutLinkFact> facts)") ?? "";
+        var own = items.Select(i => i.Kind).Distinct().ToList();
+        var playoutItems = ShowContext.PlayoutItems([new PlayoutLinkFact("stage-left", "PlayMap Stage left", Light.Amber, "Show: 0:42 left", ["legacy"], 2400, 3, ClockApart: true,
+            PeerId: "pm5e6f7a")]);
+        Check(own.Count >= 7 && own.All(ShowBusKinds.Known) && !linkItems.Contains("\"playout\"", StringComparison.Ordinal)
+              && linkItems.Contains("\"link:\" + name.ToLowerInvariant().Replace(' ', '-'), \"link\", name", StringComparison.Ordinal)
+              && linkItems.Contains("ShowContext.PlayoutItems(", StringComparison.Ordinal)
+              && playoutItems is [{ Id: "link:stage-left", Kind: "link" }, { Id: "clock:pm5e6f7a", Kind: "health" }],
+            "showbus spec: Stagewatch keeps P6: its timer, schedule, cues, message, links, health and windows are the kind table's words, every integration "
+            + "vMix's among them a link, every playout link a link, its clock health (" + string.Join(", ", own) + ")");
 
         // P1, P5 for its timer, P8's no-secret rule, and its rows' kinds.
         Check(light != Light.Red && !headline.Contains(patterns.Headline, StringComparison.Ordinal)
-              && items.All(i => i.Light != Light.Red && !i.Id.StartsWith('@') && !i.Id.Contains(patterns.Id, StringComparison.Ordinal)),
+              && items.All(i => i.Light != Light.Red && !i.Id.StartsWith('@') && (!i.Id.Contains(patterns.Id, StringComparison.Ordinal) || i.Id == "clock:" + patterns.Id)),
             "showbus spec: Stagewatch keeps P1: a peer's red stays in its peers row, never in an item or the headline (" + light + ": " + headline + ")");
         var stuck = ShowContext.Assess(Own(Running(), true, [], [])).Items.FirstOrDefault(i => i.Id == "timer");
         Check(stuck?.Light == Light.Red && !stuck.State.Contains(Running().Text, StringComparison.Ordinal) && !Regex.IsMatch(stuck.State, @"\d:\d\d"),
             "showbus spec: Stagewatch keeps P5 for its timer: a stuck show thread turns it red, its words the show stuck in place of a time (" + stuck?.State + ")");
         Check(windows.Count > 0 && !json.Contains(lobby.Token, StringComparison.Ordinal),
-            "showbus spec: Stagewatch keeps P8's no-secret rule: its context carries no window's address (its messages are P8's entry in RulesNotKeptYet)");
+            "showbus spec: Stagewatch keeps P8's no-secret rule: its context carries no window's address");
         using (var doc = JsonDocument.Parse(json))
         {
             var kinds = Items(doc.RootElement, "links").Select(l => Str(l, "kind") ?? "").Distinct().ToList();
@@ -2353,6 +2342,20 @@ static class ShowBusSpecTests
         Check(Flat(s6).Contains("A sender lists its panic, air and transport commands first.", StringComparison.Ordinal)
               && ShowContext.Commands.SkipWhile(c => c.Air).All(c => !c.Air) && new[] { "blackout", "next | start | pause" }.All(airFirst.Contains),
             "showbus spec: Stagewatch keeps §6's order of commands: its panic, air and transport commands first (" + string.Join(", ", airFirst) + ")");
+
+        // Kept since SW24.1, the frozen row's words of what 2.19 did still standing (NodeRows): P2 for its links and for the node links it
+        // accepts on /ws, P3 for the clip time it shows, P5 for its schedule, P7 for its order and P8 for its messages (P6 above).
+        Check(OwnRowsKept(), "showbus spec: Stagewatch keeps P2 for its links: each playout link is a link item with one row to @<node id> of its use, "
+            + "none from its timer, none for a link that names no node, and its desk builds them in one place");
+        Check(AcceptedLinksKept(), "showbus spec: Stagewatch keeps P2 for the node links it accepts on /ws: a link:ws:<id> item and one row from @<id> for "
+            + "each LINK or a bound key proves, in 13.16.5's light, and the rest folded into one link:unproved item with no row, no address in any words");
+        Check(ClipTimeKept(), "showbus spec: Stagewatch keeps P3 for the clip time it shows: its VT countdown is an item fed by the node of the playout "
+            + "link its clip comes over, and vMix's clip has no row");
+        Check(StuckScheduleKept(), "showbus spec: Stagewatch keeps P5 for its schedule: a stuck show thread turns its timer, its schedule and its VT "
+            + "countdown red, each saying the show is stuck in place of a time");
+        Check(OrderKept(12), "showbus spec: Stagewatch keeps P7: its reds and ambers first, then every item with a row to another node, then the rest");
+        Check(MessagesKept(), "showbus spec: Stagewatch keeps P8 for its messages: no cue item or recent line carries a message's, a nudge's or an audience "
+            + "question's words, while the desk still journals them and a department's cue words still go");
 
         // What of §6's rules Stagewatch does not keep yet: each entry holds exactly while its code still does what it says.
         foreach (var (rule, of, unit, today, differs) in RulesNotKeptYet)
@@ -2384,6 +2387,12 @@ static class ShowBusSpecTests
         new(Tonight.AddSeconds(-30), JournalKind.Signal, 0, "Message speaker: " + Canary),
         new(Tonight.AddSeconds(-20), JournalKind.Message, 0, Canary),
         new(Tonight.AddSeconds(-10), JournalKind.Question, 0, QuestionCanary),
+        // The approval desk's and the assistant's rows quote the lines they carried, a message's words among them (DeskService, Copilot).
+        new(Tonight.AddSeconds(-9), JournalKind.Desk, 0, "Proposed ab12cd34: AGMessage → Stagewatch: message \"" + Canary + "\" warn"),
+        new(Tonight.AddSeconds(-8), JournalKind.Desk, 0, "Outcome ab12cd34: Stagewatch: message \"" + Canary + "\" warn — done (" + Canary + ")"),
+        new(Tonight.AddSeconds(-7), JournalKind.Desk, 0, "Sent cd34ef56 to AGMessage (operator): notice \"" + Canary + "\""),
+        new(Tonight.AddSeconds(-6), JournalKind.Note, 0, "AI agent proposed: signal message speaker \"" + Canary + "\""),
+        new(Tonight.AddSeconds(-5), JournalKind.Desk, 0, "Proposed ef56ab12: Patterns FOH → Stagewatch: signal standby Lighting \"LX 12\""),
     ];
 
     /// <summary>Stagewatch's context input for <paramref name="frame"/>, with these links, peers and journal, at <see cref="Tonight"/>.</summary>
@@ -2392,66 +2401,95 @@ static class ShowBusSpecTests
         => new("abc123abc123", "Hall A", Tonight, frame, stuck, links, peers, journal ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), goLatencyMs);
 
     /// <summary>
-    /// Whether Stagewatch's own rows are still as the header says (P2, for its links): its only rows run from its timer, none names a
-    /// peer, and the desk's link items still give each playout link, its Patterns link among them, the kind playout
-    /// (<see cref="ShowContext.PlayoutItems"/>, which the desk's LinkItems calls).
+    /// P2 for its links (kept since SW24.1): a playout link is an item of kind link with its one row to <c>@&lt;node id&gt;</c>, of its use and
+    /// in its record's light; a link that names no node has none and says so; no row runs from the timer to a link; and the desk builds its
+    /// link items, the playout links' rows and the accepted links in one place each (ShowContext's).
     /// </summary>
-    static bool OwnRowsAsToday()
+    static bool OwnRowsKept()
     {
-        var json = ShowContext.Build(Own(Running(), false, [new ContextItem("link:patterns", "playout", "Patterns", Light.Green, "VT1: 0:42 left")],
-            [new PeerSummary("patterns", "9f8e7d6c", "Patterns FOH", Light.Green, "", "10.0.0.5", 1, true)]));
-        using var doc = JsonDocument.Parse(json);
-        var links = Items(doc.RootElement, "links");
-        var desk = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems()") ?? "";
-        return links.Count > 0 && links.All(l => Str(l, "from") == "timer" && Str(l, "to") is { } to && !to.StartsWith('@'))
-               && desk.Contains("ShowContext.PlayoutItems(", StringComparison.Ordinal)
-               && ShowContext.PlayoutItems([new PlayoutLinkFact("patterns", "Patterns", Light.Green, "VT1: 0:42 left")]) is [{ Id: "link:patterns", Kind: "playout" }];
-    }
-
-    /// <summary>Whether Stagewatch still lists a node link it accepted only as a peers row, with link and verified (P2, as acceptor).</summary>
-    static bool AcceptedLinksAsToday()
-    {
-        var node = new PeerSummary("playmap", "pm5e6f7a", "PlayMap Stage left", Light.Green, "Out 3 · 60 fps", "10.0.0.12", 1, true) { Link = "ws", Verified = "key" };
-        var json = ShowContext.Build(Own(Running(), false, [], [node]));
-        using var doc = JsonDocument.Parse(json);
-        var row = Items(doc.RootElement, "peers").FirstOrDefault(p => Str(p, "id") == node.Id);
-        return row.ValueKind == JsonValueKind.Object && Str(row, "link") == "ws" && Str(row, "verified") == "key"
-               && Items(doc.RootElement, "items").All(i => Str(i, "kind") != "link" && !(Str(i, "id") ?? "").Contains(node.Id, StringComparison.Ordinal))
-               && !json.Contains("\"@" + node.Id, StringComparison.Ordinal);
+        PlayoutLinkFact[] facts = [new("patterns", "Patterns", Light.Green, "VT1: 0:42 left", PeerId: "9f8e7d6c", Proved: true), new("foh", "Patterns FOH", Light.Grey, "dialling")];
+        var input = Own(Running(), false, [.. ShowContext.PlayoutItems(facts), new ContextItem("link:osc", "link", "OSC", Light.Green, "listening")],
+            [new PeerSummary("patterns", "9f8e7d6c", "Patterns FOH", Light.Green, "", "10.0.0.5", 1, true)]) with { Rows = ShowContext.PlayoutRows(facts) };
+        using var doc = JsonDocument.Parse(ShowContext.Build(input));
+        var links = Items(doc.RootElement, "links").Select(l => (Str(l, "from"), Str(l, "to"), Str(l, "kind"))).ToList();
+        var desk = Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "";
+        var rig = Source("tools/Stagewatch.Rig/Program.cs") ?? "";
+        return links.SequenceEqual([("link:patterns", "@9f8e7d6c", "controls")])
+               && Items(doc.RootElement, "items").Where(i => (Str(i, "id") ?? "").StartsWith("link:", StringComparison.Ordinal)).All(i => Str(i, "kind") == "link")
+               && ShowContext.PlayoutItems(facts)[1].State.Contains("no node id proved or named yet", StringComparison.Ordinal)
+               && new[] { desk, rig }.All(t => t.Contains("ShowContext.PlayoutRows(facts)", StringComparison.Ordinal) && t.Contains("ShowContext.Accepted(view,", StringComparison.Ordinal));
     }
 
     /// <summary>
-    /// Whether Stagewatch still shows Patterns' clip time with no row naming Patterns' item (P3): its frames carry the clip's time
-    /// left, from Patterns, to every screen, its speaker screen's elements include it, and its context writes no row with an end on
-    /// another node.
+    /// P2 for the node links it accepts on /ws (kept since SW24.1): a node whose link LINK verified, or whose bound node key proves it, is a
+    /// <c>link:ws:&lt;id&gt;</c> item with its one row from <c>@&lt;id&gt;</c>, green when LINK verified it and amber at level 0; a link that proves
+    /// no id is folded into one <c>link:unproved</c> item with no row; and no address or key rides in any words.
     /// </summary>
-    static bool ClipTimeAsToday()
+    static bool AcceptedLinksKept()
     {
-        var frame = Running() with { Elements = DisplayElements.All, Playout = new PlayoutView("VT1", 42, 90, true, "Patterns") };
-        using var shown = JsonDocument.Parse(SnapshotJson.Serialize(frame));
-        var root = shown.RootElement;
-        var clip = root.TryGetProperty("playout", out var p) && p.ValueKind == JsonValueKind.Object ? p : default;
-        var drawn = root.TryGetProperty("show", out var show) && show.TryGetProperty("playout", out var on) && on.ValueKind == JsonValueKind.True;
-        var json = ShowContext.Build(Own(frame, false, [new ContextItem("link:patterns", "playout", "Patterns", Light.Green, "VT1: 0:42 left")],
-            [new PeerSummary("patterns", "9f8e7d6c", "Patterns FOH", Light.Green, "", "10.0.0.5", 1, true)]));
-        using var doc = JsonDocument.Parse(json);
-        return clip.ValueKind == JsonValueKind.Object && Str(clip, "source") == "Patterns" && clip.GetProperty("remaining").GetInt64() == 42 && drawn
-               && Items(doc.RootElement, "links").All(l => !(Str(l, "from") ?? "").StartsWith('@') && !(Str(l, "to") ?? "").StartsWith('@'));
-    }
-
-    /// <summary>Whether the desk's link items still give its vMix link the kind playout, a word the kind table does not hold (P6).</summary>
-    static bool VmixAsToday()
-    {
-        var desk = Method(Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "", "private List<ContextItem> LinkItems()") ?? "";
-        return Regex.IsMatch(desk, @"name is ""vMix""[^?;]*\? ""playout""") && !ShowBusKinds.Known("playout");
+        static NetworkRow Row(string kind, string id, string name, NodeLinkFact? link) => new(
+            new PeerSummary(kind, id, name, Light.Green, "", "10.0.0.12", 1, true) { Link = link is null ? "" : "ws", Verified = "key" }, null, NodeProof.None, link, [], true);
+        var linked = new NodeLinkFact("playmap", "pm5e6f7a", NodeProof.Key, "k1", "PlayMap key", "10.0.0.12", Tonight, 1, null, Linked: 1, Carrier: WindowGrants.LinkTls);
+        var bearer = new NodeLinkFact("messenger", "77aa77aa", NodeProof.Key, "k2", "AGMessage key", "10.0.0.13", Tonight, 1, null, Carrier: WindowGrants.LinkPlain);
+        var shared = new NodeLinkFact("patterns", null, NodeProof.None, "k3", "shared key", "10.0.0.14", Tonight, 1, "names no node id");
+        var view = new NetworkView([Row("playmap", "pm5e6f7a", "PlayMap Stage left", linked), Row("messenger", "77aa77aa", "AGMessage", bearer)], 0, [shared]);
+        var (items, rows) = ShowContext.Accepted(view, ShowClock.For("UTC"));
+        var words = string.Join(" ", items.Select(i => i.State + i.Label));
+        return items is [{ Id: "link:ws:pm5e6f7a", Kind: "link", Light: Light.Green }, { Id: "link:ws:77aa77aa", Light: Light.Amber }, { Id: ShowContext.UnprovedId, Kind: "link" } u]
+               && rows.SequenceEqual([new ContextLink("@pm5e6f7a", "link:ws:pm5e6f7a", "follows", Light.Green), new ContextLink("@77aa77aa", "link:ws:77aa77aa", "follows", Light.Amber)])
+               && u.State.StartsWith("1 connection not proved", StringComparison.Ordinal) && !words.Contains("10.0.0.", StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Whether a message's text still reaches Stagewatch's context (P8). The desk still sends a speaker message with an ack as a
-    /// message signal carrying its text and journals every message's and question's text in the words <see cref="Journal"/> copies;
-    /// and the context still writes a message signal's text into its cue item and every journal line into recent.
+    /// P3 for the clip time it shows (kept since SW24.1): the VT countdown its screens draw is an item of its own, of a counting kind, fed by
+    /// the node at the other end of the playout link the clip comes over; vMix's clip has no node and no row.
     /// </summary>
-    static bool MessagesAsToday()
+    static bool ClipTimeKept()
+    {
+        var frame = Running() with { Elements = DisplayElements.All, Playout = new PlayoutView("VT1", 42, 90, true, "Patterns", "patterns", "9f8e7d6c") };
+        var input = Own(frame, false, [new ContextItem("link:patterns", "link", "Patterns", Light.Green, "VT1: 0:42 left · node 9f8e7d6c")], [])
+            with { Rows = [new ContextLink("link:patterns", "@9f8e7d6c", "controls", Light.Green)] };
+        using var doc = JsonDocument.Parse(ShowContext.Build(input));
+        var vmix = ShowContext.Links(input with { Frame = frame with { Playout = new PlayoutView("Intro", 42, 90, true, "vMix") } });
+        // No screen draws the VT countdown: no item and no row. The link's row amber: the feeds row is amber too.
+        var undrawn = input with { Frame = frame with { Elements = DisplayElements.Timer } };
+        var stale = input with { Rows = [new ContextLink("link:patterns", "@9f8e7d6c", "controls", Light.Amber)] };
+        return Items(doc.RootElement, "items").Any(i => Str(i, "id") == ShowContext.VtId && Str(i, "kind") == "timer" && (Str(i, "state") ?? "").Contains("0:42", StringComparison.Ordinal))
+               && Items(doc.RootElement, "links").Any(l => Str(l, "from") == "@9f8e7d6c" && Str(l, "to") == ShowContext.VtId && Str(l, "kind") == "feeds" && Str(l, "light") == Light.Green)
+               && vmix.All(l => l.To != ShowContext.VtId)
+               && ShowContext.Assess(undrawn).Items.All(i => i.Id != ShowContext.VtId) && ShowContext.Links(undrawn).All(l => l.To != ShowContext.VtId)
+               && ShowContext.Links(stale).Any(l => l.To == ShowContext.VtId && l.Light == Light.Amber);
+    }
+
+    /// <summary>P5 for its schedule (kept since SW24.1): a stuck show thread turns every counting item red, its words the show stuck, no time.</summary>
+    static bool StuckScheduleKept()
+    {
+        var frame = Running() with { Elements = DisplayElements.All, Playout = new PlayoutView("VT1", 42, 90, true, "Patterns", "patterns", "9f8e7d6c") };
+        var items = ShowContext.Assess(Own(frame, true, [], [])).Items.Where(i => i.Id is "timer" or "schedule" or ShowContext.VtId).ToList();
+        return items.Count == 3 && items.All(i => i.Light == Light.Red && i.State == ShowContext.StuckWords && !Regex.IsMatch(i.State, @"\d:\d\d"));
+    }
+
+    /// <summary>
+    /// P7 and <c>context.items.first</c> (kept since SW24.1): reds, then ambers, then each item with a row to another node, then the rest —
+    /// so with 40 green windows ahead of it, a link item with a row is among the first <paramref name="first"/>, behind the red and the amber.
+    /// </summary>
+    static bool OrderKept(long first)
+    {
+        var windows = Enumerable.Range(0, 40).Select(i => new ContextItem("window:w" + i.ToString(CultureInfo.InvariantCulture), "screen", "Window", Light.Green, "showing /clock")).ToList();
+        var input = Own(new ShowSnapshot { Title = "Keynote" }, false,
+            [.. windows, new ContextItem("link:osc", "link", "OSC", Light.Red, "not listening"), new ContextItem("link:patterns", "link", "Patterns", Light.Green, "live"),
+             new ContextItem("bus:hello", "health", "Show network hello", Light.Amber, "can't go out")], [])
+            with { Rows = [new ContextLink("link:patterns", "@9f8e7d6c", "controls", Light.Green)] };
+        var ids = ShowContext.Assess(input).Items.Select(i => i.Id).ToList();
+        return ids.Take(3).SequenceEqual(["link:osc", "bus:hello", "link:patterns"]) && ids.IndexOf("link:patterns") < first && ids[3] == "timer";
+    }
+
+    /// <summary>
+    /// P8 for its messages (kept since SW24.1). The desk still sends a speaker message with an ack as a message signal carrying its text and
+    /// journals every message's and question's text (so the check is not empty); no cue item and no recent line carries them, and a
+    /// department's cue words, the show's own, still go.
+    /// </summary>
+    static bool MessagesKept()
     {
         var desk = Source("src/Timer.App/ViewModels/MainViewModel.cs") ?? "";
         var systems = Source("src/Timer.App/ViewModels/MainViewModel.Systems.cs") ?? "";
@@ -2460,25 +2498,24 @@ static class ShowBusSpecTests
                      && desk.Contains("_journal.Add(DateTime.UtcNow, JournalKind.Message, _show.RundownActive ? _show.CurrentItem : -1, text)", StringComparison.Ordinal)
                      && systems.Contains("_journal.Add(now, JournalKind.Question, item, q.Text)", StringComparison.Ordinal);
         var input = Own(Running(), false, [], [], journal: Journal());
-        var cue = ShowContext.Assess(input).Items.FirstOrDefault(i => i.Id == "cue:speaker");
-        using var doc = JsonDocument.Parse(ShowContext.Build(input));
-        var recent = Items(doc.RootElement, "recent").Select(r => Str(r, "text") ?? "").ToList();
-        return writes && cue is not null && cue.State.Contains(Canary, StringComparison.Ordinal)
-               && recent.Count(t => t.Contains(Canary, StringComparison.Ordinal)) == 2 && recent.Any(t => t.Contains(QuestionCanary, StringComparison.Ordinal));
-    }
+        var items = ShowContext.Assess(input).Items;
+        var json = ShowContext.Build(input);
+        return writes && items.FirstOrDefault(i => i.Id == "cue:speaker") is { } cue && !cue.State.Contains(Canary, StringComparison.Ordinal)
+               && items.FirstOrDefault(i => i.Id == "cue:lighting")?.State.Contains("LX 12", StringComparison.Ordinal) == true
+               && !json.Contains(Canary, StringComparison.Ordinal) && !json.Contains(QuestionCanary, StringComparison.Ordinal)
+               // The desk's rows still say what was proposed and how it ended, the verb and its state, and a department's cue words go.
+               && Recent(json) is var recent
+               && recent.Contains("Proposed ab12cd34: AGMessage → Stagewatch: message (its words stay on this desk)", StringComparison.Ordinal)
+               && recent.Contains("Outcome ab12cd34: Stagewatch: message (its words stay on this desk) — done", StringComparison.Ordinal)
+               && recent.Contains("Sent cd34ef56 to AGMessage (operator): notice (its words stay on this desk)", StringComparison.Ordinal)
+               && recent.Contains("AI agent proposed: signal message (its words stay on this desk)", StringComparison.Ordinal)
+               && recent.Contains("Patterns FOH → Stagewatch: signal standby Lighting \"LX 12\"", StringComparison.Ordinal);
 
-    /// <summary>Whether a stuck show thread still turns Stagewatch's timer red and leaves its schedule's light as the frame gives it (P5).</summary>
-    static bool StuckScheduleAsToday()
-    {
-        var items = ShowContext.Assess(Own(Running(), true, [], [])).Items;
-        return items.FirstOrDefault(i => i.Id == "timer")?.Light == Light.Red && items.FirstOrDefault(i => i.Id == "schedule")?.Light == Light.Green;
-    }
-
-    /// <summary>Whether Stagewatch's timer is still its first item whatever its light, ahead of a red one (P7).</summary>
-    static bool TimerFirstAsToday()
-    {
-        var items = ShowContext.Assess(Own(new ShowSnapshot { Title = "Keynote" }, false, [new ContextItem("link:osc", "link", "OSC", Light.Red, "not listening")], [])).Items;
-        return items.Count > 1 && items[0].Id == "timer" && items[0].Light == Light.Grey && items.Skip(1).Any(i => i.Light == Light.Red);
+        static string Recent(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            return string.Join("\n", Items(doc.RootElement, "recent").Select(r => Str(r, "text") ?? ""));
+        }
     }
 
     /// <summary>
@@ -2967,6 +3004,12 @@ static class ShowBusSpecTests
               && !PlayoutProof.OffersLink(PlayoutProofKind.Code, false, false, "5e1fa11c"),
             "showbus spec: Stagewatch keeps what §8's row names as its Patterns link proving at level 0 only: it speaks LINK with an app key, and with "
             + "the pairing code inside TLS, by one rule, and keeps level 0 for an acceptor that answers LINK as an older build");
+        // Kept since SW24.1, its words in the frozen row still standing: §6's rules for the Eye, P2 to P8 (ContextCode holds each).
+        Check(notKept.Contains("of §6's rules for the Eye: P2 for its links (today its only rows run from its timer", StringComparison.Ordinal)
+              && notKept.Contains("`context.items.first` (today its timer is its first item whatever its light, ahead of a red or amber one) — ends when it "
+                  + "publishes by P1–P8", StringComparison.Ordinal)
+              && OwnRowsKept() && AcceptedLinksKept() && ClipTimeKept() && StuckScheduleKept() && OrderKept(n.Of("context.items.first")) && MessagesKept(),
+            "showbus spec: Stagewatch keeps what §8's row names of §6's rules for the Eye and context.items.first: it publishes by P1–P8");
         foreach (var (what, unit, today, differs) in WordsNotKeptYet)
         {
             Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),

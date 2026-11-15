@@ -393,13 +393,13 @@ test('S1.4 the rig hears all three', row({
 
 test('S1.5 every app hears the rig', row({
   id: 'S1.5',
-  title: "every app hears the rig: kind main, its --node-id, from the rig's own address where the reader says one, within 5 s of the last app ready (Patterns, whose link follows the rig, draws it no better than that link's record: amber only with the record live and amber, the key taken, and either at level 0 and legacy or at level 1 both ways proved and pinned with the one flag scope (the verdict's scope node, a finding), and the rig's own context, read from the rig, neither amber nor red with the headline Patterns draws)",
+  title: "every app hears the rig: kind main, its --node-id, from the rig's own address where the reader says one, within 5 s of the last app ready (Patterns, whose link follows the rig, draws it no better than that link's record: amber only with the record live and amber, the key taken, and either at level 0 and legacy or at level 1 both ways proved and pinned with the one flag scope (the verdict's scope node, a finding), and the rig's own context, read from the rig, neither amber nor red — or amber only by the links it accepted on /ws at level 0, Show Bus §6 P2 and 13.16.5, each named in the row's facts — with the headline Patterns draws)",
   apps: HOSTS,
   deadlineMs: HELLO_MS,
 }, async (r) => {
   r.evidence.push(run.log('patterns.wire'), run.log('playmap.wire'), run.log('agmessage-admin.out'));
   const addr = lan.host('stagewatch').addr;
-  const own = async () => { const c = await apps.stagewatch.context(); return { light: c.light, headline: c.headline }; };
+  const own = async () => S.ownLight(await apps.stagewatch.context());
   const patterns = await S.patternsHears(apps.patterns, [{ kind: 'main', id: NODE_ID, addr, linked: true, own }], S.left(readyAt, HELLO_MS));
   const playmap = await S.playmapHears(apps.playmap, [{ t: 'main', id: NODE_ID, addr }], S.left(readyAt, HELLO_MS));
   const agmessage = await S.agmessageHears(apps.agmessage, [{ t: 'main', id: NODE_ID, addr }], S.left(readyAt, HELLO_MS));
@@ -775,7 +775,7 @@ test('S4.3 both at once', row({
   r.facts.items = items.map((i) => ({ id: i.id, label: i.label, light: i.light, state: i.state }));
   for (const i of items) {
     const l = links.find((x) => `link:${x.name}` === i.id);
-    if (i.kind !== 'playout' || i.light !== l.record.light) throw new Error(`${i.id} is ${i.kind} ${i.light}, not its record's ${l.record.light}`);
+    if (i.kind !== 'link' || i.light !== l.record.light) throw new Error(`${i.id} is ${i.kind} ${i.light}, not its record's ${l.record.light}`);
     if (i.light === 'red' || l.pairing !== 'paired') throw new Error(`${i.id} is ${i.light} (${i.state}), its link ${l.pairing}`);
   }
   r.facts.vtFirst = await vtAgrees('patterns', 'Patterns', ids.patterns, patternsClip, S.left(readyAt, HELLO_MS), "the VT on Patterns' clip, the first link's");
@@ -790,7 +790,7 @@ test('S4.3 both at once', row({
 
 test('S4.4 clocks agree on one kernel', row({
   id: 'S4.4',
-  title: "on one kernel each of the VT rig's links believes its peer's clock within 50 ms of its own, within 10 s, and the context carries no clock: item",
+  title: "on one kernel each of the VT rig's links believes its peer's clock within 50 ms of its own, within 10 s, and the context carries one green clock:<node id> item per link, none apart",
   apps: ['stagewatch', 'patterns', 'playmap'],
   deadlineMs: CLOCK_MS,
 }, async (r) => {
@@ -805,8 +805,16 @@ test('S4.4 clocks agree on one kernel', row({
       r.facts[name] = { ...l.clock, samples: l.record.samples };
     }
     r.facts.ms = S.inTime(from, CLOCK_MS, 'both clocks within 50 ms');
-    const clocks = ((await apps.vt.context()).items || []).filter((i) => /^clock:/.test(i.id));
-    if (clocks.length) throw new Error(`the context carries ${clocks.map((i) => `${i.id} (${i.state})`).join(', ')}`);
+    // Show Bus §6 (SW24.1): one clock item per link that measured its peer's clock, under the node's id — never the link's name — green
+    // with its error while not apart.
+    const clocks = await until(async () => {
+      const c = ((await apps.vt.context()).items || []).filter((i) => /^clock:/.test(i.id));
+      return c.length === 2 ? c : null;
+    }, S.left(from, CLOCK_MS), 'a clock item for each link');
+    const want = [`clock:${ids.patterns}`, `clock:${ids.playmap}`].sort();
+    if (JSON.stringify(clocks.map((i) => i.id).sort()) !== JSON.stringify(want) || clocks.some((i) => i.light !== 'green' || !/± \d+ ms/.test(i.state)))
+      throw new Error(`the context carries ${clocks.map((i) => `${i.id} ${i.light} (${i.state})`).join(', ')}, not green ${want.join(', ')}`);
+    r.facts.clockItems = clocks.map((i) => ({ id: i.id, light: i.light, state: i.state }));
     await vtLockoutAfter(r);
   } finally {
     r.facts = r.facts || {};

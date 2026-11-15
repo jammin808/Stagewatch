@@ -405,7 +405,7 @@ static class ShowBusTests
         var quiet = Crowded(t0, windows: 4, links: 2, departments: 3, recent: 5, peers: 2, words: 20, letter: 'x');
         var whole = Read(ShowContext.Build(quiet));
         Check(whole.Items.Count == ShowContext.Assess(quiet).Items.Count && whole.Items.All(i => i.Id != ShowContext.TrimmedId)
-              && whole.Links.Count == quiet.Links.Count && whole.Recent.Count == 5 && whole.Commands.Count == ShowContext.Commands.Count && whole.Peers.Count == 2,
+              && whole.Links.Count == quiet.Rows!.Count && whole.Recent.Count == 5 && whole.Commands.Count == ShowContext.Commands.Count && whole.Peers.Count == 2,
             "context: a context within its sizes is sent whole, with no context:trimmed item");
 
         // Every text within its field: cut with "…" at the field's size, a surrogate pair never split.
@@ -431,10 +431,10 @@ static class ShowBusTests
             $"context: its name is the one its hello says — no control characters, at most a hello's characters, a pair never split ({cut.Name.Length})");
         var odd = Crowded(t0, windows: 0, links: 0, departments: 0, recent: 0, peers: 0, words: 10, letter: 'x');
         var oddLink = new ContextItem("link:" + new string('i', 65), "link-" + new string('k', 35), "Odd", "blue", "up");
-        var oddSent = Read(ShowContext.Build(odd with { Links = [oddLink] }));
+        var oddSent = Read(ShowContext.Build(odd with { Links = [oddLink], Rows = [new ContextLink(oddLink.Id, "@node0001", "controls", "blue")] }));
         Check(oddSent.Items.FirstOrDefault(i => i.Label == "Odd") is { } oddItem && oddItem.Id == oddLink.Id[..ShowContext.IdChars]
               && oddItem.Kind == oddLink.Kind[..ShowContext.KindChars] && oddItem.Light == Light.Grey
-              && oddSent.Links is [{ From: "timer" } oddRow] && oddRow.To == oddItem.Id && oddRow.Light == Light.Grey,
+              && oddSent.Links is [{ To: "@node0001" } oddRow] && oddRow.From == oddItem.Id && oddRow.Light == Light.Grey,
             "context: a link's id and kind are clipped to their sizes with no mark, an unknown light is sent grey, and its links row names the id as sent");
 
         // A crowded room (64 windows, 8 links, 30 departments, 20 long recent lines, 32 peers): trimmed in §6's order, no red or amber touched.
@@ -536,8 +536,9 @@ static class ShowBusTests
         var ids = counted.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
         var manyWords = LeftOut(many, counted).Words;
         Check(counted.Items.Count == ShowContext.MaxItems && counted.Links.Count <= ShowContext.MaxLinks
-              && counted.Links.All(row => ids.Contains(row.From) && ids.Contains(row.To))
-              && counted.Items.Select(item => item.Id).Take(3).SequenceEqual(["timer", "schedule", "link:l0"]) && counted.Items[^2].Id == "link:l196"
+              && counted.Links.All(row => (row.From.StartsWith('@') || ids.Contains(row.From)) && (row.To.StartsWith('@') || ids.Contains(row.To)))
+              && counted.Items.Select(item => item.Id).Take(3).SequenceEqual(["link:l0", "link:l1", "link:l2"])
+              && counted.Items.Select(item => item.Id).Skip(ShowContext.ItemsFirst).Take(2).SequenceEqual(["timer", "schedule"]) && counted.Items[^2].Id == "link:l196"
               && counted.Items[^1] is { Id: ShowContext.TrimmedId } countedTrimmed && countedTrimmed.State == manyWords && manyWords == "left out: 253 links, 253 items",
             $"context: past its counts it keeps context.items items, the context:trimmed item among them, leaves out the last first, and no link "
             + $"names an item left out ({counted.Items.Count} items, {counted.Links.Count} links; {manyWords})");
@@ -552,6 +553,22 @@ static class ShowBusTests
     /// text is <paramref name="words"/> of <paramref name="letter"/> (a notes' 1000), a peer's name 100 of <paramref name="name"/> and its
     /// headline 300 of <paramref name="heading"/>: a letter past ASCII is six bytes as sent, escaped.
     /// </summary>
+    /// <summary>The <paramref name="i"/>-th node a crowded room accepted on /ws, LINK verified over TLS, as the show network joins it.</summary>
+    internal sealed record PeerContextsRowFor(int i)
+    {
+        public NetworkRow Row
+        {
+            get
+            {
+                var id = "acc" + i.ToString("D5", CultureInfo.InvariantCulture);
+                var link = new NodeLinkFact("playmap", id, NodeProof.Key, "k" + i.ToString(CultureInfo.InvariantCulture), "PlayMap key " + i.ToString(CultureInfo.InvariantCulture),
+                    "10.0.2." + i.ToString(CultureInfo.InvariantCulture), new DateTime(2026, 10, 10, 18, 0, 0, DateTimeKind.Utc), 1, null, Linked: 1, Carrier: WindowGrants.LinkTls);
+                return new NetworkRow(new PeerSummary("playmap", id, "PlayMap " + new string('n', 60), Light.Green, "", "10.0.2.1", 1, true) { Link = "ws", Verified = "key" },
+                    null, NodeProof.None, link, [], true);
+            }
+        }
+    }
+
     internal static ContextInput Crowded(DateTime now, int windows, int links, int departments, int recent, int peers, int words, char letter,
         char name = 'p', char heading = 'h')
     {
@@ -571,7 +588,9 @@ static class ShowBusTests
         var journal = Enumerable.Range(0, recent).Select(i => new JournalEntry(now.AddSeconds(i - recent), JournalKind.Note, 0, N(i) + " " + new string(letter, 1000))).ToList();
         var heard = Enumerable.Range(0, peers)
             .Select(i => new PeerSummary("patterns", "pat" + N(i, "D4"), new string(name, 100), Light.Green, new string(heading, 300), "10.0.1." + N(i), 1, true)).ToList();
-        return new ContextInput("abc123abc123", "Hall A", now, frame, false, items, heard, journal, ShowClock.For("UTC"), 0);
+        // Each link a PeerLink with its one row to a node of its own (§6 P2), so a crowded room's links are its rows.
+        var rows = Enumerable.Range(0, links).Select(i => new ContextLink("link:l" + N(i), "@node" + N(i, "D4"), "controls", Light.Green)).ToList();
+        return new ContextInput("abc123abc123", "Hall A", now, frame, false, items, heard, journal, ShowClock.For("UTC"), 0, Rows: rows);
     }
 
     /// <summary>A context as sent: its UTF-8 bytes, its name and headline, its items in order, links, recent lines, commands' verbs and peers.</summary>
@@ -602,8 +621,10 @@ static class ShowBusTests
         List<bool> Items(string light) => all.Where(i => i.Light == light).Select(i => !kept.ContainsKey(i.Id)).ToList();
         List<bool> States(string light) => all.Where(i => i.Light == light && i.State.Length > ShowContext.LastResortChars && kept.ContainsKey(i.Id))
             .Select(i => kept[i.Id].State != i.State).ToList();
-        var linked = sent.Links.Select(l => l.To).ToHashSet(StringComparer.Ordinal);
-        List<bool> Links(bool grey) => x.Links.Where(l => (Light.Clean(l.Light) == Light.Grey) == grey).Select(l => !linked.Contains(l.Id)).ToList();
+        // The rows as the context would send them whole (§6 P2–P4), each by its two ends.
+        var rows = ShowContext.Links(x);
+        var linked = sent.Links.Select(l => (l.From, l.To)).ToHashSet();
+        List<bool> Links(bool grey) => rows.Where(l => (Light.Clean(l.Light) == Light.Grey) == grey).Select(l => !linked.Contains((l.From, l.To))).ToList();
         var said = sent.Commands.ToHashSet(StringComparer.Ordinal);
         List<bool> Commands(bool air) => ShowContext.Commands.Where(c => c.Air == air).Select(c => !said.Contains(c.Verb)).ToList();
         var recent = x.Journal.TakeLast(ShowContext.MaxRecent)
@@ -625,7 +646,7 @@ static class ShowBusTests
         static string N(int n, string one, string many) => n.ToString(CultureInfo.InvariantCulture) + " " + (n == 1 ? one : many);
         var parts = new List<string>();
         if (recent.Count(o => o) is var r and > 0) parts.Add(N(r, "recent", "recent"));
-        if (x.Links.Count - sent.Links.Count is var l and > 0) parts.Add(N(l, "link", "links"));
+        if (rows.Count - sent.Links.Count is var l and > 0) parts.Add(N(l, "link", "links"));
         if (ShowContext.Commands.Count - sent.Commands.Count is var c and > 0) parts.Add(N(c, "command", "commands"));
         if (all.Count - kept.Count is var i and > 0) parts.Add(N(i, "item", "items"));
         return (steps, parts.Count > 0 ? "left out: " + string.Join(", ", parts) : "");
@@ -671,26 +692,59 @@ static class ShowBusTests
               && facts.All(f => f.Item.Light == Light.Green && f.Item.Id == ScreenWindows.ItemId(f.Name)),
             "windows in the context: a window is given a page only while not held and showing neither the holding page nor black; its grants by name");
 
-        // D11: the timer follows a playout link, hears any other, feeds a window that shows a page, and no link names a health item.
+        // P2–P4 and D11: a PeerLink item's one row to its node; the timer feeds a window that shows a page drawing the timer; a window
+        // serves each holder a grant on its own key-verified link proves; nothing runs from the timer to a link; no row names a health item.
         var health = new[] { new ContextItem("key:k1", "health", "API key 'Patterns'", Light.Amber, "seen in clear"), new ContextItem("bus:hello", "health", "Show network hello", Light.Amber, "can't go out") };
+        var grants = new[]
+        {
+            new GrantObserved(lobby.Id, pat, "patterns", "Patterns FOH", ScreenWindows.HowPage, true, "tls", true, 1, "shown", "Patterns FOH shows it"),
+            new GrantObserved(lobby.Id, pm, "playmap", "", ScreenWindows.HowDraw, true, "local", true, 0, "sent", "sent"),
+        };
+        var held = ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, observed), null, grants);
+        var unlinked = ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, observed), null, [grants[0] with { Linked = false, State = "waiting" }, grants[1]]);
+        Check(held[0].Holders.SequenceEqual([new WindowHolder(pat, Light.Green), new WindowHolder(pm, Light.Amber)]) && held.Skip(1).All(f => f.Holders.Count == 0)
+              && unlinked[0].Holders.SequenceEqual([new WindowHolder(pm, Light.Amber)]),
+            "windows in the context (P4): a holder for each grant on its app's own key-verified link, green once shown and amber while it opens; none for a grant its app is not linked for");
+        // Each grant state on a linked app: shown green; sent and open amber (it opens); waiting, plain, key-in-clear, cannot (never sent),
+        // held and stale (not shown now) no row — an attempt or a refusal is never drawn as a serves edge.
+        var byState = WindowGrants.States.ToDictionary(st => st,
+            st => ScreenWindows.Facts(windows, ScreenWindows.ContextItems(windows, observed), null, [grants[0] with { State = st }])[0].Holders);
+        Check(WindowGrants.States.All(st => st switch
+              {
+                  "shown" => byState[st].SequenceEqual([new WindowHolder(pat, Light.Green)]),
+                  "sent" or "open" => byState[st].SequenceEqual([new WindowHolder(pat, Light.Amber)]),
+                  _ => byState[st].Count == 0,
+              }),
+            "windows in the context (P4): a serves row green for shown, amber for sent and open, and none for waiting, plain, key-in-clear, cannot, held or stale ("
+            + string.Join(", ", byState.Select(kv => kv.Key + " " + string.Join("/", kv.Value.Select(h => h.Light)))) + ")");
         var input = new ContextInput(own, "Hall A", t0, new ShowSnapshot { Title = "Keynote" }, false,
-            [new ContextItem("link:patterns", "playout", "Patterns", Light.Green, "VT1: 0:42 left"), new ContextItem("link:osc", "link", "OSC", Light.Green, "listening"),
-             new ContextItem("clock:patterns", "health", "Clock vs Patterns", Light.Amber, "CLOCKS APART")],
-            [], [], ShowClock.For("UTC"), GoLatency.AmberMs + 100, null, facts, health);
+            [new ContextItem("link:patterns", "link", "Patterns", Light.Green, "VT1: 0:42 left · node " + pat), new ContextItem("link:osc", "link", "OSC", Light.Green, "listening"),
+             new ContextItem("clock:" + pat, "health", "Clock vs Patterns", Light.Amber, "CLOCKS APART")],
+            [], [], ShowClock.For("UTC"), GoLatency.AmberMs + 100, null, held, health,
+            [new ContextLink("link:patterns", "@" + pat, "controls", Light.Green), new ContextLink("link:gone", "@" + pm, "controls", Light.Green),
+             new ContextLink("link:osc", "@not an id", "controls", Light.Green), new ContextLink("@" + pm, "link:osc", "nudges", Light.Green)]);
         var (_, _, items) = ShowContext.Assess(input);
         using (var doc = JsonDocument.Parse(ShowContext.Build(input)))
         {
             var links = doc.RootElement.GetProperty("links").EnumerateArray()
                 .Select(l => (From: l.GetProperty("from").GetString(), To: l.GetProperty("to").GetString(), Kind: l.GetProperty("kind").GetString(), Light: l.GetProperty("light").GetString())).ToList();
-            Check(links.SequenceEqual([("timer", "link:patterns", "follows", Light.Green), ("timer", "link:osc", "hears", Light.Green), ("timer", "window:lobby", "feeds", Light.Green)]),
-                "windows in the context (G23): one feeds link for a window that shows a page; none for a held, black or holding window, a clock, a key, the hello or go-latency ("
-                + string.Join(", ", links.Select(l => $"{l.From} -{l.Kind}-> {l.To}")) + ")");
+            Check(links.SequenceEqual([("link:patterns", "@" + pat, "controls", Light.Green), ("timer", "window:lobby", "feeds", Light.Green),
+                    ("window:lobby", "@" + pat, "serves", Light.Green), ("window:lobby", "@" + pm, "serves", Light.Amber)]),
+                "windows in the context (G23, P2, P4): a link's one row to its node, no row from the timer to a link, one feeds row for a window that shows a "
+                + "page; a serves row per proved holder; none for a held, black or holding window, a clock, a key, the hello or go-latency, an item it has not, "
+                + "an end §6 refuses or a kind it has not (" + string.Join(", ", links.Select(l => $"{l.From} -{l.Kind}-> {l.To}")) + ")");
             var ids = doc.RootElement.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetString()).ToList();
-            Check(new[] { "window:lobby", "window:foyer", "window:hall", "window:stage", "key:k1", "bus:hello", "go-latency", "clock:patterns" }.All(ids.Contains)
-                  && items.Select(i => i.Id).SkipWhile(i => i != "link:patterns").Take(8).SequenceEqual(
-                      ["link:patterns", "link:osc", "clock:patterns", "window:lobby", "window:foyer", "window:hall", "window:stage", "key:k1"]),
-                "windows in the context: every window and health item is still an item, in the order links, windows, health");
+            Check(items.Select(i => i.Id).SequenceEqual(["clock:" + pat, "key:k1", "bus:hello", "go-latency", "link:patterns", "window:lobby", "timer", "link:osc",
+                      "window:foyer", "window:hall", "window:stage"]) && ids.SequenceEqual(items.Select(i => i.Id)),
+                "windows in the context (P7): ambers first, then every item with a row to another node, then the rest in their order: "
+                + string.Join(", ", items.Select(i => i.Id)));
         }
+        Check(ScreenWindows.DrawsTimer("/viewer") && ScreenWindows.DrawsTimer("/clock?h=12") && ScreenWindows.DrawsTimer("/audience") && ScreenWindows.DrawsTimer("/producer.html")
+              && !ScreenWindows.DrawsTimer("/clock?timer=0") && !ScreenWindows.DrawsTimer("/countdown?to=next") && !ScreenWindows.DrawsTimer("/layout?id=3")
+              && !ScreenWindows.DrawsTimer(ScreenWindows.Holding) && !ScreenWindows.DrawsTimer(ScreenWindows.Black) && !ScreenWindows.DrawsTimer("/timeline")
+              && !(facts[0] with { Showing = "/countdown" }).Fed && (facts[0] with { Showing = "/viewer?x=1" }).Fed,
+            "windows in the context (D11): only a page that draws the timer is fed by it — the viewer, the studio clock (not with timer=0), the holographic "
+            + "viewer, the showcaller's page and the agenda; a countdown, a layout, the timeline, the holding page and black are not");
         // D11 says "shows": a window given a page that has not said it shows it (unopened, switching, failed, cut off) is not fed yet.
         var opened = new List<WindowObserved>(observed);
         var unopened = ScreenWindows.Facts([lobby], ScreenWindows.ContextItems([lobby], []))[0];
@@ -703,8 +757,44 @@ static class ShowBusTests
                 Check(doc.RootElement.GetProperty("links").EnumerateArray().All(l => l.GetProperty("kind").GetString() != "feeds"),
                     $"windows in the context: no feeds link while the window is {notYet.Item.Light} ({notYet.Item.State})");
         using (var doc = JsonDocument.Parse(ShowContext.Build(input with { Windows = null, Health = null })))
-            Check(doc.RootElement.GetProperty("links").EnumerateArray().All(l => l.GetProperty("kind").GetString() != "feeds" && l.GetProperty("to").GetString() != "clock:patterns"),
+            Check(doc.RootElement.GetProperty("links").EnumerateArray().All(l => l.GetProperty("kind").GetString() != "feeds" && l.GetProperty("to").GetString() != "clock:" + pat),
                 "windows in the context: a context with no windows feeds nothing, and a health item among the links still gets none");
+
+        // P8: a message's and a nudge's words stay on the desk; an answer keeps who gave it; a department's cue words go.
+        Check(ShowContext.PublicText(new JournalEntry(t0, JournalKind.Ack, 0, "Message speaker: meet at nine (Done by Sam (10.0.0.4))"))
+                == "Message speaker (its words stay on this desk) (Done by Sam (10.0.0.4))"
+              && ShowContext.PublicText(new JournalEntry(t0, JournalKind.Signal, 0, "Nudge speaker: (wrap up)")) == "Nudge speaker (its words stay on this desk)"
+              && ShowContext.PublicText(new JournalEntry(t0, JournalKind.Signal, 0, "Standby Lighting: LX 12")) == "Standby Lighting: LX 12"
+              && !ShowContext.PublicText(new JournalEntry(t0, JournalKind.Question, 0, "is it recorded?")).Contains("recorded", StringComparison.Ordinal),
+            "context (P8): recent says a message, a nudge or a question went, never its words; an answer keeps who gave it; a cue's words go");
+
+        // §14's caps with P2–P4's rows (SW24.1): the most windows, each granted to the most apps that each hold it, the most playout links
+        // with their rows and clocks, and context.peers accepted links, all at once — sent within context.bytes, context.items and
+        // context.links, trimmed in §6's order, every red and amber item whole, and no row whose own end was left out.
+        var maxWindows = Enumerable.Range(0, ScreenWindows.Max).Select(i => new ScreenWindow
+        {
+            Id = "m" + i.ToString(CultureInfo.InvariantCulture), Name = "screen-" + i.ToString("D2", CultureInfo.InvariantCulture), Token = ScreenWindows.NewToken(),
+            Content = "/viewer", Revision = 1,
+            Grants = [.. Enumerable.Range(0, 4).Select(g => new WindowGrant { Node = "node" + i.ToString("D2", CultureInfo.InvariantCulture) + g.ToString(CultureInfo.InvariantCulture),
+                Kind = "patterns", Name = "Patterns " + g.ToString(CultureInfo.InvariantCulture), How = ScreenWindows.HowDraw })],
+        }).ToList();
+        var maxGrants = maxWindows.SelectMany(w => w.Grants.OfType<WindowGrant>().Select(g => new GrantObserved(w.Id, g.Node, g.Kind, g.Name, g.How, true, "tls", true, 1, "shown", ""))).ToList();
+        var maxObserved = maxWindows.Select(w => new WindowObserved(w.Id, 1, 1, w.Content, false, 40, t0, "", "", "")).ToList();
+        var maxFacts = ScreenWindows.Facts(maxWindows, ScreenWindows.ContextItems(maxWindows, maxObserved, null, maxGrants), null, maxGrants);
+        var maxPlayout = Enumerable.Range(0, Stagewatch.Core.PlayoutRules.Max).Select(i => new PlayoutLinkFact("link-" + i.ToString(CultureInfo.InvariantCulture), "PlayMap " + i.ToString(CultureInfo.InvariantCulture),
+            i % 2 == 0 ? Light.Amber : Light.Green, new string('s', 120), ["legacy"], 12, 2, PeerId: "pm" + i.ToString("D6", CultureInfo.InvariantCulture))).ToList();
+        var maxAccepted = Enumerable.Range(0, ShowContext.MaxPeers).Select(i => new PeerContextsRowFor(i)).Select(r => r.Row).ToList();
+        var accepted = ShowContext.Accepted(new NetworkView(maxAccepted, 0, []), ShowClock.For("UTC"));
+        var maxInput = new ContextInput(own, "Hall A", t0, new ShowSnapshot { Title = "Keynote" }, false, [.. ShowContext.PlayoutItems(maxPlayout), .. accepted.Items],
+            [], [], ShowClock.For("UTC"), 0, null, maxFacts, null, [.. ShowContext.PlayoutRows(maxPlayout), .. accepted.Rows]);
+        var maxSent = Read(ShowContext.Build(maxInput));
+        var (maxSteps, maxWords) = LeftOut(maxInput, maxSent);
+        var keptIds = maxSent.Items.Select(i => i.Id).ToHashSet(StringComparer.Ordinal);
+        Check(ShowContext.Links(maxInput).Count > 300 && maxSent.Bytes <= ShowContext.MaxBytes && maxSent.Items.Count <= ShowContext.MaxItems && maxSent.Links.Count <= ShowContext.MaxLinks
+              && OutOfOrder(maxSteps) is null && ShowContext.Assess(maxInput).Items.Where(i => i.Light is Light.Red or Light.Amber).All(maxSent.Items.Contains)
+              && maxSent.Links.All(l => (l.From.StartsWith('@') || keptIds.Contains(l.From)) && (l.To.StartsWith('@') || keptIds.Contains(l.To))),
+            $"windows in the context (§14 with P2–P4): the most windows, grants, playout and accepted links fit or trim in §6's order ({maxSent.Bytes} bytes, "
+            + $"{maxSent.Items.Count} items, {maxSent.Links.Count} of {ShowContext.Links(maxInput).Count} rows; {maxWords}{OutOfOrder(maxSteps)})");
 
         // The thirteen rows in §6's notation, each rated through its own table by its row.
         var table = VerbTable.Compile(ShowContext.Commands.Select(c => new PeerCommand(c.Verb, c.Risk, c.Words)));
