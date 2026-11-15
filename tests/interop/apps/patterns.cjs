@@ -19,6 +19,9 @@ const HELLO = 'Interop';
 
 const DOORS = { http: 9696, wire: 9697 };
 
+/** How long a fresh connection to the wire stays silent before it speaks, hearing nothing: well under the door's 10 s wait. */
+const QUIET_MS = 1500;
+
 class Patterns {
   constructor(run, host) {
     this.run = run;
@@ -72,9 +75,13 @@ class Patterns {
     if (wrong.length) throw new Error(`the bench's ready line: ${wrong.join('; ')}`);
   }
 
-  /** From the switch, over the LAN: an unpaired connection to its wire hears a nonce first, and nothing else. */
+  /**
+   * From the switch, over the LAN: Patterns' wire says nothing to a connection that has said nothing (Show Bus 1.3 §13.8.5: it
+   * waits for the first byte, which tells TLS from plain, for 10 s; QUIET_MS here is well under that), and an unpaired connection
+   * that has then spoken first (its HELLO) hears a nonce first, and nothing else.
+   */
   async reachable() {
-    const line = await greeting(this.host.addr, DOORS.wire);
+    const line = await greeting(this.host.addr, DOORS.wire, `HELLO ${HELLO}`, { quietMs: QUIET_MS });
     if (!/^NONCE [0-9a-f]{32}$/.test(line)) throw new Error(`Patterns' wire at ${this.host.addr}:${DOORS.wire} said ${JSON.stringify(line.slice(0, 80))}, not a nonce`);
     return line.slice(0, 5);
   }

@@ -180,7 +180,8 @@ a network namespace of its own on one Linux kernel. It writes one matrix row per
 read and how long it took. It is not a default lane: it builds three other repositories and runs for minutes.
 
 ```bash
-tools/setup-dev.sh                                # once: Python 3.12+, unshare, nsenter, mount, the driver's packages
+tools/setup-dev.sh                                # once: Python 3.12+, unshare, nsenter, mount, the driver's packages;
+                                                  # says a pinned sibling's .NET SDK this machine lacks
 tools/test.sh interop                             # the build lane, the self-check, the siblings' builds, each topology
 SW_INTEROP_TOPOLOGY=laptop tools/test.sh interop  # one topology: lan, laptop or offline
 tools/test.sh help                                # every lane, and every variable a person sets for it
@@ -206,6 +207,16 @@ tools/test.sh help                                # every lane, and every variab
   not hold is fetched from its origin into the clone, never into the sibling. A commit the sibling's repository holds on
   none of its remote branches is refused, even if it was pushed since from elsewhere: `git fetch` in that repository's
   `.git` brings its remote branches up to date and changes no working tree.
+- A sibling whose `global.json` pins its .NET SDK builds with that SDK only: dotnet refuses a machine whose SDKs are all of
+  another feature band. Patterns pins one since its round 98 (10.0.115, `rollForward` `latestPatch`); Mapper and AGMessage pin
+  none. Before any build starts, `tools/interop/sdk.sh` asks dotnet in each clone, where its `global.json` applies, so dotnet's
+  own rules decide (a `global.json` that names no version takes the newest SDK; comments in it are read as dotnet reads them),
+  and a machine where dotnet resolves no SDK there is not run, in words that name the SDK to install and the SDKs it has:
+  Microsoft's `dotnet-install.sh --version <that SDK>` into the dotnet folder, beside the others (apt's `dotnet-sdk-10.0` is
+  one feature band). `tools/setup-dev.sh` says the same for the pins in `siblings.json`, and says a pin its sibling's
+  repository has not fetched. CI's interop job and the nightly heads job install each SDK a sibling's `global.json` names
+  (`sdk.sh --named` reads it from the checkout) beside the `10.0.x` they install; Stagewatch has no `global.json` and builds
+  with the newest .NET 10 SDK the machine has.
 - When the machine's Node is not one AGMessage's `engines` field accepts, the Node `build.sh` pins is fetched once into
   `artifacts/interop/node`, its SHA-256 checked, and never installed on the machine (`SW_INTEROP_AGMESSAGE_NODE` names
   another).
@@ -217,13 +228,16 @@ tools/test.sh help                                # every lane, and every variab
   comes with the pin that brings it. `SW_INTEROP_HEADS=1` runs each sibling at the commit its repository has checked out
   instead (still pushed only), and `builds.json` and the matrix say how far each is from its pin: the nightly drift report,
   which moves no pin.
-- The pins are the siblings' pushed heads: Patterns fb56b4e (its round 96 closed: its Stagewatch link speaks LINK on `/ws`,
-  and a Stagewatch window granted to its desk is staged ready-gated and said shown only from the air), PlayMap 031c9a3 (its
-  fix batches fix-wire-state-after-proof and fix-wire-greeting-after-handshake: its line wire says its greeting STATE only
-  after a connection's proof, so a level-0 link to it counts no line it could not read), AGMessage d0e3961 (0.5.0). Patterns' link proves itself to the
-  rig and the rig to it with the node key the rig made for it, pins the certificate the proof was made over and keeps a floor,
-  so no person's Trust is asked on the LAN (row S0.2 reads the bench's trust line finding nothing waiting). The laptop and
-  offline topologies link at 127.0.0.1.
+- The pins are the siblings' pushed heads: Patterns 2515017 (its round 98 closed: its wire, 9697, is a LINK acceptor with app
+  keys, lists the link it accepted in STATE's `decks` rows, and tells TLS from plain by a connection's first byte, writing
+  nothing before it, so every client of it speaks first: the lane's own wire client says its `HELLO` and then hears the `NONCE`
+  that byte brought, row S0.1 holds that a connection which says nothing for 1.5 s hears nothing, and the VT rigs' playout
+  links to it speak first too; its hello does not say `cap peerlink` yet, and the rigs' links to it stay level 0, amber,
+  legacy), PlayMap 2ae7ac7b (tests only since 031c9a3's fix batches, whose line wire says its greeting STATE only after a
+  connection's proof, so a level-0 link to it counts no line it could not read; it offers no LINK yet), AGMessage d0e3961
+  (0.5.0). Patterns' link proves itself to the rig and the rig to it with the node key the rig made for it, pins the
+  certificate the proof was made over and keeps a floor, so no person's Trust is asked on the LAN (row S0.2 reads the bench's
+  trust line finding nothing waiting). The laptop and offline topologies link at 127.0.0.1.
 
 **The topologies.** `tools/test.sh interop` starts `tools/interop/run.sh <topology>` once per topology inside `unshare
 --user --map-root-user --net --pid --fork --mount-proc --kill-child`, with 20 minutes to finish. The run's processes live in
@@ -280,7 +294,7 @@ once those are removed, for every secret of the register, in either case. A row'
 
 | Row | On | What it holds |
 |---|---|---|
-| S0.1 | lan | each app is ready in its own namespace, within 60 s of its start; between Patterns' start and PlayMap's the lane reads Patterns' link to the rig prove itself, which S0.2 asserts |
+| S0.1 | lan | each app is ready in its own namespace, within 60 s of its start, and Patterns' wire says nothing to a connection until it speaks; between Patterns' start and PlayMap's the lane reads Patterns' link to the rig prove itself, which S0.2 asserts |
 | S0.2 | lan | Patterns links to the rig over ws, verified both ways, pinned, floor set: within 5 s of Patterns' ready line its link's record is live at level 1 with both proofs, over TLS pinned by the proof at the certificate the rig serves (read from the rig), floor `{tls, level 1, mutual}`, under the kid its key makes; the rig's `nodes` record holds the link proved by that key and `--state` binds the key to Patterns' id; the bench's trust line finds nothing waiting |
 | S1.1 | lan | Patterns hears PlayMap and AGMessage, each from its own address |
 | S1.2 | lan | PlayMap hears Patterns and AGMessage, each from its own address where its NODES says one |

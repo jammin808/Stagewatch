@@ -1,9 +1,11 @@
-// A line-wire client for Patterns' and PlayMap's TCP wires (Show Bus §7), as the switch speaks to them over the LAN: a fresh
-// connection hears "NONCE <32 hex>" first; the client says HELLO <name> and answers with AUTH-PROOF, the lowercase hex of
-// HMAC-SHA256 keyed with the token as both apps compare it (dashes and whitespace removed, upper case) over the nonce and the
-// HELLO name, so the token never crosses the wire. Requests go one at a time: a request's answer is the first line after it
-// that begins OK or ERR; the pushes in between (STATE, CONTEXT, a new NONCE, a fact) are kept in arrival order and never taken
-// for an answer. What a connection hears is kept for the sweep (row S7.1) through `capture`, as heard.
+// A line-wire client for Patterns' and PlayMap's TCP wires (Show Bus §7), as the switch speaks to them over the LAN. The client
+// speaks first (Show Bus 1.3 §13.8.5: Patterns' wire writes nothing before a connection's first byte, which tells TLS from
+// plain): it says HELLO <name>, and the door's "NONCE <32 hex>" comes before HELLO's answer (PlayMap's on connect, Patterns' on
+// that first byte); the client answers it with AUTH-PROOF, the lowercase hex of HMAC-SHA256 keyed with the token as both apps
+// compare it (dashes and whitespace removed, upper case) over the nonce and the HELLO name, so the token never crosses the wire.
+// Requests go one at a time: a request's answer is the first line after it that begins OK or ERR; the pushes in between (STATE,
+// CONTEXT, a new NONCE, a fact) are kept in arrival order and never taken for an answer. What a connection hears is kept for the
+// sweep (row S7.1) through `capture`, as heard.
 'use strict';
 const crypto = require('node:crypto');
 const net = require('node:net');
@@ -22,8 +24,8 @@ const NONCE = /^NONCE ([0-9a-f]{32})$/;
 
 class Wire {
   /**
-   * Connect to host:port; resolves once the door's first line is read. capture: a file every line heard is appended to
-   * (0600), for the sweep.
+   * Connect to host:port; resolves once the socket is up, with nothing said either way: the first line is the client's (pair()'s
+   * HELLO). capture: a file every line heard is appended to (0600), for the sweep.
    */
   static connect(host, port, { capture = null, ms = 5000 } = {}) {
     return new Promise((resolve, reject) => {
@@ -35,7 +37,9 @@ class Wire {
       w.socket.setNoDelay(true);
       let buf = '';
       let settled = false;
-      const fail = (e) => { if (!settled) { settled = true; w.socket.destroy(); reject(e); } };
+      let timer = null;
+      const fail = (e) => { clearTimeout(timer); if (!settled) { settled = true; w.socket.destroy(); reject(e); } };
+      timer = setTimeout(() => fail(new Error(`${w.where}: not connected within ${ms} ms`)), ms);
       w.socket.on('data', (d) => {
         buf += d;
         let nl;
@@ -50,12 +54,12 @@ class Wire {
       });
       w.socket.on('error', (e) => { w.error = e; fail(new Error(`${w.where}: ${e.code || e.message}`)); });
       w.socket.on('close', () => { w.closed = true; w.lines.end(); if (w.capture !== null) { fs.closeSync(w.capture); w.capture = null; } });
-      w.lines.wait(() => true, ms, `the first line from ${w.where}`).then((first) => {
+      w.socket.once('connect', () => {
+        clearTimeout(timer);
         if (settled) return;
         settled = true;
-        w.first = first.line;
         resolve(w);
-      }, fail);
+      });
     });
   }
 
@@ -68,7 +72,10 @@ class Wire {
     return answer.line;
   }
 
-  /** HELLO <name>, then AUTH-PROOF for the newest nonce; resolves once the door says "OK paired", else throws its words. */
+  /**
+   * HELLO <name> (the connection's first line), then AUTH-PROOF for the newest nonce, which both doors say before HELLO's answer;
+   * resolves once the door says "OK paired", else throws its words.
+   */
   async pair(name, token) {
     const hello = await this.ask(`HELLO ${name}`);
     if (!hello.startsWith('OK')) throw new Error(`${this.where} answered HELLO with ${JSON.stringify(hello)}`);

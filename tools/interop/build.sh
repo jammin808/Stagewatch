@@ -23,8 +23,8 @@
 #   SW_INTEROP_HEADS   1: each sibling at its repository's HEAD; unset or 0: at its pin; anything else is refused
 # Exit codes: 0 built; 1 a clone, a checkout or a build failed; 2 refused: siblings.json, a pin (or head) that is not pushed,
 # a SW_INTEROP_HEADS it does not take, or a SW_INTEROP_AGMESSAGE_NODE its engines field does not accept; 3 not run (a sibling's
-# repository absent or with no commit checked out, a pin it cannot fetch, or no Node for AGMessage's engines field that this
-# machine has or can fetch). Each is said on standard error and in builds.json, which then holds the words in place of a build
+# repository absent or with no commit checked out, a pin it cannot fetch, no .NET SDK on this machine that a sibling's
+# global.json leads dotnet to, or no Node for AGMessage's engines field that this machine has or can fetch). Each is said on standard error and in builds.json, which then holds the words in place of a build
 # ({"v":1,"failed"|"refused"|"notRun":"<words>","siblings":"pins"|"heads","placed":{...}}, placed: each sibling's clone made so
 # far, its commit, its pin and where it was seen pushed), so no earlier run's builds stay to be read as this run's.
 set -uo pipefail
@@ -141,9 +141,20 @@ while read -r app repo ref build; do
   record "$app" "$ref"
 done <<< "$pins"
 
-# One build at a time, each in its own tree, with no build server left behind to meet another tree's build.
+# One build at a time, each in its own tree, with no build server left behind to meet another tree's build. A sibling whose
+# global.json pins its .NET SDK (Patterns does) builds with that SDK only, as dotnet resolves it in the clone's own folder; a
+# machine where dotnet resolves none there is said, with the SDK to install, before any build starts (tools/interop/sdk.sh).
+declare -A sdk_of
 for app in patterns mapper; do
-  say "$app: dotnet build ${build_of[$app]} at $(git -C "${tree[$app]}" rev-parse --short=12 HEAD)"
+  sdk_of[$app]=$("$root/tools/interop/sdk.sh" "$app" "${tree[$app]}")
+  case $? in
+    0) ;;
+    1) notrun "${sdk_of[$app]}" ;;
+    *) stop 1 "$app: tools/interop/sdk.sh did not answer (its words above)" ;;
+  esac
+done
+for app in patterns mapper; do
+  say "$app: dotnet build ${build_of[$app]} at $(git -C "${tree[$app]}" rev-parse --short=12 HEAD)${sdk_of[$app]:+ with the .NET SDK ${sdk_of[$app]}, as dotnet resolves its global.json}"
   (cd "${tree[$app]}" && dotnet build "${build_of[$app]}" -c Release -v q -nologo --disable-build-servers) ||
     stop 1 "$app did not build (dotnet's words above)"
 done

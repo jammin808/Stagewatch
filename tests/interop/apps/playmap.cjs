@@ -91,9 +91,9 @@ class PlayMap {
     if (wrong.length) throw new Error(`PlayMap's 'is up' line: ${wrong.join('; ')}`);
   }
 
-  /** From the switch, over the LAN: an unpaired connection to its wire hears a nonce first. */
+  /** From the switch, over the LAN: an unpaired connection to its wire that has said its HELLO hears a nonce first. */
   async reachable() {
-    const line = await greeting(this.host.addr, DOORS.wire);
+    const line = await greeting(this.host.addr, DOORS.wire, `HELLO ${HELLO}`);
     if (!/^NONCE [0-9a-f]{32}$/.test(line)) throw new Error(`PlayMap's wire at ${this.host.addr}:${DOORS.wire} said ${JSON.stringify(line.slice(0, 80))}, not a nonce`);
     return line.slice(0, 5);
   }

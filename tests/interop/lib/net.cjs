@@ -1,5 +1,6 @@
-// What the switch (the driver, at 10.99.0.1) asks of an app over the LAN: the first line a wire says to a connection (an
-// unpaired one hears "NONCE <hex>" first) and HTTP requests, with no credential unless a row gives one. An https:// request is
+// What the switch (the driver, at 10.99.0.1) asks of an app over the LAN: the first line a wire says to a connection that has
+// spoken first (an unpaired one hears "NONCE <hex>" first; Patterns' wire says nothing before a connection's first byte) and
+// HTTP requests, with no credential unless a row gives one. An https:// request is
 // held to a pinned certificate (Show Bus §10: the pin, never a name or an authority): nothing of it, its headers included, is
 // sent until the server has shown the certificate whose fingerprint was pinned. node:http, node:https and node:net read no
 // proxy variable, and none reaches into the lane's namespaces.
@@ -9,14 +10,28 @@ const http = require('node:http');
 const https = require('node:https');
 const net = require('node:net');
 
-/** The first line a TCP door says to a fresh connection, within ms. */
-function greeting(host, port, ms = 5000) {
+/**
+ * The first line a TCP door says to a fresh connection that has said `say` (a line: a door that waits for the client's first
+ * byte, as Patterns' wire does since Show Bus 1.3 §13.8.5, says nothing until then), within ms of saying it. With quietMs, the
+ * line is said only after quietMs of silence from the door, and a byte the door writes before it is spoken to is a failure that
+ * names it; without, the line is written as soon as the socket is up.
+ */
+function greeting(host, port, say, { ms = 5000, quietMs = 0 } = {}) {
   return new Promise((resolve, reject) => {
+    if (typeof say !== 'string' || say.length === 0 || /[\r\n]/.test(say)) { reject(new Error(`${host}:${port}: no line to speak first`)); return; }
     const s = net.connect({ host, port });
     let buf = '';
+    let spoken = false;
+    let timer = null;
     const done = (err, line) => { clearTimeout(timer); s.destroy(); if (err) reject(err); else resolve(line); };
-    const timer = setTimeout(() => done(new Error(`${host}:${port} said no line within ${ms} ms`)), ms);
+    const speak = () => {
+      spoken = true;
+      s.write(say + '\n');
+      timer = setTimeout(() => done(new Error(`${host}:${port} said no line within ${ms} ms of hearing ${JSON.stringify(say.split(' ')[0])}`)), ms);
+    };
+    s.once('connect', () => { if (quietMs > 0) timer = setTimeout(speak, quietMs); else speak(); });
     s.on('data', (d) => {
+      if (!spoken) { done(new Error(`${host}:${port} said ${JSON.stringify(String(d).slice(0, 40))} within ${quietMs} ms of a connection that had said nothing`)); return; }
       buf += d;
       const nl = buf.indexOf('\n');
       if (nl >= 0) done(null, buf.slice(0, nl).replace(/\r$/, ''));

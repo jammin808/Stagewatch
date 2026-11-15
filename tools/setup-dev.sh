@@ -3,7 +3,8 @@
 # Node packages of the Companion module, the 3D display and the browser workflows, and a headless Chromium for them
 # (Playwright's headless shell: the one in PLAYWRIGHT_BROWSERS_PATH when the machine has it, else downloaded with its
 # system libraries). WPF, WMI, COM and PowerPoint are Windows-only: their tests run on the Windows job, and the suite
-# here names the checks it leaves to it (tests/Stagewatch.Tests/Bench.cs).
+# here names the checks it leaves to it (tests/Stagewatch.Tests/Bench.cs). The interop lane's needs are checked too, and a .NET
+# SDK a pinned sibling's global.json names that this machine lacks is said, with the SDK to install.
 #   tools/setup-dev.sh          install
 #   tools/setup-dev.sh start    install, then print the variables the lanes read (eval "$(tools/setup-dev.sh start)")
 # Then: tools/test.sh (every lane) or tools/test.sh <lane…>.
@@ -47,7 +48,36 @@ install() {
     exit 1
   fi
   npm ci --ignore-scripts --no-audit --no-fund --prefix tests/interop >/dev/null
+  sibling_sdks
   dotnet restore Timer.slnf >/dev/null
+}
+
+# The interop lane builds a sibling that pins its .NET SDK by global.json (Patterns does) with that SDK only, which apt's
+# dotnet-sdk-10.0 (one feature band) may not be: each pinned sibling's global.json, read at its pin from its repository beside
+# this one, is checked against this machine's SDKs, and one missing is said with the SDK to install beside the others (the lane
+# says it too, and is not run without it). Nothing is installed for it here.
+sibling_sdks() {
+  local app repo ref build dir tmp said
+  while read -r app repo ref build; do
+    case $app in
+      patterns) dir=${SW_PATTERNS_DIR:-../Patterns} ;;
+      mapper) dir=${SW_MAPPER_DIR:-../Mapper} ;;
+      *) continue ;;
+    esac
+    if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+      echo "The interop lane at its pins: no $app repository at $dir; its .NET SDK is not checked here (the lane checks it in its clone)" >&2
+      continue
+    fi
+    if ! git -C "$dir" cat-file -e "$ref^{commit}" 2>/dev/null; then
+      echo "The interop lane at its pins: $app: its pin $ref is not fetched in $dir; its .NET SDK is not checked here (the lane checks it in its clone)" >&2
+      continue
+    fi
+    git -C "$dir" cat-file -e "$ref:global.json" 2>/dev/null || continue
+    tmp=$(mktemp -d)
+    git -C "$dir" show "$ref:global.json" > "$tmp/global.json"
+    said=$(tools/interop/sdk.sh "$app" "$tmp") || echo "The interop lane at its pins: $said" >&2
+    rm -rf "$tmp"
+  done < <(python3 -I tools/interop/pins.py tools/interop/siblings.json 2>/dev/null)
 }
 
 install

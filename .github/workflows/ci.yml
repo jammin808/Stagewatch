@@ -237,6 +237,31 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # A sibling that pins its .NET SDK by global.json (Patterns does) builds only with that SDK, whatever it names: each one
+      # named is installed beside the 10.0.x above, read from the sibling's checkout (tools/interop/sdk.sh --named: the version,
+      # or nothing for no global.json or one naming none, where dotnet takes the newest SDK). Stagewatch has no global.json and
+      # keeps building with the newest .NET 10 SDK here; the lane's build says which SDK is missing if a sibling's still is.
+      - name: The SDKs the siblings' global.json name
+        id: sdks
+        run: |
+          for app in Patterns Mapper; do
+            v=$(Stagewatch/tools/interop/sdk.sh --named "$app")
+            echo "${app,,}=$v" >> "$GITHUB_OUTPUT"
+            echo "$app: ${v:-no SDK version named}"
+          done
+
+      - name: The SDK Patterns' global.json names
+        if: steps.sdks.outputs.patterns != ''
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: Patterns/global.json
+
+      - name: The SDK Mapper's global.json names
+        if: steps.sdks.outputs.mapper != ''
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: Mapper/global.json
+
       # The driver's Node. AGMessage runs on a Node its engines field accepts: build.sh fetches the one it pins, SHA-256 checked.
       - uses: actions/setup-node@v7
         with:

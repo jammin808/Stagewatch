@@ -34,6 +34,7 @@ static class PlayoutLinkTests
         Missed.Clear();
         await PairingRules(Check);
         await Desk11(Check);
+        await SpeaksFirst(Check);
         await OlderDeskOnThisPc(Check);
         await Round86Desk(Check);
         await Oversize(Check);
@@ -222,6 +223,12 @@ static class PlayoutLinkTests
         public int Port { get; }
         public volatile bool Closing;
         public Func<IReadOnlyList<string>> Greeting { get; set; } = () => [];
+
+        /// <summary>
+        /// The greeting waits for the connection's first line and is said before that line's answers, as Patterns' wire since its
+        /// Round 98 (Show Bus 1.3 §13.8.5) writes nothing before a connection's first byte: a link that waits to hear first hears nothing.
+        /// </summary>
+        public bool GreetsWhenSpokenTo { get; init; }
         public Func<string, IEnumerable<string>> Answer { get; set; } = _ => [];
 
         /// <summary>Connections taken so far, closed at once or not.</summary>
@@ -258,11 +265,16 @@ static class PlayoutLinkTests
                 var stream = client.GetStream();
                 var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
                 lock (_gate) _conns.Add((client, writer));
-                foreach (var g in Greeting()) Say(writer, g);
+                if (!GreetsWhenSpokenTo)
+                    foreach (var g in Greeting()) Say(writer, g);
                 using var reader = new StreamReader(stream, Encoding.UTF8);
+                var spoken = false;
                 for (var l = await reader.ReadLineAsync(_stop.Token); l is not null; l = await reader.ReadLineAsync(_stop.Token))
                 {
                     Heard.Enqueue(l);
+                    if (GreetsWhenSpokenTo && !spoken)
+                        foreach (var g in Greeting()) Say(writer, g);
+                    spoken = true;
                     var said = 0;
                     foreach (var a in Answer(l))
                     {
@@ -671,6 +683,25 @@ static class PlayoutLinkTests
               && PlayoutLink.IsLoopbackAddress(IPAddress.Loopback.MapToIPv6()) && !PlayoutLink.IsLoopbackAddress(IPAddress.Parse("10.0.0.5"))
               && !PlayoutLink.IsLoopbackAddress(IPAddress.Parse("::ffff:10.0.0.5")),
               "playout pairing: the default seam calls a socket loopback by its address alone (IPv4, IPv6, IPv4-mapped)");
+    }
+
+    /// <summary>
+    /// A desk that writes nothing before the connection's first byte (Patterns' wire since its Round 98, Show Bus 1.3 §13.8.5, which
+    /// closes a connection silent for 10 s): the link speaks first — its HELLO is the connection's first line — hears the NONCE that
+    /// line brings, proves it and pairs by that proof. The seam plays a desk on another PC, where a link that heard no NONCE never
+    /// pairs, so the pairing itself says the NONCE was heard; the link never sits waiting to be greeted.
+    /// </summary>
+    static async Task SpeaksFirst(Action<bool, string> Check)
+    {
+        await using var desk = new FakeDesk { GreetsWhenSpokenTo = true };
+        Desk11(desk, Token, () => 0, _ => null);
+        using var link = Link(desk.Port, Token, Remote, inst: NewInst());
+        link.Start();
+        var paired = await Until(() => link.Pairing == PlayoutPairing.Paired && link.Health == LinkHealth.Ok);
+        var heard = desk.Heard.ToArray();
+        Check(paired && heard.Length >= 2 && heard[0] == "HELLO " + PlayoutWire.HelloName && heard.Contains(ProofLine(Token, Nonce))
+              && !heard.Any(l => l.Contains(Token, StringComparison.Ordinal)),
+              $"playout link: speaks first to a desk that says nothing until spoken to — HELLO, then the proof of the NONCE it brought, and pairs ({link.Health}: {link.Status}; {string.Join(" | ", heard)})");
     }
 
     /// <summary>A Round 87 Patterns desk: greeting STATE, NONCE, the proof checked, the probe, receipts with ids, CONTEXT and a clock 5 s ahead.</summary>

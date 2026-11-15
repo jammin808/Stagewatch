@@ -243,7 +243,7 @@ function boundAsHanded(when) {
 
 test('S0.1 each app is ready in its own namespace', row({
   id: 'S0.1',
-  title: "each app is ready in its own namespace, within 60 s of its start; between Patterns' start and PlayMap's the lane reads Patterns' link to the rig prove itself, as the room is set up (S0.2 asserts what it read)",
+  title: "each app is ready in its own namespace, within 60 s of its start, and Patterns' wire says nothing to a connection until it speaks; between Patterns' start and PlayMap's the lane reads Patterns' link to the rig prove itself, as the room is set up (S0.2 asserts what it read)",
   apps: HOSTS,
   deadlineMs: READY_MS,
 }, async (r) => {

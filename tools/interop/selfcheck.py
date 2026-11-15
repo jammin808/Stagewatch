@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """The interop lane's own scripts, checked on fixtures of their own before the lane runs (tools/test.sh interop): pins.py's
 reading and its refusals; build.sh's ends (built, failed, refused, not run) at pins and at heads, with what each writes to
-builds.json (where a commit was seen pushed, how far a head is from its pin, the siblings placed before an end); summary.py's
-words for each; and publish.py's rule for what of a run leaves the machine.
+builds.json (where a commit was seen pushed, how far a head is from its pin, the siblings placed before an end), and its
+reading of a sibling's global.json (sdk.sh: the SDK it names built with, or said as missing); summary.py's words for each; and
+publish.py's rule for what of a run leaves the machine.
 
 It is hermetic and deterministic. Every repository it reads is one it makes, in a folder of its own that it removes at its
 end; git reads no configuration of the machine's or the user's; every origin is a local bare repository, so nothing reaches the
-network. build.sh runs as a byte-for-byte copy (with pins.py) in a scratch Stagewatch of its own, whose rig is an empty file,
-with stub dotnet, node and npm first on its PATH: dotnet makes the file a build would (or fails, for the tree SELFCHECK_FAIL
-names), node runs the machine's, npm installs nothing.
+network. build.sh runs as a byte-for-byte copy (with pins.py and sdk.sh) in a scratch Stagewatch of its own, whose rig is an
+empty file, with stub dotnet, node and npm first on its PATH: dotnet makes the file a build would (or fails, for the tree
+SELFCHECK_FAIL names) and has the one SDK SELFCHECK_SDK names, node runs the machine's, npm installs nothing.
 
   selfcheck.py     exit 0 every check passed; 1 a check failed (each said on standard error)
 """
@@ -24,6 +25,13 @@ HERE = Path(__file__).resolve().parent
 APPS = ('patterns', 'mapper', 'agmessage')
 BUILD = {'patterns': 'tools/Patterns.Bench/Patterns.Bench.csproj', 'mapper': 'tools/PlayMap.Node/PlayMap.Node.csproj',
          'agmessage': 'app'}
+# The SDK the fixture's Patterns pins by global.json, and the one machine SDK the stub dotnet has unless a check names another.
+SDK = '10.0.115'
+# A global.json naming no SDK version (dotnet takes the newest), and one naming SDK as dotnet reads it: with comments and a
+# trailing comma, which dotnet takes and strict JSON does not.
+NO_VERSION = '// the runner, and no SDK version\n{"sdk": {"rollForward": "latestPatch"}, "test": {"runner": "Microsoft.Testing.Platform"}}\n'
+COMMENTED = ('{\n  // the bench\'s SDK, its patches allowed\n  "sdk": {\n    "version": "' + SDK + '", /* pinned */\n'
+             '    "rollForward": "latestPatch",\n  },\n}\n')
 # A commit no fixture holds: a pin nobody can fetch.
 NOWHERE = '0123456789abcdef' * 2 + '01234567'
 
@@ -127,7 +135,9 @@ def pins_checks(base):
 
 class Fixture:
     """Three sibling repositories, each with a bare origin: main A-B-C, side A-D and zz-a at A pushed (each tracking its
-    origin branch, origin/HEAD naming main), and local A-B-C-E never pushed; and a scratch Stagewatch with build.sh."""
+    origin branch, origin/HEAD naming main), and local A-B-C-E never pushed; Patterns also sdk A-G-H-I pushed, G pinning its SDK
+    by a global.json, H's global.json naming no version and I's pinning it with comments; and a scratch Stagewatch with
+    build.sh."""
 
     def __init__(self, base):
         self.base = base
@@ -155,6 +165,15 @@ class Fixture:
             git(src, 'push', '-q', '-u', 'origin', 'side')
             git(src, 'checkout', '-q', '-b', 'zz-a', c['A'])
             git(src, 'push', '-q', '-u', 'origin', 'zz-a')
+            if app == 'patterns':
+                git(src, 'checkout', '-q', '-b', 'sdk', c['A'])
+                write(src / 'global.json', json.dumps({'sdk': {'version': SDK, 'rollForward': 'latestPatch'}}))
+                c['G'] = commit(src, f'{app} G, its SDK pinned')
+                write(src / 'global.json', NO_VERSION)
+                c['H'] = commit(src, f'{app} H, its global.json with no version')
+                write(src / 'global.json', COMMENTED)
+                c['I'] = commit(src, f'{app} I, its SDK pinned in a global.json with comments')
+                git(src, 'push', '-q', '-u', 'origin', 'sdk')
             git(src, 'checkout', '-q', '-b', 'local', c['C'])
             c['E'] = commit(src, f'{app} E')
             git(src, 'remote', 'set-head', 'origin', 'main')
@@ -162,9 +181,10 @@ class Fixture:
             self.src[app] = src
         root = base / 'stagewatch'
         (root / 'tools' / 'interop').mkdir(parents=True)
-        for name in ('build.sh', 'pins.py'):
+        for name in ('build.sh', 'pins.py', 'sdk.sh'):
             shutil.copyfile(HERE / name, root / 'tools' / 'interop' / name)
-        (root / 'tools' / 'interop' / 'build.sh').chmod(0o755)
+        for name in ('build.sh', 'sdk.sh'):
+            (root / 'tools' / 'interop' / name).chmod(0o755)
         write(root / 'src' / 'Timer.App' / 'Timer.App.csproj', '<Project><PropertyGroup><Version>9.9.9</Version></PropertyGroup></Project>\n')
         write(root / 'tools' / 'Stagewatch.Rig' / 'bin' / 'Debug' / 'net10.0-windows' / 'Stagewatch.Rig.dll', '')
         git(root, 'init', '-q', '-b', 'main')
@@ -176,7 +196,14 @@ class Fixture:
             raise RuntimeError('no node on PATH: the lane runs on one')
         stubs = base / 'stubs'
         write(stubs / 'dotnet', '#!/bin/sh\n'
-              '# The self-check\'s dotnet: makes the file a build of the project would, or fails for the tree SELFCHECK_FAIL names.\n'
+              '# The self-check\'s dotnet: makes the file a build of the project would, or fails for the tree SELFCHECK_FAIL names;\n'
+              '# its one SDK is SELFCHECK_SDK, resolved where a global.json names exactly that version (or names none).\n'
+              'if [ "$1" = --list-sdks ]; then echo "${SELFCHECK_SDK:-} [/stub/sdk]"; exit 0; fi\n'
+              'if [ "$1" = --version ]; then\n'
+              '  want=$(sed -n \'s/.*"version": *"\\([^"]*\\)".*/\\1/p\' global.json 2>/dev/null)\n'
+              '  [ -z "$want" ] || [ "$want" = "${SELFCHECK_SDK:-}" ] || exit 155\n'
+              '  echo "${SELFCHECK_SDK:-}"; exit 0\n'
+              'fi\n'
               '[ "$1" = build ] || exit 64\n'
               '[ "$(basename "$PWD")" = "${SELFCHECK_FAIL:-}" ] && { echo "stub dotnet: this tree fails its build" >&2; exit 1; }\n'
               'dir=$(dirname "$2"); name=$(basename "$2" .csproj)\n'
@@ -200,8 +227,8 @@ class Fixture:
             doc[app] = {'repo': f'owner/{app}', 'ref': self.c[app].get(ref, ref), 'build': BUILD[app]}
         write(self.root / 'tools' / 'interop' / 'siblings.json', json.dumps(doc))
 
-    def build(self, out, heads=None, fail=None, dirs=None):
-        env = dict(ENV, PATH=f'{self.stubs}{os.pathsep}{ENV.get("PATH", "")}', SW_INTEROP_OUT=str(out),
+    def build(self, out, heads=None, fail=None, dirs=None, sdk=SDK):
+        env = dict(ENV, PATH=f'{self.stubs}{os.pathsep}{ENV.get("PATH", "")}', SW_INTEROP_OUT=str(out), SELFCHECK_SDK=sdk,
                    SW_PATTERNS_DIR=str(self.src['patterns']), SW_MAPPER_DIR=str(self.src['mapper']),
                    SW_AGMESSAGE_DIR=str(self.src['agmessage']))
         if heads is not None:
@@ -326,6 +353,46 @@ def build_checks(fx, base):
     return {'refused': out1, 'failed': out3, 'nowhere': base / 'out-pin-nowhere'}
 
 
+def sdk_checks(fx, base):
+    """A sibling that pins its SDK by global.json: built with the SDK dotnet resolves there where the machine has it, not run
+    where it has another (the words naming the SDK to install, read through the file's comments), and built with the machine's
+    SDK where its global.json names no version; sdk.sh --named says the version a runner installs, or nothing."""
+    c = fx.c['patterns']
+    fx.pins(patterns='G')
+    r, doc = fx.build(base / 'out-sdk')
+    check(r.returncode == 0 and doc is not None and doc.get('patterns', {}).get('commit') == c['G']
+          and f'with the .NET SDK {SDK}, as dotnet resolves its global.json' in r.stdout,
+          f'build.sh builds a sibling with the SDK its global.json names, and says so ({said(r)}; {r.stdout.strip()[-300:]!r})')
+    r, doc = fx.build(base / 'out-sdk-missing', sdk='10.0.999')
+    words = (doc or {}).get('notRun', '')
+    check(r.returncode == 3 and f'names the .NET SDK {SDK} (rollForward latestPatch)' in words and 'it has: 10.0.999' in words
+          and f'dotnet-install.sh --version {SDK}' in words and set(doc.get('placed', {})) == set(APPS),
+          f'build.sh: a sibling\'s SDK the machine lacks is not run, the SDK to install named ({said(r)}; {doc})')
+    check(not (base / 'out-sdk-missing' / 'trees' / 'patterns' / 'tools' / 'Patterns.Bench' / 'bin').exists(),
+          'build.sh starts no build when a sibling\'s SDK is missing')
+    fx.pins(patterns='I')
+    r, doc = fx.build(base / 'out-sdk-commented', sdk='10.0.999')
+    words = (doc or {}).get('notRun', '')
+    check(r.returncode == 3 and f'names the .NET SDK {SDK} (rollForward latestPatch)' in words,
+          f'build.sh reads the SDK a global.json with comments and a trailing comma names ({said(r)}; {doc})')
+    fx.pins(patterns='H')
+    r, doc = fx.build(base / 'out-sdk-unnamed', sdk='10.0.999')
+    check(r.returncode == 0 and doc is not None and doc.get('patterns', {}).get('commit') == c['H']
+          and 'with the .NET SDK 10.0.999, as dotnet resolves its global.json' in r.stdout,
+          f'build.sh builds a sibling whose global.json names no SDK version with the SDK dotnet takes ({said(r)}; {doc})')
+    folder = base / 'sdk-named'
+    folder.mkdir()
+    sdk_sh = fx.root / 'tools' / 'interop' / 'sdk.sh'
+    for name, text, want in (('none', None, ''), ('plain', json.dumps({'sdk': {'version': SDK}}), SDK),
+                             ('commented', COMMENTED, SDK), ('unnamed', NO_VERSION, ''), ('unread', '{"sdk": ', '')):
+        (folder / 'global.json').unlink(missing_ok=True)
+        if text is not None:
+            write(folder / 'global.json', text)
+        r = subprocess.run([str(sdk_sh), '--named', str(folder)], capture_output=True, text=True, env=ENV, timeout=60)
+        check(r.returncode == 0 and r.stdout.strip() == want,
+              f'sdk.sh --named on a {name} global.json says {want!r} ({r.returncode}: {r.stdout.strip()!r} {r.stderr.strip()!r})')
+
+
 # ------------------------------------------------------------------------------------------------------------- summary.py
 
 def summary(folder):
@@ -435,6 +502,7 @@ def main():
         pins_checks(base)
         fx = Fixture(base)
         outs = build_checks(fx, base)
+        sdk_checks(fx, base)
         summary_checks(fx, outs, base)
         publish_checks(base)
     except (RuntimeError, OSError, subprocess.SubprocessError) as e:
@@ -446,7 +514,7 @@ def main():
             print(f'interop self-check: {f}', file=sys.stderr)
         print(f'interop self-check: {len(failures)} failed, {passed} passed', file=sys.stderr)
         return 1
-    print(f'interop self-check: {passed} checks passed (pins.py, build.sh, summary.py, publish.py)')
+    print(f'interop self-check: {passed} checks passed (pins.py, build.sh, sdk.sh, summary.py, publish.py)')
     return 0
 
 

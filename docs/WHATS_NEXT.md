@@ -1801,6 +1801,47 @@ What each unit moved to another, and left, as written when it landed (*since the
     nothing while it waited, so the miss kept no read. S6.1's wait now throws each read that is not back yet (PlayMap's state and
     trust, AGMessage's, Patterns' state and the name it follows), so a next miss names the link that did not come back.
 
+## Train 6 (2.23) — the units so far
+
+2.23 is Train 6's release; its papers are SW23.2's. This section keeps each unit's notes as it lands.
+
+- **The lane at Patterns' Round 98 (SW23.0).** Nothing of Stagewatch's product changed. `tools/interop/siblings.json` pins
+  Patterns at 2515017 (its Round 98 closed) and Mapper at 2ae7ac7b (PlayMap's tests only since 031c9a3: the device lock's
+  sharer, four ShownLineTests and ten pool-bound tests each run their work on a thread of their own); AGMessage stays at
+  d0e3961, which the lane builds as it was. Each pin was read pushed on `claude/serene-pasteur-bq058o` and built in the lane's
+  own clone.
+  - **Patterns pins its SDK.** Its `global.json` names 10.0.115 (`rollForward` `latestPatch`, its 98.6), and dotnet refuses a
+    machine whose SDKs are all of another feature band. `tools/interop/sdk.sh` asks dotnet in each clone before any build, so
+    dotnet's own rules decide (a `global.json` naming no version takes the newest SDK; comments and trailing commas are read as
+    dotnet reads them), and a machine where dotnet resolves no SDK there is not run, in words that name the SDK to install and
+    the SDKs the machine has; the self-check holds each case (the SDK named and built with, a missing SDK named with no build
+    started, a commented `global.json` read, one naming no version built with the machine's SDK, and `sdk.sh --named` on each).
+    `tools/setup-dev.sh` says the same for the pins, and says a pin its sibling's repository has not fetched. CI's interop job
+    and `interop-heads.yml` read each sibling's `global.json` from its checkout (`sdk.sh --named`) and install the SDK it names
+    with `setup-dotnet` (a step per .NET sibling, run only when a version is named) beside the `10.0.x` they install for
+    Stagewatch, which has no `global.json` and keeps building with the newest .NET 10 SDK. Stagewatch's CI runs only on main,
+    tags and pull requests, so the workflow change is not proved from this branch: actionlint passes both files, and the first
+    run on main is its proof. This bench's SDK is 10.0.115, so here the lane built Patterns with it.
+  - **Patterns' wire waits for the first byte.** At its 98.1 the wire on 9697 tells TLS from plain by a connection's first byte
+    and writes nothing before it (REMOTE.md at the pin: "A client that waits for the greeting before it speaks is closed so").
+    The lane's wire client (`tests/interop/lib/wire.cjs`) now speaks first: `Wire.connect` resolves once the socket is up, and
+    `pair` says `HELLO`, reads the `NONCE` the door says before that `HELLO`'s answer (Patterns' on the first byte, PlayMap's
+    on connect) and proves it with `AUTH-PROOF`. `greeting` (`tests/interop/lib/net.cjs`), which row S0.1 uses to see Patterns'
+    and PlayMap's wires each hear a nonce first, says a `HELLO` before it reads; for Patterns it first stays silent for 1.5 s
+    and fails on any byte heard in that time, so S0.1 now holds the door itself at the pin, not only through Patterns' own
+    tests. Stagewatch's own `PlayoutLink` already spoke first (the core's `HELLO` and its probe go on the lane as the socket
+    comes up, and it writes no byte-order mark), so it is unchanged and stays level 0; a new check in `PlayoutLinkTests`
+    (`SpeaksFirst`) holds it against a fake desk that says nothing until spoken to, its NONCE said only on the first line: the
+    link's first line is `HELLO Stagewatch`, it proves the NONCE and pairs by that proof alone.
+  - **What the rows read at the new pins.** No row reads Patterns' `decks` rows or its STATE's `control` row, so their new
+    fields (a link's `level`, `t`, `id`, `verified`, `scope`; key ids) are held by no row yet; S7.1's sweep reads every line
+    kept and found no secret in them. The VT rows' links to Patterns (S4.1, S4.3) pair by proof on the first-byte door, level
+    0, amber, `plain` and `legacy` ("Patterns cannot prove itself yet — an older build"), as Patterns' hello still says no `cap
+    peerlink` (its 98.10). PlayMap offers no LINK yet (its PM-9b): its links stay level 0.
+  - **Validate,** `tools/test.sh build unit e2e interop` at the new pins: the build; the unit suite 6156 passed, 0 failed
+    (SpeaksFirst among them); e2e 93 of 93; the interop self-check 75 of 75; the LAN 39 of 39 (S0.1 with Patterns' silent door
+    among them); the laptop 5 of 5; offline 3 of 3; Patterns built with the .NET SDK 10.0.115 its global.json leads dotnet to.
+
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 
 Show Bus 1.3 names no carrier that finds apps on one machine with no network (`docs/SHOWBUS.md` §2): there a typed
