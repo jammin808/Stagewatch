@@ -43,7 +43,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   first sentence of its shared text, which says what is landed, before a launch).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — Round 98 in progress (98.2 at `b49a0e8`)
+### Patterns — Round 98 in progress (98.8 at `b326280`)
 
 - Landed and pushed: Rounds 89–97. Round 96 is the plan's P95 (PLAN §114, last commit `fb56b4e`). Round 97 is the plan's P96
   (PLAN §115): 97.0 the opening (`7d0907c`), 97.1 a mends unit (`c265352`: OPEN L110, a test canary no hex name can hold, and
@@ -56,13 +56,14 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 - Round 98, the plan's P97 (PLAN §116), as landed and pushed: 98.0 the opening (`b42cc32`), 98.1 TLS on 9697 told from
   plain by the first byte (`0dbff3e`; the wire writes nothing before the client's first byte), 98.6 the SDK pin (`9e2333d`:
   `global.json` names 10.0.115 with `latestPatch`, CI installs from it; inserted on the owner's answer, so the papers are
-  98.7), 98.2 LINK and LINK PROOF on 9697 (`b49a0e8`). CI green on 98.6 (run 309) and 98.2 (run 310).
+  98.7), 98.2 LINK and LINK PROOF on 9697 (`b49a0e8`), 98.8 the start failure's words and the tests' ports (`b326280`). CI green on
+  98.6 (run 309), 98.2 (run 310) and 98.8 (run 311).
 - CI run 308, on 98.1, was red at one App test (`PlayAppTests.TheHubRunsARoomForThePhonesTheHostAndTheWall`: the audience
   listener never came up in its 15 s); it passed here and on the next run. Read from the code, not measured: the control
   start threw on a port it could not bind, which closes all three listeners and retries the same numbers; the test's own port
   picks can collide and its probe sees loopback only. The cause on the runner is not proved. Round 98.8, inserted, makes the
   start failure name its listener and port and gives the App tests distinct ports probed as the desk binds.
-- In flight, in this order: 98.8, 98.3 app keys, 98.4 the acceptor's list, 98.5 receipts and node devices speaking LINK, 98.7
+- In flight, in this order: 98.3 app keys, 98.4 the acceptor's list, 98.5 receipts and node devices speaking LINK, 98.7
   the papers (the tag table's row for round 97 = `f102d61`). Then Round 99 (the plan's P98, the Eye sees the room).
 - The pin's band is the owner's open call: 10.0.115 is this bench's SDK (Ubuntu's package, the 10.0.1xx band); before the pin
   CI built on 10.0.404, the band a current Visual Studio carries. Kept at 1xx, the maintainer's PC installs a 10.0.1xx SDK at
@@ -74,7 +75,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   six foreground parts through `workflows/patterns-app-parts.sh` (two to six minutes a part on this bench). Run one test run at
   a time: two App test runs on one machine hear each other's mDNS answers and beacons (OPEN L111).
 
-### PlayMap (repo Mapper) — two wire fixes and two test mends landed (`46129380`); the rest waits on round 3's integration pass
+### PlayMap (repo Mapper) — two wire fixes and three test mends landed (`2ae7ac7b`); the rest waits on round 3's integration pass
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -85,8 +86,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   its HELLO is over; three comments reworded). Every leave and extension is in `owner-answers.md`.
 - Test-only mends on the owner's answers of 2026-11-14 and 2026-11-15: fix-devicelock-test-thread (`f6181596`: CI run 473's
   red test; its second taker waited on a pool worker, reproduced under a starved pool) and fix-shownline-test-threads
-  (`46129380`: four tests of the same shape). fix-pool-bound-tests (ten more in the Engine, Media and Net suites, one shared
-  helper under `tests/Shared`) is in flight.
+  (`46129380`: four tests of the same shape).
 - CI: run 475, on `f6181596`, green. Run 476, on `46129380`, red on the Windows job at one Net test no batch touched
   (`StagewatchLinkTests.AKeylessLinkAskedForTheViewingCodeIsRefusedInThoseWordsAndHeld`: two sockets and two connections
   where the held refusal allows one). Read from the code by two readers, not measured: the link's first ping is written
@@ -95,6 +95,17 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   refusal is read. A product defect of low severity (bounded by the backoff; nothing on the air), latent since the link's
   beat was written. The mend (no ping before the first message is read; a test that fails without it on every platform) is in
   `src/PlayMap.Net/Links/StagewatchLink.cs`, outside every leave: it waits on the owner's word.
+- fix-pool-bound-tests landed (`2ae7ac7b`: the ten tests, one helper `tests/Shared/OwnThread.cs`; its CARRYOVER entry names one
+  more test of the shape, in `VerbRowTests`, outside the leave). CI run 477 on it: red on the Windows job at one Engine test no
+  batch touched (`BackupMirrorLinkTests.AMirrorQuietBeforeItsNewConnectionIsSubscribed…`: the ten-second wait for the greeting's
+  hold ran out). Read by two readers and probed outside the tree, not reproduced in the suite: a defect of the test. Each hold
+  helper sets a task source whose continuation is queued to the local queue of the pool worker that then blocks in the hold, so
+  the test's wake-up runs only if another worker steals it, which a pool that never goes idle does not do in time; the product's
+  redial, pairing and greeting were traced and are not at fault. The mend is test-only (the hold signalled from a thread or
+  queue that is not the blocked worker's, the waits for a hold a named patience; `HelloTests.AHelloIsCountedHeardOnlyOnce…` has
+  the same shape) and waits on the owner's word. Not to do: a fence that floods the pool inside the suite.
+- PlayMap's Windows job was red on runs 473, 476 and 477, each on a different intermittent test; Linux and the installer job
+  were green on all three.
 - Open in the last batch's CARRYOVER entry, for the owner: a dialler whose next line is not in when the node next reads after
   its HELLO is still greeted inside its handshake (a race, unmeasured); Patterns' node device on a trusted address counts one
   discarded STATE there and says why in its own words.
@@ -105,7 +116,8 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 ### Open findings carried into the next units
 
 - **The owner's to decide:** whether a PIN-only Stagewatch may be an open acceptor; the band of Patterns' SDK pin (1xx or
-  4xx); the mend of PlayMap's first ping before its first read. Three stray files at the filesystem root of the cloud container
+  4xx); the mend of PlayMap's first ping before its first read; the
+  test-only mends of `BackupMirrorLinkTests`' holds (with `HelloTests`) and of `VerbRowTests`. Three stray files at the filesystem root of the cloud container
   (`/WebServer.cs.bak`, `/WebServer.cs.keep`, `/module.log`: stages' scratch copies, no secret in them) could not be removed
   from the session; they are in no repository.
 - **Stagewatch:** `stuck` is not offered until measured; the 429 bounds are chosen, not measured; the sleeps SW22.11m left
