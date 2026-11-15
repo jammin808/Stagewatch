@@ -825,6 +825,14 @@ public partial class MainWindow : Window, IContextActions
                 // Every playout link's certificate that waits for a person, whether or not its node has a Show network row: the same
                 // entries, bound to the certificate each shows now.
                 foreach (var waiting in _vm.CertificatesWaiting()) yield return I(waiting.Label, () => TrustCertificate(waiting));
+                // Every playout link's floor (Show Bus 13.9.3): a person lowers it here, beside the link that refuses for it.
+                foreach (var (link, peer, refused) in _vm.PlayoutFloors())
+                    yield return I($"Lower {peer}'s floor{(refused ? " (it refuses to link now)" : " (it may prove itself with less again)")}", () => _vm.LowerPlayoutFloor(link));
+                // Every key a playout link's peer enrolled for it (Show Bus 13.5.7), by kid: a person forgets one the peer no longer
+                // holds, and the link proves its pairing token again.
+                foreach (var (link, peer, kid, refused) in _vm.PlayoutEnrolledKeys())
+                    yield return I($"Forget the key {peer} enrolled for this link (kid {kid[..Math.Min(8, kid.Length)]}){(refused ? " — it refuses that key now" : "")}",
+                        () => _vm.ForgetPlayoutEnrolled(link));
                 break;
 
             case "show-network" when element.DataContext is PeerRow peer:

@@ -52,6 +52,7 @@ const { PlayMap, DOORS: PlayMapDoors } = require('./apps/playmap.cjs');
 const { AGMessage } = require('./apps/agmessage.cjs');
 const S = require('./lib/scenarios.cjs');
 const { dialLink, kidOf } = require('./lib/link.cjs');
+const { fingerprint } = require('./lib/net.cjs');
 
 /** The hosts in address order: .2, .3, .4, .5. */
 const HOSTS = ['stagewatch', 'patterns', 'playmap', 'agmessage'];
@@ -481,12 +482,12 @@ const CLOCK_MS = 10000;
 
 /**
  * Start a VT rows' rig (row `row`'s own: its name, folders, PIN and logs) with playout links `which` ('patterns', 'stage-left'),
- * each at its app's own wire address with that app's own pairing token, after stopping the one before; resolves once its ready
- * line is read and checked.
+ * each at its app's own wire address with that app's own pairing token, the Patterns link on `transport` when one is given (wss:
+ * TLS on Patterns' wire), after stopping the one before; resolves once its ready line is read and checked.
  */
-async function vtStart(row, which) {
+async function vtStart(row, which, transport = null) {
   await vtStop();
-  const pat = `patterns=${lan.host('patterns').addr}:${apps.patterns.wire.port},patterns`;
+  const pat = `patterns=${lan.host('patterns').addr}:${apps.patterns.wire.port},patterns${transport ? `,${transport}` : ''}`;
   const pm = `stage-left=${lan.host('playmap').addr}:${PlayMapDoors.wire},playmap`;
   const vt = new Stagewatch(run, lan.host('stagewatch'), null, {
     name: `vt-${row}`, ports: VT_PORTS, nodeId: VT_NODE,
@@ -792,6 +793,67 @@ test('S4.4 clocks agree on one kernel', row({
     r.facts = r.facts || {};
     r.facts.vtStopped = await vtStop();
     r.facts.playmapTeardown = await vtTeardown();
+  }
+}));
+
+/**
+ * The certificate Patterns' wire shows inside TLS (it tells TLS from plain by the first byte, 98.1), as the show network names a
+ * fingerprint: read from the switch with a handshake that sends nothing after it, so nothing of a secret is ever offered.
+ */
+function patternsWireFingerprint() {
+  const tls = require('node:tls');
+  return new Promise((resolve, reject) => {
+    const sock = tls.connect({ host: lan.host('patterns').addr, port: apps.patterns.wire.port, rejectUnauthorized: false, servername: 'patterns' }, () => {
+      const cert = sock.getPeerCertificate(false);
+      sock.destroy();
+      if (!cert || !cert.raw) reject(new Error("Patterns' wire showed no certificate inside TLS"));
+      else resolve(fingerprint(cert.raw));
+    });
+    sock.setTimeout(5000, () => { sock.destroy(); reject(new Error("Patterns' wire did not finish TLS within 5 s")); });
+    sock.on('error', reject);
+  });
+}
+
+test('S4.6 the rig links to Patterns over line by proof', row({
+  id: 'S4.6',
+  title: "a rig's playout link to Patterns' wire set to TLS (--playout patterns=<Patterns>:9697,patterns,wss, Patterns' own token): Stagewatch links to Patterns over line, verified both ways — LINK proved with the pairing code inside TLS and Patterns' own proof checked — within 5 s of its ready line, pinned by that proof to the certificate Patterns' wire shows, its floor set (TLS, PeerLink 1, mutual), Patterns' STATE listing it among its decks rows as a level-1 app link from the rig's node, verified by the code, the key Patterns enrolled for it adopted by its kid alone, and playout patterns pause applied in Patterns' words",
+  apps: ['stagewatch', 'patterns'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('vt-s4-6.out'), run.log('vt-s4-6.err'), run.log('patterns.wire'), run.log('patterns.out'));
+  try {
+    const clip = await apps.patterns.clip('s46.mp4', 90);
+    await vtStart('s4-6', ['patterns'], 'wss');
+    const readyAt = Date.now();
+    r.facts = { clip: { file: path.basename(clip.key), lengthMs: clip.lengthMs } };
+    const l = await vtLink('patterns', (x) => x.pairing === 'paired' && x.record && x.record.proof === 'mutual', S.left(readyAt, HELLO_MS), "the rig's link to Patterns verified both ways");
+    const ms = S.inTime(readyAt, HELLO_MS, "the rig's link to Patterns verified both ways");
+    const rec = l.record;
+    const fp = (await patternsWireFingerprint()).slice('sha256:'.length);
+    const wrong = [];
+    if (rec.state !== 'live' || rec.level !== 1 || rec.carrier !== 'line') wrong.push(`${rec.state} at level ${rec.level} on ${rec.carrier}`);
+    if (rec.kid !== 'code' || rec.scope !== 'operate') wrong.push(`kid ${rec.kid} scope ${rec.scope}`);
+    if (rec.tls !== 'pinned' || rec.pin !== fp.slice(0, 16)) wrong.push(`tls ${rec.tls} at ${rec.pin}, not pinned at Patterns' ${fp.slice(0, 16)}`);
+    if (!rec.floor || rec.floor.tls !== true || rec.floor.level !== 1 || rec.floor.proof !== 'mutual') wrong.push(`floor ${JSON.stringify(rec.floor)}`);
+    if (rec.light !== 'green' || rec.flags.includes('legacy') || rec.flags.includes('plain')) wrong.push(`light ${rec.light} flags ${rec.flags.join(',')}`);
+    if (typeof l.enrolled !== 'string' || !/^[0-9a-f]{16}$/.test(l.enrolled)) wrong.push(`enrolled ${JSON.stringify(l.enrolled)}`);
+    if (!/^PeerLink 1 · proved both ways with the pairing code · scope operate · pinned /.test(l.standing || '')) wrong.push(`standing "${l.standing}"`);
+    if (wrong.length) throw new Error(`the rig's link to Patterns is not verified, pinned and floored: ${wrong.join('; ')} — "${rec.words}"`);
+    // Verified both ways: Patterns lists the link it accepted, by the connector's own node, verified by the code at level 1.
+    const deck = await until(async () => ((await apps.patterns.state()).decks || []).find((d) => d.level === 1 && d.t === 'stagewatch' && d.id === VT_NODE) || null,
+      HELLO_MS, "Patterns' decks rows listing the rig's link");
+    if (deck.verified !== 'code' || deck.scope !== 'operate' || deck.tls !== true || deck.ended) throw new Error(`Patterns lists the rig's link as ${JSON.stringify(deck)}`);
+    r.facts.link = { ms, record: { level: rec.level, proof: rec.proof, tls: rec.tls, pin: rec.pin, kid: rec.kid, scope: rec.scope, light: rec.light, floor: rec.floor }, enrolled: l.enrolled, standing: l.standing };
+    r.facts.patterns = { level: deck.level, t: deck.t, id: deck.id, verified: deck.verified, scope: deck.scope, tls: deck.tls, kid: deck.kid };
+    await until(async () => { const c = await patternsClip(); return c.running ? c : null; }, HELLO_MS, "Patterns' clip running");
+    const sentAt = Date.now();
+    r.facts.pause = await vtPlayout(['patterns', 'pause'], 'interop-s4-6', true);
+    if (!/VIDEO PAUSE/.test(r.facts.pause.effect || '')) throw new Error(`the receipt's effect is "${r.facts.pause.effect}", not Patterns' answer to VIDEO PAUSE`);
+    r.facts.paused = await until(async () => { const c = await patternsClip(); return c.paused === true && !c.running ? c : null; }, S.left(sentAt, HELLO_MS), "Patterns' clip paused");
+    await vtLockoutAfter(r);
+  } finally {
+    r.facts = r.facts || {};
+    r.facts.vtStopped = await vtStop();
   }
 }));
 

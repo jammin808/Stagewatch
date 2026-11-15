@@ -86,10 +86,15 @@ public static class PlayoutGate
     /// A command no door takes from anyone, credential or not: trusting a playout link's certificate is a person's choice on this
     /// desk, beside its fingerprint (Show Bus 13.8.2–3), so a line of it is refused at every door, as its executors refuse one too.
     /// </summary>
-    public static bool DeskOnly(ShowCommandKind kind) => kind == ShowCommandKind.PlayoutTrust;
+    public static bool DeskOnly(ShowCommandKind kind) => kind is ShowCommandKind.PlayoutTrust or ShowCommandKind.PlayoutFloor;
 
-    /// <summary>The refusal of a desk-only line that came in by <paramref name="door"/>.</summary>
-    public static string DeskOnlyWords(CommandDoor door)
+    /// <summary>What a desk-only line of <paramref name="kind"/> is, and where on the desk the person does it instead.</summary>
+    private static (string What, string Where) DeskOnlyOf(ShowCommandKind kind) => kind == ShowCommandKind.PlayoutFloor
+        ? (PlayoutRules.FloorDeskOnly, PlayoutRules.FloorWhere)
+        : (PlayoutRules.TrustDeskOnly, PlayoutRules.TrustWhere);
+
+    /// <summary>The refusal of a desk-only line (a certificate's trust by default) that came in by <paramref name="door"/>.</summary>
+    public static string DeskOnlyWords(CommandDoor door, ShowCommandKind kind = ShowCommandKind.PlayoutTrust)
     {
         var from = door switch
         {
@@ -99,7 +104,8 @@ public static class PlayoutGate
             CommandDoor.WebSocket => "a WebSocket",
             _ => "HTTP",
         };
-        return $"{PlayoutRules.TrustDeskOnly} ({PlayoutRules.TrustWhere}) — refused from {from}, whoever sends it";
+        var (what, where) = DeskOnlyOf(kind);
+        return $"{what} ({where}) — refused from {from}, whoever sends it";
     }
 
     /// <summary>
@@ -109,7 +115,7 @@ public static class PlayoutGate
     /// </summary>
     public static string? NeverProposed(IReadOnlyList<string> tokens)
         => tokens.Count > 0 && ShowCommandParser.TryParse(tokens[0], tokens.Skip(1).ToList(), out var cmd, out _) && DeskOnly(cmd.Kind)
-            ? $"{PlayoutRules.TrustDeskOnly} ({PlayoutRules.TrustWhere}), never a proposal"
+            ? $"{DeskOnlyOf(cmd.Kind).What} ({DeskOnlyOf(cmd.Kind).Where}), never a proposal"
             : null;
 
     /// <summary>A sender on this PC: a loopback address, an IPv4-mapped one included.</summary>
@@ -125,7 +131,7 @@ public static class PlayoutGate
     /// </summary>
     public static string? Check(ShowCommandKind kind, CommandDoor door, CommandSender sender, IReadOnlyList<IPAddress> from)
     {
-        if (DeskOnly(kind)) return DeskOnlyWords(door);
+        if (DeskOnly(kind)) return DeskOnlyWords(door, kind);
         if (Person(kind))
         {
             if (door == CommandDoor.Mcp) return PersonWords(kind);

@@ -184,6 +184,10 @@ public static class SnapshotJson
                 w.WriteString("source", po.Source);
                 w.WriteString("link", po.Link);
                 w.WriteString("node", po.Node);
+                // What the link the clip came from stands on (Show Bus 13.16.3), appended: its level, proof and scope.
+                w.WriteNumber("level", po.Level);
+                w.WriteString("proof", po.Proof);
+                w.WriteString("scope", po.Scope);
                 w.WriteEndObject();
             }
             else w.WriteNull("playout");

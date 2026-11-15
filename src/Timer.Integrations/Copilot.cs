@@ -332,7 +332,8 @@ public sealed class Copilot
                     if (steps.Count >= MaxSteps) { dropped.Add(command + " (too many steps)"); continue; }
                     if (Check(command) is not { } cmd) dropped.Add(command);
                     // A line only a person on the desk may run (trusting a certificate) is never a step, whatever the model says.
-                    else if (PlayoutGate.DeskOnly(cmd.Kind)) dropped.Add(command + " (" + PlayoutRules.TrustDeskOnly + ")");
+                    else if (PlayoutGate.DeskOnly(cmd.Kind))
+                        dropped.Add(command + " (" + (cmd.Kind == ShowCommandKind.PlayoutFloor ? PlayoutRules.FloorDeskOnly : PlayoutRules.TrustDeskOnly) + ")");
                     else if (PlayoutGate.Person(cmd.Kind)) dropped.Add(PersonDropped(cmd.Kind));
                     else steps.Add(new CopilotStep(command, why, Classify(cmd)));
                 }

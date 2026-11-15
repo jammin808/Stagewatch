@@ -218,7 +218,7 @@ public sealed class McpEndpoint
                     return Text("Rejected: " + error + ". Grammar: " + ShowCommandParser.Help, isError: true);
                 // Another node's air: the sender must be one that may send such a line at all, and then a person decides, always. A
                 // desk-only line (a person trusting a certificate) is refused here whoever sends it, and is never a proposal either.
-                if (PlayoutGate.DeskOnly(cmd.Kind)) return Text("Refused: " + (gate(cmd.Kind) ?? PlayoutGate.DeskOnlyWords(CommandDoor.Mcp)), isError: true);
+                if (PlayoutGate.DeskOnly(cmd.Kind)) return Text("Refused: " + (gate(cmd.Kind) ?? PlayoutGate.DeskOnlyWords(CommandDoor.Mcp, cmd.Kind)), isError: true);
                 // The same for a person's kind however its line was spelled.
                 if (PlayoutGate.Person(cmd.Kind)) return Text("Refused: " + (gate(cmd.Kind) ?? PlayoutGate.PersonWords(cmd.Kind)), isError: true);
                 var drives = PlayoutGate.Drives(cmd.Kind);

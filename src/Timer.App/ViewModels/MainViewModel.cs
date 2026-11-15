@@ -867,6 +867,8 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
             // Trusting a certificate is a person's choice on this desk, beside its fingerprint (TrustPlayoutCertificate): a line of it,
             // from any door or this desk's own triggers, is refused here as at every door.
             case ShowCommandKind.PlayoutTrust: Refuse(PlayoutRules.TrustLineWords); break;
+            // Lowering a floor is a person's choice on this desk too (LowerPlayoutFloor): a line of it is refused here as at every door.
+            case ShowCommandKind.PlayoutFloor: Refuse(PlayoutRules.FloorLineWords); break;
             // A person's line to another app, and a person's decision on a proposal: the desk's, by whoever the door named.
             case ShowCommandKind.Peer or ShowCommandKind.Desk: DeskCommand(c); break;
             case ShowCommandKind.Loop: _show.SetLoop((int)c.Number); break;

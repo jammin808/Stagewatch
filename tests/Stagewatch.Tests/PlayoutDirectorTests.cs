@@ -365,8 +365,13 @@ static class PlayoutDirectorTests
               && !Encoding.UTF8.GetString(SnapshotJson.SerializeConfig(new RemoteConfig([], [], []))).Contains("playoutLinks", StringComparison.Ordinal),
               $"playout readers: the config's playoutLinks, last, only from a host that runs them ({cfg[^120..]})");
         var frame = Encoding.UTF8.GetString(SnapshotJson.Serialize(new ShowSnapshot { Playout = new PlayoutView("Intro", 83, 90, true, "PlayMap", "stage-left", "pm5e6f7a") }, FrameAccess.Operator));
-        Check(frame.Contains("\"playout\":{\"title\":\"Intro\",\"remaining\":83,\"duration\":90,\"running\":true,\"source\":\"PlayMap\",\"link\":\"stage-left\",\"node\":\"pm5e6f7a\"}", StringComparison.Ordinal),
-              "playout readers: the frame's playout row gains link and node, last");
+        Check(frame.Contains("\"playout\":{\"title\":\"Intro\",\"remaining\":83,\"duration\":90,\"running\":true,\"source\":\"PlayMap\",\"link\":\"stage-left\",\"node\":\"pm5e6f7a\",", StringComparison.Ordinal),
+              "playout readers: the frame's playout row gains link and node after its first fields");
+        // What its link stands on (Show Bus 13.16.3), appended after them: level, proof and scope.
+        var proved = Encoding.UTF8.GetString(SnapshotJson.Serialize(new ShowSnapshot { Playout = new PlayoutView("VT1", 42, 90, true, "Patterns", "patterns", "9f8e7d6c", 1, "mutual", "drive") }, FrameAccess.Operator));
+        Check(proved.Contains("\"link\":\"patterns\",\"node\":\"9f8e7d6c\",\"level\":1,\"proof\":\"mutual\",\"scope\":\"drive\"}", StringComparison.Ordinal)
+              && frame.Contains("\"node\":\"pm5e6f7a\",\"level\":0,\"proof\":\"\",\"scope\":\"\"}", StringComparison.Ordinal),
+              "playout readers: the frame's playout row ends with its link's level, proof and scope (13.16.3), appended after link and node");
 
         var many = Enumerable.Range(1, 60).Select(i => new PlayoutPlaylistFact("pl" + i.ToString(CultureInfo.InvariantCulture), "List " + i.ToString(CultureInfo.InvariantCulture), "idle", "", "")).ToList();
         var facts = new CopilotFacts(DateTime.UtcNow, ShowClock.For("UTC"), "{}"u8.ToArray(), "{}"u8.ToArray(), [], [], [], 0, OverrunModel.Learn([]), [], [],

@@ -14,7 +14,7 @@ using Stagewatch.Show;
 //   dotnet run --project tools/Stagewatch.Rig -- [--port 19940] [--companion 19941] [--osc 19942] [--pin 4321 | --pin-file FILE]
 //       [--bind local|all] [--state rig-windows.json] [--view CODE] [--room "Rig Hall"] [--node-keys N] [--exit-after SECONDS]
 //       [--bus PORT [--bus-to ADDRESS:PORT]] [--node-id ID] [--journal FILE|-] [--secrets-out FILE] [--exit-on-eof] [--tls FOLDER]
-//       [--playout NAME=HOST:PORT[,patterns|playmap]]… [--cue ITEM=LINK:LIST:ITEM[:standby][:together]]… [--desk-fresh SECONDS]
+//       [--playout NAME=HOST:PORT[,KIND[,TRANSPORT]]]… [--cue ITEM=LINK:LIST:ITEM[:standby][:together]]… [--desk-fresh SECONDS]
 // The first line on standard output is one JSON object: {"rig":"ready","http":…,"companion":…,"osc":…,"pin":…,"node":…,
 // "windows":[…],"nodeKeys":[…],"bus":…,"bind":"local|all","journal":true|false,"secrets":"stdout|file","tls":"sha256:…"|null,
 // "playout":[{"name","kind","address"}]};
@@ -51,7 +51,8 @@ using Stagewatch.Show;
 // other is refused, never narrowed. Its fingerprint (public) is "tls" in the ready line, and the hello names it with https. A
 // folder refused, or a certificate that cannot be kept or made, stops the rig before anything starts (exit 2, said on standard
 // error, never a key or a password).
-// --playout NAME=HOST:PORT[,KIND] (at most 8, each NAME a playout link's name by Settings' rule, KIND auto unless given) runs a
+// --playout NAME=HOST:PORT[,KIND[,TRANSPORT]] (at most 8, each NAME a playout link's name by Settings' rule, KIND auto unless given,
+// TRANSPORT tcp, wss or auto as Settings names it, auto unless given: wss dials a Patterns desk over TLS on its wire's port) runs a
 // playout link to a Patterns desk or a PlayMap node as the app runs one (PlayoutLink, PlayoutDirector): its pairing token is its
 // own, as Settings keeps one per link — STAGEWATCH_RIG_PLAYOUT_TOKEN_<NAME>'s (the name upper case, '-' as '_': stage-left reads
 // STAGEWATCH_RIG_PLAYOUT_TOKEN_STAGE_LEFT), else STAGEWATCH_RIG_PLAYOUT_TOKEN's, else none — proved and never sent in clear off
@@ -121,9 +122,11 @@ using Stagewatch.Show;
 //                its secret), and the rig's own words for a link it verifies none; a socket that only claims an id, with no
 //                credential that proves one, is a claim and not listed
 //   links        its playout links (--playout) as they stand, no secret in them → {"rig":"links","at":<unix ms>,"links":[{"name",
-//                "kind","node","pairing":"none|paired|open","clock":{"offsetMs","rttMs","errMs","apart"}|null,"record":{…}}]}: each
-//                link's kind and node as its peer said them (null before it did), where its pairing stands, the clock its matched
-//                pongs believe while paired, and its 13.16.3 record, which carries no token, proof or nonce
+//                "kind","node","pairing":"none|paired|open","clock":{"offsetMs","rttMs","errMs","apart"}|null,"record":{…},"standing",
+//                "enrolled":<kid>|null,"scopeHeld":<words>|null}]}: each link's kind and node as its peer said them (null before it
+//                did), where its pairing stands, the clock its matched pongs believe while paired, its 13.16.3 record, what it stands
+//                on in words, the kid of a key its peer enrolled for it, and why its scope holds commands back; no token, key, proof
+//                or nonce
 //   revoke <key id>  the desk's Revoke for one of the node keys the rig made (its id as the ready line names it): the key leaves
 //                --state, and every socket it admitted is checked again at once, so a node link it proved hears that its key was
 //                revoked and keeps only the public frame → {"rig":"revoked","id","at":<unix ms>}, or refused for an id no key has
@@ -185,24 +188,24 @@ sealed record RigOptions(int Http, int Companion, int Osc, string Pin, bool Bind
     /// </summary>
     public static PlayoutLinkSettings PlayoutLink(string value)
     {
-        const string Takes = "--playout takes NAME=HOST:PORT[,patterns|playmap]";
+        const string Takes = "--playout takes NAME=HOST:PORT[,patterns|playmap|auto[,tcp|wss|auto]]";
         var eq = value.IndexOf('=');
         if (eq <= 0) throw new ArgumentException(Takes);
         var name = value[..eq];
         if (PlayoutRules.NameProblem(name) is { } why) throw new ArgumentException("--playout: " + why);
-        var rest = value[(eq + 1)..];
-        var kind = PlayoutRules.Auto;
-        if (rest.LastIndexOf(',') is var comma and >= 0)
-        {
-            kind = rest[(comma + 1)..];
-            rest = rest[..comma];
-            if (kind is not (PlayoutRules.Patterns or PlayoutRules.PlayMap or PlayoutRules.Auto)) throw new ArgumentException(Takes);
-        }
+        var parts = value[(eq + 1)..].Split(',');
+        if (parts.Length > 3) throw new ArgumentException(Takes);
+        var rest = parts[0];
+        var kind = parts.Length > 1 ? parts[1] : PlayoutRules.Auto;
+        if (kind is not (PlayoutRules.Patterns or PlayoutRules.PlayMap or PlayoutRules.Auto)) throw new ArgumentException(Takes);
+        // The transport as Settings names it: wss dials TLS alone (to a Patterns desk, TLS on its line wire's own port).
+        var transport = parts.Length > 2 ? parts[2] : PlayoutRules.Auto;
+        if (transport is not (PlayoutRules.Auto or PlayoutRules.Tcp or PlayoutRules.Wss)) throw new ArgumentException(Takes);
         var colon = rest.LastIndexOf(':');
         if (colon <= 0 || !int.TryParse(rest[(colon + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var port) || port is < 1 or > 65535
             || !PlayoutRules.ValidHost(rest[..colon]))
             throw new ArgumentException(Takes);
-        return new PlayoutLinkSettings { Name = name, Kind = kind, Host = rest[..colon], Port = port, Enabled = true, FollowVt = true };
+        return new PlayoutLinkSettings { Name = name, Kind = kind, Host = rest[..colon], Port = port, Enabled = true, FollowVt = true, Transport = transport };
     }
 
     /// <summary>The longest first line --pin-file reads as a PIN.</summary>
@@ -560,7 +563,9 @@ sealed class Rig : ICompanionBridge, IDisposable
         // Each playout link dials once started: its own token from the environment, never from argv or a file the rig writes.
         var shared = Environment.GetEnvironmentVariable(PlayoutTokenVariable) ?? "";
         foreach (var l in _o.Playout)
-            _playout.Set(l.Name, PlayoutLinks.Make(l, Environment.GetEnvironmentVariable(PlayoutTokenVariableFor(l.Name)) ?? shared, _inst, TimeProvider.System, null, "", _director.Wire));
+            // It names this rig in LINK by its node id; a key a peer enrolls for it is held for this run only (the rig keeps no secret).
+            _playout.Set(l.Name, PlayoutLinks.Make(l, Environment.GetEnvironmentVariable(PlayoutTokenVariableFor(l.Name)) ?? shared, _inst, TimeProvider.System, null,
+                "rig", _director.Wire, self: _nodeId));
         _ticker = new Timer(_ => QueueTick(), null, 0, 250);
         // The windows as they stand at the ready line: the constructor's, before any command can change them.
         var windows = _windows.Windows;
@@ -930,6 +935,11 @@ sealed class Rig : ICompanionBridge, IDisposable
             pairing = l.Pairing.ToString().ToLowerInvariant(),
             clock = l.Clock is { } c ? new { offsetMs = c.OffsetMs, rttMs = c.RttMs, errMs = c.ErrMs, apart = l.ClockApart } : null,
             record = System.Text.Json.Nodes.JsonNode.Parse(l.Record.ToJson()),
+            // What it stands on in a reader's words, the kid of a key its peer enrolled for it (never the key) and why its scope
+            // holds playout commands back, if it does.
+            standing = l.Standing,
+            enrolled = l.EnrolledKid,
+            scopeHeld = l.ScopeHeld,
         }),
     };
 
@@ -1100,6 +1110,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             ShowCommandKind.Patterns => Handed(_director.Patterns(c.Text ?? "end", (int)c.Number, _item, VtLink())),
             // A person's choice beside the fingerprint on the desk: never a line's, here as in the app.
             ShowCommandKind.PlayoutTrust => (false, PlayoutRules.TrustLineWords),
+            ShowCommandKind.PlayoutFloor => (false, PlayoutRules.FloorLineWords),
             // A person's line to another app, and a person's decision on a proposal: the desk's, as in the app.
             ShowCommandKind.Peer or ShowCommandKind.Desk => DeskCommand(c),
             _ => (false, $"the rig doesn't simulate {c.Kind.ToString().ToLowerInvariant()} (the app does)"),
@@ -1378,7 +1389,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             MessageSignalId = messageAck.Id, MessageAck = messageAck.State, MessageAckBy = messageAck.By, Signals = _signals.Views(now),
             HoldingId = image?.Id ?? "", HoldingName = image?.Name ?? "",
             Playout = VtClip() is { } vt
-                ? new PlayoutView(vt.Title, (long)Math.Ceiling(vt.RemainingSeconds), (long)Math.Round(vt.DurationSeconds), vt.Running, vt.Source, vt.Link, vt.Node) : null,
+                ? new PlayoutView(vt.Title, (long)Math.Ceiling(vt.RemainingSeconds), (long)Math.Round(vt.DurationSeconds), vt.Running, vt.Source, vt.Link, vt.Node, vt.Level, vt.Proof, vt.Scope) : null,
             Elements = DisplayElements.Timer | DisplayElements.Message | DisplayElements.NextUp | DisplayElements.ProgressBar | DisplayElements.TimeOfDay,
             Timings = timings.ToEquatableArray(),
             ConfigVersion = _configVersion,
@@ -1399,7 +1410,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         // As the app: each playout link's record (its light and flags) beside its own words, and its clock while apart; its windows and
         // its own health go apart, so its timer feeds a window only while it shows a page and no link names a health item (D11).
         var links = ShowContext.PlayoutItems(_o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>()
-            .Select(l => new PlayoutLinkFact(l.LinkName, l.Peer, l.Record.Light, l.Status, l.Record.Flags, l.Clock?.OffsetMs, l.Clock?.ErrMs, l.ClockApart))).ToList();
+            .Select(l => new PlayoutLinkFact(l.LinkName, l.Peer, l.Record.Light, l.Status, l.Record.Flags, l.Clock?.OffsetMs, l.Clock?.ErrMs, l.ClockApart, l.Standing))).ToList();
         // As the app: each key seen in clear (13.6.9), amber, from where and when.
         var health = ShowContext.ClearSeenItems(_sightings.All(), id => _apiKeys.FirstOrDefault(k => k.Id == id)?.Name).ToList();
         var hello = _beacon?.Status ?? HelloStatus.NotYet;

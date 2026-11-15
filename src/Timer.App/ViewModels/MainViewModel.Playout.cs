@@ -142,13 +142,15 @@ public sealed partial class MainViewModel
 
     /// <summary>
     /// The VT chip's right-click (owner thread): the link feeding the VT countdown, its peer, and its transport entries, each greyed with
-    /// why — the plan its press would run, the licence, the link down, or the peer's own WHOAMI (<see cref="PlayoutMenus.Vt"/>) — and
+    /// why — the plan its press would run, the licence, the link down, the scope its peer stood it at, or the peer's own WHOAMI
+    /// (<see cref="PlayoutMenus.Vt"/>) — and
     /// Last 10 s greyed too while its button is hidden (no clip that counts down). Null while vMix feeds the VT, or nothing does.
     /// </summary>
     public (string Link, string Peer, IReadOnlyList<PlayoutOffer> Offers)? VtOffers()
     {
         if (VtLink() is not { } name || _playout[name] is not { } link || PlayoutRules.Find(Settings.Integrations.PlayoutLinks, name) is not { } s) return null;
-        var offers = PlayoutMenus.Vt(s, PlayoutFacts.Of(link), link.Whoami, link.Connected, FeatureGate.AllowsPlayout(_license.Tier), Settings.Integrations.PlayoutLeadMs)
+        var offers = PlayoutMenus.Vt(s, PlayoutFacts.Of(link), link.Whoami, link.Connected, FeatureGate.AllowsPlayout(_license.Tier), Settings.Integrations.PlayoutLeadMs,
+                link.ScopeHeld)
             .Select(o => o is { Action: "end", Why: null } && !PatternsCanJump ? o with { Why = $"{link.Peer}'s clip on air has no length to count down — Last 10 s needs one" } : o)
             .ToList();
         return (name, link.Peer, offers);
@@ -244,7 +246,7 @@ public sealed partial class MainViewModel
             if (_playout[s.Name] is not { } link) continue;
             var record = link.Record;
             var clock = link.Clock;
-            yield return new PlayoutLinkFact(s.Name, link.Peer, record.Light, link.Status, record.Flags, clock?.OffsetMs, clock?.ErrMs, link.ClockApart);
+            yield return new PlayoutLinkFact(s.Name, link.Peer, record.Light, link.Status, record.Flags, clock?.OffsetMs, clock?.ErrMs, link.ClockApart, link.Standing);
         }
     }
 
@@ -265,7 +267,7 @@ public sealed partial class MainViewModel
                     p.ItemId.Length > 0 ? $"{p.ItemId} · {p.ItemLabel}" : "", p.NextId.Length > 0 ? $"{p.NextId} · {p.NextLabel}" : "")).ToList(),
                 state?.Cuestack is { StandbyId.Length: > 0 } c ? $"{c.StandbyId} · {c.StandbyName}" : "",
                 link.WrongKind is null ? link.Index?.Lines(AiContext.PlayoutListedMax) ?? [] : [],
-                AiContext.PlayoutCues(Settings.Rundown.Items, s.Name)));
+                AiContext.PlayoutCues(Settings.Rundown.Items, s.Name), link.Standing, link.ScopeHeld ?? ""));
         }
         return facts;
     }
@@ -332,6 +334,55 @@ public sealed partial class MainViewModel
             list.AddRange(triggers.CertificatesWaiting().Select(w => new CertificateWaiting("", $"the trigger target {w.Where}",
                 new PlayoutTrustWait(w.Fingerprint, w.Changed, w.Pinned, w.NodeId), w.NodeId ?? "", TriggerKey: w.Key)));
         return list;
+    }
+
+    /// <summary>
+    /// The playout links that record a floor now (Show Bus 13.9.3), by name and peer, with whether the link is refused for offering
+    /// less: what the desk's Lower floor entries are drawn from.
+    /// </summary>
+    public IReadOnlyList<(string Link, string Peer, bool Refused)> PlayoutFloors()
+        => Settings.Integrations.PlayoutLinks.Select(s => _playout[s.Name]).OfType<PlayoutLink>()
+            .Where(l => l.Floor is not null).Select(l => (l.LinkName, l.Peer, l.Record.Refusal == "floor")).ToList();
+
+    /// <summary>
+    /// A person on this desk lowers a playout link's floor (<see cref="PlayoutLink.LowerFloor"/>, Show Bus 13.9.3), from the status
+    /// line's right-click, and nowhere else — never a line. The status line and the show log say what happened. Show thread.
+    /// </summary>
+    public (bool Lowered, string Words) LowerPlayoutFloor(string name)
+    {
+        if (_playout[name] is not { } link) return (false, StatusLine = $"Not lowered: no playout link called {name} runs.");
+        var (lowered, words) = link.LowerFloor();
+        StatusLine = lowered ? words : "Not lowered: " + words;
+        _journal.Add(DateTime.UtcNow, JournalKind.Playout, _show.RundownActive ? _show.CurrentItem : -1, $"{link.Peer}: {(lowered ? "" : "floor not lowered — ")}{words}");
+        return (lowered, StatusLine);
+    }
+
+    /// <summary>
+    /// The playout links that hold a key their peer enrolled for them (Show Bus 13.5.7), by name, peer and kid (never the key): what the
+    /// desk's "Forget the enrolled key" entries are drawn from, each marked when its peer refuses it now.
+    /// </summary>
+    public IReadOnlyList<(string Link, string Peer, string Kid, bool Refused)> PlayoutEnrolledKeys()
+        => Settings.Integrations.PlayoutLinks.Select(s => _playout[s.Name]).OfType<PlayoutLink>()
+            .Where(l => l.EnrolledKid is not null)
+            .Select(l => (l.LinkName, l.Peer, l.EnrolledKid!, l.Record is { State: "held" or "refused", Refusal: "key" or "binding" } && l.Record.Kid == l.EnrolledKid)).ToList();
+
+    /// <summary>
+    /// A person on this desk forgets the key a playout link's peer enrolled for it (<see cref="PlayoutLink.ForgetEnrolled"/>, Show Bus
+    /// 13.5.7), from the status line's right-click: the link proves its pairing token again from its next dial, and the copy sealed in
+    /// Settings is cleared. The status line and the show log say what happened; never the key. Show thread.
+    /// </summary>
+    public (bool Forgot, string Words) ForgetPlayoutEnrolled(string name)
+    {
+        if (_playout[name] is not { } link) return (false, StatusLine = $"Not forgotten: no playout link called {name} runs.");
+        var (forgot, words) = link.ForgetEnrolled();
+        if (forgot)
+            _store.Update(s =>
+            {
+                if (s.Integrations.PlayoutLinks.FirstOrDefault(l => l.Name == name) is { } kept) kept.EnrolledProtected = "";
+            });
+        StatusLine = forgot ? words : "Not forgotten: " + words;
+        _journal.Add(DateTime.UtcNow, JournalKind.Playout, _show.RundownActive ? _show.CurrentItem : -1, $"{link.Peer}: {(forgot ? "" : "enrolled key not forgotten — ")}{words}");
+        return (forgot, StatusLine);
     }
 
     /// <summary>

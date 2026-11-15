@@ -188,7 +188,8 @@ public readonly record struct SpeechView(double Percent, double WordsPerMinute, 
 /// <see cref="Link"/> the playout link that feeds it ("" for vMix) and <see cref="Node"/> that peer's Show Bus id ("" while not known),
 /// so a peer that reads Stagewatch's playout row can tell its own clip.
 /// </summary>
-public readonly record struct PlayoutView(string Title, long RemainingSeconds, long DurationSeconds, bool Running, string Source, string Link = "", string Node = "");
+public readonly record struct PlayoutView(string Title, long RemainingSeconds, long DurationSeconds, bool Running, string Source, string Link = "", string Node = "",
+    int Level = 0, string Proof = "", string Scope = "");
 
 /// <summary>
 /// One running-order line for producer views. Times are pre-formatted in the show's time zone. StartIn / EndIn are
@@ -439,7 +440,12 @@ public enum ShowCommandKind
     /// A person approves or rejects a proposal on this desk (<see cref="DeskArgs"/>): Text = action \u0001 id \u0001 why; Flag = the
     /// word <c>high</c> came with an approval. Taken only from a person, and never from a trigger.
     /// </summary>
-    Desk
+    Desk,
+    /// <summary>
+    /// A person lowers the floor a playout link's proof recorded (Show Bus 13.9.3): Text = link. Like <see cref="PlayoutTrust"/>, a line
+    /// of it is refused at every door and by every executor; only the desk's own entry beside the refusing link lowers one.
+    /// </summary>
+    PlayoutFloor
 }
 
 /// <summary>
@@ -833,6 +839,7 @@ public static class ShowCommandParser
         "playout [link] end [seconds] | playout [link] restart|play|pause|stop | playout [link] seek <m:ss> | " +
         "playout [link] cue <playlist> <item> | playout [link] cue <cue> | playout [link] go <playlist> [item] [together] | playout [link] go <cue> | " +
         "playout <link> trust <8+ hex of its certificate> (typed on the desk only, beside the fingerprint) | " +
+        "playout <link> floor lower (on the desk only, beside the link that refuses: it asks for LINK again) | " +
         "screen identify [screen] | screen go <preset|/page> [screen] | screen name <id> <name> | screen save <preset> <screen> | " +
         "window new <name> [page] | window show <window|all> <page|setup|holding|black> | window cue <window|all> <page> | " +
         "window hold <window|all> [toggle|text <words>|image <n|name|off>] | window release <window|all> | window identify|reload <window|all> | " +
@@ -1491,7 +1498,8 @@ public static class ShowCommandParser
         const string Takes = "playout takes end, restart, play, pause, stop, seek, cue or go";
         var words = args.Select(a => a.Trim()).Where(a => a.Length > 0).ToList();
         var link = "";
-        if (words.Count > 0 && !PlayoutRules.IsAction(words[0]) && !words[0].Equals(PlayoutRules.TrustWord, StringComparison.OrdinalIgnoreCase))
+        if (words.Count > 0 && !PlayoutRules.IsAction(words[0]) && !words[0].Equals(PlayoutRules.TrustWord, StringComparison.OrdinalIgnoreCase)
+            && !words[0].Equals(PlayoutRules.FloorWord, StringComparison.OrdinalIgnoreCase))
         {
             link = words[0].ToLowerInvariant();
             if (PlayoutRules.NameProblem(link) is { } why) throw new FormatException(Takes + ", after a link's name: " + why);
@@ -1504,6 +1512,15 @@ public static class ShowCommandParser
             if (PlayoutRules.TrustHex(string.Join("", words.Skip(1))) is not { } hex)
                 throw new FormatException($"playout trust takes {PlayoutRules.TrustHexMin.ToString(CultureInfo.InvariantCulture)} to 64 hex digits of the certificate, as its fingerprint shows them");
             cmd = new ShowCommand(ShowCommandKind.PlayoutTrust, Text: ShowArgs.Pack(link, hex));
+            return true;
+        }
+        if (words.Count > 0 && words[0].Equals(PlayoutRules.FloorWord, StringComparison.OrdinalIgnoreCase))
+        {
+            // A floor is a link's own: lowering it names its link, and the one word that says what is done to it.
+            if (link.Length == 0) throw new FormatException("playout floor names its link: playout patterns floor lower");
+            if (words.Count != 2 || !words[1].Equals("lower", StringComparison.OrdinalIgnoreCase))
+                throw new FormatException("playout <link> floor takes lower and nothing more: playout patterns floor lower");
+            cmd = new ShowCommand(ShowCommandKind.PlayoutFloor, Text: link);
             return true;
         }
         if (words.Count == 0 || !PlayoutRules.IsAction(words[0])) throw new FormatException(Takes);

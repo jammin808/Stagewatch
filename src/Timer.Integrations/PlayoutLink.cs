@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
@@ -100,6 +101,24 @@ public sealed record PlayoutLinkOptions
     /// under the link's lock, so it is cheap and never waits on a disk (<see cref="PlayoutKeptStore.KeepDoor"/>). Null keeps none.
     /// </summary>
     public Action<int>? KeepDoor { get; init; }
+
+    /// <summary>
+    /// This Stagewatch's own Show Bus id (§2), the connector a peer binds an app key to (<c>stagewatch:&lt;id&gt;</c>, 13.5.2): with none
+    /// of that shape the link names itself to nobody and offers no LINK (<see cref="PlayoutProof.OffersLink"/>).
+    /// </summary>
+    public string? Self { get; init; }
+
+    /// <summary>A key a peer's verdict enrolled for this link in an earlier run (13.5.7), kept with the machine; null for none.</summary>
+    public PlayoutEnrolment? Enrolled { get; init; }
+
+    /// <summary>
+    /// Keeps a key a verdict enrolled, once checked (<see cref="PlayoutProof.Enrolled"/>): asked under the link's lock, so it posts and
+    /// never waits. Null keeps it for this run only.
+    /// </summary>
+    public Action<PlayoutEnrolment>? KeepEnrolled { get; init; }
+
+    /// <summary>The tag of the token as Settings stores it (<see cref="PlayoutKeptStore.Tag"/>): a key enrolled from it is kept with it.</summary>
+    public string Tag { get; init; } = "";
 }
 
 /// <summary>
@@ -222,8 +241,9 @@ public sealed record PlayoutReading(PlayoutPeerState State, long AgeMs, long Num
 /// types at least 8 hex of the new one (13.8.3). A 429 at the door is a lockout and holds the token; a close 4401 is a wrong token and
 /// holds it. <see cref="PeerLinkConnector"/> decides — the dial and its jittered redial, liveness
 /// (live, stale past <c>link.stale.ms</c>, down past <c>link.drop.ms</c>) with its own self-gap, each command's outcome by 13.12.3,
-/// the matched pongs its clock takes, holds — and this class carries it over a socket. It offers no LINK yet: it greets with
-/// <c>HELLO Stagewatch</c> and pairs by §7's level-0 rules (13.6.8): a NONCE of exactly 32 lowercase hex is answered with
+/// the matched pongs its clock takes, holds — and this class carries it over a socket. It offers LINK where
+/// <see cref="PlayoutProof.OffersLink"/> says (an app key, an enrolled key, or the pairing token inside TLS; never to a PlayMap node
+/// yet); otherwise it greets with <c>HELLO Stagewatch</c> and pairs by §7's level-0 rules (13.6.8): a NONCE of exactly 32 lowercase hex is answered with
 /// <c>AUTH-PROOF</c>, once a connection; plain <c>AUTH &lt;token&gt;</c> goes only to a socket whose remote address is this PC and
 /// that heard no NONCE; a desk off this PC older than Show Bus 1.1 never pairs. Nothing the peer says before it pairs is taken, and a
 /// refused proof holds the token <c>peerlink.hold.refused.ms</c> (13.15.3). STATE is latest-wins, read by
@@ -391,6 +411,12 @@ public sealed class PlayoutLink : IPlayoutSource
     private int _door, _keptDoor;
     /// <summary>The node Settings set this link to (a valid id), or null: a STATE naming another is sent nothing (13.4.3).</summary>
     private readonly string? _meant;
+    /// <summary>This Stagewatch's own Show Bus id when it is one (13.6.4's client), else null: no LINK names a connector of no shape.</summary>
+    private readonly string? _self;
+    // A key a verdict enrolled for this link (13.5.7), adopted from the next LINK on; null while none is held (under the lock).
+    private PlayoutEnrolment? _enrolled;
+    // This link's own words for a floor refusal it caused by holding LINK back on a plain socket, or null (under the lock).
+    private string? _withheldFloor;
 
     // The state the show log last heard of (13.16.7), when each change was last said, and the repeats not said apart (13.19.4).
     private PeerLinkState _logged = PeerLinkState.Off;
@@ -431,7 +457,7 @@ public sealed class PlayoutLink : IPlayoutSource
     /// the lock). <see cref="Lines"/> is the TLS line channel's, whose close code the link reads as it ends; null on TCP.
     /// </summary>
     private sealed class Connection(IDisposable socket, Stream stream, bool loopback, CancellationToken stop, PlayoutLinesStream? lines = null, int door = 0,
-        int attempt = 0) : IDisposable
+        int attempt = 0, bool rawTls = false) : IDisposable
     {
         public readonly IDisposable Socket = socket;
         public readonly Stream Stream = stream;
@@ -441,7 +467,25 @@ public sealed class PlayoutLink : IPlayoutSource
         public readonly int Door = door;
         /// <summary>The TLS dial it came from (0 on TCP): its certificate was judged by the core only when that dial's step ran.</summary>
         public readonly int Attempt = attempt;
-        public bool Tls => Lines is not null;
+        /// <summary>TLS on the line wire itself (Patterns' 9697, told from plain by the first byte), not PlayMap's line channel.</summary>
+        public readonly bool RawTls = rawTls;
+        public bool Tls => Lines is not null || RawTls;
+        /// <summary>
+        /// This connection offers LINK (13.6.4): HELLO and LINK greet it, no probe goes, and its handshake's answers go to the core. What
+        /// it proves with is fixed here as it greets — the kid the core names, K (never written, never published) and the cnonce.
+        /// </summary>
+        public bool Linking;
+        public byte[]? K;
+        public string Kid = "";
+        public PlayoutProofKind Proves;
+        public readonly string CNonce = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(PeerLink.NonceBytes));
+        /// <summary>The acceptor's answer to LINK on this connection, once one came (13.6.4).</summary>
+        public PeerOffer? Offer;
+        /// <summary>The certificate this connection's TLS showed (64 hex), or null on a plain socket: T's <c>bind</c> (13.6.1).</summary>
+        public string? Shown;
+        /// <summary>This connection's own request ids for LINK (<c>l1</c>, <c>l2</c>) and RECEIPTS (<c>rq1</c>, …), counted from 1.</summary>
+        public int LinkAsks, ReceiptAsks;
+        public readonly HashSet<string> OwnIds = new(StringComparer.Ordinal);
         /// <summary>Its certificate was looked at for a <c>first</c> pin, at its first whole STATE once it paired.</summary>
         public bool PinLooked;
         /// <summary>The lines to write, in the order they were asked for; one lane writes them, outside the link's lock.</summary>
@@ -513,6 +557,10 @@ public sealed class PlayoutLink : IPlayoutSource
         _said = $"connecting to {_host}:{_port}";
         _meant = options.NodeId is { Length: > 0 } meant && ShowBusHello.ValidId(meant) ? meant : null;
         _door = _keptDoor = options.Door is > 0 and < 65536 ? options.Door : 0;
+        _self = options.Self is { } self && PeerLink.IsId(self) ? self : null;
+        // A key enrolled from the token Settings holds now; one enrolled from another token (changed since) is not proved (13.5.7).
+        _enrolled = options.Enrolled is { } kept && kept.Tag == options.Tag && options.Tag.Length > 0 && !PlayoutProof.IsKey(_token) ? kept : null;
+        var proves = PlayoutProof.KindOf(_token, _enrolled);
         var settings = new PeerLinkSettings
         {
             Carrier = PeerCarrier.Line,
@@ -521,13 +569,23 @@ public sealed class PlayoutLink : IPlayoutSource
             NodeId = _meant,
             Kind = _setKind == PlayoutRules.Auto ? null : _setKind,
             Address = _host + ":" + _port.ToString(CultureInfo.InvariantCulture),
-            // The token is held as 13.6.8's code: proved only by the legacy proof, and only one 1.1 desks key alike.
-            Key = PlayoutWire.TokenProblem(_token) is null ? "code" : null,
+            // What the link proves with, by kid (PlayoutProof): an app key's or an enrolled key's by LINK alone; the token as a code —
+            // by LINK inside TLS, by 13.6.8's legacy proof on a plain socket, and only one 1.1 desks key alike.
+            Key = proves switch
+            {
+                PlayoutProofKind.Code => PlayoutWire.TokenProblem(_token) is null ? "code" : null,
+                PlayoutProofKind.None => null,
+                _ => PlayoutProof.Kid(_token, _enrolled),
+            },
             Local = _local = IsLocal(_host, options.IsLoopback),
             ShowNeeds = true,
             IdPrefix = IdPrefix,
             Inst = options.Inst,
-            OffersLink = false,
+            // LINK goes only where PlayoutProof says, connection by connection (OffersLinkOnThisDial); a link that names no Show Bus id of
+            // its own, or holds nothing LINK proves, offers it on none.
+            OffersLink = _self is not null && proves != PlayoutProofKind.None,
+            // A playout link drives its peer: a verdict that stands it below drive flags scope, amber (13.5.3).
+            Uses = "drive",
             // A link set to wss dials TLS every time; otherwise TLS when a hello names the node's door, or a pin or floor asks.
             TriesTls = _transport == PlayoutRules.Wss,
         };
@@ -759,6 +817,61 @@ public sealed class PlayoutLink : IPlayoutSource
     public PlayoutTrustWait? TrustWaiting => _pub.TrustWait;
 
     /// <summary>
+    /// The floor a proved link recorded (13.9.3), or null: what a peer must prove itself with from then on — its level, TLS and proof.
+    /// </summary>
+    public PeerFloor? Floor => _pub.Record.Floor;
+
+    /// <summary>
+    /// A person on this desk lowers the floor a proved link recorded (13.9.3, Lower floor): the peer may prove itself with less again —
+    /// an older build, no LINK, no TLS — and a link refused for offering less is dialled again at once, asking for LINK as before. Kept
+    /// across a restart as the floor was. False, nothing changed, while no floor is recorded.
+    /// </summary>
+    public (bool Lowered, string Words) LowerFloor()
+    {
+        (bool, string) result;
+        lock (_gate)
+        {
+            var now = Now();
+            if (_m.Kept.Floor is not { } floor) result = (false, $"{Peer} has no floor recorded — a floor comes only from a link that proved itself; nothing changed");
+            else
+            {
+                _m.LowerFloor();
+                result = (true, $"{Peer}'s floor (PeerLink {floor.Level.ToString(CultureInfo.InvariantCulture)}{(floor.Tls ? " over TLS" : "")}) lowered by a person on this desk — "
+                    + "it may prove itself with less again; the next dial asks for LINK as before");
+            }
+            _pub = Publish(now);
+        }
+        SayAnswers();
+        return result;
+    }
+
+    /// <summary>
+    /// A person on this desk forgets the key a peer enrolled for this link (13.5.7). A key the peer no longer holds — revoked, or
+    /// replaced when the same code enrolled another — refuses every link that proves it, so from the next dial (once a hold the
+    /// refusal started ends) the link proves its pairing token again, as a code inside TLS, where the peer may enrol a new key. The
+    /// copy kept with the machine is the desk's to clear beside this. False, nothing changed, while the link holds none.
+    /// </summary>
+    public (bool Forgot, string Words) ForgetEnrolled()
+    {
+        (bool, string) result;
+        lock (_gate)
+        {
+            var now = Now();
+            if (_enrolled is not { } held) result = (false, $"this link holds no key {Peer} enrolled for it — nothing changed");
+            else
+            {
+                _enrolled = null;
+                if (PlayoutProof.KindOf(_token, null) == PlayoutProofKind.Code) _m.Holds("code");
+                result = (true, $"the key {Peer} enrolled for this link (kid {held.Kid[..8]}) forgotten by a person on this desk — "
+                    + "its next link proves the pairing token inside TLS again, where " + Peer + " may enrol a new key");
+            }
+            _pub = Publish(now);
+        }
+        SayAnswers();
+        return result;
+    }
+
+    /// <summary>
     /// A person on this desk trusts this link's certificate (Show Bus 13.8.2–3), from the desk's own entry beside its fingerprint and
     /// nowhere else — never a line from the wire, a deck, a trigger or an assistant, which every door and executor refuse. After
     /// CERTIFICATE CHANGED, <paramref name="hex"/> is what the person typed (<paramref name="typed"/>: an entry that was never filled
@@ -833,7 +946,7 @@ public sealed class PlayoutLink : IPlayoutSource
         => Video is { CountsDown: true } v
             ? new PlayoutState(ShowBusKinds.Label(Kind) ?? _label, v.Title, v.LengthSeconds / v.Rate, v.PositionSeconds / v.Rate, v.Playing && !v.Paused)
             {
-                Link = _name, Node = NodeId ?? "",
+                Link = _name, Node = NodeId ?? "", Level = _pub.Record.Level, Proof = _pub.Record.Proof, Scope = _pub.Record.Scope,
             }
             : null;
 
@@ -924,6 +1037,53 @@ public sealed class PlayoutLink : IPlayoutSource
         return Send(mark, "VIDEO", words);
     }
 
+    /// <summary>
+    /// Why the link's scope holds back every playout command now, in words the desk shows before a press, or null when it does not: a
+    /// link LINK verified on this connection at a scope its peer reads as below drive (13.5.3; Patterns: follow and post read only).
+    /// </summary>
+    public string? ScopeHeld
+    {
+        get
+        {
+            var pub = _pub;
+            return pub.Pairing == PlayoutPairing.None ? null : ScopeHeldOf(pub.Record);
+        }
+    }
+
+    /// <summary>The scope words of <paramref name="r"/>, a link LINK verified (<see cref="PlayoutProof.ScopeWords"/>), or null when its scope holds nothing back.</summary>
+    private string? ScopeHeldOf(PeerLinkRecord r)
+    {
+        if (r is not { Proof: "mutual" }) return null;
+        var words = PlayoutProof.ScopeWords(Kind ?? (_setKind == PlayoutRules.Auto ? r.PeerT : _setKind), r.Scope, Peer);
+        return words.Length > 0 ? words : null;
+    }
+
+    /// <summary>
+    /// What the link stands on now, in a reader's words (<see cref="PlayoutProof.StandingWords"/>): its level, proof, key by kid —
+    /// named enrolled when a peer enrolled it — and scope. A Patterns desk proved at level 0 by the pairing token on a plain socket says
+    /// how it would prove both ways: TLS (wss), where the token goes by LINK, or an issued key.
+    /// </summary>
+    public string Standing
+    {
+        get
+        {
+            var r = _pub.Record;
+            var words = PlayoutProof.StandingWords(r, r.Kid.Length > 0 && r.Kid != "code" && r.Kid == EnrolledKid);
+            return r.Proof == "legacy" && Kind == PlayoutRules.Patterns && r.Kid == "code" && !_pub.Tls && _self is not null
+                ? words + " — set this link to wss, where the pairing token goes by LINK inside TLS, or give it an app key Patterns issued, to prove both ways"
+                : words;
+        }
+    }
+
+    /// <summary>The kid of the key a peer enrolled for this link, adopted, or null (13.5.7); never the key.</summary>
+    public string? EnrolledKid
+    {
+        get
+        {
+            lock (_gate) return _enrolled?.Kid;
+        }
+    }
+
     /// <summary>Null when a command may go out; else why not — no connection, or a peer that has not paired with this link.</summary>
     private string? NotReady()
     {
@@ -963,6 +1123,12 @@ public sealed class PlayoutLink : IPlayoutSource
         {
             _pub = Publish(now);
             return new(null, NotReady() ?? $"{_label} hasn't paired with this link — nothing sent");
+        }
+        // 13.5.3: a link its verdict stood below drive is never sent what the peer would refuse for scope; the desk says so first.
+        if (ScopeHeld is { } held)
+        {
+            _pub = Publish(now);
+            return new(null, held + " — nothing sent");
         }
         var id = PeerLink.RequestId(IdPrefix, Interlocked.Increment(ref _ids.Value), _o.Inst);
         _outbound[id] = conn.Bus11 ? "@" + id + " " + line : line;
@@ -1038,6 +1204,13 @@ public sealed class PlayoutLink : IPlayoutSource
     {
         if (scheme == "tls")
         {
+            bool patterns;
+            lock (_gate) patterns = PatternsWire;
+            if (patterns)
+            {
+                await RawTlsAsync(stop);
+                return;
+            }
             var heard = Heard();
             int? door;
             string? notPlain = null;
@@ -1057,6 +1230,12 @@ public sealed class PlayoutLink : IPlayoutSource
                 return;
             }
         }
+        await PlainAsync(scheme, stop);
+    }
+
+    /// <summary>A dial on the line wire's plain TCP, for <paramref name="scheme"/> as the core meant it (a "tls" one is the core's NoTls).</summary>
+    private async Task PlainAsync(string scheme, CancellationToken stop)
+    {
         var tcp = new TcpClient { NoDelay = true };
         try
         {
@@ -1095,6 +1274,7 @@ public sealed class PlayoutLink : IPlayoutSource
         {
             attempt = ++_attempt;
             _noDoor = false;
+            _ = OfferOn(tls: true, linesChannel: true);
         }
         var ws = new ClientWebSocket();
         ws.Options.Proxy = null;
@@ -1163,6 +1343,108 @@ public sealed class PlayoutLink : IPlayoutSource
         // Plain AUTH never goes on the line channel (the node takes proofs only there), so it is no loopback socket for it.
         var lines = new PlayoutLinesStream(ws);
         await RunConnectionAsync(new Connection(lines, _o.Wrap is { } wrap ? wrap(lines) : lines, false, stop, lines, door, attempt), "tls", stop);
+    }
+
+    /// <summary>
+    /// The link's peer is a Patterns desk — set so, heard so, or holding a Patterns app key — whose line wire tells TLS from plain by its
+    /// first byte (Patterns 98.1): a TLS dial goes to the wire's own port, never to a door a hello names (under the lock).
+    /// </summary>
+    private bool PatternsWire => _setKind == PlayoutRules.Patterns || _kindSeen == PlayoutRules.Patterns
+                                 || (_setKind == PlayoutRules.Auto && _token.StartsWith(PatternsKeyPrefix, StringComparison.Ordinal));
+
+    /// <summary>The prefix of a Patterns app key (its <c>KEY MAKE</c>, 13.5.1).</summary>
+    private const string PatternsKeyPrefix = "ptk_";
+
+    /// <summary>
+    /// Whether the dial out now offers LINK (<see cref="PlayoutProof.OffersLink"/>), told to the core before its connection greets
+    /// (under the lock): over TLS on the line wire or over plain; never to a PlayMap node — on its line channel
+    /// (<paramref name="linesChannel"/>, PlayMap's alone) or its TCP wire — which answers no LINK yet. True when it offers.
+    /// </summary>
+    private bool OfferOn(bool tls, bool linesChannel = false)
+    {
+        if (tls) _withheldFloor = null;
+        var offers = PlayoutProof.OffersLink(PlayoutProof.KindOf(_token, _enrolled), tls, linesChannel || PlayMapWire, _self);
+        _m.OffersLinkOnThisDial(offers);
+        return offers;
+    }
+
+    /// <summary>
+    /// The link's peer is a PlayMap node — set so, heard so, or holding a PlayMap app key — which answers no LINK on any carrier until
+    /// <see cref="PlayoutProof.PlayMapSpeaksLink"/> (under the lock).
+    /// </summary>
+    private bool PlayMapWire => _setKind == PlayoutRules.PlayMap || _kindSeen == PlayoutRules.PlayMap
+                                || (_setKind == PlayoutRules.Auto && _token.StartsWith(PlayMapKeyPrefix, StringComparison.Ordinal));
+
+    /// <summary>The prefix of a PlayMap app key (13.5.1).</summary>
+    private const string PlayMapKeyPrefix = "pmk_";
+
+    /// <summary>
+    /// The TLS dial to a Patterns desk: TLS on its line wire's own port, which it tells from plain by the client's first byte and writes
+    /// nothing before (Patterns 98.1), through no proxy. The certificate is the core's to judge in the handshake, as on the line channel:
+    /// one a person or a proof pinned that it does not match ends the dial there, with nothing of the link's sent. A handshake that finds
+    /// no TLS on offer (an older desk, which writes its STATE first) is the core's NoTls: it refuses a pinned or floored node, and a link
+    /// that may go plain dials plain again; one set to wss says so and dials nothing plain.
+    /// </summary>
+    private async Task RawTlsAsync(CancellationToken stop)
+    {
+        int attempt;
+        lock (_gate)
+        {
+            attempt = ++_attempt;
+            _noDoor = false;
+            _ = OfferOn(tls: true);
+        }
+        var where = _host + ":" + _port.ToString(CultureInfo.InvariantCulture);
+        var tcp = new TcpClient { NoDelay = true };
+        SslStream? ssl = null;
+        string? failed = null;
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(PeerLink.ConnectTimeoutMs), _time);
+            using var either = CancellationTokenSource.CreateLinkedTokenSource(stop, deadline.Token);
+            await tcp.ConnectAsync(_host, _port, either.Token);
+            ssl = new SslStream(tcp.GetStream(), false, (_, cert, _, _) => CertificateShown(attempt, cert));
+            await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = _host }, either.Token);
+        }
+        catch (Exception ex) when (ex is SocketException or OperationCanceledException or IOException or ArgumentException
+                                       or System.Security.Authentication.AuthenticationException)
+        {
+            failed = ex is SocketException || (ex is OperationCanceledException && ssl is null) ? "unreachable" : "no-tls";
+        }
+        if (failed is not null || ssl is null)
+        {
+            if (ssl is not null) await ssl.DisposeAsync();
+            tcp.Dispose();
+            bool plain;
+            lock (_gate)
+            {
+                var now = Now();
+                _ = _m.Drain();
+                plain = false;
+                if (_m.State(now) == PeerLinkState.Refused)
+                {
+                    // CERTIFICATE CHANGED at the handshake: nothing of this link's went past it, and its words are the refusal's.
+                }
+                else if (failed == "unreachable")
+                {
+                    if (_m.KeepsConnection(now)) _m.Closed(now);
+                    if (!stop.IsCancellationRequested) Say(LinkHealth.NotFound, $"{_label} not reachable at {where}");
+                }
+                else if (_transport == PlayoutRules.Wss)
+                {
+                    if (_m.KeepsConnection(now)) _m.Closed(now);
+                    Say(LinkHealth.NotFound, $"{Peer} at {where} offers no TLS on its line wire (an older build) and this link is set to dial wss only — nothing sent plain");
+                }
+                else plain = _m.KeepsConnection(now);
+                _pub = Publish(now);
+            }
+            SayAnswers();
+            // TLS was not on offer and the link may go plain: the core decides it on a plain socket (a pin or a floor refuses it there).
+            if (plain) await PlainAsync("tls", stop);
+            return;
+        }
+        var loopback = tcp.Client.RemoteEndPoint is IPEndPoint remote && _o.IsLoopback(remote.Address);
+        await RunConnectionAsync(new Connection(tcp, _o.Wrap is { } wrap ? wrap(ssl) : ssl, loopback, stop, null, _port, attempt, rawTls: true), "tls", stop);
     }
 
     /// <summary>A 429's <c>Retry-After</c> in seconds (0 for none, or one that is not a number of seconds).</summary>
@@ -1331,11 +1613,13 @@ public sealed class PlayoutLink : IPlayoutSource
     }
 
     /// <summary>
-    /// The socket is up: the core greets (<c>HELLO Stagewatch</c>; it offers no LINK yet), and the link probes whether the peer speaks
-    /// Show Bus 1.1 — both put on the connection's lane, which starts once this returns true. On the TLS line channel the handshake's
-    /// certificate already brought the link up — and one whose certificate the core did not judge for this dial is ended with nothing
-    /// sent, red, never taken up unchecked. On the line wire, which has no TLS, a dial the core meant as TLS found none: the core
-    /// refuses a node a proof or a person pinned, or a floor holds to TLS, with nothing sent (13.9.3), and otherwise goes on plain
+    /// The socket is up: the core greets (<c>HELLO Stagewatch</c>, then <c>LINK</c> where <see cref="PlayoutProof.OffersLink"/> says so,
+    /// and the acceptor's answers go to the core); a connection that offers no LINK probes whether the peer speaks Show Bus 1.1 — both
+    /// put on the connection's lane, which starts once this returns true. Over TLS (PlayMap's line channel, or a Patterns desk's wire)
+    /// the handshake's certificate already brought the link up — and one whose certificate the core did not judge for this dial is
+    /// ended with nothing sent, red, never taken up unchecked. On a plain socket, where a dial the core meant as TLS found none (a desk
+    /// that offers no TLS on its wire), the core refuses a node a proof or a person pinned, or a floor holds to TLS, with nothing sent
+    /// (13.9.3), and otherwise goes on plain
     /// (13.3.3) — never a plain socket taken for TLS. False when the core had ended the dial already or refused it, and nothing is said
     /// on the socket.
     /// </summary>
@@ -1361,8 +1645,18 @@ public sealed class PlayoutLink : IPlayoutSource
                     return false;
                 }
             }
-            else if (scheme == "tls") _m.NoTls(now);
-            else _m.Connected(now);
+            else
+            {
+                // A link that holds back LINK on a plain socket (the token, which goes by LINK only inside TLS) from a node whose floor
+                // asks for PeerLink 1 is refused for that floor: the words say the withholding is this link's, not the peer's.
+                var withheld = !OfferOn(tls: false) && _self is not null && !PlayMapWire && PlayoutProof.KindOf(_token, _enrolled) == PlayoutProofKind.Code;
+                if (scheme == "tls") _m.NoTls(now);
+                else _m.Connected(now);
+                _withheldFloor = withheld && _m.State(now) == PeerLinkState.Refused && _m.Refusal(now) == "floor"
+                    ? $"{Peer} proved itself with PeerLink 1 before, and this link now holds only the pairing token, which goes by LINK only "
+                      + $"inside TLS — set the link to wss, or lower the floor ({PlayoutRules.FloorWhere}); nothing sent"
+                    : null;
+            }
             if (!_m.KeepsConnection(now))
             {
                 _pub = Publish(now);
@@ -1376,7 +1670,22 @@ public sealed class PlayoutLink : IPlayoutSource
             // another desk at the address, or the same one restarted: its clock starts with no sample.
             _m.Clock.Clear();
             Say(LinkHealth.Starting, $"connected to {(conn.Tls ? _host + ":" + conn.Door.ToString(CultureInfo.InvariantCulture) + " over TLS" : _host + ":" + _port.ToString(CultureInfo.InvariantCulture))} — pairing");
+            // What this connection proves with, fixed as it greets: an enrolment taken on it changes the next connection's, never this one's.
+            conn.Proves = PlayoutProof.KindOf(_token, _enrolled);
+            conn.K = PlayoutProof.K(_token, _enrolled);
+            conn.Kid = _m.Key ?? "";
+            conn.Shown = conn.Tls ? _m.CertificateShown : null;
             Flush(conn);
+            if (conn.Linking)
+            {
+                // LINK went with HELLO: the core reads the acceptor's answers, and nothing is probed — an acceptor that answers LINK as
+                // an older build is 13.6.8's level 0, and its NONCE is proved then.
+                conn.Bus11 = true;
+                conn.NonceJudged = true;
+                Ended(conn, now);
+                _pub = Publish(now);
+                return true;
+            }
             // The desk sends NONCE on connect and this link proves it holds the token without sending it. A desk that trusts this
             // connection (on this PC, or open) sends none: ask whether it speaks Show Bus 1.1.
             conn.Probing = true;
@@ -1467,10 +1776,13 @@ public sealed class PlayoutLink : IPlayoutSource
             // discarded and counted.
             if (!paired) SetAside();
             var p = line[8..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (p.Length >= 3 && Ms(p[0]) is { } t1 && Ms(p[1]) is { } t2 && Ms(p[2]) is { } t3) _m.Pong(now, t1, t2, t3, stuck: false);
+            // 13.10.5: a pong that says STUCK says its show writer has stalled (an acceptor offers it only with the stuck feature).
+            if (p.Length >= 3 && Ms(p[0]) is { } t1 && Ms(p[1]) is { } t2 && Ms(p[2]) is { } t3)
+                _m.Pong(now, t1, t2, t3, stuck: p.Length >= 4 && p[3] == "STUCK");
             else _m.Heard(now);
             return;
         }
+        if (conn.Linking && TakeLink(conn, now, line)) return;
         if (line.StartsWith("OK @hi ", StringComparison.Ordinal))
         {
             // The probe's answer: a Show Bus 1.1 desk. It greets with its NONCE before it reads a line, so a 1.1 desk answering the
@@ -1583,6 +1895,137 @@ public sealed class PlayoutLink : IPlayoutSource
     }
 
     private static long? Ms(string s) => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
+
+    /// <summary>
+    /// A line on a connection that offered LINK, taken here when it is one of the handshake's or a link's own (under the lock): the
+    /// answers to its LINK and LINK PROOF (13.6.4), the answer to a RECEIPTS ask (13.12.6), and a refusal that ends a live link with no
+    /// id (13.5.5: a key revoked, the pairing code replaced — and Patterns' operator's CLOSE, which rides that refused class). False for
+    /// any other line, which the link reads as it always has.
+    /// </summary>
+    private bool TakeLink(Connection conn, PeerNow now, string line)
+    {
+        var ok = line.StartsWith("OK @", StringComparison.Ordinal);
+        if (ok || line.StartsWith("ERR @", StringComparison.Ordinal))
+        {
+            var rest = line[(ok ? 4 : 5)..];
+            var id = rest.IndexOf(' ') is var sp and > 0 ? rest[..sp] : rest;
+            if (!conn.OwnIds.Contains(id)) return false;
+            if (id.StartsWith("rq", StringComparison.Ordinal))
+            {
+                _m.Heard(now);
+                if (ok && rest.IndexOf('{') is var brace and > 0) TakeReceipts(now, rest[brace..]);
+                return true;
+            }
+            if (conn.Offer is null && PeerLink.ParseLinkAnswer(line) is { } offer) conn.Offer = offer;
+            _m.LineAnswer(now, line, proof => AcceptorProves(conn, proof));
+            AfterLink(conn, now, line);
+            return true;
+        }
+        if (!line.StartsWith("ERR LINK ", StringComparison.Ordinal)) return false;
+        _m.LineAnswer(now, line, proof => AcceptorProves(conn, proof));
+        AfterLink(conn, now, line);
+        return true;
+    }
+
+    /// <summary>13.12.6: a RECEIPTS answer's entries, each read by 13.12.3, or null for <c>unknown</c>, handed to the core; one it cannot read changes nothing.</summary>
+    private void TakeReceipts(PeerNow now, string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("receipts", out var rs) || rs.ValueKind != JsonValueKind.Object) return;
+            _m.Receipts(now, rs.EnumerateObject().Take(PeerLink.ReceiptsAskMax)
+                .ToDictionary(x => x.Name, x => x.Value.ValueKind == JsonValueKind.Object ? PeerLink.ReadReceipt(x.Value.Clone()) : (PeerReading?)null, StringComparer.Ordinal));
+        }
+        catch (JsonException)
+        {
+            _m.Malformed(now);
+        }
+    }
+
+    /// <summary>
+    /// What a LINK answer did (under the lock). A verdict the core took — both proofs checked, the certificate pinned by the proof and the
+    /// floor recorded (13.6.3, 13.9.3) — pairs the connection as 1.1's <c>OK paired</c> did, its STATE and context asked; a key it
+    /// enrolled is checked and adopted (13.5.7). A refusal or a proof that did not verify ends the connection in the peer's words; an
+    /// acceptor that answered LINK as an older build is 13.6.8's level 0 and is proved by its NONCE as before, or said to take no key.
+    /// </summary>
+    private void AfterLink(Connection conn, PeerNow now, string line)
+    {
+        var record = _m.Record(now);
+        if (record.Proof == "mutual" && conn.Pairing == PlayoutPairing.None && _m.Follows(now))
+        {
+            conn.Pairing = PlayoutPairing.Paired;
+            conn.ProofSent = true;
+            Enrol(conn, line);
+            // The scope a verdict stood the link below drive is said by every Publish while it is live (ScopeHeldOf), amber.
+            Say(PairedHealth, $"proved both ways with {Peer} at {_host}:{_port.ToString(CultureInfo.InvariantCulture)}{(conn.Tls ? " over TLS" : "")} — "
+                + "scope " + record.Scope + " — waiting for its STATE");
+            Write(conn, "@st STATUS");
+            Write(conn, "@ctx CONTEXT");
+            conn.LastContext = now.Mono;
+            return;
+        }
+        if (!_m.KeepsConnection(now))
+        {
+            var words = line.IndexOf(" LINK ", StringComparison.Ordinal) is var at and >= 0 && line.StartsWith("ERR", StringComparison.Ordinal)
+                ? line[(at + 6)..] : record.Words;
+            var refused = record.State is "held" or "refused";
+            // 13.5.5: a key the peer enrolled for this link and no longer holds refuses every link that proves it; a person forgets
+            // it on this desk and the link proves its token again (ForgetEnrolled).
+            var gone = conn.Proves == PlayoutProofKind.Enrolled && record.Refusal is "key" or "binding"
+                ? $" — the key {Peer} enrolled for this link (kid {conn.Kid[..Math.Min(8, conn.Kid.Length)]}) is no longer held there: "
+                  + "right-click the status line and forget it, and the link proves its pairing token again (or type the token again in Settings)"
+                : "";
+            Explain(conn, refused ? LinkHealth.Error : LinkHealth.NotFound, $"{Peer}: {Clip(words)}{gone}");
+            return;
+        }
+        if (record.Proof == "legacy" && _m.Key is { } kid && kid != "code")
+            Advise(conn, $"{Peer} at {_host}:{_port.ToString(CultureInfo.InvariantCulture)} answers no LINK — an older build that takes no app key; "
+                + "give this link its pairing token, or update it — nothing is taken from it until it pairs");
+    }
+
+    /// <summary>
+    /// 13.5.7 on a verdict that names <c>enrolled</c>: a code proved inside TLS, the key derived from the code's K over this connection's
+    /// T and taken only when its kid is the one the verdict named. The link proves with it from its next LINK on — so a second link
+    /// enrols no second key — and keeps it with the machine; the show's log names its kid and scope, never the key.
+    /// </summary>
+    private void Enrol(Connection conn, string line)
+    {
+        if (conn.Proves != PlayoutProofKind.Code || conn.K is not { } codeK || Transcript(conn) is not { } t) return;
+        string? named;
+        try
+        {
+            var brace = line.IndexOf('{');
+            if (brace < 0) return;
+            using var doc = JsonDocument.Parse(line[brace..]);
+            named = doc.RootElement.TryGetProperty("enrolled", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+        if (named is null) return;
+        var bind = conn.Shown is { } shown ? "tls:sha256:" + shown : "plain";
+        if (PlayoutProof.Enrolled(named, codeK, t, bind, _o.Tag) is not { } enrolled)
+        {
+            _toLog.Add($"{_label} link: {Peer} named an enrolled key ({Clip(named)}) this link could not derive from its code over this link — not taken");
+            return;
+        }
+        if (_enrolled is { } held && held.Kid == enrolled.Kid) return;
+        _enrolled = enrolled;
+        _m.Holds(enrolled.Kid);
+        _o.KeepEnrolled?.Invoke(enrolled);
+        _toLog.Add(EnrolledWords(enrolled.Kid));
+    }
+
+    /// <summary>
+    /// What the show log and the desk's status line say when a peer enrolls a key for this link (13.5.7): its kid alone, and that the
+    /// next link proves with it — at the scope the peer's operator gives that key (Patterns enrols at follow), so until it is raised
+    /// the playout commands wait there, said before a press.
+    /// </summary>
+    public string EnrolledWords(string kid)
+        => $"{_label} link: {Peer} enrolled a key for this link (kid {kid[..Math.Min(8, kid.Length)]}) — from its next link it proves with that key, "
+           + $"never the code, at the scope {Peer}'s operator gives it (Patterns enrols at follow: playout commands wait until its operator raises the key on its Nodes page)";
 
     /// <summary>The request ids of the link's own asks for the peer's list: a PlayMap node's INDEX, a Patterns desk's CUE LIST.</summary>
     private const string ListAskIndex = "ix", ListAskCues = "cl";
@@ -1727,6 +2170,14 @@ public sealed class PlayoutLink : IPlayoutSource
     {
         conn.NonceHeard = true;
         conn.Bus11 = true;
+        if (conn.Linking)
+        {
+            // 13.6.8: a LINK connection keeps only whether the NONCE is provable; the core proves it with 1.1's proof only once the
+            // acceptor answers LINK as an older build, and only a code — never an app key — once a connection.
+            if (PlayoutWire.IsProvableNonce(nonce) && conn.Nonce is null) conn.Nonce = nonce;
+            _m.Nonce(now, nonce);
+            return;
+        }
         if (conn.ProofSent || conn.Pairing != PlayoutPairing.None) return;
         if (!PlayoutWire.IsProvableNonce(nonce))
         {
@@ -1976,15 +2427,49 @@ public sealed class PlayoutLink : IPlayoutSource
                     conn.ProofSent = true;
                     Write(conn, "@pa AUTH-PROOF " + proof);
                     break;
+                case ("LINK", null) when _self is not null && conn.Kid.Length > 0:
+                    conn.Linking = true;
+                    Write(conn, "@" + OwnId(conn, "l") + " LINK " + PeerLink.Version.ToString(CultureInfo.InvariantCulture) + " " + PlayoutProof.SelfKind + " " + _self
+                        + " " + conn.CNonce + " " + conn.Kid);
+                    break;
+                case ("LINK", "proof") when Transcript(conn) is { } t && conn.K is { } k:
+                    Write(conn, "@" + OwnId(conn, "l") + " LINK PROOF " + PeerLink.ClientProof(k, t));
+                    break;
+                case ("RECEIPTS", null) when w.Detail is { Length: > 0 } ids:
+                    Write(conn, "@" + OwnId(conn, "rq") + " RECEIPTS " + ids);
+                    break;
                 case ({ }, null) when w.Detail is { } id && _outbound.Remove(id, out var line):
                     Enqueue(conn, new Outgoing(line, id));
                     break;
                 default:
-                    // Nothing else is this link's to write at level 0: it offers no LINK and asks no RECEIPTS.
+                    // Nothing else is this link's to write: a bearer goes on no line wire, and a key never crosses it.
                     break;
             }
         }
     }
+
+    /// <summary>The next of this connection's own request ids with <paramref name="prefix"/> (<c>l1</c>, <c>rq1</c>), counted from 1 (13.12.1), kept to read its answer by.</summary>
+    private static string OwnId(Connection conn, string prefix)
+    {
+        var n = prefix == "l" ? ++conn.LinkAsks : ++conn.ReceiptAsks;
+        var id = prefix + n.ToString(CultureInfo.InvariantCulture);
+        conn.OwnIds.Add(id);
+        return id;
+    }
+
+    /// <summary>
+    /// T of this connection (13.6.1) once the acceptor's offer came, or null: its <c>bind</c> the certificate this connection's TLS
+    /// showed, never the one the offer names. The proofs and the enrolled key are made from it with K; neither is ever kept.
+    /// </summary>
+    private string? Transcript(Connection conn)
+        => conn.Offer is { } o && _self is not null
+            ? PeerLink.Transcript("line", PeerLink.Version, o.Speaks, o.T + ":" + o.Id, PlayoutProof.SelfKind + ":" + _self, conn.Kid, o.SNonce, conn.CNonce,
+                conn.Shown is { } shown ? "tls:sha256:" + shown : "plain")
+            : null;
+
+    /// <summary>The acceptor's proof checked with K over T (13.6.3): the core takes a verdict only once this says it verified.</summary>
+    private bool AcceptorProves(Connection conn, string proof)
+        => Transcript(conn) is { } t && conn.K is { } k && PeerLink.Verify(PeerLink.ServerProof(k, t), proof);
 
     /// <summary>One line for the connection, on its lane (under the lock): the lane writes it after every line asked for before it.</summary>
     private void Write(Connection conn, string line) => Enqueue(conn, new Outgoing(line));
@@ -2257,11 +2742,15 @@ public sealed class PlayoutLink : IPlayoutSource
         // A PlayMap node that lets this link only read (armed and remote-view-only) is amber with what its desk can do: the link stays
         // up and its commands still go, and the node's own ERR refuses them in its words.
         var readOnly = live && _whoami is { MayDrive: false };
+        // A link its verdict stood below what a playout command needs (13.5.3) is amber and says so while live, however its STATE
+        // reads: every press is held back here, so the desk says why before one is made.
+        var scopeHeld = state == PeerLinkState.Live && (_conn?.Pairing ?? PlayoutPairing.None) != PlayoutPairing.None ? ScopeHeldOf(record) : null;
         var waiting = TrustWait(now);
         // §2's conflict mark holds the link — no new dial — and is amber, as the core's light says (13.16.5); a held token is red.
         var conflict = state == PeerLinkState.Held && _m.Refusal(now) == "conflict";
         var status = state switch
         {
+            PeerLinkState.Live when scopeHeld is not null => _said + TlsNote(waiting) + " · " + scopeHeld,
             PeerLinkState.Live when readOnly => _said + TlsNote(waiting) + " · " + ReadOnlyWords(Peer),
             PeerLinkState.Live => _said + TlsNote(waiting),
             PeerLinkState.Stale => $"{_label} at {_host}:{_port} quiet for {Seconds(record.HeardMs)} — no countdown until it is heard again",
@@ -2269,6 +2758,7 @@ public sealed class PlayoutLink : IPlayoutSource
             PeerLinkState.Down => _said + (_noDoor ? " — looking again in " : " — dialling again in ") + Seconds(record.NextMs),
             PeerLinkState.Held when _saidHealth == LinkHealth.Error && !conflict => _said + " — the token is held; next try in " + Seconds(record.NextMs),
             PeerLinkState.Refused when waiting is { Changed: true } changed => ChangedWords(changed),
+            PeerLinkState.Refused when _withheldFloor is { } own && _m.Refusal(now) == "floor" => own,
             PeerLinkState.Held or PeerLinkState.Refused => record.Words,
             _ when live => record.Words,
             _ => _said,
@@ -2281,7 +2771,7 @@ public sealed class PlayoutLink : IPlayoutSource
         }
         if (_repeats > 0 && _repeatSince is { } since && now.Mono - since >= RepeatSummaryEvery.TotalMilliseconds) FoldRepeats(now);
         var node = _reading?.State.Id is { Length: > 0 } stateId ? stateId : _contextNode;
-        return new Published(conflict ? LinkHealth.Starting : HealthOf(state, readOnly ? LinkHealth.Starting : _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None,
+        return new Published(conflict ? LinkHealth.Starting : HealthOf(state, readOnly || scopeHeld is not null ? LinkHealth.Starting : _saidHealth), status, state, _conn?.Pairing ?? PlayoutPairing.None,
             _conn is not null, record, _m.Clock.Believed, _m.Clock.Apart, _reading, _context, _kindSeen, node, _whoami, _contextNode, waiting,
             _conn is { Tls: true }, _index, _conn is { } up ? up.Serial : 0, _contextKind);
     }

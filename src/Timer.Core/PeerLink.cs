@@ -983,6 +983,15 @@ public sealed class PeerLinkConnector
 
     readonly PeerLinkSettings _s;
     readonly Func<double> _j;
+    /// <summary>
+    /// The kid, or <c>code</c>, of what the carrier proves now: the settings' at first, and an enrolled key's once the carrier adopted
+    /// it (13.5.7). Never the key.
+    /// </summary>
+    string? _key;
+    /// <summary>An enrolled key's kid the carrier adopted, held from the next dial on: the link up now stands on what it proved.</summary>
+    string? _nextKey;
+    /// <summary>Whether the dial out now offers LINK: the settings' <see cref="PeerLinkSettings.OffersLink"/>, unless the carrier said otherwise for this dial.</summary>
+    bool _offers;
     PeerPin? _pin;
     PeerFloor? _floor;
     string? _boundId, _boundT;
@@ -1045,6 +1054,8 @@ public sealed class PeerLinkConnector
     public PeerLinkConnector(PeerLinkSettings settings, PeerKept? kept, PeerNow now, Func<double>? jitter = null)
     {
         _s = settings;
+        _key = settings.Key;
+        _offers = settings.OffersLink;
         _j = jitter ?? PeerLink.ProcessJitter;
         _can = new HashSet<string>(settings.Can, StringComparer.Ordinal);
         _pin = kept?.Pin is { } pin && PeerLink.IsHex(pin.Fingerprint, 64) ? pin : null;
@@ -1084,8 +1095,41 @@ public sealed class PeerLinkConnector
         _phase = Phase.Dialling;
         _phaseAt = _attemptAt = now.Mono;
         _scheme = scheme;
+        _offers = _s.OffersLink;
+        if (_nextKey is not null)
+        {
+            _key = _nextKey;
+            _nextKey = null;
+        }
         return scheme;
     }
+
+    /// <summary>
+    /// The carrier's word for the dial out now, before its connection greets: whether it offers LINK (13.6.4) or greets at level 0
+    /// (13.6.8). A connector whose settings offer LINK may hold it back on one connection — a code it proves only inside TLS — and one
+    /// whose settings do not never offers it. The next dial starts from the settings again.
+    /// </summary>
+    public void OffersLinkOnThisDial(bool link) => _offers = link && _s.OffersLink;
+
+    /// <summary>
+    /// 13.5.7: the carrier adopted the key a verdict enrolled — derived from the code over T and checked against the kid the verdict
+    /// named — and proves with it from the next dial on; or, <c>code</c>, a person forgot that key and the carrier proves its code
+    /// again. The link up now stands on what it proved, and its record says so. Only the kid is held here; the key is the carrier's.
+    /// </summary>
+    public void Holds(string kid)
+    {
+        if (kid != "code" && !PeerLink.IsKid(kid)) return;
+        _nextKey = kid;
+    }
+
+    /// <summary>The kid, or <c>code</c>, of what the carrier proves now; null when it holds nothing.</summary>
+    public string? Key => _key;
+
+    /// <summary>The scope the last verdict stood the link at (13.5.3), or null when none named one.</summary>
+    public string? Scope => _scope;
+
+    /// <summary>Whether the last verdict's <c>can</c> lists <paramref name="feature"/> (13.6.6).</summary>
+    public bool Can(string feature) => _can.Contains(feature);
 
     /// <summary>A connection is up on the dial's scheme, nothing verified on it. On <c>line</c> the connector greets and asks LINK.</summary>
     public void Connected(PeerNow now)
@@ -1171,7 +1215,7 @@ public sealed class PeerLinkConnector
             {
                 // Level 0: 1.1's pairing. Nothing proves the acceptor (13.6.8), and the link says so: legacy, amber.
                 Linked(now);
-                if (!_s.OffersLink) Settle0(now);
+                if (!_offers) Settle0(now);
                 return;
             }
             TakeVerdict(now, rest.IndexOf('{') is var brace and >= 0 ? Parse(rest[brace..]) : null, acceptorProofVerifies);
@@ -1257,7 +1301,7 @@ public sealed class PeerLinkConnector
         Linked(now);
         _open = true;
         _proof = "open";
-        if (!_s.OffersLink && _s.Key is null) Settle0(now);
+        if (!_offers && _key is null) Settle0(now);
     }
 
     /// <summary>
@@ -1296,7 +1340,7 @@ public sealed class PeerLinkConnector
         _verifiedAt = now.Mono;
         _stableDone = false;
         _wentDown = false;
-        _codePlain = _plain && _s.Key == "code";
+        _codePlain = _plain && _key == "code";
         _lastClass = _why = null;
         _holdUntil = _reproveAt = long.MinValue;
         if (_offer is { } offer)
@@ -1786,7 +1830,7 @@ public sealed class PeerLinkConnector
         var amber = Flags(now).Any(f => f switch
         {
             "plain" => !_s.Local,
-            "keyless" or "open" => _s.Key is not null,
+            "keyless" or "open" => _key is not null,
             "legacy" or "code-plain" or "scope" or "apart" or "oversize" => true,
             _ => false,
         }) || Show == PeerShow.Stuck || _markUntil > now.Mono;
@@ -1830,7 +1874,7 @@ public sealed class PeerLinkConnector
         long? next = _phase == Phase.Idle && _refused is null
             ? Math.Max(0, Math.Max(_nextDialAt, Math.Max(_holdUntil, _markUntil)) - now.Mono) : null;
         return new PeerLinkRecord(NodeKind, NodeId, _s.Name, _s.Carrier == PeerCarrier.Line ? "line" : "ws", Math.Max(0, _level), Tls(),
-            _pin is { } pin ? pin.Fingerprint[..16] : "", _proof, _s.Key ?? "", _scope ?? "none",
+            _pin is { } pin ? pin.Fingerprint[..16] : "", _proof, _key ?? "", _scope ?? "none",
             state.Word(), Refusal(now), Show.Word(), Flags(now), light.Word(), light.Mark(), Words(now, state),
             Since(now, state) + _wallOffset, _phase == Phase.Up ? now.Mono - _lastHeard : null, _failed, next,
             belief?.OffsetMs, belief?.ErrMs, _clock.AgeMs(now.Wall), _clock.Samples, _clock.Apart,
@@ -1951,7 +1995,7 @@ public sealed class PeerLinkConnector
         _greeted = true;
         _greetAt = now.Mono;
         Write(now, "HELLO", null);
-        if (_s.OffersLink) Write(now, "LINK", null);
+        if (_offers) Write(now, "LINK", null);
         else LevelZero(now);
     }
 
@@ -1999,7 +2043,7 @@ public sealed class PeerLinkConnector
         _legacy = false;
         _level = -1;
         _proof = "none";
-        if (_s.Key is null)
+        if (_key is null)
         {
             if (_s.Carrier == PeerCarrier.Ws)
             {
@@ -2129,7 +2173,7 @@ public sealed class PeerLinkConnector
             return;
         }
         Linked(now);
-        if (_s.Key is not null && _tls && _cert is { } shown && _pin is { Trust: not PinTrust.First } p && p.Fingerprint == shown)
+        if (_key is not null && _tls && _cert is { } shown && _pin is { Trust: not PinTrust.First } p && p.Fingerprint == shown)
         {
             _keyless = false;
             Write(now, null, "bearer");
@@ -2143,7 +2187,7 @@ public sealed class PeerLinkConnector
     /// <summary>13.6.8's AUTH-PROOF for a code, once a connection: each nonce answers one proof.</summary>
     void ProveLegacy(PeerNow now)
     {
-        if (_s.Key != "code" || _authProofWritten || _proofWritten) return;
+        if (_key != "code" || _authProofWritten || _proofWritten) return;
         _authProofWritten = true;
         Write(now, "AUTH-PROOF", "auth-proof");
     }
@@ -2305,7 +2349,7 @@ public sealed class PeerLinkConnector
     /// <summary>Why a link up with a key reads the public view keyless: 13.3.2's no TLS, 13.6.8's unpinned level 0, or a refused key.</summary>
     string Keyless(string name)
     {
-        if (_s.Key is null) return name + " · public view";
+        if (_key is null) return name + " · public view";
         if (!_tls && !_s.Local) return name + " offers no TLS — the key stays on this machine";
         if (_legacy)
             return name + " cannot prove itself yet (an older Stagewatch) — "

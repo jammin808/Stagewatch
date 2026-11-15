@@ -62,7 +62,8 @@ public sealed class PlayoutLinks
     /// TLS door it may dial, 13.4.2), and <paramref name="wire"/>'s listeners on it before it starts.
     /// </summary>
     public static PlayoutLink Make(PlayoutLinkSettings s, string token, string inst, TimeProvider time, PlayoutKeptStore? kept, string tag,
-        Action<PlayoutLink>? wire = null, Func<PlayoutHeard?>? hello = null)
+        Action<PlayoutLink>? wire = null, Func<PlayoutHeard?>? hello = null, string? self = null, PlayoutEnrolment? enrolled = null,
+        Action<PlayoutEnrolment>? keepEnrolled = null)
     {
         var name = s.Name;
         // The address it dials, as the pin it starts from is kept beside: with no node set, a pin is the one kept at this address.
@@ -75,6 +76,8 @@ public sealed class PlayoutLinks
             Keep = kept is null ? null : k => kept.Keep(name, tag, k, time.GetUtcNow().ToUnixTimeMilliseconds(), address),
             Door = kept?.DoorFor(name, s.Node, address) ?? 0,
             KeepDoor = kept is null ? null : d => kept.KeepDoor(name, d, time.GetUtcNow().ToUnixTimeMilliseconds()),
+            // This Stagewatch's own Show Bus id names it in LINK; a key a peer enrolled for the link is proved from then on (13.5.7).
+            Self = self, Enrolled = enrolled, KeepEnrolled = keepEnrolled, Tag = tag,
         });
         // Its listeners hear it from its first change of state on: wired before it starts.
         wire?.Invoke(link);

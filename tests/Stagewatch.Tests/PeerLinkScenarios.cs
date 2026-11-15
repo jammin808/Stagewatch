@@ -171,6 +171,7 @@ static partial class PeerLinkScenarios
         await S22(Check, script, kit);
         await WsAcceptor(Check, script, kit);
         await Playout(Check, script, kit);
+        await PlayoutLinkLevel1(Check, script, kit);
         await S19(Check, script, kit);
     }
 

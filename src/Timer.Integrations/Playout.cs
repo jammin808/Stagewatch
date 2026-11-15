@@ -15,6 +15,16 @@ public sealed record PlayoutState(string Source, string Title, double DurationSe
     public string Link { get; init; } = "";
 
     public string Node { get; init; } = "";
+
+    /// <summary>
+    /// What the link it came from stands on (Show Bus 13.16.3): its level (0 for 13.6.8's legacy proof, 1 for LINK), how it was proved
+    /// (<c>mutual</c>, <c>legacy</c>, <c>open</c>, <c>none</c>) and the scope a verdict stood it at (<c>none</c> for none). "" from a source with no link.
+    /// </summary>
+    public int Level { get; init; }
+
+    public string Proof { get; init; } = "";
+
+    public string Scope { get; init; } = "";
 }
 
 /// <summary>Anything that can tell us how long the current video has left (vMix today; CasparCG / OBS later).</summary>

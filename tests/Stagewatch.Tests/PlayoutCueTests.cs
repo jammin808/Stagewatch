@@ -220,8 +220,16 @@ static class PlayoutCueTests
         using var doc = JsonDocument.Parse(AiContext.Copilot(facts));
         var link = doc.RootElement.GetProperty("playout_links")[0];
         var names = link.EnumerateObject().Select(x => x.Name).ToList();
-        Check(names.TakeLast(2).SequenceEqual(["listed", "cues"]) && link.GetProperty("listed").GetArrayLength() == 1 && link.GetProperty("cues").GetArrayLength() == 30 && link.GetProperty("timed").GetBoolean(),
-              "playout facts: what the peer lists and the running order's cues on the link come last in its facts");
+        Check(names.TakeLast(4).SequenceEqual(["listed", "cues", "standing", "scopeHeld"]) && link.GetProperty("listed").GetArrayLength() == 1 && link.GetProperty("cues").GetArrayLength() == 30 && link.GetProperty("timed").GetBoolean(),
+              "playout facts: what the peer lists and the running order's cues on the link, then what the link stands on and why its scope holds commands back, come last in its facts");
+        var held = new CopilotFacts(DateTime.UtcNow, ShowClock.For("UTC"), "{}"u8.ToArray(), "{}"u8.ToArray(), [], [], [], 0, OverrunModel.Learn([]), [], [],
+            Playout: [new PlayoutFact("patterns", "patterns", "Patterns", true, false, "amber", "ok", "", [], "", null, null,
+                "PeerLink 1 · proved both ways with key bb3f97d0 · scope follow", "Patterns stands this link at scope follow — it may read, not drive")]);
+        using var heldDoc = JsonDocument.Parse(AiContext.Copilot(held));
+        var heldLink = heldDoc.RootElement.GetProperty("playout_links")[0];
+        Check(heldLink.GetProperty("standing").GetString()!.StartsWith("PeerLink 1 · proved both ways", StringComparison.Ordinal)
+              && heldLink.GetProperty("scopeHeld").GetString()!.Contains("scope follow", StringComparison.Ordinal),
+              "playout facts: the copilot reads what a link stands on — its level, proof, key by kid and scope — and why a follow link sends no playout command");
     }
 
     /// <summary>

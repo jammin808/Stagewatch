@@ -34,6 +34,9 @@ public static class CommandRisk
             ShowCommandKind.Playout => LineRisk.High,
             // Trusting a certificate decides who may answer as a peer from then on: a person's, and refused from every line anyway.
             ShowCommandKind.PlayoutTrust => LineRisk.High,
+            // Lowering a floor lets a peer prove itself with less than it did (an older build, no LINK, no TLS): a person's, and refused
+            // from every line anyway.
+            ShowCommandKind.PlayoutFloor => LineRisk.High,
             // A line sent to another app runs on that app, born approved; a decision lets a proposal run. Each is a person's, and is
             // refused from every line that is not one anyway.
             ShowCommandKind.Peer or ShowCommandKind.Desk => LineRisk.High,

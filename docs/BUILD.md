@@ -100,7 +100,7 @@ tools/test.sh help            # what each lane does, and the variables a person 
   its fingerprint (or null), and the hello names it with `https`;
   `--journal <file>|-` keeps the show journal as the app does (a file it can't open for appending is refused), and
   `/report` and `/api/report.csv` answer from it (404 "no report" while its show thread is stalled, as the app's);
-  `--playout NAME=HOST:PORT[,patterns|playmap]` (up to 8) runs a playout link to a Patterns desk or a PlayMap node as
+  `--playout NAME=HOST:PORT[,patterns|playmap|auto[,tcp|wss|auto]]` (up to 8) runs a playout link to a Patterns desk or a PlayMap node as
   the app runs one, each with a pairing token of its own as Settings keeps one, from `STAGEWATCH_RIG_PLAYOUT_TOKEN_<NAME>`
   (the link's name upper case, `-` as `_`: `stage-left` reads `STAGEWATCH_RIG_PLAYOUT_TOKEN_STAGE_LEFT`), else from
   `STAGEWATCH_RIG_PLAYOUT_TOKEN` (never a flag, so no secret is in its arguments):
@@ -278,7 +278,7 @@ once those are removed, for every secret of the register, in either case. A row'
 **The rows.**
 - Each row is one cross-app fact: a `node:test` test that writes its matrix row. The rows run in order: S0.1 starts the
   apps, the rows that take an app down come last but one, and S7.1 last, since it stops the apps to sweep what they left.
-  The VT rows (S4.1–S4.4) run a rig of their own beside the room's, in its namespace on ports of its own (19950–19952) and
+  The VT rows (S4.1–S4.4 and S4.6) run a rig of their own beside the room's, in its namespace on ports of its own (19950–19952) and
   off the show network, with playout links to Patterns' and PlayMap's wires, and stop it once they end, so the room's rig,
   its doors and the rows after them are as they were; both rigs' lockout tables are read after each.
 - A row is added only once it passes against the real apps. One that cannot pass yet is not in the lane, and
@@ -314,6 +314,7 @@ once those are removed, for every secret of the register, in either case. A row'
 | S4.2 | lan | a rig's playout link to PlayMap's wire, with PlayMap's own token and a 60 s colour item playing in its playlist `show`: paired by proof as PlayMap within 5 s; its VT the item's own time left within 1.5 s; `playout stage-left pause` applied, PlayMap's STATE paused; `playout stage-left go show #9` refused in PlayMap's own words; in every read of the link from its first after the rig's ready line through the settled pause and the refused GO, no `malformed` flag and a malformed count of 0 |
 | S4.3 | lan | one rig with both links, each with its own app's token: both paired within 5 s, the config names each by the kind its peer said, the context's `link:patterns` and `link:stage-left` each in its own record's light, and the VT names Patterns' running clip, then, that paused through its link, PlayMap's running item; the link to PlayMap counts no line it could not read in any read until it pairs and after the play (S4.2's check) |
 | S4.4 | lan | on one kernel each link believes its peer's clock within 50 ms of its own, within 10 s, and the context carries no `clock:` item |
+| S4.6 | lan | the rig's link to Patterns' wire set to TLS (`wss`), with Patterns' own token: verified both ways by LINK with the code inside TLS, pinned by the proof to the certificate Patterns' wire shows, its floor set, listed among Patterns' `decks` rows as a level-1 app link, the key Patterns enrolled adopted by kid, and `playout patterns pause` applied |
 | S6.1 | lan | the rig killed and restarted: every link lets go, then is gone, then is live again |
 | S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again; Patterns' link record, once settled, is recorded with its level, proof, TLS and floor (a finding in WHATS_NEXT: it comes back at level 0, TLS at first use) |
 | S6.2a | lan | a stuck Stagewatch: PlayMap's link stays live and shows no time, for Stagewatch's own reason, and the rig's running time again once the show turns over |

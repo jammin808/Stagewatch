@@ -127,8 +127,14 @@ static class PlayoutGateTests
         }
         // Trusting a certificate is a person's choice on the desk (Show Bus 13.8.3): no door takes the line from anyone — this PC, a listed
         // address, a credential, a page of this site — and it says so in its door's words.
-        Check(PlayoutGate.DeskOnly(ShowCommandKind.PlayoutTrust) && Enum.GetValues<ShowCommandKind>().Count(PlayoutGate.DeskOnly) == 1
-              && !PlayoutGate.Drives(ShowCommandKind.PlayoutTrust), "playout gate: trusting a certificate is the one desk-only line, and no line of the air's");
+        Check(PlayoutGate.DeskOnly(ShowCommandKind.PlayoutTrust) && PlayoutGate.DeskOnly(ShowCommandKind.PlayoutFloor) && Enum.GetValues<ShowCommandKind>().Count(PlayoutGate.DeskOnly) == 2
+              && !PlayoutGate.Drives(ShowCommandKind.PlayoutTrust) && !PlayoutGate.Drives(ShowCommandKind.PlayoutFloor),
+              "playout gate: trusting a certificate and lowering a floor are the two desk-only lines, and neither is a line of the air's");
+        // Lowering a playout link's floor (Show Bus 13.9.3) is the desk's alone too: refused at every door, in its own words.
+        Check(Doors.All(door => PlayoutGate.Check(ShowCommandKind.PlayoutFloor, door, new CommandSender(System.Net.IPAddress.Loopback, true, true), []) == PlayoutGate.DeskOnlyWords(door, ShowCommandKind.PlayoutFloor))
+              && PlayoutGate.DeskOnlyWords(CommandDoor.Http, ShowCommandKind.PlayoutFloor).StartsWith(PlayoutRules.FloorDeskOnly, StringComparison.Ordinal)
+              && PlayoutGate.NeverProposed(["playout", "patterns", "floor", "lower"]) is { } never && never.Contains(PlayoutRules.FloorDeskOnly, StringComparison.Ordinal),
+              "playout gate: a floor's lowering is refused at every door in its own words, and never a proposal");
         foreach (var door in Doors)
         {
             var words = PlayoutGate.DeskOnlyWords(door);

@@ -39,7 +39,8 @@ public sealed record IntegrationFact(string Name, string Health, string Status);
 /// link (<paramref name="Cues"/>, at most as many). Ids, as the peer gave them; no token, proof or nonce.
 /// </summary>
 public sealed record PlayoutFact(string Name, string Kind, string Peer, bool Paired, bool Timed, string Light, string Words, string Whoami,
-    IReadOnlyList<PlayoutPlaylistFact> Playlists, string Standby, IReadOnlyList<string>? Listed = null, IReadOnlyList<string>? Cues = null);
+    IReadOnlyList<PlayoutPlaylistFact> Playlists, string Standby, IReadOnlyList<string>? Listed = null, IReadOnlyList<string>? Cues = null,
+    string Standing = "", string ScopeHeld = "");
 
 /// <summary>One of a PlayMap node's playlists for the copilot: its id and name, its state, the item on it and the next (id · label).</summary>
 public sealed record PlayoutPlaylistFact(string Id, string Name, string State, string Item, string Next);
@@ -188,6 +189,10 @@ public static class AiContext
                 standby = p.Standby,
                 listed = (p.Listed ?? []).Take(PlayoutListedMax),
                 cues = (p.Cues ?? []).Take(PlayoutListedMax),
+                // What the link stands on (Show Bus 13.16.3: level, proof, key by kid, scope) and, while its scope holds every playout
+                // command back, why — a line the link would refuse is never worth proposing.
+                standing = p.Standing,
+                scopeHeld = p.ScopeHeld,
             }));
             // 'Ready for doors' as this Stagewatch judges the room: ready while nothing is red, and the rows that are red or amber
             // (amber never blocks). Left out by a host that keeps no preflight.

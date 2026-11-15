@@ -127,7 +127,8 @@ class Stagewatch {
     if (r.http !== this.ports.http) wrong.push(`http ${r.http}`);
     if (r.node !== this.nodeId) wrong.push(`node ${r.node}`);
     const links = (r.playout || []).map((l) => `${l.name}=${l.address},${l.kind}`);
-    const asked = this.playout.map((l) => (l.includes(',') ? l : `${l},auto`));
+    // The ready line names each link's address and kind; a transport asked after the kind is the link's own, not the line's.
+    const asked = this.playout.map((l) => { const [at, kind = 'auto'] = l.split(','); return `${at},${kind}`; });
     if (JSON.stringify(links) !== JSON.stringify(asked)) wrong.push(`playout ${JSON.stringify(links)}, not ${JSON.stringify(asked)}`);
     if (r.bind !== 'all') wrong.push(`bind ${r.bind}`);
     if (r.pin !== 'set') wrong.push(`pin is not "set"`);

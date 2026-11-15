@@ -28,6 +28,11 @@ public sealed class PlayoutLinkSettings
     [JsonPropertyName("followVt")] public bool FollowVt { get; set; } = true;
     /// <summary>When its clip ends on a video item (kind Video, or labelled VT), the running order goes to the next item.</summary>
     [JsonPropertyName("nextOnEnd")] public bool NextOnEnd { get; set; }
+    /// <summary>
+    /// A key the peer enrolled for this link (Show Bus 13.5.7), DPAPI-protected like the token, "" for none: its kid, its key and the
+    /// tag of the token it came from, never in clear. A token changed since leaves it unproved.
+    /// </summary>
+    [JsonPropertyName("enrolled")] public string EnrolledProtected { get; set; } = "";
 
     public PlayoutLinkSettings Clone() => (PlayoutLinkSettings)MemberwiseClone();
 
@@ -146,6 +151,25 @@ public static class PlayoutRules
     public static string TrustLineWords => TrustDeskOnly + " (" + TrustWhere + "), never a line's — not run";
 
     /// <summary>
+    /// The word after a link's name that lowers the floor a proved link recorded (Show Bus 13.9.3): <c>playout patterns floor lower</c>.
+    /// No action of the clip's, and no link is named it.
+    /// </summary>
+    public const string FloorWord = "floor";
+
+    /// <summary>
+    /// What every surface but this desk's own entry hears: lowering a link's floor lets its peer prove itself with less than it did
+    /// (an older build, no LINK, no TLS), so it is a person's choice on this desk, never a line's — not the wire's, a deck's, a
+    /// trigger's or an assistant's.
+    /// </summary>
+    public const string FloorDeskOnly = "lowering a playout link's floor is a person's choice on the Stagewatch desk, beside the link that refuses";
+
+    /// <summary>Where on the desk the floor is lowered: the link's right-click on the status line, beside its refusal.</summary>
+    public const string FloorWhere = "right-click the status line";
+
+    /// <summary>The refusal of a <c>playout … floor lower</c> line that reached the show thread (a trigger, an approved proposal): never run.</summary>
+    public static string FloorLineWords => FloorDeskOnly + " (" + FloorWhere + "), never a line's — not run";
+
+    /// <summary>
     /// The hex a person gave of a certificate, as it is compared, or null: <c>sha256:</c> left off, spaces dropped, either case, and
     /// <see cref="TrustHexMin"/> to 64 hex digits — the short form a desk shows ("03e9 b152") typed as it reads.
     /// </summary>
@@ -162,7 +186,7 @@ public static class PlayoutRules
     {
         if (name is not { Length: > 0 and <= MaxNameChars } || !IsNameStart(name[0]) || !name.All(c => IsNameStart(c) || c == '-'))
             return $"a playout link is named with 1 to {MaxNameChars.ToString(CultureInfo.InvariantCulture)} of a-z, 0-9 and -, starting with a letter or digit (stage-left)";
-        if (IsAction(name) || name == TrustWord) return $"a playout link can't be called {name}: that is one of its commands";
+        if (IsAction(name) || name is TrustWord or FloorWord) return $"a playout link can't be called {name}: that is one of its commands";
         if (Reserved.Contains(name)) return $"a playout link can't be called {name}: another integration has that name";
         return null;
 

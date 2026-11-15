@@ -107,14 +107,34 @@ public sealed partial class MainViewModel
             var on = link.Enabled && licensed;
             var token = on ? ProtectedKey.Unprotect(link.TokenProtected) : "";
             var tag = PlayoutKeptStore.Tag(link.TokenProtected);
+            // A key the peer enrolled for this link (13.5.7), kept sealed beside its token; read only when the link is made.
+            var name = link.Name;
             _supervisor.Reconcile("playout:" + link.Name, $"{on}|{link.Kind}|{link.Host}|{link.Port}|{link.Transport}|{link.Node}|{token.GetHashCode()}|{tag}",
                 v => _playout.Set(link.Name, v),
-                () => PlayoutLinks.Make(link, token, _inst, TimeProvider.System, _playoutKept, tag, Director.Wire, PlayoutHello(link)));
+                () => PlayoutLinks.Make(link, token, _inst, TimeProvider.System, _playoutKept, tag, Director.Wire, PlayoutHello(link), _nodeId,
+                    on ? PlayoutEnrolment.Read(ProtectedKey.Unprotect(link.EnrolledProtected)) : null, e => KeepEnrolled(name, e)));
         }
         foreach (var gone in _playoutNames.Where(n => !names.Contains(n)))
             _supervisor.Reconcile<PlayoutLink>("playout:" + gone, "False", v => _playout.Set(gone, v), () => throw new InvalidOperationException("a retired link is never made"));
         _playoutNames = names;
     }
+
+    /// <summary>
+    /// A key a playout link's peer enrolled for it (Show Bus 13.5.7), kept on the owner thread: sealed for this Windows user beside the
+    /// link's token in Settings, never in clear, and only while the link still holds the token it came from (its tag). The running link
+    /// already proves with it; the next one made from Settings starts with it. The status line says so by its kid — and that the next
+    /// link stands at the scope the peer's operator gives that key — as the show log does.
+    /// </summary>
+    private void KeepEnrolled(string name, PlayoutEnrolment enrolled)
+        => _ui.BeginInvoke(() =>
+        {
+            _store.Update(s =>
+            {
+                if (s.Integrations.PlayoutLinks.FirstOrDefault(l => l.Name == name) is { } link && PlayoutKeptStore.Tag(link.TokenProtected) == enrolled.Tag)
+                    link.EnrolledProtected = ProtectedKey.Protect(enrolled.Sealable());
+            });
+            if (_playout[name] is { } running) StatusLine = running.EnrolledWords(enrolled.Kid);
+        });
 
     /// <summary>
     /// The hello the show network hears for a playout link's node (Show Bus §2), asked on the link's own threads and never waiting

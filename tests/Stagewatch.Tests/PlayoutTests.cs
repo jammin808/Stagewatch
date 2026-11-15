@@ -457,8 +457,9 @@ static class PlayoutTests
     static void Trust(Action<bool, string> Check)
     {
         Check((int)ShowCommandKind.PlayoutTrust == (int)ShowCommandKind.Playout + 1 && (int)ShowCommandKind.Peer == (int)ShowCommandKind.PlayoutTrust + 1
-              && Enum.GetValues<ShowCommandKind>()[^1] == ShowCommandKind.Desk && (int)ShowCommandKind.Desk == (int)ShowCommandKind.Peer + 1,
-              "playout trust: ShowCommandKind.PlayoutTrust appended after Playout, and the desk's Peer and Desk after it — no kind before them moved");
+              && (int)ShowCommandKind.Desk == (int)ShowCommandKind.Peer + 1 && (int)ShowCommandKind.PlayoutFloor == (int)ShowCommandKind.Desk + 1
+              && Enum.GetValues<ShowCommandKind>()[^1] == ShowCommandKind.PlayoutFloor,
+              "playout trust: ShowCommandKind.PlayoutTrust appended after Playout, the desk's Peer and Desk after it, and PlayoutFloor last — no kind before them moved");
         Check(Parse("playout stage-left trust 03E9 b152", out _) is { Kind: ShowCommandKind.PlayoutTrust } t
               && t.Get<PlayoutTrustArgs>() == new PlayoutTrustArgs("stage-left", "03e9b152")
               && Parse("playout stage-left trust sha256:" + new string('a', 64), out _)?.Get<PlayoutTrustArgs>() is { Hex.Length: 64 },
@@ -493,6 +494,23 @@ static class PlayoutTests
         Check(PlayoutRules.TrustHex(" 03E9 B152 ") == "03e9b152" && PlayoutRules.TrustHex("sha256:03e9b152") == "03e9b152" && PlayoutRules.TrustHex("03e9b15") is null
               && PlayoutRules.TrustHex(null) is null && PlayoutRules.TrustHex("03e9-b152") is null,
               "playout trust: the hex as compared — at least 8, spaces dropped, nothing but hex");
+
+        // Lowering a floor (Show Bus 13.9.3): the second trust verb, held as the first is.
+        Check(Parse("playout patterns floor lower", out _) is { Kind: ShowCommandKind.PlayoutFloor, Text: "patterns" }
+              && Parse("playout patterns FLOOR LOWER", out _) is { Kind: ShowCommandKind.PlayoutFloor }
+              && Parse("playout floor lower", out var noLink) is null && noLink.Contains("names its link", StringComparison.Ordinal)
+              && Parse("playout patterns floor", out var noWord) is null && noWord.Contains("takes lower", StringComparison.Ordinal)
+              && Parse("playout patterns floor lower now", out _) is null
+              && PlayoutRules.NameProblem("floor") is { } floorNamed && floorNamed.Contains("one of its commands", StringComparison.Ordinal),
+              "playout floor: playout <link> floor lower names its link and nothing more, and no link is called floor");
+        Check(ShowCommandParser.Help.Contains("playout <link> floor lower (on the desk only, beside the link that refuses: it asks for LINK again)", StringComparison.Ordinal)
+              && Copilot.Check("playout patterns floor lower") is { Kind: ShowCommandKind.PlayoutFloor } floorRisky && Copilot.Classify(floorRisky) == CopilotRisk.High
+              && Copilot.ParsePlan("""{"reply":"ok","question":"","steps":[{"command":"playout patterns floor lower","why":"it refuses"}]}""") is { Steps: [], Dropped: [{ } floorDropped] }
+              && floorDropped.Contains(PlayoutRules.FloorDeskOnly, StringComparison.Ordinal)
+              && !ShowContext.Commands.Any(c => c.Verb.Contains("floor", StringComparison.OrdinalIgnoreCase))
+              && !ShowContext.CommandsFor(rows).Any(c => c.Verb.Contains("floor", StringComparison.OrdinalIgnoreCase))
+              && PlayoutRules.FloorLineWords.StartsWith(PlayoutRules.FloorDeskOnly, StringComparison.Ordinal) && PlayoutRules.FloorLineWords.EndsWith("never a line's — not run", StringComparison.Ordinal),
+              "playout floor: in the help, high risk, never a step of a plan, never among the context's verbs, and refused by an executor in its own words");
     }
 
     static void Targets(Action<bool, string> Check)

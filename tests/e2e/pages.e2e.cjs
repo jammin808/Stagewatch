@@ -62,7 +62,14 @@ for (const [page, drew] of PAGES) {
     await win.waitForFunction((x) => document.documentElement.getAttribute('data-showing') === x, page, { timeout: 8000 });
     const front = await win.evaluate(() => [...document.querySelectorAll('iframe')].findIndex((f) => getComputedStyle(f).visibility === 'visible'));
     const framed = win.frameLocator('iframe').nth(front);
-    assert.ok(await framed.locator('body').evaluate(drew), `${page} drew inside the window`);
+    // The window says what it shows once its front frame is chosen, which can be before that page has drawn its first frame (or
+    // has its elements at all): its drawing is read until it holds, within the same 8 s, never once.
+    let drewInside = false;
+    for (const end = Date.now() + 8000; !drewInside && Date.now() < end;) {
+      drewInside = await framed.locator('body').evaluate(drew).catch(() => false);
+      if (!drewInside) await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.ok(drewInside, `${page} drew inside the window`);
     assert.equal(sockets.length, 1, `one link per window, not one per page (${sockets.join(', ')})`);
     assert.deepEqual(errors, []);
     await rig.run(`window delete ${name}`);

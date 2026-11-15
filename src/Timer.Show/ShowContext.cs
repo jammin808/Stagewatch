@@ -38,7 +38,7 @@ public sealed record PlayoutRow(string Name, string Label, string Kind, bool Sta
 /// people read it, the light of its record (13.16.3) and the words that go with it, and its clock as its matched pongs believe it.
 /// </summary>
 public sealed record PlayoutLinkFact(string Name, string Peer, string Light, string Words, IReadOnlyList<string>? Flags = null, double? ClockOffsetMs = null,
-    long? ClockErrMs = null, bool ClockApart = false);
+    long? ClockErrMs = null, bool ClockApart = false, string Standing = "");
 
 /// <summary>
 /// Stagewatch's Show Bus context (§6): its light, a one-line headline and its parts — the timer, the schedule, each
@@ -166,7 +166,9 @@ public static class ShowContext
         {
             var light = l.Light is Light.Green or Light.Amber or Light.Red ? l.Light : Light.Grey;
             var flags = (l.Flags ?? []).Select(FlagWords).Where(w => w.Length > 0).ToList();
-            items.Add(new ContextItem("link:" + l.Name, "playout", l.Peer, light, flags.Count == 0 ? l.Words : l.Words + " · " + string.Join(" · ", flags)));
+            // What the link stands on (13.16.3: its level, proof, key by kid and scope) follows its words and flags.
+            var words = flags.Count == 0 ? l.Words : l.Words + " · " + string.Join(" · ", flags);
+            items.Add(new ContextItem("link:" + l.Name, "playout", l.Peer, light, l.Standing.Length == 0 ? words : words + " · " + l.Standing));
             if (l is { ClockApart: true, ClockOffsetMs: { } offset })
                 items.Add(new ContextItem("clock:" + l.Name, "health", "Clock vs " + l.Peer, Light.Amber,
                     FormattableString.Invariant($"CLOCKS APART: {l.Peer}'s clock is {Math.Abs(offset) / 1000:0.0} s {(offset > 0 ? "ahead" : "behind")} (± {l.ClockErrMs ?? 0} ms)")));

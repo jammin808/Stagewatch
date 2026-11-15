@@ -1842,6 +1842,147 @@ What each unit moved to another, and left, as written when it landed (*since the
     (SpeaksFirst among them); e2e 93 of 93; the interop self-check 75 of 75; the LAN 39 of 39 (S0.1 with Patterns' silent door
     among them); the laptop 5 of 5; offline 3 of 3; Patterns built with the .NET SDK 10.0.115 its global.json leads dotnet to.
 
+- **PlayoutLink speaks LINK (SW23.1).** The desk's playout link proves itself with LINK on the `line` carrier (13.6.4) and
+  takes Patterns' verdict only once Patterns' own proof checks out; it is pinned by that proof and records a floor.
+  - **The rule, in one place** (`PlayoutProof.OffersLink`, in `src/Timer.Integrations/PlayoutProof.cs`). LINK is never
+    chosen by a hello's `cap peerlink`: the cap is a hint (13.4.2), and Patterns' hello holds it back while its conformance
+    table has a row not kept (its 98.10). LINK is chosen by what the operator gave the link and by the connection it is on.
+    - An app key typed in the token's place (13.5.1's shape: Patterns' `ptk_`, PlayMap's `pmk_`) goes by LINK only, plain
+      or TLS. It never goes as plain AUTH or AUTH-PROOF, and its key never crosses the wire.
+    - A key a verdict enrolled goes by LINK only.
+    - The pairing token goes by LINK, as the code, only inside TLS. On a plain socket it stays 13.6.8's level 0, as 2.22
+      proved it.
+    - A Patterns link set to TLS (`wss`), or pinned, or floored, dials TLS on the wire's own port (9697 tells TLS from
+      plain by the first byte, 98.1). Set to `auto` and neither pinned nor floored, it dials plain, as in 2.22.
+    - With no Show Bus id of its own the link offers no LINK. The desk gives its node id; the rig gives `--node-id`.
+    - A Patterns that answers LINK as an unknown command (an older build) stays at level 0, amber, `legacy`, in 2.22's words,
+      and the code is proved by one AUTH-PROOF. With an app key the link sends no proof and says that desk takes no app key.
+  - **Enrolment (13.5.7).**
+    - A code proved inside TLS to Patterns enrols a key at `follow`, and the verdict names its kid.
+    - The link derives the key, HMAC-SHA256(K_code, "enrol\n" ‖ T), and takes it only when the kid matches. It adopts the
+      key and proves with it from its next dial on, so a second link enrols no second key. The link up now still stands on
+      the code (its record says `code`, scope `operate`).
+    - The desk seals the key for this Windows user beside the token in Settings (`enrolled`, DPAPI). The seal carries the
+      token's tag, so a token changed since starts without the key. The key never reaches a frame, a log, a journal row, the
+      context or the settings' clear text. Readers name its kid alone.
+    - A link standing on an enrolled key is at `follow` until Patterns' operator raises the key (KEY BIND on its Nodes page).
+      It reads and sends no playout command, and its record is amber for `scope`. So a `wss` link that drove at `operate` on
+      the code stands at `follow` from its first redial (a cable blip, a restart). At enrolment the desk's status line and the
+      show log say so by the key's kid, before any press. For a link that must keep driving across a redial, the setup to
+      recommend is an app key Patterns issued at `drive` (KEY MAKE), typed in the token's place.
+    - A key Patterns no longer holds (KEY REVOKE, or replaced when the same code enrolled again) refuses every link that proves
+      it. The refusal's words say so, with its kid, and how to recover: the status line's right-click offers "Forget the key
+      … enrolled for this link" (`ForgetPlayoutEnrolled`, desk-only, one journal row). It clears the sealed copy, and once the
+      refusal's hold ends the link proves its pairing token inside TLS again, where Patterns enrols a new key. Typing the token
+      again does the same.
+  - **Scope (13.5.3, Patterns' AppKeyScopes).** Every command a playout link writes to Patterns is `drive`'s: VIDEO, CUE GO,
+    CUE STANDBY. A link Patterns stood at `follow` or `post` refuses each one here first, nothing sent, in words that name
+    the scope and who raises it (`PlayoutLink.ScopeHeld`). Before any press, the link's status carries the same words and its
+    light stays amber, never green, whatever its STATE says; the VT chip's entries are greyed with them (`PlayoutMenus.Why`);
+    the record's `scope` flag is amber for the module's `vt_link`. A refusal Patterns itself sends is shown in Patterns' words.
+  - **Receipts.** Patterns' `CUE GO` answered `Requested` reads accepted, and its `OK @id final` is the outcome. A command
+    written as a connection drops is unconfirmed. Once the link proves itself again, `@rqN RECEIPTS` asks for it, and the
+    command reads applied from Patterns' record; it is never sent again. A pong that says STUCK makes the show stuck.
+  - **Floors and the trust verb.** `playout <link> floor lower` is a `ShowCommandKind` appended last (`PlayoutFloor`): a
+    parser verb, a help line, high risk by `Copilot.Classify`, never in `ShowContext.Commands`, and desk-only like
+    `playout <link> trust`. A line of it is refused at every door and by every executor. The desk's status-line right-click
+    lowers a recorded floor (`LowerPlayoutFloor`), with one journal row; that is the one place the words name
+    (`PlayoutRules.FloorWhere`). A link that holds only the pairing token, refused on a plain socket for a floor of PeerLink 1,
+    says the withholding is its own (the token goes by LINK only inside TLS: set the link to `wss`, or lower the floor),
+    never that the peer offers less.
+  - **Readers.**
+    - The frame's playout row appends `level`, `proof` and `scope` after `node`.
+    - The `link:<name>` context item appends the link's standing ("PeerLink 1 · proved both ways with key … · scope …";
+      "enrolled key …" for a key Patterns enrolled; a Patterns desk proved at level 0 by the token on a plain socket adds how
+      it would prove both ways: `wss`, or an issued key).
+    - The copilot's playout facts append `standing` and `scopeHeld`.
+    - The rig's `links` line appends `standing`, `enrolled` (a kid) and `scopeHeld`.
+    - `--playout` takes a transport after the kind (`NAME=HOST:PORT,patterns,wss`).
+  - **PlayMap offers no LINK yet** (Mapper's PM-9b). A PlayMap link greets at level 0 whatever it holds, on
+    `playmap.lines.v1` and on its TCP wire alike (a link set to PlayMap, heard as PlayMap, or holding a `pmk_` key).
+    `PlayoutProof.PlayMapSpeaksLink` is the seam that ends this. It is held against the scripted peer offering LINK on both
+    carriers: no LINK is sent; on the line channel the code is proved by AUTH-PROOF and the link reads level 0, amber, legacy.
+  - **Patterns' operator's CLOSE: a contract question for the owner.** Patterns' Nodes page CLOSE ends an app link with
+    `ERR LINK refused — closed by this desk's operator` (its OPEN L115: the line carrier has no disconnect word). This link
+    reads what was said, a refusal, and holds `peerlink.hold.refused.ms` (a minute). 13.15.3 asks thirty seconds after a
+    disconnect. The link does not guess a disconnect from a refusal's words. The question for the owner: should 13.6.4 give
+    the line carrier a `closed` class (or a disconnect word) that a connector holds for 13.15.3's disconnect time?
+  - **The scenarios** (`tests/Stagewatch.Tests/PeerLinkScenarios.PlayoutLink.cs`, PlayoutLink at level 1 against the scripted
+    peer as Patterns' line acceptor, `final` and `receipts`, TLS by the first byte). Each check is named so it can be cited:
+    - `PlayoutLink S1 — verified both ways` is S1. Run once with an issued key over plain and once with the code inside TLS.
+      It holds HELLO, one `LINK 1 stagewatch <id> <cnonce> <kid>`, one `LINK PROOF`, and no AUTH and no secret on the wire.
+      The acceptor's proof is checked. The record is live, level 1, proof mutual, with its kid and scope; over TLS it is
+      pinned by the proof and floored. A command applies once under its request id. A matched pong is a clock sample, fit
+      to time only over TLS.
+    - `PlayoutLink S2 — a refused key is held` (S2), `PlayoutLink S18 — a key bound elsewhere` (S18) and
+      `PlayoutLink S17 — a revoked key` (S17): each is refused, its connection ended, and the key held a minute, red, with
+      no second LINK.
+    - `PlayoutLink S4 — a machine between`: a verdict whose proof is the link's own is not taken, not pinned and not floored.
+    - `PlayoutLink S5 — pinned, dialled over TLS`, `PlayoutLink S6 — CERTIFICATE CHANGED` (nothing past the handshake) and
+      `PlayoutLink S7 — the floor` (refused for the floor, no AUTH-PROOF, then lowered by a person, after which it pairs at
+      level 0).
+    - `PlayoutLink S11 — silence`, `PlayoutLink S12 — the stuck show` and `PlayoutLink S13 — unmatched pongs`.
+    - `PlayoutLink S14 — the final is the outcome` (the scripted peer's own receipts, on `VIDEO RESTART`), a refused command,
+      and `PlayoutLink S14 — a GO caught by a pulled cable runs once`: the acceptor runs the command as the connection drops;
+      then unconfirmed, RECEIPTS after the link proves itself again, applied, run once.
+    - `PlayoutLink S14 — Patterns' CUE GO: Requested, then the final`: a `CUE GO` answered with the lines Patterns' wire writes
+      at the pin (ControlService.Link's Settled, CueFinal.Line). `OK @id {"outcome":"Requested",…}` reads accepted and settles
+      nothing; `OK @id final {"ok":true,"stage":"applied",…,"lateMs":1500}` is the outcome, applied, its lateness counted; a
+      GO answered `Confirm` reads accepted, and its at-once `ERR @id final not run — …` is the outcome, refused.
+    - `PlayoutLink S21 — enrolment` (after its STATE the link at `follow` is amber, its status and the VT entries say the
+      scope), `PlayoutLink S21 — a forgotten enrolled key` (the enrolled key revoked, the refusal's words, forgotten by a
+      person, the code proved again and a new key adopted), `PlayoutLink S22 — an older Patterns` and
+      `PlayoutLink — PlayMap's seam` (its line channel and its TCP wire).
+    - S19 is the existing group's S19, which reads every record and row these links published.
+  - **For Patterns' conformance table (its S1 and S14 rows, NotKept).** Those rows name Patterns' own Stagewatch link
+    (connector on `ws`). They wait because that link sends no command with a receipt; this unit does not change that link.
+    What this unit adds over a real link is on the other carrier, with Stagewatch as the connector:
+    - Over the real Patterns at the pin, lane row S4.6 asserts all of this: a LINK verified both ways with the code inside TLS;
+      a pin by the proof to the certificate Patterns' wire shows; a floor; Patterns' `decks` rows listing the link at level 1
+      from the rig's node, verified by the code; the enrolled key adopted by kid; and `playout patterns pause` applied in
+      Patterns' words. A redial is not part of the row (below).
+    - The redial with the enrolled key was tried in S4.6 by pulling the rig's cable until the link was down and putting it
+      back. In both runs it held: the link proved again with the key Patterns enrolled within a second of the cable's return,
+      Patterns listed it verified `link` at `follow`, and the link said its scope and refused `playout patterns play` on the
+      rig, nothing sent. But the cable is the whole `stagewatch` host's, and the room's rig runs there beside the VT rig:
+      Patterns' own link to the room's rig redialled too and, hearing two nodes at 10.99.0.2, withheld its bound key ("this
+      desk's key is bound to Stagewatch interop-sw-1 — not sent to 10.99.0.2, whose public view is read"). In the second run
+      it did not recover, and twelve rows after S4.6 failed for it. So the row does not pull the cable; the redial waits for
+      a way to drop one connection (a rig control that ends one playout connection, or the netfilter step below). Patterns'
+      link resolving a node by the latest hello at a shared address is a finding for Patterns' next round.
+    - Against the scripted peer: the S14 checks above.
+    Patterns' next round may cite S4.6 for its acceptor's S1 over a real Stagewatch connector, and
+    `PlayoutLink S14 — a GO caught by a pulled cable runs once` for the receipts half of S14. Its own `ws` link's S1 and S14
+    still end only when that link sends a command.
+  - **What this unit did not do.**
+    - A GO caught by a pulled cable is not a lane row. `lan.py` pulls a cable both ways, and a pulled cable does not lose an
+      answer while it delivers its command: TCP delivers both late, or the link drops before the command is retransmitted.
+      Losing one direction needs tc or netfilter in the namespace. The row is held against the scripted peer instead.
+      **Open lane row (S4.7, for the plan's unit table):** "a GO caught by a one-way loss: unconfirmed, then RECEIPTS, then
+      applied, run once" — `lan.py` drops Patterns→rig packets (nft in the namespace) once Patterns' wire log shows the
+      `CUE GO` read, then lets them through; it lands with that netfilter step.
+    - A Patterns link set to `auto` with a token does not try TLS first; it dials plain at level 0 as 2.22 did, and its
+      standing points to `wss` or an issued key. **A question for the owner, tied to enrolment's scope:** should `auto` try
+      TLS first against a Patterns desk (fixing G08's plain token for the default setup)? It would prove the code inside TLS,
+      and so enrol, and the link would then stand at `follow` from its first redial (above) until Patterns' operator raises
+      the key — today only a link set to `wss`, pinned or floored takes that path, by the operator's choice.
+    - The Settings link rows and the Lower floor entries are WPF, compiled here and never seen: that walk-through is the
+      maintainer's, on the PC, and was not run.
+    - Patterns' CLOSE is read as a refusal (above).
+  - **Lane row S6.1 is red at this pin, a race in Patterns' Stagewatch link (a finding for Patterns' next round).** In each of
+    this unit's four LAN runs S6.1 failed ("Patterns following it by its name again" not within 20 s), and S7.4 with it,
+    which reads the lockout tables only after every row passed. Patterns' log shows the cause: its link to the killed rig
+    falls back to the typed address once the rig's hello goes, redials on 13.15.1's doubling wait (0.6, 1, 2, 4, 5 s), and
+    its fifth dial lands about 12.6 s after the kill — when the lane's restarted rig has opened 19940 (preflight 17:55:12.515)
+    but not yet said its first hello (17:55:13.168). Patterns links at 17:55:12.714 to "10.99.0.2", not to node
+    interop-sw-1, holds back its key bound to that node ("this desk's key is bound to Stagewatch interop-sw-1 and is not sent
+    here"), and stays live on the public view: `StagewatchLinkService.Resolve` (at 2515017) takes a typed address as a node
+    only while that node's hello is heard live there, and a live link is never resolved again when the hello comes. Under
+    load the rig opens its port later and Patterns' next dial finds the hello, which is why the row passed in earlier runs.
+    Nothing this unit changed runs in the room's rig (it runs no playout link). The mend is Patterns': resolve a live
+    address-target link again when a hello names the node at that address (or wait one hello period before dialling a
+    typed address its node has left).
+
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 
 Show Bus 1.3 names no carrier that finds apps on one machine with no network (`docs/SHOWBUS.md` §2): there a typed

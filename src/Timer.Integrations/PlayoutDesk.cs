@@ -140,20 +140,25 @@ public static class PlayoutMenus
 
     /// <summary>
     /// Why <paramref name="action"/> on <paramref name="link"/> would go nowhere now, or null: the licence; the link not connected; the
-    /// plan's own refusal from the peer's facts; the peer's WHOAMI letting this PC only read (<see cref="PlayoutLink.ReadOnlyWords"/>).
+    /// scope its peer's verdict stood it at (<paramref name="scopeHeld"/>, <see cref="PlayoutLink.ScopeHeld"/>: the press is held back
+    /// here, nothing sent); the plan's own refusal from the peer's facts; the peer's WHOAMI letting this PC only read
+    /// (<see cref="PlayoutLink.ReadOnlyWords"/>).
     /// </summary>
-    public static string? Why(PlayoutLinkSettings link, PlayoutFacts facts, PlayoutWhoami? whoami, bool connected, bool licensed, string action, int leadMs)
+    public static string? Why(PlayoutLinkSettings link, PlayoutFacts facts, PlayoutWhoami? whoami, bool connected, bool licensed, string action, int leadMs,
+        string? scopeHeld = null)
     {
         if (!licensed) return PlayoutRules.LicenceWords;
         var peer = PlayoutRules.Peer(facts.Kind ?? (link.Kind == PlayoutRules.Auto ? null : link.Kind), link.Name);
         if (!connected) return $"{peer} isn't connected — nothing would be sent";
+        if (scopeHeld is { Length: > 0 }) return scopeHeld + " — nothing would be sent";
         if (PlayoutDirector.Plan(link, facts, action, "", "", false, action == "end" ? LastSeconds : 0, leadMs).Error is { } refused) return refused;
         return whoami is { MayDrive: false } ? PlayoutLink.ReadOnlyWords(peer) : null;
     }
 
     /// <summary>The VT chip's entries for <paramref name="link"/>, the link feeding the VT, each greyed by <see cref="Why"/>.</summary>
-    public static IReadOnlyList<PlayoutOffer> Vt(PlayoutLinkSettings link, PlayoutFacts facts, PlayoutWhoami? whoami, bool connected, bool licensed, int leadMs)
-        => VtActions.Select(a => new PlayoutOffer(a.Action, a.Header, Why(link, facts, whoami, connected, licensed, a.Action, leadMs))).ToList();
+    public static IReadOnlyList<PlayoutOffer> Vt(PlayoutLinkSettings link, PlayoutFacts facts, PlayoutWhoami? whoami, bool connected, bool licensed, int leadMs,
+        string? scopeHeld = null)
+        => VtActions.Select(a => new PlayoutOffer(a.Action, a.Header, Why(link, facts, whoami, connected, licensed, a.Action, leadMs, scopeHeld))).ToList();
 
     /// <summary>
     /// The line an entry runs, the one a deck or the wire sends: <c>playout &lt;link&gt; &lt;action&gt;</c>, with the seconds of end and seek

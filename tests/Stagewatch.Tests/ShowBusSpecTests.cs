@@ -284,9 +284,6 @@ static class ShowBusSpecTests
     /// </summary>
     static readonly (string What, string Unit, string Today, Func<bool> Differs)[] WordsNotKeptYet =
     [
-        ("its Patterns link proves at level 0 only", "SW23.1", "it answers NONCE with AUTH-PROOF and runs no LINK",
-            () => Source("src/Timer.Integrations/PlayoutLink.cs") is { } link && link.Contains("\"@pa AUTH-PROOF \"", StringComparison.Ordinal)
-                  && link.Contains("OffersLink = false", StringComparison.Ordinal) && !Regex.IsMatch(link, @"""(?:@l\d+ )?LINK ")),
         ("12.2's page rule for a page opened with a viewing code or a crew link", "not scheduled",
             "it serves those pages without the window page's no-referrer, noindex and no-framing headers", PageRuleAtWindowsOnly),
         ("12.2's revocation at once for a viewing code or a crew link", "not scheduled", "a screen already open on a changed one keeps its link until it reconnects",
@@ -2903,7 +2900,7 @@ static class ShowBusSpecTests
                 $"showbus spec: §8's Stagewatch row says it does not keep {row} yet, in NotKeptYet's words ({unit}): today {today}");
         // Kept since SW20.5, its words in the frozen row still standing: a playout link to PlayMap. The desk runs every link Settings has,
         // of either kind, each on the PeerLink core (one PeerLinkConnector), and a link heard to be PlayMap carries its playlists' verbs;
-        // that it speaks LINK where its peer offers it is the next entry's (its Patterns link proves at level 0 only, SW23.1).
+        // that it speaks LINK where its peer offers it is kept since SW23.1 (the check after the next).
         Check(notKept.Contains("no playout link to PlayMap (today its Patterns link is its only line connector)", StringComparison.Ordinal)
               && Source("src/Timer.App/ViewModels/MainViewModel.Integrations.cs") is { } desk
               && Regex.IsMatch(desk, @"foreach \(var s in i\.PlayoutLinks\)[\s\S]*PlayoutLinks\.Make\(") && !desk.Contains("PlayoutRules.PatternsLink(i)", StringComparison.Ordinal)
@@ -2961,6 +2958,15 @@ static class ShowBusSpecTests
         Check(notKept.Contains("its `/ws` speaks no LINK (today a node link proves a bearer key or the operator's credential, §7.1)", StringComparison.Ordinal) && LinkKept(),
             "showbus spec: Stagewatch keeps what §8's row names as its /ws speaking no LINK: a link= socket hears the offer first, its link message is decided "
             + "by the core's proofs, and the verdict carries proof, lid, level, can, inst and beatMs");
+        // Kept since SW23.1, its words in the frozen row still standing: its Patterns link speaks LINK (13.6.4) — with an issued app key
+        // over plain or TLS, with the pairing code inside TLS — decided in one place (PlayoutProof.OffersLink), and is level 0 only to an
+        // acceptor that answers LINK as an older build; PeerLinkScenarios' level-1 group runs it against the scripted peer.
+        Check(notKept.Contains("its Patterns link proves at level 0 only (today it answers NONCE with AUTH-PROOF and runs no LINK)", StringComparison.Ordinal)
+              && OnTheCore() && Source("src/Timer.Integrations/PlayoutLink.cs") is { } speaks && speaks.Contains("\" LINK PROOF \"", StringComparison.Ordinal)
+              && PlayoutProof.OffersLink(PlayoutProofKind.Key, false, false, "5e1fa11c") && PlayoutProof.OffersLink(PlayoutProofKind.Code, true, false, "5e1fa11c")
+              && !PlayoutProof.OffersLink(PlayoutProofKind.Code, false, false, "5e1fa11c"),
+            "showbus spec: Stagewatch keeps what §8's row names as its Patterns link proving at level 0 only: it speaks LINK with an app key, and with "
+            + "the pairing code inside TLS, by one rule, and keeps level 0 for an acceptor that answers LINK as an older build");
         foreach (var (what, unit, today, differs) in WordsNotKeptYet)
         {
             Check(!In219(unit) && notKept.Contains(what + " (today " + today + ")", StringComparison.Ordinal),
@@ -3066,13 +3072,15 @@ static class ShowBusSpecTests
 
     /// <summary>
     /// Whether Stagewatch's playout link runs on the PeerLink core: it holds one <see cref="PeerLinkConnector"/>, whose 13.16.1 states,
-    /// 13.15.1 redial and 13.12.3 outcomes are the link's, and it offers no LINK yet (a level-0 connector, 13.6.8).
+    /// 13.15.1 redial and 13.12.3 outcomes are the link's, and it offers LINK on each dial by <see cref="PlayoutProof.OffersLink"/> alone.
     /// </summary>
     static bool OnTheCore()
     {
         const BindingFlags Fields = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly;
         return typeof(PlayoutLink).GetFields(Fields).Count(f => f.FieldType == typeof(PeerLinkConnector)) == 1
-               && Source("src/Timer.Integrations/PlayoutLink.cs") is { } link && link.Contains("OffersLink = false", StringComparison.Ordinal);
+               && Source("src/Timer.Integrations/PlayoutLink.cs") is { } link && link.Contains("var offers = PlayoutProof.OffersLink(", StringComparison.Ordinal)
+               && link.Contains("_m.OffersLinkOnThisDial(offers)", StringComparison.Ordinal)
+               && !link.Contains("OffersLink = false", StringComparison.Ordinal);
     }
 
     /// <summary>
