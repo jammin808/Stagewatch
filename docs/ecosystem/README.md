@@ -34,9 +34,20 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   two rows hold the line-wire link to no `malformed` flag) and SW22.12 (the papers).
 - The paused head's check at the close: every default lane and the interop lane green (unit 6,155; LAN 39 of 39, the laptop
   5 of 5, offline 3 of 3).
-- In flight, 2.23: SW23.0 (inserted: the lane's pins moved to Patterns `2515017` and Mapper `2ae7ac7b`, the interop jobs
-  install the SDK each sibling's `global.json` names, the lane's wire client speaks first), SW23.1 (PlayoutLink speaks LINK
-  to Patterns; PlayMap stays level 0 until its acceptor lands), SW23.2 (2.23's papers). Then SW24.1 per `master-plan.md`.
+- In flight, 2.23. Landed and pushed: SW23.0 (`a466d83`, inserted: the lane's pins moved to Patterns `2515017` and Mapper
+  `2ae7ac7b`, the interop jobs install the SDK each sibling's `global.json` names through `tools/interop/sdk.sh`, the lane's
+  wire client speaks first; LAN 39 of 39) and SW23.1 (`f907c4a`: PlayoutLink speaks LINK to Patterns by what its proof
+  offers, adopts the key it enrols, reads its scope before a press, `playout <link> floor lower`; PlayMap's seam stays level 0
+  until its acceptor lands; lane row S4.6).
+- **SW23.1 was committed with the LAN lane at 38 of 40** (S6.1 and S7.4 red), against the rule that a unit commits on green;
+  the chain was stopped before the papers. The cause, read by two readers, is a defect in Patterns, not in this unit: on the
+  typed-address path Patterns' Stagewatch link names the node only while its hello is live, so a redial that lands between a
+  restarted Stagewatch's port opening and its first hello takes the address form, holds back the key bound to the node, and
+  stays live at level 0 with nothing looking again (S6.1 restarts the rig beside Patterns' fifth redial). No key went to the
+  unproved address. The mend is Patterns' Round 99.7 (below).
+- Next: SW23.1p (to insert once 99.7 is pushed: the lane's Patterns pin moved to it, S6.1b checks the link's name as well as
+  its liveness, `tools/test.sh build unit e2e interop` until the LAN lane is whole), then SW23.2 (2.23's papers), then SW24.1
+  per `master-plan.md`. Open in SW23.1: a lane row for a redial with the enrolled key (S4.7).
 - Open: the browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`) fail now and then when another
   tree's suite runs beside them and pass on a rerun; the cause is not established beyond the load, and wants a mends unit.
 - The lane's rows assume a host no other build shares: PlayMap's own preflight reads red above 95 % CPU and closes the doors.
@@ -61,11 +72,17 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     accepts now run off the desk's thread, in arrival order), 98.10 (`da54d9e`: 13.20's conformance table; the hello's
     `peerlink` cap is held back while a row is not kept: the node device's line link, the Stagewatch link's S1 and S14, the
     acceptor's reply-queue cut over a real socket).
-  - CI: 309 to 312 green, 313 to 316 red on one App test each, 317 and 318 green. None of the four causes is proved for its
+  - CI: 309 to 312 green, 313 to 316 red on one App test each, 317 to 319 green. None of the four causes is proved for its
     run; each mend added failure words that name the cause at a next sighting.
-- In flight: Round 99, the plan's P98 (PLAN §117, the Eye sees the room): 99.0 the opening, 99.1 EyeNetwork (the fold by
-  proof), 99.2 one projection for lights, 99.3 the feed, 99.4 the desk's readers, 99.5 the wire's readers, 99.6 the papers
-  (the tag table's row for round 98 = `2515017`). Then Round 100 (the plan's P99, CONTEXT POST).
+- In flight: Round 99, the plan's P98 (PLAN §117, the Eye sees the room). Landed and pushed: 99.0 the opening (`7555b02`),
+  99.1 EyeNetwork (`e990739`: one card per proved id, a link drawn once as its edge, unplaced rows counted), 99.2 one
+  projection for lights (`8f62a0b`: precedence, not "worst"; five readers under one fence; a bounded brief; its body names
+  three departures from §117.1 for the papers). CI green on 99.0 and 99.1 (runs 320, 321).
+- The chain now runs 99.7, 99.3, 99.4, 99.5, 99.6. 99.7 is inserted for the defect the lane found (Stagewatch's section
+  above): a live typed-address Stagewatch link looks again at who is at that address and redials once as the node its hello
+  names, by one rule in Core shared with the resolver, keyed or keyless, a bound key never sent to an unproved address, one
+  log line and one journal row. Then 99.3 the feed, 99.4 the desk's readers, 99.5 the wire's readers, 99.6 the papers (the tag
+  table's row for round 98 = `2515017`). Then Round 100 (the plan's P99, CONTEXT POST).
 - The pin's band is the owner's open call: `global.json` names 10.0.115 (this bench's SDK, the 10.0.1xx band); before the
   pin CI built on 10.0.404, the band a current Visual Studio carries. Kept at 1xx, the maintainer's PC installs a 10.0.1xx
   SDK at 10.0.115 or above beside its own; re-pinned to 4xx, this bench installs 10.0.404 at the start of each session.
@@ -118,7 +135,8 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 
 - **The owner's to decide:** whether a PIN-only Stagewatch may be an open acceptor; the band of Patterns' SDK pin (1xx or
   4xx); the mend of PlayMap's first ping before its first read; the
-  test-only mends of `BackupMirrorLinkTests`' holds (with `HelloTests`) and of `VerbRowTests`. Three stray files at the filesystem root of the cloud container
+  test-only mends of `BackupMirrorLinkTests`' holds (with `HelloTests`) and of `VerbRowTests`; the contract's word for an
+  operator's CLOSE of a link on a line wire (Patterns OPEN L115). Three stray files at the filesystem root of the cloud container
   (`/WebServer.cs.bak`, `/WebServer.cs.keep`, `/module.log`: stages' scratch copies, no secret in them) could not be removed
   from the session; they are in no repository.
 - **Stagewatch:** `stuck` is not offered until measured; the 429 bounds are chosen, not measured; the sleeps SW22.11m left
