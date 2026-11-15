@@ -21,7 +21,7 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.23 closed (`45c94c1`); 2.24 in flight
+### Stagewatch — 2.24 closed (`fe8224e`); a lane unit waits on Patterns' Round 99
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -51,9 +51,16 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   offline 3 of 3; `docs/WHATS_NEXT.md` says what it found; `857539f`) and SW23.2 (`45c94c1`: the papers, which say SW23.1's
   commit at 38 of 40 plainly). Open: the one-way-loss GO row (S4.8); S4.7 on a CI runner's kernel (it needs
   `CONFIG_INET_DIAG_DESTROY`).
-- In flight, 2.24 (Train 7): SW24.1 (Stagewatch publishes its context by P1–P8) and SW24.2 (the papers). The lane's
-  Patterns pin stays `ff01e34` until Patterns' Round 99 closes; a lane row that needs Patterns' feed (99.3 on) is left
-  named as open for a lane unit after that.
+- 2.24 (Train 7), as landed and pushed: SW24.1 (`61e300e`: the context by Show Bus §6 P1–P8: one item and one row per
+  playout link to the node proved or named at its other end, accepted `/ws` links as `link:ws:<id>` items, a window
+  serves its holder only on a grant over the holder's own verified link, `clock:<node id>` per measured clock, the `vt`
+  item, no message words in `recent`; unit 6236, e2e 93 of 93, LAN 41 of 41, laptop 5 of 5, offline 3 of 3) and SW24.2
+  (`fe8224e`: the papers). It waits for its release on the maintainer's PC (`-Version 2.24.0 -ModuleVersion 2.24.0`).
+- **The owner's to confirm (SW24.1):** an accepted link at level 0 is amber by 13.16.5, so Stagewatch's own context is
+  amber while PlayMap or AGMessage (level 0 at these pins) is connected; lane rows S1.5 and S1c.3 accept that amber only
+  when every amber item is a level-0 `link:ws:` link, and name the ids in their facts.
+- Next, once Patterns' Round 99 closes: a lane unit that moves the Patterns pin to the round's close and adds the row the
+  plan names (Patterns draws this Stagewatch once and reads the new rows: EYE's edges and the count of cross-node rows).
 - The browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`), which failed now and then beside
   another tree's load, had a race of the check's own (a frame index read once, before the window's reveal); SW23.1p names it
   and mends the check (`docs/WHATS_NEXT.md`). SW23.1 mended an earlier race of the same check; no run has shown these
