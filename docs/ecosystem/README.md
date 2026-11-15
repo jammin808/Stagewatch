@@ -21,7 +21,7 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.22 closed (`4ff9064`); 2.23 waits on Patterns Round 98
+### Stagewatch — 2.22 closed (`4ff9064`); 2.23 in flight
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it).
 - 2.22 (Train 5), as landed: SW22.1a–c (`/ws` speaks LINK: the offer, the verdict, S on side calls, live revocation, final,
@@ -34,8 +34,9 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   two rows hold the line-wire link to no `malformed` flag) and SW22.12 (the papers).
 - The paused head's check at the close: every default lane and the interop lane green (unit 6,155; LAN 39 of 39, the laptop
   5 of 5, offline 3 of 3).
-- Next: SW23.1 (PlayoutLink speaks LINK to Patterns and PlayMap) waits on Patterns Round 98's papers (the plan's P97.6); then
-  SW23.2 (2.23's papers), then SW24.1 per `master-plan.md`.
+- In flight, 2.23: SW23.0 (inserted: the lane's pins moved to Patterns `2515017` and Mapper `2ae7ac7b`, the interop jobs
+  install the SDK each sibling's `global.json` names, the lane's wire client speaks first), SW23.1 (PlayoutLink speaks LINK
+  to Patterns; PlayMap stays level 0 until its acceptor lands), SW23.2 (2.23's papers). Then SW24.1 per `master-plan.md`.
 - Open: the browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`) fail now and then when another
   tree's suite runs beside them and pass on a rerun; the cause is not established beyond the load, and wants a mends unit.
 - The lane's rows assume a host no other build shares: PlayMap's own preflight reads red above 95 % CPU and closes the doors.
@@ -43,37 +44,37 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   first sentence of its shared text, which says what is landed, before a launch).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — Round 98 in progress (98.8 at `b326280`)
+### Patterns — Round 98 closed (`2515017`); Round 99 in flight
 
-- Landed and pushed: Rounds 89–97. Round 96 is the plan's P95 (PLAN §114, last commit `fb56b4e`). Round 97 is the plan's P96
-  (PLAN §115): 97.0 the opening (`7d0907c`), 97.1 a mends unit (`c265352`: OPEN L110, a test canary no hex name can hold, and
-  the suites' other canaries of its kind), 97.2 Show Bus node devices (`68737e1`: PlayMap known, paired by proof at level 0,
-  driven, drawn in the NETWORK band), 97.3 the papers (`f102d61`).
-- CI: runs 303–305, on 97.0–97.2, were red at the build: the runner image's newer .NET SDK reports CA1860 on one test line
-  that this bench's SDK does not. 97.3 mends the line; the tree pins no SDK (no `global.json`), which is OPEN L114 and the
-  owner's to decide (a pin also binds the SDK the maintainer's PC builds with). **Read CI after every push**: a build that is
-  clean here can still fail there.
-- Round 98, the plan's P97 (PLAN §116), as landed and pushed: 98.0 the opening (`b42cc32`), 98.1 TLS on 9697 told from
-  plain by the first byte (`0dbff3e`; the wire writes nothing before the client's first byte), 98.6 the SDK pin (`9e2333d`:
-  `global.json` names 10.0.115 with `latestPatch`, CI installs from it; inserted on the owner's answer, so the papers are
-  98.7), 98.2 LINK and LINK PROOF on 9697 (`b49a0e8`), 98.8 the start failure's words and the tests' ports (`b326280`). CI green on
-  98.6 (run 309), 98.2 (run 310) and 98.8 (run 311).
-- CI run 308, on 98.1, was red at one App test (`PlayAppTests.TheHubRunsARoomForThePhonesTheHostAndTheWall`: the audience
-  listener never came up in its 15 s); it passed here and on the next run. Read from the code, not measured: the control
-  start threw on a port it could not bind, which closes all three listeners and retries the same numbers; the test's own port
-  picks can collide and its probe sees loopback only. The cause on the runner is not proved. Round 98.8, inserted, makes the
-  start failure name its listener and port and gives the App tests distinct ports probed as the desk binds.
-- In flight, in this order: 98.3 app keys, 98.4 the acceptor's list, 98.5 receipts and node devices speaking LINK, 98.7
-  the papers (the tag table's row for round 97 = `f102d61`). Then Round 99 (the plan's P98, the Eye sees the room).
-- The pin's band is the owner's open call: 10.0.115 is this bench's SDK (Ubuntu's package, the 10.0.1xx band); before the pin
-  CI built on 10.0.404, the band a current Visual Studio carries. Kept at 1xx, the maintainer's PC installs a 10.0.1xx SDK at
-  10.0.115 or above beside its own; re-pinned to 4xx, this bench installs 10.0.404 at the start of each session (the download
-  is reachable). Either way Stagewatch's interop jobs must install the SDK Patterns' `global.json` names before
-  `siblings.json` moves its Patterns pin past `9e2333d`, and the lane's wire client must speak first (98.1's door).
+- Landed and pushed: Rounds 89–98. Round 98 is the plan's P97 (PLAN §116): this desk is a LINK acceptor on 9697.
+  - The plan's units: 98.0 the opening (`b42cc32`), 98.1 TLS told from plain by the first byte (`0dbff3e`; the wire writes
+    nothing before the client's first byte), 98.2 LINK and LINK PROOF (`b49a0e8`), 98.3 app keys (`2d2a9c2`: `ptk_`, scoped
+    follow/post/drive/operate, enrolled over TLS, desk-only KEY verbs), 98.4 the acceptor's list (`8c123a4`: APP LINKS on the
+    Nodes page, STATE's decks rows, an accepted link as one edge on the Eye; OPEN L115: an operator's CLOSE rides the refused
+    class, the line having no disconnect word), 98.5 receipts, CUE GO's final, `lateMs` (`2735001`), 98.7 the papers
+    (`2515017`).
+  - Units the round inserted: 98.6 the SDK pin (`9e2333d`, the owner's answer), and five from CI's red runs, each read by two
+    readers before it was mended: 98.8 (`b326280`, run 308: a failed listener start names its listener and port), 98.9
+    (`efc0481`, run 313: a device link raises nothing before Start; the node device's lost HELLO, a product defect since
+    97.2), 98.11 (`7c8b39e`, run 314: the shutdown test left a desk listening on the default ports; a closed desk opens
+    nothing), 98.12 (`30137dc`, runs 315 and 316: the flood test's bound counted scheduling ahead of the accept; the doors'
+    accepts now run off the desk's thread, in arrival order), 98.10 (`da54d9e`: 13.20's conformance table; the hello's
+    `peerlink` cap is held back while a row is not kept: the node device's line link, the Stagewatch link's S1 and S14, the
+    acceptor's reply-queue cut over a real socket).
+  - CI: 309 to 312 green, 313 to 316 red on one App test each, 317 and 318 green. None of the four causes is proved for its
+    run; each mend added failure words that name the cause at a next sighting.
+- In flight: Round 99, the plan's P98 (PLAN §117, the Eye sees the room): 99.0 the opening, 99.1 EyeNetwork (the fold by
+  proof), 99.2 one projection for lights, 99.3 the feed, 99.4 the desk's readers, 99.5 the wire's readers, 99.6 the papers
+  (the tag table's row for round 98 = `2515017`). Then Round 100 (the plan's P99, CONTEXT POST).
+- The pin's band is the owner's open call: `global.json` names 10.0.115 (this bench's SDK, the 10.0.1xx band); before the
+  pin CI built on 10.0.404, the band a current Visual Studio carries. Kept at 1xx, the maintainer's PC installs a 10.0.1xx
+  SDK at 10.0.115 or above beside its own; re-pinned to 4xx, this bench installs 10.0.404 at the start of each session.
+- **Read CI after every push** (a build clean here can fail there), and root-cause a red run before the next unit lands
+  on top of it. A small agent reads the run list; the failed job's log is downloaded only when a run is red.
 - Template: `workflows/patterns-chain.js` (units carry both the round's and the plan's numbers; a unit with no plan is one
-  the round inserted; `args.notes` adds a line to one stage of one unit without touching the rest). The App suite runs only by
-  six foreground parts through `workflows/patterns-app-parts.sh` (two to six minutes a part on this bench). Run one test run at
-  a time: two App test runs on one machine hear each other's mDNS answers and beacons (OPEN L111).
+  the round inserted; `args.notes` adds a line to one stage of one unit). A unit is inserted by stopping the chain as a unit
+  lands and launching it again with the new list. The App suite runs only by six foreground parts through
+  `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
 ### PlayMap (repo Mapper) — two wire fixes and three test mends landed (`2ae7ac7b`); the rest waits on round 3's integration pass
 
