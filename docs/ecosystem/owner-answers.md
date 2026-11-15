@@ -100,6 +100,16 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   fix-shownline-test-threads, is allowed with the leave tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs and a CARRYOVER entry:
   test-only, no product line.
 
+- M-PMX (2026-11-15, second answer): fix-shownline-test-threads (Mapper 46129380) swept the other suites and found ten tests in
+  nine files of the Engine, Media and Net suites with the same dependency (its CARRYOVER entry's Open list names each). Asked
+  whether they may be mended too, as one batch with a small shared helper in tests/Shared, the owner answered "mend those ten
+  too". A new round-2 fix batch, fix-pool-bound-tests, is allowed with the leave: one new helper file under tests/Shared, the
+  nine test files that entry names (tests/PlayMap.Engine.Tests: Fleet/MachineSamplerTests.cs, Optimise/OptimiseWorkerEndTests.cs,
+  Rendering/FactsSignalTests.cs, Rendering/EngineSourcesTests.cs, Phone/FolderCameraTests.cs, Control/DmxPersonalityTests.cs;
+  tests/PlayMap.Media.Tests/Video/NativeBuildTests.cs; tests/PlayMap.Net.Tests: Phone/ToolProbeTests.cs,
+  Companion/LineWebSocketTests.cs), a test project's csproj only where the shared file must be named to compile, and a CARRYOVER
+  entry: test-only, no product line.
+
 - Patterns' SDK (2026-11-14): asked whether Patterns pins its .NET SDK (OPEN L114: CI's runner image built with a newer SDK whose
   analysis failed the build on every unit of Round 97), with patch updates only, at the cost that the maintainer's PC must have
   that SDK's feature band installed, the owner answered "Yes". It lands as a unit Round 98 inserts (a global.json with
