@@ -21,9 +21,10 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.22 closed (`4ff9064`); 2.23 in flight
+### Stagewatch — 2.23 closed (`45c94c1`); 2.24 in flight
 
-- 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it).
+- 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
+  (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
 - 2.22 (Train 5), as landed: SW22.1a–c (`/ws` speaks LINK: the offer, the verdict, S on side calls, live revocation, final,
   receipts), SW22.2 (windows in the context), SW22.3 and SW22.4 (grants in Core, and only on the app's own key-verified link),
   SW22.4p (the lane at the siblings' pushed heads), SW22.5–SW22.10 (window lights and grants on the desk and the rig, the
@@ -34,7 +35,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   two rows hold the line-wire link to no `malformed` flag) and SW22.12 (the papers).
 - The paused head's check at the close: every default lane and the interop lane green (unit 6,155; LAN 39 of 39, the laptop
   5 of 5, offline 3 of 3).
-- In flight, 2.23. Landed and pushed: SW23.0 (`a466d83`, inserted: the lane's pins moved to Patterns `2515017` and Mapper
+- 2.23 (Train 6), as landed and pushed: SW23.0 (`a466d83`, inserted: the lane's pins moved to Patterns `2515017` and Mapper
   `2ae7ac7b`, the interop jobs install the SDK each sibling's `global.json` names through `tools/interop/sdk.sh`, the lane's
   wire client speaks first; LAN 39 of 39) and SW23.1 (`f907c4a`: PlayoutLink speaks LINK to Patterns by what its proof
   offers, adopts the key it enrols, reads its scope before a press, `playout <link> floor lower`; PlayMap's seam stays level 0
@@ -47,11 +48,16 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   unproved address. The mend is Patterns' Round 99.7 (below).
 - SW23.1p (inserted once 99.7 was pushed: the lane's Patterns pin moved to `ff01e34`, S6.1 and S6.1b hold Patterns
   following the rig as its node by its key, S4.7 the redial with the enrolled key a row; LAN 41 of 41, the laptop 5 of 5,
-  offline 3 of 3; `docs/WHATS_NEXT.md` says what it found). Next: SW23.2 (2.23's papers), then SW24.1 per `master-plan.md`.
-  Open: the one-way-loss GO row (S4.8).
+  offline 3 of 3; `docs/WHATS_NEXT.md` says what it found; `857539f`) and SW23.2 (`45c94c1`: the papers, which say SW23.1's
+  commit at 38 of 40 plainly). Open: the one-way-loss GO row (S4.8); S4.7 on a CI runner's kernel (it needs
+  `CONFIG_INET_DIAG_DESTROY`).
+- In flight, 2.24 (Train 7): SW24.1 (Stagewatch publishes its context by P1–P8) and SW24.2 (the papers). The lane's
+  Patterns pin stays `ff01e34` until Patterns' Round 99 closes; a lane row that needs Patterns' feed (99.3 on) is left
+  named as open for a lane unit after that.
 - The browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`), which failed now and then beside
   another tree's load, had a race of the check's own (a frame index read once, before the window's reveal); SW23.1p names it
-  and mends the check (`docs/WHATS_NEXT.md`).
+  and mends the check (`docs/WHATS_NEXT.md`). SW23.1 mended an earlier race of the same check; no run has shown these
+  were the only causes, so a next sighting is read before anything is changed.
 - The lane's rows assume a host no other build shares: PlayMap's own preflight reads red above 95 % CPU and closes the doors.
 - Template: `workflows/stagewatch-chain.js` (its unit list is given at launch; briefs from `unit-brief.py`; refresh the
   first sentence of its shared text, which says what is landed, before a launch).
@@ -79,11 +85,13 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 - In flight: Round 99, the plan's P98 (PLAN §117, the Eye sees the room). Landed and pushed: 99.0 the opening (`7555b02`),
   99.1 EyeNetwork (`e990739`: one card per proved id, a link drawn once as its edge, unplaced rows counted), 99.2 one
   projection for lights (`8f62a0b`: precedence, not "worst"; five readers under one fence; a bounded brief; its body names
-  three departures from §117.1 for the papers). CI green on 99.0 and 99.1 (runs 320, 321).
-- The chain now runs 99.7, 99.3, 99.4, 99.5, 99.6. 99.7 is inserted for the defect the lane found (Stagewatch's section
-  above): a live typed-address Stagewatch link looks again at who is at that address and redials once as the node its hello
-  names, by one rule in Core shared with the resolver, keyed or keyless, a bound key never sent to an unproved address, one
-  log line and one journal row. Then 99.3 the feed, 99.4 the desk's readers, 99.5 the wire's readers, 99.6 the papers (the tag
+  three departures from §117.1 for the papers), 99.7 (`ff01e34`, inserted for the defect the lane found; below). CI green on
+  all four (runs 320 to 323).
+- 99.7, as landed: a live typed-address Stagewatch link looks again at who is heard at that address and moves once to the
+  node whose dial proves the key, by one rule in Core (`StagewatchAt`) shared with the resolver. A keyless or public-only
+  link is never moved (13.4.3), a bound key is never sent to an unproved address, a move the node refuses goes back to the
+  address at once, and each is one log line and one journal row.
+- The chain now runs 99.3, 99.4, 99.5, 99.6: 99.3 the feed, 99.4 the desk's readers, 99.5 the wire's readers, 99.6 the papers (the tag
   table's row for round 98 = `2515017`). Then Round 100 (the plan's P99, CONTEXT POST).
 - The pin's band is the owner's open call: `global.json` names 10.0.115 (this bench's SDK, the 10.0.1xx band); before the
   pin CI built on 10.0.404, the band a current Visual Studio carries. Kept at 1xx, the maintainer's PC installs a 10.0.1xx
