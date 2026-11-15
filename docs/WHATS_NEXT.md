@@ -1458,8 +1458,9 @@ What each unit moved to another, and left, as written when it landed (*since the
     unknown. Companion itself has not loaded the new definitions: the maintainer's PC work, not run.
   - The WPF desk (the Granted to column, the menus, the button, the Show network entry, the help tip) is compiled here and never
     seen: a desk walk-through, and the UI smoke's new checks, are the maintainer's PC work, not run.
-- **Windows in the context (SW22.2, G23, G24, G22).** The timer `follows` a playout link, `hears` any other link, and `feeds` a
-  window only while it shows a page (given one, and saying it shows it); no link names a health item (`ContextInput` gains `Windows`
+- **Windows in the context (SW22.2, G23, G24, G22).** *Since then (SW24.1):* no row runs from the timer to a link, each link has
+  its one row to `@<node id>`, and the timer feeds only a page that draws it (2.24, below). The timer `follows` a playout link,
+  `hears` any other link, and `feeds` a window only while it shows a page (given one, and saying it shows it); no link names a health item (`ContextInput` gains `Windows`
   and `Health`, appended; the desk and the rig pass their windows and health apart from their links). Thirteen command rows in §6's
   notation carry every window verb and Patterns' transport. `WindowPlacements` (Core, pure) takes 12.10's claims from a holder's
   context posted with its key (never one pulled over a playout link) whose grant has a viewer on it, two `feeds`/`shows` hops at
@@ -2209,6 +2210,167 @@ What each unit moved to another, and left, as written when it landed (*since the
   - **Still open.** The one-way-loss GO (S4.8) waits for a netfilter step; a CI runner's kernel without
     `CONFIG_INET_DIAG_DESTROY` would fail S4.7 in its words (not proved here: Stagewatch's CI runs the lane only on main).
     Patterns' hello still says no `cap peerlink` (its 98.10), and PlayMap offers no LINK (PM-9b).
+
+## The Eye sees Stagewatch as it is: the context by Show Bus §6 P1–P8 (2.24) — the units, upgrade notes, the release, and what this release did not do
+
+2.24 is Train 7's Stagewatch release: Stagewatch's context — what `GET /api/context` and MCP's `get_context` answer, and what
+Patterns pulls over its link every 5 s — keeps Show Bus §6's rules for the Eye, P1 to P8, so an Eye draws each app once and each
+link as one edge to the node it reaches, proved or said not proved. It ships as **2.24.0**, a release of its own after 2.23.0 (cut on
+45c94c1); no unit of 2.24 started before that head (rule R1). REMOTE.md's 2.24 section has every item and row of the context and
+what a reader may rely on, FEATURES.md what operators see and NODES.md §4, §6 and §7 the node links' items. Nothing of a verb, a
+frame, a receipt, the hello, the settings or the Companion module changed. Patterns' half of the train is its Round 99 (the plan's
+P98: EyeNetwork, one projection for lights, the feed, the desk's and the wire's readers), then its Round 100 (the plan's P99:
+another app's context posted over a verified PeerLink, `CONTEXT POST`). Round 99 is in flight: 99.0, 99.1, 99.2 and 99.7 are in
+the lane's pin (ff01e34), 99.3 (04c2990, the feed) and 99.4 (6f5600f, the desk's readers) were pushed after it and are not pinned,
+and 99.5 and 99.6 had not landed when these papers were written. By rule R3 the lane rows that read Patterns' Eye drawing this
+Stagewatch wait for that round (below). PlayMap's half: its context names its peers and the timer it draws (its spine, cddf83b6,
+in the pin); it offers no LINK yet (Mapper's PM-9b), so **its links stay at level 0** — legacy, amber, and they say so.
+
+### The units
+
+Each is one commit on this branch (`git log --oneline` names it `Stagewatch 2.24 SW24.k: …`). *Each unit's notes*, below, has what
+it did and left in its own words, as written when it landed.
+
+| Unit | Commit | What landed | What it left |
+|---|---|---|---|
+| SW24.1 | 61e300e | The context by §6 P1–P8 (`ShowContext`, `ScreenWindows`, `PlayoutLink.PeerNode`, `PlayoutProof.Use`): each playout link a `link` item with one row to `@<node id>`, its node said proved or not; each link accepted on `/ws` a `link:ws:<id>` item with its row, the rest in `link:unproved`; `clock:<node id>`; `timer -feeds->` only a timer page; `serves` rows to grant holders; the `vt` item fed by its node; P5 over the schedule and `vt`; P6 kinds; P7 order; P8 words; `ShowBusSpecTests` holding each rule kept; lane rows S1.5, S1c.3, S4.3, S4.4 read the new shapes | no lane row proves Patterns draws the rows (Round 99's feed is not pinned); a withdrawn grant's grey `serves`; `/layout` counted as no timer page; `follows` for every accepted link |
+
+The release's papers (SW24.2) are this section, REMOTE.md's 2.24 section, FEATURES.md's 2.24 entry, and the sentences of NODES.md,
+README.md and ECOSYSTEM.md that had gone stale; they change no code. Between 2.23's head and SW24.1, one commit of the plan
+folder only (a2f38b0, `Ecosystem: …`, `docs/ecosystem/`): the resume guide at 2.23's close and Round 99.7.
+
+### Upgrade notes
+
+For a reader of the context's old rows (an Eye, a dashboard, a script or an AI reading `/api/context` or `get_context`):
+
+- **No row runs from the timer to a link any more.** 2.22's `timer -follows-> link:<name>` (each playout link) and `timer -hears->
+  link:<slug>` (every other link) are gone. A playout link's own row is `link:<name> -controls-> @<node id>` — `follows` for a
+  Patterns link whose key Patterns stood at `follow` or `post` — in its record's light, and only while its node is known; an
+  integration's link has no row.
+- **`link:<name>` of a playout link is kind `link`**, not `playout`, and so is vMix's item. Its words gain the node at its other end
+  after the link's own words ("node 9f8e7d6c", "node 9f8e7d6c, not proved", "no node id proved or named yet"); the flags and the
+  standing 2.23 put at the end stay after them.
+- **`clock:<name>` is now `clock:<node id>`**, once per node, and it is there green with its error once the link measured its peer's
+  clock, not only amber while apart: a reader that took any `clock:` item as a fault reads its light.
+- **New items**: `link:ws:<node id>` for each node whose link on `/ws` LINK verified or a bound node key proves, with its row
+  `@<node id> -follows-> link:ws:<node id>`; `link:unproved`, counting the others; `vt`, the VT countdown, with its row from the
+  clip's node. The `peers` rows are as they were.
+- **The context's light is amber while a show app is linked at level 0** (PlayMap and AGMessage at these pins): 13.16.5 makes each
+  such accepted link amber over green, and the light is the worst of every item. The headline does not count them and stays the
+  show's own, so a reader that showed the light as the show's health reads it beside the headline and the `timer` item. This is a
+  choice the owner may want to see on a real show (an Eye card or a Patterns deck key goes amber with the show's own headline while
+  PlayMap or AGMessage is connected).
+- **`timer -feeds-> window:<name>` only for a page that draws the timer** (`/viewer`, `/clock` unless `timer=0`, `/holo`,
+  `/producer`, `/audience`) shown as sent; 2.22 drew it for any page. New: `window:<name> -serves-> @<holder id>` for each grant on
+  the holder's own key-verified link that went to it.
+- **The items' order**: reds, ambers, then the items with a row to another node up to `context.items.first` (12), then the rest;
+  the timer is no longer first whatever its light. A reader that took `items[0]` as the timer finds it by its id.
+- **A stuck show thread** turns `schedule` and `vt` red with the stuck words too, not only the timer.
+- **No message's words leave the desk**: a message's or nudge's cue item says "message sent" with no text, and `recent` lines say "a
+  message went to the speaker's screen (its words stay on this desk)" or "an audience question came in (…)", and keep a proposed
+  `message` or `notice` line's verb and outcome without its words.
+- **A window's words** end with "a browser (…) on this PC" or "… on the network" while a plain browser holds it by its own address,
+  in the context and in Screens → Windows.
+- Nothing else: no setting, verb, frame field, receipt, hello field or §14 number changed, and nothing of the Companion module.
+
+### The release (the maintainer's, on the PC)
+
+```pwsh
+pwsh tools\smoke.ps1                                           # the PC checks below
+pwsh tools\release.ps1 -Version 2.24.0 -ModuleVersion 2.24.0   # app, module, installer and release date move together
+```
+
+The tree's versions still read 2.16.0 (`src/Timer.App/Timer.App.csproj`, `companion-module/package.json`): as in 2.22's and 2.23's
+papers, nothing here bumps a version or makes a tag; `release.ps1` moves them on the PC. 2.24.0 goes after 2.23.0, from the commit
+that carries this section. No file of the Companion module changed in 2.24; it takes 2.24.0 with the app, as each release's module
+does. A tag waits for CI's interop job beside the other jobs (the owner's answer S-interop-gate), at the pins
+`tools/interop/siblings.json` holds for this release — unchanged since SW23.1p — each sibling built with the SDK its own
+`global.json` names (`tools/interop/sdk.sh`):
+
+| Sibling | Pin | What it is | SDK |
+|---|---|---|---|
+| Patterns | ff01e34 | its Round 99.7, on Round 98's acceptor (2515017) and Round 99.0–99.2 | 10.0.115 (`global.json`, `rollForward` `latestPatch`) |
+| Mapper (PlayMap) | 2ae7ac7b | tests only since 031c9a3; no LINK yet | names none (no `global.json`): the newest SDK the machine has |
+| AGMessage | d0e3961 | 0.5.0 (`engines` Node ≥ 24.11) | not .NET |
+
+**§14's `landed` list, as it stands**: `*Landed (§14): Stagewatch, Patterns, Mapper.*` (docs/SHOWBUS.md), unchanged by 2.24.
+`tools/showbus-copies.sh` run over the lane's clones at the pins says Patterns' and Mapper's copies hold the master (body
+9ca83889…, peer f36847cf…); AGMessage's is not compared, as its 1.3 copy has not landed (AGMessage 0.6.0, another session's branch,
+still carries Show Bus 1.2). The master's body did not change in 2.24.
+
+Stagewatch has no `global.json` and builds with the newest .NET 10 SDK; this bench's is 10.0.115. **Stagewatch's CI runs only on
+main, tags and pull requests**, so nothing of 2.24 has run there from this branch (this session cannot see the repository's
+secrets either; *The interop lane in CI*, above, has the maintainer's steps).
+
+**The PC checks** (`pwsh tools\smoke.ps1`): 2.24 adds no UiSmoke check, and nothing of it has been seen in the running app. The
+suite's seven Windows-only checks (`Bench.OnWindows`) run only there, as in 2.23: the temp fence's file held by another handle,
+the machine id (WMI), report file names, the Slides agent's real loop (PowerPoint), a trigger secret protected at rest (DPAPI), a
+crafted master licence file rejected, and an owner-only file and its backup written whole on Windows.
+
+### What this release did not do
+
+- **Never seen running: the WPF desk of 2.24** — the window words in Screens → Windows that now say where a plain browser holds a
+  window. WPF compiles on Linux and is never claimed as seen; the walk-through, `pwsh tools\smoke.ps1`, the seven Windows-only checks
+  and the release itself (`tools\release.ps1 -Version 2.24.0 -ModuleVersion 2.24.0`) are the maintainer's, on the PC, and were not
+  run here.
+- **Lane rows left open for after Patterns' Round 99 closes.** Train 7's interop rows — one node per app on Patterns' Eye (this
+  Stagewatch drawn once, folded by the id its link proved), no duplicate deck, and window chains with the real apps (a Stagewatch
+  window `serves` the Patterns desk and that desk's screen shows it) — read Patterns' feed and readers (its 99.3 to 99.5) and wait
+  for the round's papers (99.6) and a pushed head the lane can pin; the lane stays at ff01e34 meanwhile, and none of those rows was
+  written in 2.24. What they would read is said in SW24.1's notes (below). G24's Stagewatch half — the `serves` row to the holder and
+  the holder's claims in the window's words — landed; its Patterns half (a screen's own row to the Stagewatch window it shows) is
+  Patterns'.
+- **PlayMap at level 0 until its acceptor lands.** No LINK goes to a PlayMap node on any carrier (2.23's seam,
+  `PlayoutProof.PlayMapSpeaksLink`), its playout link's row names the id its STATE gave, "not proved", and its link on `/ws` is an
+  amber `link:ws:` item at level 0. It waits for Mapper's PM-9b (LINK on 9941) and PM-9c (LINK on `playmap.lines.v1`); PlayMap's
+  context posted to Patterns over a PeerLink (its PM-12) has not landed either.
+- **AGMessage at level 0 too**: 0.5.0 runs no LINK, so its node link is an amber `link:ws:` item; AGMessage 0.6.0 is another
+  session's branch, and the pin stays at 0.5.0.
+- **Patterns' hello does not say `cap peerlink` yet** (its 98.10, at ff01e34), and Stagewatch never decides LINK by it (a cap is a
+  hint, 13.4.2). 2.23's words on what ends each of its not-kept conformance rows stand, the Stagewatch link's S1 and S14 among them.
+- **The contract question: an operator's CLOSE over a line wire**, carried from 2.23. Patterns' Nodes page CLOSE ends an app link
+  with a refusal (its OPEN L115: the line carrier has no disconnect word); Stagewatch reads a refusal and holds a minute
+  (`peerlink.hold.refused.ms`) where 13.15.3 asks thirty seconds after an acceptor operator's disconnect. Whether 13.6.4 should give
+  the line carrier a `disconnect` class is for the owner and Show Bus 1.4's edit.
+- **What the context does not say yet**: an accepted link's kind is `follows` whatever its connector did (this acceptor keeps no
+  per-link record of use, so it never claims `controls`, though AGMessage puts messages on the stage under its node key); a withdrawn
+  grant's grey `serves` row (the context build keeps no memory of a grant); a designed layout (`/layout`) is counted as no timer page
+  though it may draw one; and `vt`'s row names the clip's node (`@<node id>`), not an item of it (P3's `@<node id>/<item id>`).
+- **Show Bus §8.1's frozen row** — in the hashed body, the record of what Stagewatch 2.19 did not keep — still lists P2 to P8 and
+  `context.items.first` as not kept, in 2.19's words. `ShowBusSpecTests` holds each of its "today" words now kept by the code; the
+  row's own words change only with the body (Show Bus 1.4's edit, or a new body hash every landed copy follows), not in a release's
+  papers.
+- **Open findings carried forward from 2.23** stand as written there: the owner question whether `auto` should try TLS first
+  against a Patterns desk; S4.8 (the one-way-loss GO) and S4.7 on a CI runner's kernel; the e2e lane's browser page-frame checks
+  that fail now and then under another tree's load (not root-caused); and the shared bench, where PlayMap's preflight reads red
+  above 95 % CPU and closes its doors.
+
+### Each unit's notes: what it did, and what it left
+
+- **The context by §6 P1–P8 (SW24.1).** Per rule, what was kept and what moved: P1 kept (a peer's red stays in its `peers` row; a
+  clock item is keyed by its own peer's id). P2 as connector: every playout link is kind `link`, its words naming the node at its
+  other end, with one row to `@<node id>`; `PlayoutLink.PeerNode` names, while a connection is up, the id LINK proved on it, else the
+  id the peer's own STATE or context named, none while its STATE answers as another kind or node or names none, and while no
+  connection is up the id an earlier LINK bound, not proved — never the settings' id alone; the row's kind is one rule,
+  `PlayoutProof.Use`. P2 as acceptor: `ShowContext.Accepted` makes `link:ws:<id>` items in 13.16.5's light and `link:unproved`;
+  `NodeLinkFact` gains `Carrier` at its end. P3: the `vt` item while a screen draws the VT countdown. P4: `serves` rows by
+  `ScreenWindows.HolderLight` (green shown, amber sent or open, none otherwise), a plain browser said in words, never as a row or an
+  address; the timer feeds only `ScreenWindows.TimerPages`. P5, P6, P7 and P8 as the upgrade notes say. The desk and the rig build
+  the same facts; the network preflight takes the link items it took before (`ShowContext.PreflightItems`); tests/e2e `message` and
+  `playout` read the new rows and words. Validated, after its review's fold-in, by `tools/test.sh build unit e2e` (unit 6236 passed, 0
+  failed; e2e 93 of 93) and `tools/test.sh interop` at Patterns ff01e34 and Mapper 2ae7ac7b (LAN 41 of 41, laptop 5 of 5, offline 3
+  of 3); an earlier interop run failed S1.5 by 53 ms while the headline counted the level-0 links, which the commit drops (Patterns
+  pulls the context every 5 s and drew a stale copy past S1.5's 5 s deadline). Lane rows S1.5 and S1c.3 accept Stagewatch's own
+  amber only when every amber item is a `link:ws:` link at level 0 and name those ids in their facts; S4.3 expects kind `link`; S4.4
+  requires one green `clock:<node id>` per link (it required none).
+  - **What it left.** No lane row yet proves Patterns draws this Stagewatch once and reads the new rows: that waits on Patterns'
+    feed (Round 99.3 or later, not pinned); the fields it would read are Patterns' EYE edges (one edge from the rig's app card to
+    the desk, its words carrying the rig's `link:patterns` words) and its count of cross-node rows it left unplaced. A withdrawn
+    grant's grey `serves` row is not published; `/layout` counts as no timer page (a known under-report). The desk walk-through is
+    the maintainer's PC work, not run.
+- **The 2.24 papers (SW24.2).** REMOTE.md's 2.24 section (each item and row, and what a reader may rely on), NODES.md §4's context
+  and node links and §6–§7's level-0 items, FEATURES.md's 2.24 entry, README.md's index and release line, ECOSYSTEM.md's roadmap
+  and lane lines, and this section; no code. The version stays 2.16.0 in the tree, as `release.ps1` moves it on the PC.
 
 ## Lab line LB-1 — finding apps on one machine with no network (Show Bus 1.4's carrier)
 

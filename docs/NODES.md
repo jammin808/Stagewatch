@@ -178,8 +178,12 @@ Rules (game netcode, on purpose):
   hears. It keeps within §14: at most `context.bytes` (64 KiB) as sent, `context.items` (200) items, `context.links` (400) links
   and `context.commands` (256) commands; one over is trimmed in §6's order (oldest recent lines, grey links, then other links,
   commands that are not panic, air or transport from the end, grey items, then green) and says what it left out in a grey
-  `context:trimmed` item. MCP's `get_context` is the same JSON. Another app posts its own to `POST /api/peers/context` (its node
-  key, or a control key or the PIN while no key speaks for its id), at most `context.bytes` as sent, counted in UTF-8 bytes (a
+  `context:trimmed` item. From 2.24 it keeps §6's rules for the Eye, P1 to P8: its items are its own things, each PeerLink is one
+  `link` item with one row to `@<node id>` (each playout link's, and each link it accepted on `/ws` as `link:ws:<id>`), a window
+  `serves` the holder its grant reaches, the VT countdown it draws is fed by the node its clip comes from, reds and ambers come
+  first, and no item or recent line carries a message's or a question's words (REMOTE.md's 2.24 section has every item and row,
+  and what a reader may rely on). MCP's `get_context` is the same JSON. Another app posts its own to `POST /api/peers/context`
+  (its node key, or a control key or the PIN while no key speaks for its id), at most `context.bytes` as sent, counted in UTF-8 bytes (a
   longer one is answered `413` with the size it declared, and stored nowhere, as any body over `http.body.bytes` is); one is kept
   `context.kept.ms` (30 s). As a reader of those, Stagewatch keeps §14's numbers (2.21): a context's first
   `read.context.items` (200) items, its first `read.context.commands` (256) commands, each verb whole up to
@@ -241,6 +245,10 @@ section has every message and refusal.
   section has every message and refusal.
 - A key sent in clear (a bearer key with no TLS) from another machine is marked *seen in clear* on its key row and in the context,
   amber, and gets no window grant until it is replaced (Show Bus 13.6.9).
+- In the context (2.24, Show Bus §6 P2), each node whose link LINK verified or a bound node key proves is an item `link:ws:<id>`
+  with one row `{"from":"@<id>","to":"link:ws:<id>","kind":"follows"}`: green when LINK verified it, amber at level 0 (a bound key
+  and no LINK), plain from another machine or with its key seen in clear (13.16.5). The links nothing proves are counted and named
+  in one amber `link:unproved` item, with no row. Their amber stands on their items, never in the context's headline.
 - `cid` and `page` are ignored when `node` is there; a Stagewatch older than 2.18 ignores `node` and lists each install under its
   own `cid`, which it keeps only at `cid.min` to `cid.max` (6 to 32) letters, digits, `-` or `_` (so PlayMap keeps the `cid` it
   sends today, `playmap-<id>` for a shorter id).
@@ -527,7 +535,8 @@ From Stagewatch's side; AGMessage's own `docs/NODES.md` is its reference.
   messages), with an `X-Request-Id`: the receipt names the message (`refs.messageId`), and the frames carry the speaker's
   acknowledgement of that message.
 - **Its context** goes to `POST /api/peers/context` on change and every 5 s while linked (kept 30 s here); it reads Stagewatch's
-  `/api/context` on connect and every 5 s.
+  `/api/context` on connect and every 5 s. Its link runs no LINK yet (0.5.0), so in Stagewatch's context it is `link:ws:<its id>`,
+  amber, "level 0: a bound node key proves it, no LINK" (§4), while its key speaks for its id.
 - **Proposals:** it proposes a message for the speaker's screen to Stagewatch's approval queue (`POST /api/proposals`, target
   `main`), and collects the approved lines aimed at it — its one verb is `notice <text>` — runs them and reports each result.
   From 2.21 an operator sends it a notice straight from the desk (the Show network row's *Send a line* or its `notice` quick verb,
@@ -541,7 +550,8 @@ From Stagewatch's side; PlayMap's own `docs/SHOWBUS-NODE.md` is its reference.
 - **Heard** on UDP 9928 as kind `playmap` — its `ports` name its doors: `http`, `https` and `ws`, its line wire `wire` (9941),
   and `sync`, its clock exchange — and shown on the Show network as PlayMap (Show Bus §14's kind row).
 - **Follows the timer** as a node link (§4's table), with `detail=1`, its node key in the header; posts its context to
-  `POST /api/peers/context` and collects approved proposals aimed at its id, as AGMessage does.
+  `POST /api/peers/context` and collects approved proposals aimed at its id, as AGMessage does. At level 0 (no LINK yet), its
+  `link:ws:<its id>` item in Stagewatch's context is amber (§4).
 - **A playout link to it** (§5) at level 0, paired by proof: over TLS (`playmap.lines.v1` on its `https` door) where its hello
   names that door, its certificate pinned `first` and trusted by a person on the desk, else its line wire (9941) until its
   certificate is pinned; never plain once pinned, first or by a person, and CERTIFICATE CHANGED once a person pinned it until a

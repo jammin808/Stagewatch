@@ -1713,3 +1713,102 @@ over plain and with the code inside TLS, S2, S4–S7, S11–S14, S17, S18, S21, 
 the lane's pin by rows S4.6 (LINK verified both ways with the code inside TLS, pinned, floored, Patterns' `decks` listing it, the
 enrolled kid adopted, a pause applied) and S4.7 (one connection dropped: proved again within 5 s with the enrolled key at `follow`,
 a play refused here with nothing sent).
+
+## 2.24: the context by Show Bus §6 P1–P8
+
+2.24 ships as 2.24.0 (WHATS_NEXT.md has its upgrade notes, its units and what it did not do). It changes one thing other apps read:
+Stagewatch's context (`GET /api/context`, MCP's `get_context`, and what Patterns pulls over its link every 5 s), which now keeps §6's
+rules for the Eye, P1 to P8. Nothing of a verb, a frame, a receipt, the hello, the commands' rows or §14's sizes and trimming changes;
+the `peers` rows are as 2.18 to 2.22 left them. A reader older than 1.3's §6 leaves out a link whose end it cannot place (`@<id>`), and
+draws Stagewatch as before: its own things, with no edge to another node. Held by `ShowBusSpecTests` (each of P1–P8 a check of the
+rule kept, `context.items.first` held to `ShowContext.ItemsFirst`) and `ShowBusTests`.
+
+| Rule | What Stagewatch publishes | Section |
+|---|---|---|
+| P1, items are its own | its parts, its links and its health; a peer's light only in its `peers` row or at an `@` end | "The items", below |
+| P2, a PeerLink is one `link` item and one row | each playout link, as connector; each link it accepted on `/ws`, as acceptor | "The rows", below |
+| P3, a claim | the VT countdown it draws of another node's clip | "The rows", below |
+| P4, grants | a window to the holder each grant on that holder's own proved link reaches | "The rows", below |
+| P5, show liveness | a stuck show thread turns the timer, the schedule and the VT countdown red, with no time | "The items", below |
+| P6, kinds | every link is kind `link` (vMix and the integrations among them), every window `screen` | "The items", below |
+| P7, order | reds, ambers, then the items with a row to another node, up to `context.items.first` (12) | "What a reader may rely on", below |
+| P8, content | no message's, question's or nudge's words in any item or recent line; no secret | "What a reader may rely on", below |
+
+### The items
+
+Each item is one of Stagewatch's own things. Its `id` is stable for that thing; its `kind` is §6's kind table's word; its light is
+the thing's own.
+
+| Item `id` | `kind` | What it is, and its light |
+|---|---|---|
+| `timer` | `timer` | the show timer: grey idle or not counting down, green counting, amber in wrap-up or warning, red in overtime; its words "running, 4:12 left", "paused, …", "1:05 over" |
+| `schedule` | `schedule` | the running order, while it has items: "Running order item 3 of 9", its words the schedule's, the hard out's and the forecast's; red past a hard out, amber more than 2 minutes behind, grey while it has no offset yet |
+| `vt` | `timer` | the VT countdown, only while a clip feeds the VT and the show's screens draw it (`DisplayElements.Playout`): "VT1 on Patterns: 0:42 left", green running, grey stopped |
+| `cue:<target>` | `department` (a standby or a GO) or `cue` | each target's newest cue: "standby sent: LX 12", "GO done", "NO ACKNOWLEDGEMENT" when escalated (red); a speaker's message or nudge says only "message sent", "nudge seen", never its words |
+| `message` | `message` | the speaker's message, while one is up: "waiting for the speaker to see it" (amber), "seen", "acknowledged", "on screen"; never its text |
+| `link:<slug>` | `link` | each integration that is on (vMix among them): green working, amber starting, red failing; no row, as none is a Show Bus node |
+| `link:<name>` | `link` | each playout link, by its name in Settings, labelled with its peer ("Patterns", "PlayMap Stage left"), in its PeerLink record's light (13.16.4: amber at level 0, `legacy`); its words the link's own, then the node at its other end, its record's flags and what it stands on: "… · node 9f8e7d6c" (its LINK proved that id on the connection up now), "… · node 9f8e7d6c, not proved" (level 0: the id the peer's own STATE or context gave, or, while no connection is up, the one an earlier LINK bound), "… · no node id proved or named yet" |
+| `link:ws:<node id>` | `link` | each node whose link on `/ws` LINK verified or a bound node key proves, labelled with its name from its hello (else "PlayMap 5e6f7a8b"): green when LINK verified it, amber over green at level 0, plain from another machine or with its key seen in clear (13.16.5); its words "PeerLink 1, LINK verified" or "level 0: a bound node key proves it, no LINK", then "key '<name>' · scope node" (or "the operator's credential"), "over TLS", "on this PC" or "plain TCP from another machine", "its key was seen in clear — replace this key", the count of its sockets past one, "since 21:04:17" |
+| `link:unproved` | `link` | one amber item for every other connection on `/ws` that speaks as a show app and that nothing proves (the operator's credential at level 0, a key that names no node, an id two installs say): "2 connections not proved: …", each by the name or the id it said, never an address or a key |
+| `window:<name>` | `screen` | each window (2.17), its name in lower case, in the light and words 2.22 gave it (its viewers, then whom it is granted to, then where its holders say they show it); a plain browser on its own address is said in its words as "a browser (Chrome on Windows) on this PC" or "… on the network", never an address |
+| `clock:<node id>` | `health` | for each playout link whose matched pongs measured its peer's clock, under that node's id, once per id: "Patterns's clock is +12 ms from this PC's (± 3 ms)", green; amber "CLOCKS APART: …" while the offset less its error is past `clock.apart.ms` |
+| `key:<key id>` | `health` | each API key seen arriving in clear from another machine (2.22), amber: "seen in clear from … at … — replace this key" |
+| `bus:hello` | `health` | amber while other apps cannot find this Stagewatch, or cannot tell it from a copy (2.19) |
+| `go-latency` | `health` | amber while 95 % of GOs take longer to reach a screen than they should |
+| `context:trimmed` | `health` | grey, last, only in a context that had to be trimmed (2.19) |
+
+**P5.** While the show thread has stopped turning over, `timer`, `schedule` and `vt` are red and their words are "the show thread has
+stopped turning over — no time shown" in place of a time: no reader takes a counting value from them as current.
+
+### The rows
+
+Every row has one end that is an item of this context and, but for `timer -feeds-> window:<name>`, one end that names another node
+(`@<node id>`, §6's link ends). A row whose own item is not in the context, or whose other end breaks §6's rules, is not sent. No row
+names a health item (`clock:*`, `key:*`, `bus:hello`, `go-latency`, `context:trimmed`), and none runs from the timer to a link.
+
+| Row | When it is there | Its light |
+|---|---|---|
+| `link:<name> -controls-> @<node id>` | each playout link whose node is known (the id its LINK proved, or the peer's own answer gave; never the id Settings names alone); `follows` in place of `controls` for a Patterns link whose key Patterns stood at `follow` or `post` (`PlayoutProof.Use`) | the link's record's |
+| `@<node id> -follows-> link:ws:<node id>` | each `link:ws:` item: Stagewatch keeps no record yet of what each accepted link has done, so it claims `follows` for every one, never `controls`, though a node link may also run a show verb (AGMessage's message) | its item's |
+| `timer -feeds-> window:<name>` | while the window shows a page that draws the timer (`/viewer`, `/clock` unless `timer=0`, `/holo`, `/producer`, `/audience`) and says it shows the revision it was sent; none while it is held, on its holding page or black, unopened, switching, unable to show its page, or its link dropped | green |
+| `window:<name> -serves-> @<holder id>` | each grant of the window on its holder's own key-verified link that went to it: none while a grant waits, is plain or its key was seen in clear, cannot be drawn, is held by the holder or gone stale | green while the holder reports it shown, amber while sent or open |
+| `@<node id> -feeds-> vt` | while `vt` is drawn and its clip comes over a playout link that has a row: the node of that link (a vMix clip has none) | that link's row's |
+
+A connector and an acceptor publish one row each for one link (P2): a reader holding both ends' items draws one edge, in the worse of
+their lights, with the connector's kind. A row is a claim of the node that sends it; whether its far end is proved is in its item's
+words (below).
+
+### What a reader may rely on
+
+- **One node, one id.** An `@` end is the other node's Show Bus id, one hop. It is proved only where the item says so: "node <id>"
+  with no "not proved" on a `link:<name>` item, or "PeerLink 1, LINK verified" (green) on a `link:ws:` item. "not proved", "level
+  0", an amber `link:ws:` item and everything in `link:unproved` are claims: a reader that folds nodes by proof folds none of them.
+- **Stable ids.** `link:<name>` follows the link's name in Settings (no playout link may take an integration's slug), `link:ws:<id>` and
+  `clock:<id>` the node's id, `window:<name>` the window's name in lower case; `clock:<id>` comes at most once for an id, never one
+  node's clock under another's id.
+- **The light and the headline.** The context's light is the worst of every item's, so a show app linked at level 0 (PlayMap and
+  AGMessage today) makes it amber; that amber stands on its `link:ws:` item. The headline is the show's own — the item, the timer,
+  how far behind or ahead past 30 s, who stands by, then the words of the first red item or, with none, of the first amber one that
+  is not the timer, the schedule, a cue or a link Stagewatch accepted (when that first red item is the timer, nothing is added: its
+  words are already there; a link's words up to their first " · ") — so it does not change as another app's link comes and goes.
+- **Order (P7).** Red items, then amber ones, then the items with a row to another node as far as `context.items.first` (12) leaves
+  room, then the rest in this order: timer, schedule, vt, cues, message, links, windows, health. What an Eye draws before it opens
+  the node holds its problems and its chain ends.
+- **Content (P8).** No key, code, token, PIN, view pass or window address in any item, row or line. No message's or audience
+  question's words, and no words of a message or nudge cue: a `recent` line says "a message went to the speaker's screen (its words
+  stay on this desk)" or "an audience question came in (…)", and an approval-desk or assistant row keeps its verb and its outcome's
+  word without a proposed `message`, `msg`, `notice` or personal signal line's words. A department's cue words ("LX 12") still go:
+  they are the show's own. This desk's own copilot still reads its rows whole.
+- **What is not said.** No row from a withdrawn grant (the context keeps no memory of one), so a reader does not draw §6 P4's grey
+  `serves`; `vt`'s row names Patterns' or PlayMap's node, not an item of it (P3's `@<node id>/<item id>`); a designed layout
+  (`/layout`) counts as no timer page though it may draw one.
+
+### Every reader
+
+The desk and the rig build the same items and rows from the same facts. The network preflight checks the link items it checked
+before (`ShowContext.PreflightItems`: no accepted link, no clock in bounds). The Companion module and the copilot's facts
+(`AiContext`) read none of the rows that moved. Patterns' Stagewatch link reads the context and its Eye draws it; at the
+lane's pin (Patterns ff01e34, its Round 99.7 on 99.0–99.2) no lane row yet proves how Patterns draws the new rows (WHATS_NEXT.md).
+The lane holds the rest at the pins: S1.5 and S1c.3 take Stagewatch's own amber only when every amber item is a `link:ws:` link at
+level 0, and name those ids; S4.3 reads each playout link as kind `link` in its record's light; S4.4 one green `clock:<node id>`
+per link.

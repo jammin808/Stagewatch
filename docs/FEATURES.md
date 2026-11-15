@@ -12,6 +12,30 @@ LTC and the time-server drift check, vMix VT countdowns and Patterns and PlayMap
 printable report and MCP.
 The 14-day trial has everything. See [LICENSING.md](LICENSING.md).
 
+## 2.24: other apps see the room as it is
+
+WHATS_NEXT.md has the upgrade notes and what this release did not do, and REMOTE.md every item and row of the context.
+
+- **What Stagewatch tells other apps about itself is drawn once, the way it is.** Patterns' Eye, an AI agent (MCP `get_context`) and
+  any app that reads Stagewatch's context now get its links as edges to the apps they reach: each playout link to the Patterns desk
+  or PlayMap node it drives, each show app following the timer, and each window to the app a grant gave it to. Whether the other end
+  proved who it is is said on each link (*node 9f8e7d6c* once proved, *not proved* until then), so a reader never draws a guess as a
+  fact.
+- **A show app linked without the proof is amber on its own link.** PlayMap and AGMessage, which do not prove their keys with LINK
+  yet, show amber on their own link in Stagewatch's context while they are connected — *level 0: a bound node key proves it, no
+  LINK* — so the context's light is amber too. The headline other apps quote stays the show's own: it does not change as an app
+  joins or leaves.
+- **The clock each playout link measured** is there when it is in step, green with its error, not only when it is apart.
+- **A frozen show is red everywhere it counts.** If the show thread stops turning over, the timer, the running order and the VT
+  countdown all go red in what other apps read, saying so in place of a time.
+- **What is written for a person stays on this desk.** A message's words, an audience question and a nudge are no longer in what
+  other apps or their AI read of Stagewatch (the context's cues and recent lines say a message went, and who answered it); this
+  desk's own assistant still reads them.
+- **A window held by a plain browser says by what.** A window's words (in Screens → Windows as in the context) end with *a browser
+  (Chrome on Windows) on this PC* or *… on the network* while a browser holds it by its own address — never the address.
+- Nothing else changes on the desk, on a deck, in a browser page or in the Companion module. Not walked on Windows yet: the window
+  words in Screens compile and have not been seen; WHATS_NEXT.md says what the release did not do.
+
 ## 2.23: playout links prove themselves to Patterns
 
 WHATS_NEXT.md has the upgrade notes and what this release did not do, and REMOTE.md every change on the wire.
