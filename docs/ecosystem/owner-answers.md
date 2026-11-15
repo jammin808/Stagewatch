@@ -94,6 +94,12 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   mended so that taker runs on its own thread, the owner answered "Yes". A new round-2 fix batch, fix-devicelock-test-thread, is
   allowed with the leave tests/PlayMap.Core.Tests/Media/GpuDeviceLockTests.cs and a CARRYOVER entry: test-only, no product line.
 
+- M-PMX (2026-11-15): fix-devicelock-test-thread (Mapper f6181596) found the same dependency in four tests of
+  tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs (each waits 30 s on work it starts on the thread pool). Asked whether they may
+  be mended the same way, the owner answered "Yes, mend the four ShownLineTests". A new round-2 fix batch,
+  fix-shownline-test-threads, is allowed with the leave tests/PlayMap.Core.Tests/Wire/ShownLineTests.cs and a CARRYOVER entry:
+  test-only, no product line.
+
 - Patterns' SDK (2026-11-14): asked whether Patterns pins its .NET SDK (OPEN L114: CI's runner image built with a newer SDK whose
   analysis failed the build on every unit of Round 97), with patch updates only, at the cost that the maintainer's PC must have
   that SDK's feature band installed, the owner answered "Yes". It lands as a unit Round 98 inserts (a global.json with
