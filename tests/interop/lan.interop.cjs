@@ -22,9 +22,11 @@
 // once they end (S4.6 leaves its rig up for S4.7, which drops that rig's one connection to Patterns' wire with lan.py's drop and
 // stops it), so the room's rig, its doors and its rows are as they were. The Eye rows (S9.1, S9.2, S5.4 and the Eye half of S6.2b)
 // read Patterns' EYE JSON over the same paired wire client (its link fields ride to paired connections only), judged on fields by
-// lib/eye.cjs, each beside the rig's own context where it compares them. The rows run in order, each a node:test test
+// lib/eye.cjs, each beside the rig's own context where it compares them; S9.3 reads Patterns' STATE over that client and its journal
+// in the bench's home. The rows run in order, each a node:test test
 // that writes its matrix row; S0.1 starts the apps (the rig first, which the others link to) and every later row reads the
-// apps it started; the rows that stall the rig or take an app down (and back) come after the others, S7.4 (no address ever
+// apps it started; the rows that stall the rig or take an app down (and back) come after the others, then S9.3 (read-only, placed
+// there on purpose so that its reads of Patterns' journal and log cover the whole run), S7.4 (no address ever
 // counted) last but one, and S7.1 (no secret anywhere) last, as it stops the apps to sweep what they left (the rig's
 // certificate's password among the secrets it looks for). After every row both of the rig's lockout
 // tables are read (wrong PINs; wrong view passes: window addresses, viewing codes, crew links), and no address of this LAN is
@@ -849,7 +851,7 @@ let s46 = null;
 
 test('S4.6 the rig links to Patterns over line by proof', row({
   id: 'S4.6',
-  title: "a rig's playout link to Patterns' wire set to TLS (--playout patterns=<Patterns>:9697,patterns,wss, Patterns' own token): Stagewatch links to Patterns over line, verified both ways — LINK proved with the pairing code inside TLS and Patterns' own proof checked — within 5 s of its ready line, pinned by that proof to the certificate Patterns' wire shows, its floor set (TLS, PeerLink 1, mutual), Patterns' STATE listing it among its decks rows as a level-1 app link from the rig's node, verified by the code, the key Patterns enrolled for it adopted by its kid alone, and playout patterns pause applied in Patterns' words",
+  title: "a rig's playout link to Patterns' wire set to TLS (--playout patterns=<Patterns>:9697,patterns,wss, Patterns' own token): Stagewatch links to Patterns over line, verified both ways — LINK proved with the pairing code inside TLS and Patterns' own proof checked — within 5 s of its ready line, pinned by that proof to the certificate Patterns' wire shows, its floor set (TLS, PeerLink 1, mutual), Patterns' STATE listing it among its decks rows as a level-1 app link from the rig's node, verified by the code, open (not ended, not told), the key Patterns enrolled for it adopted by its kid alone, and playout patterns pause applied in Patterns' words",
   apps: ['stagewatch', 'patterns'],
   deadlineMs: HELLO_MS,
 }, async (r) => {
@@ -875,9 +877,10 @@ test('S4.6 the rig links to Patterns over line by proof', row({
     // Verified both ways: Patterns lists the link it accepted, by the connector's own node, verified by the code at level 1.
     const deck = await until(async () => ((await apps.patterns.state()).decks || []).find((d) => d.level === 1 && d.t === 'stagewatch' && d.id === VT_NODE) || null,
       HELLO_MS, "Patterns' decks rows listing the rig's link");
-    if (deck.verified !== 'code' || deck.scope !== 'operate' || deck.tls !== true || deck.ended) throw new Error(`Patterns lists the rig's link as ${JSON.stringify(deck)}`);
+    // Open: not ended and not told its last word (Patterns' 100.5 `told`, false while nothing has closed it from Patterns' side).
+    if (deck.verified !== 'code' || deck.scope !== 'operate' || deck.tls !== true || deck.ended || deck.told !== false) throw new Error(`Patterns lists the rig's link as ${JSON.stringify(deck)}`);
     r.facts.link = { ms, record: { level: rec.level, proof: rec.proof, tls: rec.tls, pin: rec.pin, kid: rec.kid, scope: rec.scope, light: rec.light, floor: rec.floor }, enrolled: l.enrolled, standing: l.standing };
-    r.facts.patterns = { level: deck.level, t: deck.t, id: deck.id, verified: deck.verified, scope: deck.scope, tls: deck.tls, kid: deck.kid };
+    r.facts.patterns = { level: deck.level, t: deck.t, id: deck.id, verified: deck.verified, scope: deck.scope, tls: deck.tls, kid: deck.kid, told: deck.told };
     await until(async () => { const c = await patternsClip(); return c.running ? c : null; }, HELLO_MS, "Patterns' clip running");
     const sentAt = Date.now();
     r.facts.pause = await vtPlayout(['patterns', 'pause'], 'interop-s4-6', true);
@@ -907,7 +910,7 @@ function oneApp(eye, st, id) {
 
 test('S9.1 one card per app on Patterns\' Eye', row({
   id: 'S9.1',
-  title: "Patterns' Eye draws each app once, folded by the id its link proved (Show Bus 1.3 §6 and §13.16, Patterns' Round 99): with Patterns following the room's rig by its key and S4.6's rig linked to Patterns' wire by LINK, EYE JSON holds exactly one card for each rig's node id (its own card, source link) and no deck drawn from the rig host's address, each drawn once as one edge to the desk whose source is link and whose link is that link's record — the room's link the 13.16.3 record STATE carries (level 1, both ways proved, under the kid the rig's key makes), the accepted one the 13.16.5 row (role acceptor, level 1, verified as STATE's decks row says) — in its record's light; STATE's bus.apps holds each id once, linkLights counts every link edge once, and apps every card",
+  title: "Patterns' Eye draws each app once, folded by the id its link proved (Show Bus 1.3 §6 and §13.16, Patterns' Round 99): with Patterns following the room's rig by its key and S4.6's rig linked to Patterns' wire by LINK, EYE JSON holds exactly one card for each rig's node id (its own card, source link) and no deck drawn from the rig host's address, each drawn once as one edge to the desk whose source is link and whose link is that link's record — the room's link the 13.16.3 record STATE carries (level 1, both ways proved, under the kid the rig's key makes), the accepted one the 13.16.5 row (role acceptor, level 1, open — not ended, not told — verified as STATE's decks row says) — in its record's light; STATE's bus.apps holds each id once, linkLights counts every link edge once, and apps every card",
   apps: ['stagewatch', 'patterns'],
   deadlineMs: HELLO_MS,
 }, async (r) => {
@@ -933,7 +936,9 @@ test('S9.1 one card per app on Patterns\' Eye', row({
     for (const f of ['carrier', 'level', 'tls', 'pin', 'proof', 'kid', 'scope', 'state']) if (l[f] !== rec[f]) wrong.push(`the room's edge says ${f} ${JSON.stringify(l[f])}, STATE's record ${JSON.stringify(rec[f])}`);
     // The accepted link: its 13.16.5 row, as STATE's decks row lists it.
     const a = vt.edge.link;
-    if (a.role !== 'acceptor' || a.t !== 'stagewatch' || a.id !== VT_NODE || a.level !== 1 || a.ended !== false) wrong.push(`the accepted edge carries ${JSON.stringify({ role: a.role, t: a.t, id: a.id, level: a.level, ended: a.ended })}`);
+    // Open: not ended and not told its last word (13.16.5's row with Patterns' 100.5 `told` after endWords; a told link is closing,
+    // its edge grey and counted by nothing).
+    if (a.role !== 'acceptor' || a.t !== 'stagewatch' || a.id !== VT_NODE || a.level !== 1 || a.ended !== false || a.told !== false) wrong.push(`the accepted edge carries ${JSON.stringify({ role: a.role, t: a.t, id: a.id, level: a.level, ended: a.ended, told: a.told })}`);
     if (a.verified !== deck.verified || a.kid !== deck.kid || a.scope !== deck.scope) wrong.push(`the accepted edge says ${a.verified}/${a.kid}/${a.scope}, STATE's decks row ${deck.verified}/${deck.kid}/${deck.scope}`);
     // Every link edge counted once by its light; every card counted in apps.
     const links = E.linkEdges(eye);
@@ -954,7 +959,7 @@ test('S9.1 one card per app on Patterns\' Eye', row({
   r.facts = {
     ms: S.since(startAt),
     room: { card: read.room.card, edge: { kind: read.room.edge.kind, light: read.room.edge.light, source: read.room.edge.source, claim: read.room.edge.claim, link: pick(read.room.edge.link, ['carrier', 'level', 'tls', 'proof', 'kid', 'scope', 'state', 'flags', 'light']) }, busApp: read.room.busApp },
-    accepted: { card: read.vt.card, edge: { kind: read.vt.edge.kind, light: read.vt.edge.light, source: read.vt.edge.source, claim: read.vt.edge.claim, link: pick(read.vt.edge.link, ['role', 't', 'id', 'carrier', 'level', 'tls', 'verified', 'kid', 'scope', 'flags', 'light', 'ended']) }, busApp: read.vt.busApp },
+    accepted: { card: read.vt.card, edge: { kind: read.vt.edge.kind, light: read.vt.edge.light, source: read.vt.edge.source, claim: read.vt.edge.claim, link: pick(read.vt.edge.link, ['role', 't', 'id', 'carrier', 'level', 'tls', 'verified', 'kid', 'scope', 'flags', 'light', 'ended', 'told']) }, busApp: read.vt.busApp },
     linkLights: read.lights, linkEdges: read.links, apps: read.eye.apps, unplaced: read.eye.unplaced, leftEdges: read.eye.left && read.eye.left.edges,
   };
   await vtLockoutAfter(r);
@@ -962,7 +967,7 @@ test('S9.1 one card per app on Patterns\' Eye', row({
 
 test('S4.7 the rig redials Patterns with the key it enrolled', row({
   id: 'S4.7',
-  title: "S4.6's link dropped alone (its one TCP connection to Patterns' wire ended from the rig's host, lan.py's drop: the cable, the room's rig and Patterns' own link to it untouched): within 5 s the rig's link is verified both ways again, LINK proved with the key Patterns enrolled for it (the kid S4.6 adopted, never the code), pinned as before and under its floor; Patterns lists it at level 1 from the rig's node, verified by that key (`link`) at follow; the link says its scope and refuses `playout patterns play` on the rig, nothing sent, Patterns' clip still paused; and Patterns' own link to the room's rig still follows it as its node by its key",
+  title: "S4.6's link dropped alone (its one TCP connection to Patterns' wire ended from the rig's host, lan.py's drop: the cable, the room's rig and Patterns' own link to it untouched): within 5 s the rig's link is verified both ways again, LINK proved with the key Patterns enrolled for it (the kid S4.6 adopted, never the code), pinned as before and under its floor; Patterns lists it at level 1 from the rig's node, verified by that key (`link`) at follow, open (not told), and the dropped connection's row ended at the socket's end, grey and never told (Patterns said no last word to it); the link says its scope and refuses `playout patterns play` on the rig, nothing sent, Patterns' clip still paused; and Patterns' own link to the room's rig still follows it as its node by its key",
   apps: ['stagewatch', 'patterns'],
   deadlineMs: HELLO_MS,
 }, async (r) => {
@@ -997,7 +1002,12 @@ test('S4.7 the rig redials Patterns with the key it enrolled', row({
     // Patterns' own list: the rig's node at level 1, verified by the key it enrolled (`link`), at follow, live.
     const deck = await until(async () => ((await apps.patterns.state()).decks || []).find((d) => d.level === 1 && d.t === 'stagewatch' && d.id === VT_NODE
       && !d.ended && d.kid === s46.enrolled) || null, S.left(droppedAt, HELLO_MS), "Patterns' decks rows listing the rig's link by the enrolled key");
-    if (deck.verified !== 'link' || deck.scope !== 'follow' || deck.tls !== true) throw new Error(`Patterns lists the redialled link as ${JSON.stringify(deck)}`);
+    if (deck.verified !== 'link' || deck.scope !== 'follow' || deck.tls !== true || deck.told !== false) throw new Error(`Patterns lists the redialled link as ${JSON.stringify(deck)}`);
+    // The dropped connection's row: ended at the socket's end and never told (Patterns said no last word to it — the drop is the
+    // socket's end alone, so 100.5's `told` stays false on its grey row), grey for its minute, verified by the code it stood on.
+    const gone = await until(async () => ((await apps.patterns.state()).decks || []).find((d) => d.level === 1 && d.t === 'stagewatch' && d.id === VT_NODE
+      && d.ended === true && d.verified === 'code') || null, S.left(droppedAt, HELLO_MS), "Patterns' decks rows listing the dropped link ended");
+    if (gone.told !== false || gone.light !== 'grey') throw new Error(`Patterns lists the dropped link's ended row as ${JSON.stringify(gone)}, not grey and untold`);
     // At follow the rig sends no playout command: refused on the rig in its scope's words, nothing sent, Patterns' clip as it was.
     const before = await patternsClip();
     const sent = await apps.vt.api(['playout', 'patterns', 'play'], 'interop-s4-7');
@@ -1020,7 +1030,8 @@ test('S4.7 the rig redials Patterns with the key it enrolled', row({
       dropped, ms,
       record: { level: rec.level, proof: rec.proof, kid: rec.kid, scope: rec.scope, tls: rec.tls, pin: rec.pin, floor: rec.floor, light: rec.light, flags: rec.flags },
       standing: l.standing, scopeHeld: l.scopeHeld,
-      patterns: { level: deck.level, t: deck.t, id: deck.id, verified: deck.verified, scope: deck.scope, tls: deck.tls, kid: deck.kid },
+      patterns: { level: deck.level, t: deck.t, id: deck.id, verified: deck.verified, scope: deck.scope, tls: deck.tls, kid: deck.kid, told: deck.told },
+      droppedRow: { verified: gone.verified, ended: gone.ended, told: gone.told, light: gone.light, endWords: gone.endWords ?? null },
       play: { status: sent.status, error: j.error }, clip: { before: before.paused, after: after.paused },
       room: { patterns: still.patterns.record },
     };
@@ -2208,9 +2219,53 @@ async function rigOnEye() {
   };
 }
 
+/** The text of an MCP tools/call reply and whether it is an error, or a throw naming what came back. */
+function mcpText(said, tool) {
+  const c = said && said.result && said.result.content && said.result.content[0];
+  if (!c || typeof c.text !== 'string') throw new Error(`MCP ${tool} answered ${JSON.stringify(said).slice(0, 300)}`);
+  return { text: c.text, isError: said.result.isError === true };
+}
+
+/** MCP's words for every frame door while the rig's show thread is stuck (src/Timer.Remote/McpEndpoint.cs StuckText). */
+const MCP_STUCK_TEXT = "Stuck: no time from Stagewatch's show thread can be served as current — it has stalled, or is resuming from a stall and has not yet caught up (get_context and get_preflight say the same).";
+
+/**
+ * Row S6.2b's read of the rig's asked doors while its show thread is stuck, beside the context and GET /api/state the row reads
+ * itself: each must say stuck by the one rule, and the read must end before `until` (the earliest the thread can turn over).
+ * `counting` is the counting items the rig's context had before the stall, which its stuck form keeps, each red with the stuck words.
+ */
+async function rigDoorsWhileStuck(sw, counting, until) {
+  const op = await sw.operatorFrame();
+  const pf = await sw.preflight();
+  const state = mcpText(await sw.mcp('tools/call', { name: 'get_state', arguments: {} }), 'get_state');
+  const order = mcpText(await sw.mcp('tools/call', { name: 'get_running_order', arguments: {} }), 'get_running_order');
+  const ctx = mcpText(await sw.mcp('tools/call', { name: 'get_context', arguments: {} }), 'get_context');
+  const mpf = mcpText(await sw.mcp('tools/call', { name: 'get_preflight', arguments: {} }), 'get_preflight');
+  const readEnd = Date.now();
+  if (readEnd >= until) throw new Error(`the rig's doors were read ${readEnd - until} ms past the stall's own end, too late to say the show was stuck at each`);
+  const wrong = [];
+  const n = op.network || null;
+  if (op.stuck !== true) wrong.push('the operator frame carries no stuck mark');
+  if (!n || n.ready !== false || n.red !== 1 || n.amber !== 0 || n.stuck !== true) wrong.push(`the operator frame's verdict is ${JSON.stringify(n)}, not the stuck one`);
+  if (pf.stuck !== true || pf.ready !== false) wrong.push(`GET /api/preflight says ${JSON.stringify(verdictFacts(pf))}`);
+  for (const [tool, said] of [['get_state', state], ['get_running_order', order]]) {
+    if (!said.isError || said.text !== MCP_STUCK_TEXT) wrong.push(`MCP ${tool} answered ${said.isError ? 'an error' : 'as live'}: ${said.text.slice(0, 160)}`);
+  }
+  let mctx = null;
+  try { mctx = JSON.parse(ctx.text); } catch { mctx = null; }
+  const mcounting = mctx ? (mctx.items || []).filter((i) => E.COUNTING.includes(i.kind)) : [];
+  if (ctx.isError || !mctx || mctx.light !== 'red' || mcounting.map((i) => i.id).sort().join(',') !== counting.map((i) => i.id).sort().join(',')
+    || mcounting.some((i) => i.light !== 'red' || i.state !== RIG_STUCK_WORDS)) wrong.push(`MCP get_context is not the stuck form: ${ctx.text.slice(0, 200)}`);
+  let mverdict = null;
+  try { mverdict = JSON.parse(mpf.text); } catch { mverdict = null; }
+  if (mpf.isError || !mverdict || mverdict.stuck !== true || mverdict.ready !== false) wrong.push(`MCP get_preflight answered ${mpf.text.slice(0, 160)}`);
+  if (wrong.length) throw new Error(`a door of the rig's said otherwise while its show was stuck: ${wrong.join('; ')}`);
+  return { readBeforeEndMs: until - readEnd, operatorNetwork: n, preflight: verdictFacts(pf), mcp: { get_state: 'stuck words', get_running_order: 'stuck words', get_context: mctx.light, get_preflight: { ready: mverdict.ready, stuck: mverdict.stuck } } };
+}
+
 test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
   id: 'S6.2b',
-  title: "a stuck Stagewatch: Patterns' link stays live and amber (its record live, proved and amber; its row no better than amber, red once it reads the rig's red context) and says stuck with no time from it, and its time comes back once the rig's show turns over; the bound is the lane's STUCK_MS from the rig's own stall time, and the plan's stuckMs + 4 s is recorded beside it, not held, because the rig's verdict offers no stuck and carries no stuckMs (13.6.6 has it carry one only beside stuck); the rig's own context, as GET /api/context serves it, keeps §6 P5 within the same bound: every counting item red with the stuck words, the context red and no time in its headline, and GET /api/state marks the frame stuck; from the rig's turn-over on, every read of its context is the stuck form or one built after the turn-over, never the one from before the stall, and the live one is back within 2 s; and Patterns' Eye (EYE JSON), read live before the stall (never a stuck form it still holds from an earlier one), draws the rig as 13.16.1 gives it, within the same bound: its one card no better than amber (amber while it holds the context from before the stall, red once it reads the rig's own red one) with the stall's words, its one edge the link's record verbatim (live, its show stuck, amber), and the same counting things as before the stall, each \"? — no time shown\" and red; and once the show turns over, within a context's read, the rig's context, the card, the edge and every counting thing (light and words) as they were before the stall",
+  title: "a stuck Stagewatch: Patterns' link stays live and amber (its record live, proved and amber; its row no better than amber, red once it reads the rig's red context) and says stuck with no time from it, and its time comes back once the rig's show turns over; the bound is the lane's STUCK_MS from the rig's own stall time, and the plan's stuckMs + 4 s is recorded beside it, not held, because the rig's verdict offers no stuck and carries no stuckMs (13.6.6 has it carry one only beside stuck); the rig's own context, as GET /api/context serves it, keeps §6 P5 within the same bound: every counting item red with the stuck words, the context red and no time in its headline, and GET /api/state marks the frame stuck, with the operator's frame, GET /api/preflight and MCP's get_state, get_running_order, get_context and get_preflight saying the same in the same moment by the one served-stuck rule (the operator's frame marked stuck with the stuck verdict, GET /api/preflight stuck, MCP's get_state and get_running_order the stuck words, get_context the stuck form, get_preflight stuck), read before the stall's own end (Companion's door is read by S8.3, in a stall of its own, as the module's network_ready unknown; /ws is not read here); from the rig's turn-over on, every read of its context is the stuck form or one built after the turn-over, never the one from before the stall, and the live one is back within 2 s; and Patterns' Eye (EYE JSON), read live before the stall (never a stuck form it still holds from an earlier one), draws the rig as 13.16.1 gives it, within the same bound: its one card no better than amber (amber while it holds the context from before the stall, red once it reads the rig's own red one) with the stall's words, its one edge the link's record verbatim (live, its show stuck, amber), and the same counting things as before the stall, each \"? — no time shown\" and red; and once the show turns over, within a context's read, the rig's context, the card, the edge and every counting thing (light and words) as they were before the stall",
   apps: ['stagewatch', 'patterns'],
   deadlineMs: [STUCK_MS, RESUME_MS, CONTEXT_MS],
 }, async (r) => {
@@ -2292,6 +2347,13 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
   if (/\d:\d\d/.test(rigCtxStuck.headline || '')) throw new Error(`the rig's stuck headline carries a time: ${rigCtxStuck.headline}`);
   const rigFrameStuck = await sw.frame();
   if (rigFrameStuck.stuck !== true) throw new Error("the rig's GET /api/state while stuck carries no stuck mark");
+  // The other doors read here say the same in the same moment, by the one served-stuck rule (ServedContext.Stuck through
+  // IShowControl.ServedStuck, Stagewatch 2.24's SW24.1q to SW24.1s; Companion's door is S8.3's, in its own stall, read as
+  // the module's network_ready, and /ws is not read here): the operator's frame marked stuck and carrying the stuck verdict
+  // (not ready, one red, stuck), the preflight's route stuck and not ready, MCP's get_state and get_running_order the stuck words as
+  // an error, get_context the stuck form and get_preflight the stuck verdict. All are read before the stall's own end (the rig's stall
+  // time plus STALL_MS: the show thread cannot turn over sooner), so a live answer among them is a door the rule did not reach.
+  const rigDoors = await rigDoorsWhileStuck(sw, countingOf(ctxBefore), stall.stalledAt + STALL_MS);
   // Until the rig turns over Patterns never shows a time from it; a time read back is held against the rig's own turn-over time.
   let samples = 0;
   let runningAt = null;
@@ -2353,7 +2415,7 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
     resumeMs,
     after: { text: back.text, light: back.light },
     eye: {
-      before: strip(eyeBefore), stuck: strip(eyeStuck), stuckMs: eyeStuckMs, plan: stuckPlan(eyeStuckMs), rigOwnWhileStuck: rigOwnStuck,
+      before: strip(eyeBefore), stuck: strip(eyeStuck), stuckMs: eyeStuckMs, plan: stuckPlan(eyeStuckMs), rigOwnWhileStuck: rigOwnStuck, rigDoors,
       back: strip(eyeBack), backMs: eyeBackMs,
     },
   };
@@ -2679,6 +2741,36 @@ test("S2.9 Patterns' key revoked on its live link", row({
     revokedAt: at, refusedMs,
     patterns: { state: refused.state, record: { state: rec.state, refusal: rec.refusal, level: rec.level, proof: rec.proof, light: rec.light, words: rec.words }, headline: refused.headline },
   };
+  await lockoutAfter(r);
+}));
+
+test('S9.3 no app posts its context to Patterns at these pins', row({
+  id: 'S9.3',
+  title: "no app of the room posts its context to Patterns by CONTEXT POST at these pins (Show Bus 1.3 §6, Posting; Patterns' Round 100.1), and Patterns says so on every reader it gives the lane, read after every other row but S7.4 and S7.1 (the last of which stops the apps): its STATE's bus.posted is an empty list and bus.postRefused, the posts refused in the minute now open, 0; no bus.apps row is marked posted (each says posted false); its journal holds no Remote/ContextPost row for the whole run (one is written on every first keep, and again for an id that posts after its 30 s, so a post anywhere in the run leaves one); and its log holds no refusal summary for the whole run (an ended minute's refusals are summed into patterns.log by the first read of the posted table after it, and the lane reads Patterns' STATE throughout, so every earlier minute's summary is written by now). It proves the absence, not a post: Stagewatch's connector has no CONTEXT POST, PlayMap's PM-12 and AGMessage's unit that posts have not landed, and the lane's own wire client is no app, so it posts nothing in an app's place",
+  apps: ['patterns'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'));
+  const st = await apps.patterns.state();
+  const bus = st.bus || {};
+  if (!Array.isArray(bus.posted) || typeof bus.postRefused !== 'number') throw new Error(`Patterns' STATE bus carries no posted list or postRefused count: ${JSON.stringify({ posted: bus.posted, postRefused: bus.postRefused })}`);
+  if (bus.posted.length) throw new Error(`Patterns keeps ${bus.posted.length} posted contexts though no app here posts one: ${JSON.stringify(bus.posted)}`);
+  if (bus.postRefused !== 0) throw new Error(`Patterns refused ${bus.postRefused} posts this minute though no app here posts one`);
+  const rows = bus.apps || [];
+  const marked = rows.filter((a) => a.posted !== false);
+  if (!rows.length || marked.length) throw new Error(`Patterns' bus.apps rows say posted ${JSON.stringify(marked.map((a) => ({ id: a.id, posted: a.posted })))} (of ${rows.length})`);
+  // The journal for the whole run: every first keep of a posted context is a Remote/ContextPost row, never its text.
+  const file = path.join(apps.patterns.folders.home, 'patterns.showlog.jsonl');
+  const journal = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } });
+  if (!journal.length || journal.some((x) => !x)) throw new Error(`Patterns' journal is ${journal.length ? 'not one JSON row a line' : 'empty'}, so its rows cannot say what was kept`);
+  const posts = journal.filter((x) => x.Origin === 'Remote' && x.Kind === 'ContextPost');
+  if (posts.length) throw new Error(`Patterns' journal keeps ${posts.length} posted contexts: ${JSON.stringify(posts.map((x) => x.Target))}`);
+  // The log for the whole run: an ended minute's refusals are one summary line (Patterns' ContextPostRefusals.Due), said by the first
+  // read of the posted table after that minute, which every STATE read before this one is; the minute now open is postRefused above.
+  const logLines = fs.readFileSync(path.join(apps.patterns.folders.home, 'patterns.log'), 'utf8').split('\n');
+  const refusedSummaries = logLines.filter((l) => /CONTEXT POSTS? refused in the last minute/.test(l));
+  if (refusedSummaries.length) throw new Error(`Patterns' log sums refused posts: ${refusedSummaries.map((l) => l.slice(0, 200)).join(' | ')}`);
+  r.facts = { posted: bus.posted.length, postRefused: bus.postRefused, appsRows: rows.length, journalRows: journal.length, contextPostRows: 0, logLines: logLines.filter(Boolean).length, refusedSummaries: 0 };
   await lockoutAfter(r);
 }));
 

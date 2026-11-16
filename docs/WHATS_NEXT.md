@@ -2227,7 +2227,9 @@ Stagewatch wait for that round (below). PlayMap's half: its context names its pe
 in the pin); it offers no LINK yet (Mapper's PM-9b), so **its links stay at level 0** — legacy, amber, and they say so. *Since then
 (SW24.1p):* Round 99 closed at 52e176b (99.3 the feed, 99.4 and 99.5 the desk's and the wire's readers, 99.6 the papers), the lane
 pins it, and its rows S9.1, S9.2, S5.4 and S6.2b read Patterns' Eye drawing this Stagewatch; S6.2b found that a stuck show's
-context was served stale, and SW24.1p mends it (below).
+context was served stale, and SW24.1p mends it (below). *Since then (SW24.1t):* Round 100 closed at a794633 (`CONTEXT POST`,
+a told link closing until its socket ends, the Stagewatch link's rise published whole), and the lane pins it with no row weakened and
+one row added (below).
 
 ### The units
 
@@ -2240,7 +2242,8 @@ it did and left in its own words, as written when it landed.
 | SW24.1p | bc41663 | The lane at Patterns' Round 99 (52e176b, closed): S9.1 one card per app on Patterns' Eye (each rig drawn once, by the id its link proved, one edge whose source is `link` and whose record is the link's own, no deck); S9.2 Patterns reads the rig's 2.24 rows (each `@` end placed on one edge, no cut edge, the level-0 `link:ws:` items lighting no app green; the counting of ends it draws no card for compared at 0 = 0); S5.4 the window chain as far as the pins give it (the thing and its withdrawal); S6.2b held tighter with the stuck rig on Patterns' Eye and on the rig's own context; every existing row held unchanged. The one defect of Stagewatch's own the lane proved, mended: a stuck show's context was served stale, and every door now serves its stuck form (`ServedContext`, desk and rig), with a check on injected time | S9.2's counting half unexercised (no rig row names a node Patterns draws no card for); S5.4's `serves` edge (no row for a held grant on this bench) and Patterns' screen-to-window edge (its OPEN L107); AGMessage's displays on Patterns' Eye (Round 100 and AGMessage's unit) |
 | SW24.1q | ec28135 | The review of SW24.1p's mend, read by two adversarial readers after it landed, and the unit's own review: one rule for every door a reader asks (`ServedContext.Stuck`, `IShowControl.ServedStuck`: the hub's frame stale — stuck, or turned over since a stall and not yet published, `SnapshotHub.Resuming` — the context resuming until a build from a frame made after the stall, or the build older than `PreflightWire.MaxAge`, 3 s, on the hub's clock), read by `GET /api/context`, `get_context`, `GET /api/state`, `get_state`, `get_running_order`, the preflight's stuck answer and Companion's `STUCK` pong; `/ws` by the hub's `FrameStale`; so no context or frame from before a stall is served live after it, and the first turn after a stall builds at once (`MarkAlive`, `Due`); the stuck headline carries no schedule offset; `GET /api/state` marks a stuck show's frame `"stuck":true` at its end with the stuck verdict, and MCP's `get_state` and `get_running_order` answer the stuck words (MCP's instructions say so; the endpoint's `stuck` is required); the desk and the rig turn and serve through the one helper; the fences on injected time, in e2e and in S6.2b; the served pair's cost measured | The stuck form's other items as at its `at` (P5 asks no more); Companion's `SNAPSHOT` keeps its own stuck word (the pong's `STUCK`); `/ws` turns at a stall's start by the hub's flag, up to 750 ms after the asked doors; the preflight ages on its own clock, the context on the hub's; the desk's door held by the unit check's source fence, its walk-through the maintainer's PC work |
 | SW24.1r | 6931ddc | The review of SW24.1q's fold-in, read by two adversarial readers after it landed: the context and the preflight built by time on the hub's clock (`ServedContext.Due`: a turn that finds the last build `PreflightWire.BuildEvery`, 1 s, old), served live while no older than `PreflightWire.MaxAge` = the hub's 3 s bound plus that 1 s (4 s), so a slow but live show thread is never served stuck and every asked door turns at a stall's start with the hub; Companion's answered `SNAPSHOT` (the subscribe answer's too) marked stuck by the one rule, and the module drawing no frame while stuck, asking `SNAPSHOT` at the first pong without `STUCK` and keeping `ACCESS` across a stuck; the lows (flags read before the pair, the context's resuming mark from the hub's own verdict, the stuck words); the fences on injected time, at the Companion door and on `/ws`, and the desk's due line held whole; the unit's own review folded in (the desk keeps building before its frame, so no frame of its carries a pre-stall verdict as current; the context's stuck words; the papers' `/ws` timing) | The rig's frame at the turn that ends a 3 to 4 s stall carries the verdict judged before it (open, below); the preflight's stuck words (decision 16's); the preflight's clock beside the hub's; the module's package version moves with the app on the PC; the desk's walk-through the maintainer's; the flag-before-pair order held by reading, not a check |
-| SW24.1s | this commit (`git log --grep SW24.1s`; its hash goes in the next papers commit) | The items SW24.1r's fold-in left open: no frame carries a verdict judged before a stall as current (`SnapshotHub.MadeBeforeStall`: the show thread stuck, or resuming and the judging older than the alive mark that ended the stall; `PreflightWire.Carried`'s one new term, read through `ServedContext.FrameVerdict` by the rig's `Frame()` and the desk's `BuildSnapshot` alike), so the rig's frame at the turn that ends a stall carries the stuck verdict and the desk's the one judged in its turn; one clock: the preflight judged and stamped on the hub's clock beside the context pair (`ServedContext.PublishPreflight`) and served by the one rule and that age (`ServedContext.Preflight`, `IShowControl.ServedPreflight`, which `GET /api/preflight` and MCP's `get_preflight` read; `IShowContext.PreflightJson` and the wall-clock `PreflightWire.ServedNow` and `PreflightResult.VerdictAt` gone), the wall clock dating only the `at` a reader sees; the flags-before-pair order held by a deterministic check (`ReadOrderKept`: the show thread's build run inside the reader's first clock read); the wall clock stepped an hour each way moving no door (`WallClockKept`, `SlowThreadKept`, the preflight route's test) | The preflight's stuck words (decision 16's, the owner's); on the rig the frame of the turn that ends a stall still carries the windows and desk word of the build before it (its order is kept; its verdict no longer); the desk's walk-through the maintainer's |
+| SW24.1s | cf1817a | The items SW24.1r's fold-in left open: no frame carries a verdict judged before a stall as current (`SnapshotHub.MadeBeforeStall`: the show thread stuck, or resuming and the judging older than the alive mark that ended the stall; `PreflightWire.Carried`'s one new term, read through `ServedContext.FrameVerdict` by the rig's `Frame()` and the desk's `BuildSnapshot` alike), so the rig's frame at the turn that ends a stall carries the stuck verdict and the desk's the one judged in its turn; one clock: the preflight judged and stamped on the hub's clock beside the context pair (`ServedContext.PublishPreflight`) and served by the one rule and that age (`ServedContext.Preflight`, `IShowControl.ServedPreflight`, which `GET /api/preflight` and MCP's `get_preflight` read; `IShowContext.PreflightJson` and the wall-clock `PreflightWire.ServedNow` and `PreflightResult.VerdictAt` gone), the wall clock dating only the `at` a reader sees; the flags-before-pair order held by a deterministic check (`ReadOrderKept`: the show thread's build run inside the reader's first clock read); the wall clock stepped an hour each way moving no door (`WallClockKept`, `SlowThreadKept`, the preflight route's test) | The preflight's stuck words (decision 16's, the owner's); on the rig the frame of the turn that ends a stall still carries the windows and desk word of the build before it (its order is kept; its verdict no longer); the desk's walk-through the maintainer's |
+| SW24.1t | this commit (`git log --grep SW24.1t`; its hash goes in the next papers commit) | The lane at Patterns' Round 100 (a794633, closed): the pin moved and every row held as it was (the run before any row moved: LAN 44 of 44, laptop 5 of 5, offline 3 of 3; the unit's whole validate after: unit 6256, e2e 94 of 94, self-check 75, LAN 45 of 45, laptop 5 of 5, offline 3 of 3); S4.6, S4.7 and S9.1 read 100.5's `told` false on the open accepted link (STATE's `decks` row, EYE JSON's accepted row) and S4.7 the dropped connection's grey ended row untold; S6.2b reads the operator's frame and its verdict, `/api/preflight` and MCP's `get_state`, `get_running_order`, `get_context` and `get_preflight` stuck in the same moment by the one served-stuck rule (Companion's door stays S8.3's, `/ws` is not read); S9.3 (new) reads that no app posts its context to Patterns (`bus.posted`, `bus.postRefused`, `bus.apps[].posted`, the journal's `ContextPost` rows, `patterns.log`'s refusal summaries); no product change | A closing link's `told` window (no outside way to make Patterns tell the link its last word, and no linger on a desk); a real app's `CONTEXT POST` (no poster at these pins); S9.2's counting half and S5.4's `serves` edge, unchanged at this pin; the turn-over frame's verdict not observable from outside |
 
 The release's papers (SW24.2) are this section, REMOTE.md's 2.24 section, FEATURES.md's 2.24 entry, and the sentences of NODES.md,
 README.md and ECOSYSTEM.md that had gone stale; they change no code. Between 2.23's head and SW24.1, one commit of the plan
@@ -2291,12 +2294,12 @@ The tree's versions still read 2.16.0 (`src/Timer.App/Timer.App.csproj`, `compan
 papers, nothing here bumps a version or makes a tag; `release.ps1` moves them on the PC. 2.24.0 goes after 2.23.0, from the commit
 that carries this section. No file of the Companion module changed in 2.24; it takes 2.24.0 with the app, as each release's module
 does. A tag waits for CI's interop job beside the other jobs (the owner's answer S-interop-gate), at the pins
-`tools/interop/siblings.json` holds for this release — Patterns' pin moved by SW24.1p, the others as SW23.1p left them — each sibling
+`tools/interop/siblings.json` holds for this release — Patterns' pin moved by SW24.1p and again by SW24.1t, the others as SW23.1p left them — each sibling
 built with the SDK its own `global.json` names (`tools/interop/sdk.sh`):
 
 | Sibling | Pin | What it is | SDK |
 |---|---|---|---|
-| Patterns | 52e176b | its Round 99, closed (99.0–99.7: the Eye's network, the feed, the desk's and the wire's readers, the papers), on Round 98's acceptor (2515017) | 10.0.115 (`global.json`, `rollForward` `latestPatch`) |
+| Patterns | a794633 | its Round 100, closed (100.1–100.8: `CONTEXT POST`, a told link closing for every reader, device sessions, the Stagewatch link's rise published whole, the papers), on its Round 99 (52e176b: the Eye's network) and Round 98's acceptor (2515017) | 10.0.115 (`global.json`, `rollForward` `latestPatch`) |
 | Mapper (PlayMap) | 2ae7ac7b | tests only since 031c9a3; no LINK yet | names none (no `global.json`): the newest SDK the machine has |
 | AGMessage | d0e3961 | 0.5.0 (`engines` Node ≥ 24.11) | not .NET |
 
@@ -2346,8 +2349,43 @@ crafted master licence file rejected, and an owner-only file and its backup writ
     has opened nothing; a `sent` grant, not yet acknowledged, gets amber where a `held` one gets none). The other half — an edge of
     Patterns' own from the screen that shows the window to it — is Patterns' OPEN L107 at 52e176b ("this desk draws no edge of its
     own from a screen to the granted window it shows").
-  - **AGMessage's displays on Patterns' Eye** wait for Patterns' Round 100 (`CONTEXT POST` over a verified PeerLink) and AGMessage's
-    own unit that posts (Patterns' OPEN L127: an app that posts nothing is drawn by its hello alone); no row is added for them.
+  - **AGMessage's displays on Patterns' Eye** wait for AGMessage's own unit that posts (its AG-10): Patterns' half, `CONTEXT POST`
+    over a verified PeerLink, landed in its Round 100 (100.1, `2365871`, in the pin since SW24.1t), and its OPEN L127 at a794633 keeps
+    the posting apps open (an app that posts nothing is drawn by its hello alone); no row is added for them.
+  - **At Patterns' Round 100 (SW24.1t).** The lane pins a794633 and every row stands as it was, none weakened: the run at the new pin
+    before any row moved was whole (LAN 44 of 44, the laptop 5 of 5, offline 3 of 3). Proved in addition: an accepted link open is
+    `told` false on STATE's `decks` row and on EYE JSON's accepted row (S4.6, S4.7, S9.1), and the connection lan.py's drop ends is a
+    grey ended row with `told` false, since Patterns said no last word to it (S4.7); while the rig's show thread is stalled the operator's
+    frame with the stuck verdict, `/api/preflight` and MCP's `get_state`, `get_running_order`, `get_context` and `get_preflight` say
+    stuck in the same moment by the one served-stuck rule, beside the context and `GET /api/state` (S6.2b; Companion's door is S8.3's,
+    in a stall of its own, read as the module's `network_ready`, and `/ws` is not read there); and no app posts its context to Patterns
+    at these pins, which its STATE (`bus.posted` empty, `bus.postRefused` 0, no `bus.apps` row `posted`), its journal (no
+    `Remote`/`ContextPost` row in the run) and its log (no refusal summary in the run) say (S9.3). Open, each with what it waits for:
+    - **A closing link (100.5's `told` window).** The lane cannot make Patterns tell the rig's accepted link its last word: the
+      operator's CLOSE and KEY REVOKE are the desk's alone (`src/Patterns.App/Services/ShowActions.Nodes.cs:28` and `:56` refuse
+      every other origin, the wire's among them), the bench's control lines are `clip`, `propose`, `trust` and `exit`
+      (`tools/Patterns.Bench/BenchControl.cs:193-207`), and the other last words (a new token, an oversize or unreadable line) are
+      the desk's or the link's own. Even told, the window is one line's flush: `ControlService.CloseLinger` is zero on a desk
+      (`src/Patterns.App/Services/ControlService.Link.cs:140`; only Patterns' own tests widen it), so a `told`-and-not-ended read from
+      outside would be a timing row, which the lane does not add. What would prove it: a bench control line that presses the desk's
+      CloseLink as its operator does (`close <t>:<id>`) and a bench option setting `CloseLinger` (a second), so the lane reads the
+      row `told` and not ended, `bus.apps` and the Eye counting it as no open link (its edge grey, counted by nothing, the card the
+      hello's alone) through the linger, and the grey row with `told` true at the socket's end; Patterns' work, then a lane row. Beside
+      it, Patterns' OPEN L131 (a link on no list for a moment at its connection's end) is why S4.7 waits for the ended row rather
+      than reading it once.
+    - **CONTEXT POST from a real app.** S9.3 proves the absence only. A row that reads a posted context on Patterns' Eye (the told
+      cluster on the poster's card, `bus.posted`, the journal's first-keep row, the posted-ended headline once its link closes) waits
+      for an app that posts: a Stagewatch connector unit with `CONTEXT POST` (no unit of the plan names one), PlayMap's PM-12 or
+      AGMessage's AG-10. The lane's own wire client is no app and posts nothing in one's place.
+    - **S9.2's counting half and S5.4's `serves` edge** do not move at a794633: EyeNetwork changed only the closing words of an
+      accepted link's edge (100.5) and EYE JSON only appended `told`, so `unplaced` is still compared at 0 = 0 (it waits for a rig row
+      to a node Patterns draws no card for) and no `serves` row or edge is written or drawn for a held grant (it waits for S5.1w, a grant
+      that opens on the Windows job or the walk, or the owner's word on a held grant's row); Patterns' OPEN L107 still holds its
+      screen-to-window edge open at a794633.
+    - **The stuck rig's turn-over frame.** The rig's frame at the turn that ends a stall carries the stuck verdict (SW24.1s), but no
+      field of the frame dates its verdict, so the lane cannot tell a judging from before the stall from one made after it in the
+      first frames after the turn-over; S6.2b holds the doors while stuck, and SW24.1s' checks on injected time (`SlowThreadKept`,
+      `ReadOrderKept`) hold the turn.
   - **Mended in SW24.1p: a stuck show's context was served stale.** The rig and the desk build their context on the show thread
     (`tools/Stagewatch.Rig/Program.cs` `Tick`, `MainViewModel.ShowBus.cs` `RefreshShowBus`), so while it was stuck `GET /api/context`,
     MCP's `get_context` and the context Patterns pulls were the last one built before the stall — a running countdown served as
@@ -2754,6 +2792,48 @@ crafted master licence file rejected, and an owner-only file and its backup writ
     module 46 of 46, e2e 94 of 94, the lane at Patterns 52e176b LAN 44 of 44, laptop 5 of 5, offline 3 of 3.
   - **What it left.** The preflight's stuck words (the owner's, above); the rig's turn-over frame's windows and desk word from the build
     before the stall; the desk's walk-through, the maintainer's PC work, not run. The contract (`docs/SHOWBUS.md`) is not edited.
+- **The lane at Patterns' Round 100 (SW24.1t).** A lane unit after SW24.1s; nothing of Stagewatch's product changed, as the lane
+  proved no defect of Stagewatch's own.
+  - **The pin.** `tools/interop/siblings.json` pins Patterns at a794633 (its Round 100.2, the round's papers; on its pushed working
+    branch, `git branch -r --contains a794633`); Mapper 2ae7ac7b and AGMessage d0e3961 as they were. Patterns at the pin moved what its
+    STATE, EYE JSON and context say: `bus.posted`, `bus.postRefused` and `bus.apps[].posted` (100.1); `told` at the end of the `decks`
+    rows and of EYE JSON's accepted row, a told link's edge grey and counted by nothing, "has ended or is closing" in the posted-ended
+    words (100.5); the Stagewatch link's record and key read as one (100.8); the Super Check's row words (100.3) and the device
+    sessions (100.4, 100.6), which no row reads. The lane's first run at the pin, before any row moved, was whole: LAN 44 of 44, the
+    laptop 5 of 5, offline 3 of 3, every row held to the words it held at 52e176b — the rig's stuck context words ("the show thread has
+    stalled or not yet caught up — no time shown"), Patterns' stuck card words and `? — no time shown — its show is stuck` on each
+    counting thing, unchanged by Round 100.
+  - **Each row that moved, and what it now proves besides.** S4.6: Patterns' `decks` row for the rig's link `told` false (open). S9.1:
+    the accepted edge's 13.16.5 row `ended` and `told` both false. S4.7: the redialled link's row `told` false, and the dropped
+    connection's row ended at the socket's end, grey, verified by the code it stood on and `told` false — Patterns said no last word to
+    it (the drop is the socket's end alone), so 100.5's grey row of an untold link is read; the row waits for that grey row rather than
+    reading once (Patterns' OPEN L131: a link is on no list for a moment at its connection's end). S6.2b: beside the context and
+    `GET /api/state`, in one moment while the show thread is stalled and before the stall's own end (the rig's stall time plus the 12 s
+    it stalls), the operator's frame marked stuck with the stuck verdict (not ready, one red, none amber, stuck), `GET /api/preflight`
+    stuck and not ready, MCP's `get_state` and `get_running_order` the stuck words as an error, `get_context` the stuck form (red, every
+    counting item red with the stuck words) and `get_preflight` stuck — the one served-stuck rule of SW24.1q to SW24.1s at each of these
+    doors (Companion's is S8.3's, in its own stall, through the module's `network_ready`; `/ws` is not read here); read 8.1 s before the stall's own end in the first LAN run with the rows moved and 8.3 s before it in the whole validate. What Patterns draws while stuck did not move at the pin:
+    its link live and amber with its show `stuck`, its row and card no better than amber ("says its show is stuck — no time shown";
+    amber in the run, red once it has pulled the rig's red context), the same counting things each `? — no time shown — its show is
+    stuck` and red, all as before within a context's read of the turn-over.
+  - **The new row.** S9.3: no app of the room posts its context to Patterns at these pins, read after every other row but S7.4 and
+    S7.1 (the last of which stops the apps): STATE's `bus.posted` empty, `bus.postRefused` 0 (the minute now open), each of the
+    `bus.apps` rows `posted` false, none of the journal's rows of the run a `Remote`/`ContextPost` row (one is written at every first
+    keep), and no line of `patterns.log` a refusal summary (`… CONTEXT POST(s) refused in the last minute`: an ended minute's
+    refusals are summed there by the first read of the posted table after it, and the lane reads Patterns' STATE throughout the run,
+    so every earlier minute's summary is written by the time S9.3 reads). It proves the absence; the lane's own wire client
+    is no app and posts nothing in one's place.
+  - **Open** (each with what it waits for, in *What this release did not do*, above): a closing link's `told` window (a bench control
+    line that presses CloseLink and a bench linger, Patterns' work); `CONTEXT POST` from a real app (a Stagewatch connector unit,
+    PlayMap's PM-12, AGMessage's AG-10); S9.2's counting half and S5.4's `serves` edge, which the pin does not move (a rig row to a node
+    Patterns draws no card for; S5.1w or the owner's word on a held grant; Patterns' OPEN L107); the turn-over frame's verdict, which no
+    frame field dates.
+  - **The runs.** `tools/test.sh build interop` at the new pin before any row moved (LAN 44 of 44, laptop 5 of 5, offline 3 of 3);
+    then the unit's whole validate with the final files, once: `tools/test.sh build unit e2e interop` — unit 6256 passed, 0 failed
+    (`InteropDocTests` holds BUILD.md's rows table to the drivers, S9.3 among them), e2e 94 of 94, the lane's self-check 75 of 75,
+    LAN 45 of 45, the laptop 5 of 5, offline 3 of 3, every lane passed. In it S9.3 read 34 journal rows and 59 log lines with no
+    `ContextPost` row and no refusal summary, S6.2b read the rig's doors 8.3 s before the stall's own end, and S4.7's dropped row was
+    ended, grey, verified by the code and untold. No row failed in any run.
 - **The 2.24 papers (SW24.2).** REMOTE.md's 2.24 section (each item and row, and what a reader may rely on), NODES.md §4's context
   and node links and §6–§7's level-0 items, FEATURES.md's 2.24 entry, README.md's index and release line, ECOSYSTEM.md's roadmap
   and lane lines, and this section; no code. The version stays 2.16.0 in the tree, as `release.ps1` moves it on the PC.

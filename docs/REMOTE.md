@@ -1855,11 +1855,12 @@ words (below).
 The desk and the rig build the same items and rows from the same facts. The network preflight checks the link items it checked
 before (`ShowContext.PreflightItems`: no accepted link, no clock in bounds). The Companion module and the copilot's facts
 (`AiContext`) read none of the rows that moved. Patterns' Stagewatch link reads the context and its Eye draws it; at the
-lane's pin (Patterns 52e176b, its Round 99 closed) rows S9.1 and S9.2 prove it draws this Stagewatch once, by the id its link proved,
+lane's pin (Patterns a794633, its Round 100 closed, on its Round 99) rows S9.1 and S9.2 prove it draws this Stagewatch once, by the id its link proved,
 and places every row with an `@` end (its counting of the ends it draws no card for compared at 0 = 0: no row of the rig's names
 one), S5.4 that a granted window is a thing of this Stagewatch's card there and leaves with its withdrawal (a held grant has no
-`serves` row, so none is drawn), and S6.2b that this Stagewatch's own context keeps P5 while its show is stuck (WHATS_NEXT.md says
-what stays open).
+`serves` row, so none is drawn), and S6.2b that this Stagewatch's own context keeps P5 while its show is stuck, the operator's frame, `/api/preflight` and
+MCP's `get_state`, `get_running_order`, `get_context` and `get_preflight` saying stuck in the same moment (WHATS_NEXT.md says what
+stays open).
 The lane holds the rest at the pins: S1.5 and S1c.3 take Stagewatch's own amber only when every amber item is a `link:ws:` link at
 level 0, and name those ids; S4.3 reads each playout link as kind `link` in its record's light; S4.4 one green `clock:<node id>`
 per link.
