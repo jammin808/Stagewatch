@@ -185,6 +185,13 @@ public sealed class CompanionServer : IAsyncDisposable
     /// <summary>Companion gets the detail frame: projected running order, advice, Q&amp;A and rooms drive its keys.</summary>
     private static string SnapshotLine(ShowSnapshot s) => "SNAPSHOT " + Encoding.UTF8.GetString(SnapshotJson.Serialize(s, detail: true));
 
+    /// <summary>
+    /// The detail frame as an answer serves it while the host's served rule holds (<see cref="IShowControl.ServedStuck"/>): marked
+    /// <c>"stuck":true</c> at its end with its room verdict the stuck one (<see cref="SnapshotJson.Stuck"/>), as <c>GET /api/state</c>
+    /// serves it, so a module that subscribes or asks during a stall never draws its time as current.
+    /// </summary>
+    private static string StuckSnapshotLine(ShowSnapshot s) => "SNAPSHOT " + Encoding.UTF8.GetString(SnapshotJson.Stuck(s, FrameAccess.Operator));
+
     private string ConfigLine(int version)
     {
         if (_configLine is { } cached && cached.Version == version) return cached.Line;
@@ -379,6 +386,8 @@ public sealed class CompanionServer : IAsyncDisposable
         /// The newest frame, as an answer: read and queued under the frames' lock, so no push lands between the two. A JSON subscriber
         /// whose config moved gets that CONFIG first even when it asked for the frame alone: the answer moves <see cref="_seqSent"/> past
         /// the push that would have carried it, so a frame is never queued to a subscriber without the config it was published with.
+        /// The answer is served by the rule every door a reader asks serves by, read before the frame as <c>GET /api/state</c> reads it:
+        /// while it holds, the frame marked stuck (<see cref="StuckSnapshotLine"/>), the subscribe answer's too.
         /// </summary>
         private void SendJson(bool includeConfig, bool subscribe = false)
         {
@@ -390,13 +399,14 @@ public sealed class CompanionServer : IAsyncDisposable
                     JsonMode = true;
                     TellAccess();
                 }
+                var stuck = _server._bridge.ServedStuck;
                 var snap = _server._bridge.Snapshots.Latest;
                 if (includeConfig || (JsonMode && Subscribed && _configVersionSent != snap.ConfigVersion))
                 {
                     _configVersionSent = snap.ConfigVersion;
                     Enqueue(_server.ConfigLine(snap.ConfigVersion));
                 }
-                Enqueue(SnapshotLine(snap));
+                Enqueue(stuck ? StuckSnapshotLine(snap) : SnapshotLine(snap));
                 _seqSent = Math.Max(_seqSent, snap.Seq.Value);
             }
         }
@@ -541,8 +551,8 @@ public sealed class CompanionServer : IAsyncDisposable
                     lock (_frames) Subscribed = false;
                     break;
                 case "PING":
-                    // The link answering isn't proof the show is: if the show thread has stopped turning over, say so,
-                    // so keys don't keep showing a frozen time as if it were live.
+                    // The link answering isn't proof the show is: while no time from the show thread can be served as current
+                    // (stalled past the hub's bound, or resuming from it), say so, so keys don't keep showing a frozen time as if it were live.
                     var pong = t.Count >= 2 ? "PONG " + t[1] : "PONG";
                     // Show Bus §5: "PING <unix ms>" also gets our receive and send times, for the clock offset.
                     if (t.Count >= 2 && long.TryParse(t[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var t1) && t1 > 1_000_000_000_000)

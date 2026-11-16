@@ -93,7 +93,7 @@ using Stagewatch.Show;
 // of each node configured (a --playout link's peer, the node a node key is bound to) or seen, and of its own links and windows. A
 // configured node gone is red, one only seen amber. GET /api/preflight serves it (read scope, no query), never stale and never
 // from a stalled show thread (then not ready, stuck); operator frames end with network (ready, red, amber, stuck) after desk, the
-// stuck verdict in place of one judged more than 3 s before the frame was built; MCP has get_preflight. A change of the verdict is
+// stuck verdict in place of one judged more than 4 s (PreflightWire.MaxAge) before the frame was built; MCP has get_preflight. A change of the verdict is
 // a log line.
 // A message that asks for its acknowledgement (message <text> <urgency> <flash> ack) is the app's: a speaker signal on the
 // app's own board (SignalBoard, ids counting from 1), its receipt's refs.messageId naming it, frames carrying messageId,
@@ -1236,9 +1236,9 @@ sealed class Rig : ICompanionBridge, IDisposable
     }
 
     /// <summary>Owner thread, 4 Hz and after every command: the frame (published only when something visible changed) and,
-    /// once a second and on the first tick after a stall, the context. Alive is marked before the frame is published, so a link the frame wakes never reads
+    /// at a tick that finds the last build a second old on the hub's clock and on the first tick after a stall, the context
+    /// (<see cref="ServedContext.Due"/>). Alive is marked before the frame is published, so a link the frame wakes never reads
     /// the show as stuck.</summary>
-    private int _tick;
     // Whether the item in hand has started in this load (owner thread): its cues GO once, the first time its timer counts.
     private bool _cuesStarted;
     private void Tick()
@@ -1258,7 +1258,7 @@ sealed class Rig : ICompanionBridge, IDisposable
         var frame = Frame();
         JournalEdges(frame);
         Snapshots.Publish(frame);
-        if (++_tick % 4 == 0 || _context.Due)
+        if (_context.Due)
         {
             _context.Publish(Context());
             // Once a second, as the app: approved lines no app collected or answered become undelivered.

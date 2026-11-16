@@ -2239,6 +2239,7 @@ it did and left in its own words, as written when it landed.
 | SW24.1 | 61e300e | The context by §6 P1–P8 (`ShowContext`, `ScreenWindows`, `PlayoutLink.PeerNode`, `PlayoutProof.Use`): each playout link a `link` item with one row to `@<node id>`, its node said proved or not; each link accepted on `/ws` a `link:ws:<id>` item with its row, the rest in `link:unproved`; `clock:<node id>`; `timer -feeds->` only a timer page; `serves` rows to grant holders; the `vt` item fed by its node; P5 over the schedule and `vt`; P6 kinds; P7 order; P8 words; `ShowBusSpecTests` holding each rule kept; lane rows S1.5, S1c.3, S4.3, S4.4 read the new shapes | no lane row proves Patterns draws the rows (Round 99's feed is not pinned); a withdrawn grant's grey `serves`; `/layout` counted as no timer page; `follows` for every accepted link |
 | SW24.1p | bc41663 | The lane at Patterns' Round 99 (52e176b, closed): S9.1 one card per app on Patterns' Eye (each rig drawn once, by the id its link proved, one edge whose source is `link` and whose record is the link's own, no deck); S9.2 Patterns reads the rig's 2.24 rows (each `@` end placed on one edge, no cut edge, the level-0 `link:ws:` items lighting no app green; the counting of ends it draws no card for compared at 0 = 0); S5.4 the window chain as far as the pins give it (the thing and its withdrawal); S6.2b held tighter with the stuck rig on Patterns' Eye and on the rig's own context; every existing row held unchanged. The one defect of Stagewatch's own the lane proved, mended: a stuck show's context was served stale, and every door now serves its stuck form (`ServedContext`, desk and rig), with a check on injected time | S9.2's counting half unexercised (no rig row names a node Patterns draws no card for); S5.4's `serves` edge (no row for a held grant on this bench) and Patterns' screen-to-window edge (its OPEN L107); AGMessage's displays on Patterns' Eye (Round 100 and AGMessage's unit) |
 | SW24.1q | this commit (`git log --grep SW24.1q`; its hash goes in the next papers commit) | The review of SW24.1p's mend, read by two adversarial readers after it landed, and the unit's own review: one rule for every door a reader asks (`ServedContext.Stuck`, `IShowControl.ServedStuck`: the hub's frame stale — stuck, or turned over since a stall and not yet published, `SnapshotHub.Resuming` — the context resuming until a build from a frame made after the stall, or the build older than `PreflightWire.MaxAge`, 3 s, on the hub's clock), read by `GET /api/context`, `get_context`, `GET /api/state`, `get_state`, `get_running_order`, the preflight's stuck answer and Companion's `STUCK` pong; `/ws` by the hub's `FrameStale`; so no context or frame from before a stall is served live after it, and the first turn after a stall builds at once (`MarkAlive`, `Due`); the stuck headline carries no schedule offset; `GET /api/state` marks a stuck show's frame `"stuck":true` at its end with the stuck verdict, and MCP's `get_state` and `get_running_order` answer the stuck words (MCP's instructions say so; the endpoint's `stuck` is required); the desk and the rig turn and serve through the one helper; the fences on injected time, in e2e and in S6.2b; the served pair's cost measured | The stuck form's other items as at its `at` (P5 asks no more); Companion's `SNAPSHOT` keeps its own stuck word (the pong's `STUCK`); `/ws` turns at a stall's start by the hub's flag, up to 750 ms after the asked doors; the preflight ages on its own clock, the context on the hub's; the desk's door held by the unit check's source fence, its walk-through the maintainer's PC work |
+| SW24.1r | this commit (`git log --grep SW24.1r`; its hash goes in the next papers commit) | The review of SW24.1q's fold-in, read by two adversarial readers after it landed: the context and the preflight built by time on the hub's clock (`ServedContext.Due`: a turn that finds the last build `PreflightWire.BuildEvery`, 1 s, old), served live while no older than `PreflightWire.MaxAge` = the hub's 3 s bound plus that 1 s (4 s), so a slow but live show thread is never served stuck and every asked door turns at a stall's start with the hub; Companion's answered `SNAPSHOT` (the subscribe answer's too) marked stuck by the one rule, and the module drawing no frame while stuck, asking `SNAPSHOT` at the first pong without `STUCK` and keeping `ACCESS` across a stuck; the lows (flags read before the pair, the context's resuming mark from the hub's own verdict, the stuck words); the fences on injected time, at the Companion door and on `/ws`, and the desk's due line held whole; the unit's own review folded in (the desk keeps building before its frame, so no frame of its carries a pre-stall verdict as current; the context's stuck words; the papers' `/ws` timing) | The rig's frame at the turn that ends a 3 to 4 s stall carries the verdict judged before it (open, below); the preflight's stuck words (decision 16's); the preflight's clock beside the hub's; the module's package version moves with the app on the PC; the desk's walk-through the maintainer's; the flag-before-pair order held by reading, not a check |
 
 The release's papers (SW24.2) are this section, REMOTE.md's 2.24 section, FEATURES.md's 2.24 entry, and the sentences of NODES.md,
 README.md and ECOSYSTEM.md that had gone stale; they change no code. Between 2.23's head and SW24.1, one commit of the plan
@@ -2563,6 +2564,116 @@ crafted master licence file rejected, and an owner-only file and its backup writ
     asked doors (they also age the context); the preflight's age on its own clock, the context's on the hub's (one clock is the
     preflight's own unit); the desk's own door held by the source fence and the shared helper, its walk-through the maintainer's PC
     work, not run.
+- **The review of SW24.1q's fold-in (SW24.1r).** Two adversarial readers read ec28135 after it landed (one looking for a door that
+  says stuck while the show runs, the other for a door that still shows a confident stale time); neither ran anything, and each
+  step below was read again in the code before it moved. What they found sound stays: no door latches stuck on a healthy desk or
+  rig; both resuming marks end within a turn or two; the clock is monotonic; the readers ask off the show thread; and for a real
+  stall no asked door serves a pre-stall frame or context as current. What moved:
+  - **A slow but live show thread was served stuck (medium, both readers; a regression for `GET /api/state`, MCP and the Companion
+    pong).** The context was built at every fourth 250 ms turn while its age bound counted 3 s of time, so the asked doors turned
+    stuck after 2.25 to 3 s of silence, by where a hiccup fell in the build cycle, and whenever turns ran 750 ms or more apart,
+    while the hub and `/ws` said live; one such pong blanked a deck for a 2 s ping interval. The stall is the hub's to call
+    (`FrameStale` and the resuming marks cover its start and end); the age term is for a build that stops while the thread turns
+    over. Now the build is due by time on the hub's clock (`ServedContext.Due`: resuming, no build yet, or the last one
+    `PreflightWire.BuildEvery` old), the desk's `RefreshShowBus` and the rig's `Tick` building on it alone (no count of turns), and
+    the age bound is `PreflightWire.MaxAge` = `SnapshotHub.StuckAfter` + `BuildEvery` = 4 s, for the context and the preflight alike
+    (its verdict is judged in the same turn). The invariant, in `ServedContext`'s summary: a door says stuck only when the show
+    thread has been silent past the hub's bound, is resuming from that, or has turned over without building for the bound — and then
+    every asked door says it together. A live thread turns within 3 s and builds at a turn that finds its last build 1 s old, so
+    a build is never older than its last gap plus 1 s: the age term fires only where a build was missed for longer than the hub's
+    bound allows a live thread. **The cadence and its cost:** 1 s is the desk's and the rig's existing judging cadence (the network
+    rows, the preflight, the hello line, the desk's expiry, each once a second), kept as it was, now by time; at 250 ms turns a build
+    lands at every fourth or fifth turn. `ServedContext.Publish` at §14's caps measures a median of 0.79 ms (p95 0.95 ms, 40 runs on
+    this shared 4-core bench; one `ShowContext.Build` 0.39 ms), under 0.1 % of the show thread's second; building on every turn
+    would cost four times that for no reader's gain, so the cadence stays once a second. `NODES.md` names both numbers
+    (`show.build.ms`, `served.age.ms`), held by `NodesDocTests`.
+  - **Companion's `SNAPSHOT` on connect during a stall (medium).** A module that subscribed or redialled during a stall was sent the
+    frozen frame as a live `SNAPSHOT` and drew its pre-stall time for up to a ping interval: the pong did not cover this path. Now
+    every `SNAPSHOT` Companion *answers* (the subscribe answer, and one asked by `SNAPSHOT`, `STATE` or `CONFIG`) is served by the
+    one rule, read before the frame as `GET /api/state` reads it: the frame marked `"stuck":true` at its end with the stuck verdict
+    (`SnapshotJson.Stuck`). A pushed frame carries no mark (the show thread published it, so it turned over). The module draws no
+    frame marked stuck and no frame at all while stuck (a marked frame or a `PONG … STUCK`); the first `PONG` without `STUCK` ends
+    it, and it then asks `SNAPSHOT` and draws the answer — so no surface draws a time before it has heard the show turning over. The
+    lane's Companion driver (`tests/interop/lib/companion.cjs`) reads the mark and asks as the module does; COMPANION.md, the
+    module's HELP and BUILD.md's driver note say so. The module's package moves to 2.24.0 with the app on the PC (COMPANION.md).
+  - **The lows.** `ServedContext.Json` and `Stuck` read the flags before the pair, so a pair read after a cleared flag is at least the
+    build that cleared it (held by reading: the window is one pre-emption wide, and no deterministic check is written for it).
+    `SnapshotHub.MarkAlive` returns whether it ended a stall, and the context's resuming mark is taken from that verdict, never a
+    second read of the clock (the hub's `Resuming` covers readers until the mark is written, both before the turn's publish). The
+    desk's turn order is kept: it builds before its frame. The task asked for the rig's order (the frame first) on the desk's turn
+    after a stall if that held for every other reader of the turn; the unit's own review found it did not: the early frame carried
+    the verdict (`Network`), the windows and the desk's word from the last build before the stall, and once its publish cleared the
+    hub's `Resuming` it went to `/ws` and to Companion's subscribers as live, and the asked doors served it live once the build
+    cleared the context's mark, until the turn's own publish a few milliseconds later. So the desk keeps the one-turn tail: the build
+    of the turn that ends a stall reads the frame from before it and leaves the context resuming, so every asked door says stuck one
+    turn (250 ms) longer, and every frame the desk publishes carries a verdict judged in its own turn. After a `STUCK` the module
+    keeps what `ACCESS` said (the link stands; it forgets it only when the link drops or is refused), since Stagewatch says it again
+    only when it changes. The words now say only what the rule observes: MCP's `StuckText` ("no time from Stagewatch's show thread can
+    be served as current — it has stalled, or is resuming from a stall and has not yet caught up"), its tool descriptions and
+    instructions, the module's status and log, its HELP, REMOTE.md and COMPANION.md, and the context's counting items
+    (`ShowContext.StuckWords`: "the show thread has stalled or not yet caught up — no time shown", in place of "the show thread has
+    stopped turning over — no time shown", which the resuming window and a build missed while the thread turns over did not fit;
+    the e2e stall test and the lane's `RIG_STUCK_WORDS` follow, matched whole as before).
+  - **The fences.** `ShowBusSpecTests.SlowThreadKept`, on injected time, in the rig's turn order and the desk's, every asked door read
+    every 10 to 50 ms (the served rule, the context it serves, the preflight's answer, all agreeing): turns 800 ms apart for twelve
+    seconds, none stuck; on 250 ms turns a 2.9 s gap begun 0 to 3 turns past a build and late by each 50 ms within a turn (the build
+    0 to 950 ms old at the gap), none stuck; a 3.1 s gap, every door live to the hub's bound and every door stuck together, by the
+    hub, from the read past it, and live again at the next turn (the rig) or the one after (the desk, every door still stuck together
+    in the tail); a 3.5 s gap the same; and in the desk's order the frame published at the turn that ends a 3.1 s or 3.5 s stall
+    carries a verdict judged in that turn (`PreflightWire.Carried` at the frame's time), never the one from before the stall.
+    `CompanionV2Tests.StuckDoors` on a real server: a slow but live
+    thread's pongs (turns 800 ms apart, the context by `ServedContext` on the hub's clock) never `STUCK`; the pong `STUCK` by the
+    host's rule with the hub fresh; a module subscribing during a stall answered the marked frame with the stuck verdict, and an asked
+    `SNAPSHOT` too; once the show turns over and builds, live. `WebV2Tests`: a `/ws` screen connecting in the resuming window (alive
+    past the bound, no publish) gets `live:false` and no time. `StuckServedKept` now holds the desk's and the rig's due lines whole
+    (`if (!_context.Due) return;`, `if (_context.Due)`, `_context.Due` once in each and no count of turns), and the desk's build
+    before any frame of its turn (no `Publish()` between the top of `RefreshShowBus` and its build); its words of the desk's order
+    (build, then frame, live from the next turn's build) are the desk's again.
+    The module's tests: a marked frame never drawn, nor a push while stuck, the newest asked and drawn after the pong; `ACCESS` kept
+    across a stuck (main.ts's source, as no Companion host runs here). `NetworkPreflightTests` and the preflight route's edge follow
+    the bound (4 s). **Mutation proof**, each a build and the whole unit suite with the tree restored after: `Due` with no time term
+    — `SlowThreadKept` (800 ms turns) and the Companion slow-thread leg fail; `MaxAge` back to 3 s — `SlowThreadKept` (a 2.9 s gap),
+    `StuckServedKept` and both preflight bound checks fail; the pong on the hub's `ProducerStuck` — the Companion rule leg fails;
+    `/ws` on `ProducerStuck` — the `/ws` resuming leg fails; the desk's line back to `++_contextTick % 4 != 0 && !_context.Due` —
+    `StuckServedKept`'s source fence fails; the answered `SNAPSHOT` unmarked — both Companion stall legs fail; `MarkAlive` ignoring
+    the hub's verdict — `StuckServedKept` fails. In the committing stage: the early publish put back in the desk's `RefreshShowBus`
+    — `StuckServedKept`'s source fence fails; the same order in `SlowThreadKept`'s model of the desk's turn — its frame-verdict leg
+    fails (a 3.1 s gap: the frame carries the verdict judged before the stall). In the
+    module (`npm test`, the tree restored after): drawing a frame while stuck, and not asking `SNAPSHOT` after the pong, each fail the
+    marked-frame test; `ACCESS` forgotten on a stuck fails the `ACCESS` test.
+  - **The runs.** The implementer's runs on this tree: `tools/test.sh build`, the unit suite (6253 passed, 0 failed; one earlier run, just after the lane on a loaded bench, failed `playout busy` once, a `PlayoutLink` timing check this unit does not touch, and passed on the rerun beside it), the module (46 of 46), e2e 94 of 94 (the stall test whole), and `tools/test.sh interop` at the same pins (Patterns 52e176b, Mapper 2ae7ac7b, AGMessage d0e3961) with every topology whole and no row weakened: LAN 44 of 44, the laptop 5 of 5, offline 3 of 3, the self-check 75 of 75. In it S6.2b's rig said stuck 3.7 s after its stall, its 37 context reads in 2 s from the turn-over none from before the stall (the first built in the turn-over's own millisecond), Patterns' time back 2.0 s after it and its Eye 2.1 s; S8.3's verdict stuck 2.8 s after the rig's stall time and the Companion driver's `network_ready` unknown at 2.8 s and yes again 0.1 s after the turn-over, read from the frame it asked for after the first pong without `STUCK`. The committing stage, after the fold-in of the unit's own review, ran the whole validate once (`tools/test.sh build unit module e2e interop`, TMPDIR under artifacts, removed after) and it was green first time: the unit suite 6253 passed and 0 failed, the module 46 of 46, e2e 94 of 94 (the stall test whole, with the context's new stuck words), the lane's self-check 75 of 75 and, at the same pins, LAN 44 of 44 (S6.2b and S8.3 among them, with the lane's `RIG_STUCK_WORDS` moved with the words), the laptop 5 of 5 and offline 3 of 3; no check failed and none was rerun.
+  - **The unit's own review, folded in.** A second reader read the implementation before the commit. It found the cadence, the
+    `MarkAlive` order, the flag-before-pair reads, Companion's marked answers, the module and the lane driver sound, and one medium:
+    the desk's early publish (above) together with the bound widened from 3 s to 4 s served a frame carrying the products of the
+    pre-stall build live. Answered on the desk by keeping its order; on the rig, open (below). Its lows: the context's stuck words
+    (moved, above); the preflight's (left, below); the papers said every door turns together at a stall's start, but `/ws` says
+    `live:false` at its next beat, up to `ws.beat.ms` (2 s) after the asked doors (REMOTE.md and NODES.md now say so; `/ws` sends no
+    frame from the hub's bound); the preflight's clock (below); `StuckServedKept`'s words of the desk's order, true again.
+  - **What it left.** **The rig's frame at the turn that ends a 3 to 4 s stall (open, medium).** The rig's `Tick` publishes its frame
+    before its context build (the build reads that frame: `Context()` takes `Snapshots.Latest`), so the frame of the turn that ends a
+    stall carries `_preflight?.VerdictAt(now)` from the last build before the stall, and `_windowViews` and `_desk.Said` with it. Under
+    the 3 s bound any stall past the hub's bound aged that verdict past it, and `PreflightWire.Carried` gave the stuck verdict; under
+    4 s, a stall whose last build was 3.0 to 4.0 s old at the turn-over carries the pre-stall verdict (`ready:true`, say) as current,
+    and once the build in that tick clears the context's mark `GET /api/state`, `/ws` and a Companion deck that never heard `STUCK`
+    serve or draw it until the rig's next frame (a tick, 250 ms, when the verdict is unchanged in value a frame that says the same).
+    (Windows and the desk's word from before the stall rode the rig's turn-over frame before this unit too.) The design to build: a
+    frame made while the hub is `Resuming` carries no verdict judged before the stall — `PreflightWire.Carried` given the hub's
+    `Resuming` (or the stall's end) and answering `StuckVerdict` for a verdict judged before it, read by the rig's `Frame()` and the
+    desk's `BuildSnapshot` alike — with `SlowThreadKept`'s frame-verdict leg held in the rig's order too. It is a new term of a
+    served rule, so it is not built in this fold-in. **The preflight's stuck words** ("Stagewatch's show thread is stuck — no verdict
+    until it turns over") are decision 16's, quoted in `docs/ecosystem/ecosystem-lane.md` and held by `NetworkPreflightTests`, the
+    preflight route's test and `tests/e2e/preflight.e2e.cjs`; they are left as they are, and in the resuming window (a turn or two)
+    and for a build missed while the thread turns over they say more than the rule observes; moving them is a words unit beside the
+    plan's text. **The preflight's clock:** its served age and a frame's `Carried` age read the wall clock (`DateTimeOffset.UtcNow`),
+    the hub's silence and the context's age `Environment.TickCount64` (about 15.6 ms steps on Windows), so near the bound the two can
+    disagree by the clocks' granularity: a gap just under the hub's 3 s after a turn that found its build just under 1 s old can age
+    the verdict past 4000 ms on the wall clock by a few tens of ms, and `GET /api/preflight`, `get_preflight` and a frame's `network`
+    then say stuck while `ServedStuck` says live; for the preflight's doors the slow-thread invariant holds to that granularity, not
+    exactly (`SlowThreadKept` drives both on one injected clock and cannot see it). The design to build: stamp the preflight's build
+    on the hub's clock beside the context pair and serve its stuck answer from `ServedStuck` plus that age. The module's package version (2.16.0 in the tree) moves with the app on the PC, and Companion itself showing the
+    warning is the maintainer's to see; a module older than 2.24 draws an answered marked frame as it drew any frame, until its next
+    pong says `STUCK`. The flag-before-pair order is held by reading, not by a check. The desk's turn order is held by the source fence and the unit check's
+    model of it; its walk-through is the maintainer's PC work, not run. The contract (`docs/SHOWBUS.md`) is not edited.
 - **The 2.24 papers (SW24.2).** REMOTE.md's 2.24 section (each item and row, and what a reader may rely on), NODES.md §4's context
   and node links and §6–§7's level-0 items, FEATURES.md's 2.24 entry, README.md's index and release line, ECOSYSTEM.md's roadmap
   and lane lines, and this section; no code. The version stays 2.16.0 in the tree, as `release.ps1` moves it on the PC.

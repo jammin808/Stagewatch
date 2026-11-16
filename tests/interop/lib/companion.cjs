@@ -1,11 +1,13 @@
 // The rig's Companion door (TCP, CompanionServer) as the Companion module holds it, from the switch over the LAN: its first
 // line is READY, `SUBSCRIBE JSON` turns the stream into SNAPSHOT frames (the operator's frame, whole: Companion is a trusted
-// caller) with CONFIG beside them, and `PING <token>` is answered `PONG <token>`, with STUCK after it while the rig's show thread
-// has stopped turning over. What the module's key shows for 'ready for doors' is read by the module's own rule (networkReady in
-// companion-module/src/state.ts): unknown with no frame, and from a frame with no verdict or with the stuck verdict; else yes or
-// no from the frame's network.ready. As the module does (main.ts, its connection set down on STUCK), a pong that says STUCK and a
-// closed connection throw the frame away, so yes or no after a stall is read only from a frame the rig sent after it. What the
-// connection hears is kept for the sweep (row S7.1) through `capture`, as heard.
+// caller) with CONFIG beside them, and `PING <token>` is answered `PONG <token>`, with STUCK after it while no time from the rig's
+// show thread can be served as current (stalled, or resuming from a stall); an answered SNAPSHOT (the subscribe answer's too) is
+// marked "stuck":true at its end by the same rule. What the module's key shows for 'ready for doors' is read by the module's own rule
+// (networkReady in companion-module/src/state.ts): unknown with no frame, and from a frame with no verdict or with the stuck verdict;
+// else yes or no from the frame's network.ready. As the module does (connection.ts and main.ts), a frame marked stuck, a pong that
+// says STUCK and a closed connection throw the frame away, no frame is kept while stuck, and the first pong without STUCK asks for
+// the newest frame, so yes or no after a stall is read only from a frame the rig sent after it. What the connection hears is kept
+// for the sweep (row S7.1) through `capture`, as heard.
 'use strict';
 const fs = require('node:fs');
 const net = require('node:net');
@@ -37,7 +39,8 @@ class CompanionDeck {
           const said = JSON.stringify(frame && frame.network);
           if (d.capture !== null && said !== d.lastSaid) fs.writeSync(d.capture, line + '\n');
           d.lastSaid = said;
-          d.snapshot = frame;
+          if (frame && frame.stuck === true) d.stuck = true;
+          d.snapshot = d.stuck ? null : frame;
           d.lines.push({ at: Date.now(), line: 'SNAPSHOT' });
           continue;
         }
@@ -71,8 +74,15 @@ class CompanionDeck {
     const from = this.lines.items.length;
     this.say(`PING ${token}`);
     const pong = await this.lines.wait((l) => l.line.startsWith(`PONG ${token}`), ms, `the rig's PONG at ${this.where}`, from);
+    const was = this.stuck;
     this.stuck = /\bSTUCK\b/.test(pong.line.slice(`PONG ${token}`.length));
     if (this.stuck) this.snapshot = null;
+    else if (was) {
+      // As the module does: the first pong without STUCK asks for the newest frame, and nothing is read until it comes.
+      const asked = this.lines.items.length;
+      this.say('SNAPSHOT');
+      await this.lines.wait((l) => l.line === 'SNAPSHOT', ms, `the rig's newest SNAPSHOT at ${this.where}`, asked);
+    }
     return this.stuck ? 'STUCK' : '';
   }
 

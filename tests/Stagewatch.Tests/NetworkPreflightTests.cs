@@ -75,9 +75,10 @@ static class NetworkPreflightTests
             $"preflight: every node live with a fresh verified context, every link and window green — ready for doors, a green row per check ({Said(ready)})");
         Check(ready.Verdict == new NetworkVerdict(true, 0, 0, false) && IdsOnce(ready),
             "preflight: the verdict as judged is ready, the counts, and never stuck (stuck is the doors' answer); every row has an id of its own");
-        Check(ready.VerdictAt(ready.AtMs + 2900) == ready.Verdict && ready.VerdictAt(ready.AtMs + 3100) == new NetworkVerdict(false, 1, 0, true)
-              && gone13().VerdictAt(gone13().AtMs + 3100) is { Ready: false, Stuck: true, Red: 1 } && PreflightWire.Carried(null, 0, 10_000) is null,
-            "preflight: a frame carries the verdict while it is at most 3 s old, then the stuck one — never the last verdict as if it stood; a host with none carries none");
+        var maxAge = (long)PreflightWire.MaxAge.TotalMilliseconds;   // the hub's 3 s bound plus the 1 s build period
+        Check(maxAge == 4000 && ready.VerdictAt(ready.AtMs + maxAge) == ready.Verdict && ready.VerdictAt(ready.AtMs + maxAge + 1) == new NetworkVerdict(false, 1, 0, true)
+              && gone13().VerdictAt(gone13().AtMs + maxAge + 100) is { Ready: false, Stuck: true, Red: 1 } && PreflightWire.Carried(null, 0, 10_000) is null,
+            "preflight: a frame carries the verdict while it is at most 4 s old (the hub's bound plus one build period), then the stuck one — never the last verdict as if it stood; a host with none carries none");
         static PreflightResult gone13() => Run(T0, View(T0, [Hello("playmap", PlayMap, "Stage left", 13)]), [Link]);
 
         // ---- a configured node: stale is amber, gone is red, never heard is red
@@ -251,9 +252,9 @@ static class NetworkPreflightTests
         }
         var built = ready.ToJson();
         var nowMs = ready.AtMs;
-        Check(PreflightWire.At(built) == nowMs && PreflightWire.Served(built, false, nowMs + 2900) == built && PreflightWire.Served(null, true, nowMs) is null,
-            "preflight served: a verdict 2.9 s old is served as it is; a host with none is answered none, stuck or not");
-        foreach (var (name, json) in new[] { ("the show thread stuck", PreflightWire.Served(built, true, nowMs + 100)), ("a verdict 3.1 s old", PreflightWire.Served(built, false, nowMs + 3100)),
+        Check(PreflightWire.At(built) == nowMs && PreflightWire.Served(built, false, nowMs + 3900) == built && PreflightWire.Served(null, true, nowMs) is null,
+            "preflight served: a verdict 3.9 s old is served as it is; a host with none is answered none, stuck or not");
+        foreach (var (name, json) in new[] { ("the show thread stuck", PreflightWire.Served(built, true, nowMs + 100)), ("a verdict 4.1 s old", PreflightWire.Served(built, false, nowMs + 4100)),
                      ("a verdict that tells no time", PreflightWire.Served("{\"ready\":true}", false, nowMs)) })
         {
             using var doc = JsonDocument.Parse(json!);

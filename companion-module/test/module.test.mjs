@@ -449,6 +449,67 @@ test('a connected but stuck Stagewatch is reported, and recovery too', async () 
 	await srv.close()
 })
 
+test('2.24 a frame marked stuck is never drawn: a deck that subscribes during a stall shows no time until a PONG says the show turns over, then asks for the newest frame', async () => {
+	// Stagewatch serves its subscribe answer and every asked SNAPSHOT by its one stuck rule (the frame marked "stuck":true at its end);
+	// its pushes carry no mark. While stuck the module draws no frame at all; the first PONG without STUCK asks SNAPSHOT and draws that.
+	const stuck = { on: true }
+	const asked = []
+	let sock = null
+	const srv = await fakeServer((s) => {
+		sock = s
+		s.setEncoding('utf8')
+		s.write('READY stagewatch/2\n')
+		let buf = ''
+		s.on('data', (d) => {
+			buf += d
+			let i
+			while ((i = buf.indexOf('\n')) >= 0) {
+				const line = buf.slice(0, i)
+				buf = buf.slice(i + 1)
+				const frame = (text) => `SNAPSHOT ${JSON.stringify(stuck.on ? { ...snap({ text }), stuck: true } : snap({ text }))}\n`
+				if (line === 'SUBSCRIBE JSON') s.write(frame('05:00'))
+				else if (line === 'SNAPSHOT') { asked.push(line); s.write(frame('04:58')) }
+				else if (line.startsWith('PING')) s.write(line.replace('PING', 'PONG') + (stuck.on ? ' STUCK' : '') + '\n')
+			}
+		})
+	})
+	const c = new StagewatchConnection('127.0.0.1', srv.port, FAST)
+	const drawn = []
+	const statuses = []
+	c.on('snapshot', (f) => drawn.push(f.text))
+	c.on('status', (st) => statuses.push(st.kind))
+	try {
+		c.start()
+		await until(() => statuses.includes('stuck'), 'the marked subscribe answer read as stuck')
+		assert.equal(c.isReady, true, 'the link is up')
+		assert.ok(!statuses.includes('connected'), `never said connected on a marked frame (${statuses.join(',')})`)
+		// A push (unmarked) while stuck is not drawn either: only a PONG without STUCK ends it.
+		sock.write(`SNAPSHOT ${JSON.stringify(snap({ text: '04:59' }))}\n`)
+		await new Promise((r) => setTimeout(r, 250))
+		assert.deepEqual(drawn, [], 'no frame drawn while stuck')
+		stuck.on = false
+		await until(() => drawn.length > 0, 'the newest frame drawn after the stall')
+		assert.deepEqual(drawn, ['04:58'], 'the frame drawn is the answer to the SNAPSHOT asked after the PONG')
+		assert.equal(asked.length, 1, 'the module asked once')
+		assert.equal(statuses.at(-1), 'connected')
+	} finally {
+		c.destroy()
+		await srv.close()
+	}
+})
+
+test('2.24 a stuck Stagewatch keeps the ACCESS it said: the link stands, and Stagewatch says ACCESS only when it changes (main.ts)', async () => {
+	const { readFileSync } = await import('node:fs')
+	const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
+	const stuckCase = /case 'stuck':[\s\S]*?break/.exec(main)?.[0] ?? ''
+	assert.match(stuckCase, /this\.#setConnected\(false, true\)/, 'the stuck status keeps the link standing')
+	assert.match(main, /if \(!linkStands\) this\.access = null/, 'access is forgotten only when the link does not stand')
+	for (const kind of ['disconnected', 'denied']) {
+		const c = new RegExp(`case '${kind}':[\\s\\S]*?break`).exec(main)?.[0] ?? ''
+		assert.match(c, /this\.#setConnected\(false\)/, `${kind} forgets what Stagewatch said`)
+	}
+})
+
 test('2.8 extra timer variables and rechecks', async () => {
 	const st = await import('../dist/state.js')
 	const cfg = { presets: [], messages: [], rundown: [] }

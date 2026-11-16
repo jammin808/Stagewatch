@@ -31,8 +31,19 @@ public static class PreflightWire
     /// <summary>The most rows a preflight lists, reds first.</summary>
     public const int MaxRows = 200;
 
-    /// <summary>How old a built verdict may be and still be served as the verdict.</summary>
-    public static readonly TimeSpan MaxAge = TimeSpan.FromSeconds(3);
+    /// <summary>
+    /// How often a host whose show thread turns over judges the room and builds its context: at a turn that finds the last build this
+    /// old on its show thread's clock (the desk's and the rig's once a second; a context pair's build costs about 1 ms of the 250 ms turn).
+    /// </summary>
+    public static readonly TimeSpan BuildEvery = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// How old a built verdict (or context) may be and still be served as the verdict: the hub's silence bound
+    /// (<see cref="SnapshotHub.StuckAfter"/>) plus <see cref="BuildEvery"/>. A live show thread turns over within the hub's bound and builds
+    /// at a turn that finds its last build <see cref="BuildEvery"/> old, so its build is never older than this; an older one is a build
+    /// missed while the thread turned over, which a slow but live thread never makes.
+    /// </summary>
+    public static readonly TimeSpan MaxAge = SnapshotHub.StuckAfter + BuildEvery;
 
     public const string StuckId = "stagewatch:show-thread";
     public const string StuckCheck = "stagewatch";

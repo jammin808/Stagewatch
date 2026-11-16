@@ -519,8 +519,11 @@ public static class ShowContext
     /// </summary>
     private static PlayoutView? VtShown(ShowSnapshot f) => f.Playout is { } vt && f.Elements.HasFlag(DisplayElements.Playout) ? vt : null;
 
-    /// <summary>What a counting item says while the show thread is stuck (§6 P5), in place of a time.</summary>
-    public const string StuckWords = "the show thread has stopped turning over — no time shown";
+    /// <summary>
+    /// What a counting item says while its context is served stuck (§6 P5), in place of a time: the show thread silent past the hub's
+    /// bound, resuming from that, or turned over without building for the bound — no time from it can be served as current.
+    /// </summary>
+    public const string StuckWords = "the show thread has stalled or not yet caught up — no time shown";
 
     /// <summary>
     /// An answer's own words after the signal's (" (Done by Patterns FOH (127.0.0.1))"): the parenthesis that closes the line, read back to

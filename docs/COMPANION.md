@@ -65,7 +65,16 @@ On connect the server sends `READY stagewatch/2`, then either `STATE …` (licen
 | `SUBSCRIBE JSON` | `ACCESS {json}` (2.22: what this address may do with a person's lines), `CONFIG {json}` then `SNAPSHOT {json}` right away; afterwards `SNAPSHOT` on every visible change, `CONFIG` whenever presets, quick messages or the running order change, and `ACCESS` again before the next frame whenever what it says changes |
 | `SNAPSHOT` | one `SNAPSHOT {json}` |
 | `CONFIG` | `CONFIG {json}` + `SNAPSHOT {json}` |
-| `PING [token]` | `PONG [token]`, or `PONG [token] STUCK` when Stagewatch answers but its show has stopped updating (the module then shows a warning and greys the keys) |
+| `PING [token]` | `PONG [token]`, or `PONG [token] STUCK` when Stagewatch answers but no time from its show thread can be served as current — the show thread has stalled (silent 3 s), or is resuming from that and has not yet caught up (the module then shows a warning and blanks the timer keys) |
+
+**A stuck show on the stream (2.24).** Every `SNAPSHOT` Stagewatch *answers* — the one right after `SUBSCRIBE JSON`, and one asked
+with `SNAPSHOT`, `STATE` or `CONFIG` — is served by the same rule as the pong's `STUCK` (REMOTE.md, "The state doors while stuck"):
+while it holds, the frame ends with `"stuck":true` and its `network` is the stuck answer, as `GET /api/state` serves it, so a deck that
+connects or reconnects during a stall is never handed the frozen time as current. A frame *pushed* on a visible change carries no
+mark: the show thread published it, so it turned over. The module draws no frame marked stuck, and no frame at all while stuck (a
+marked frame or a `PONG … STUCK`); the first `PONG` without `STUCK` ends it, and the module then asks `SNAPSHOT` and draws the
+answer. What Stagewatch said this deck may do (`ACCESS`) holds while the link stands: the module keeps it across a stuck show and
+forgets it only when the link drops or is refused, and Stagewatch says it again only when it changes.
 
 `SNAPSHOT` is the same JSON as the HTTP `/api/state?detail=1` (see [REMOTE.md](REMOTE.md)):
 - `mode`, `state`, `seconds`, `text`, `total`, `phase`, `color`
@@ -177,8 +186,8 @@ the module on every name a link may not take.
 
 **Ready for doors (2.21).** The operator frame Stagewatch sends on `SNAPSHOT` ends with `network` — `ready`, `red`, `amber`,
 `stuck` — the room's one verdict (docs/REMOTE.md, "One preflight"). `$(stagewatch:network_ready)` is `yes` or `no` from a
-frame that carries it, and `unknown` with no verdict: not connected, `PONG … STUCK` (the module drops its frame, as for the
-timer), a Stagewatch that sends no `network`, or the stuck answer. `network_red` and `network_amber` are the counts, empty
+frame that carries it, and `unknown` with no verdict: not connected, `PONG … STUCK` or a frame marked stuck (the module drops its
+frame, as for the timer), a Stagewatch that sends no `network`, or the stuck answer. `network_red` and `network_amber` are the counts, empty
 while unknown; amber never blocks. The feedback *Show network: Not ready for doors* is true at `ready:false` and, unless its
 option is unticked, while there is no verdict, so a key is never left looking ready by a lost link. The *Ready for doors*
 preset is green only from a verdict that says ready, with the count of amber rows under it (green includes rows to look
@@ -246,6 +255,14 @@ key Patterns enrolled, until its operator raises it) is refused before anything 
 `accepted — …` and then its `final`; and `PLAYOUT <link> floor lower` is refused from Companion TCP, whoever sends it, as `PLAYOUT
 <link> trust <hex>` is. The module's tests (`npm test`, the module lane of `tools/test.sh`) are unchanged; Companion itself loading
 2.22's definitions is still the maintainer's to see.
+
+**The module in 2.24.0.** The module's wire reading changed in 2.24 (SW24.1r): it reads the `"stuck":true` mark on a `SNAPSHOT`
+(draws no frame while stuck, and asks `SNAPSHOT` at the first `PONG` without `STUCK`), keeps `ACCESS` across a stuck show, and says
+a stuck Stagewatch as "No current time from Stagewatch — its show thread has stalled or is resuming". Its package moves to 2.24.0
+with the app (`pwsh tools\release.ps1 -Version 2.24.0 -ModuleVersion 2.24.0`, on the maintainer's PC); the tree's
+`companion-module/package.json` still reads 2.16.0 until then. A module older than 2.24 against a 2.24 Stagewatch draws an answered
+frame marked stuck as it drew any frame, until its next pong says `STUCK` (up to 2 s), as before 2.24; its tests (`npm test`, the
+module lane of `tools/test.sh`) run here against fake servers, and Companion itself showing the warning is the maintainer's to see.
 
 Bad input gets `ERROR <reason>` and the connection stays open.
 

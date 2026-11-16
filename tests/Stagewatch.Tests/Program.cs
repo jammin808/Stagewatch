@@ -2193,6 +2193,7 @@ await PeerLinkScenarios.Run(Check);
 await CompanionV2Tests.Run(Check);
 CompanionV2Tests.ModuleLines(Check);
 await CompanionV2Tests.ModuleWindowLines(Check);
+await CompanionV2Tests.StuckDoors(Check);
 await PlayoutGateTests.Run(Check);
 await TriggerAuthTests.Run(Check);
 if (args.Contains("--powerpoint")) await PowerPointLiveTest.Run(Check);
@@ -2245,7 +2246,10 @@ static async Task<List<OscMessage>> ReceiveOsc(UdpClient u)
 sealed class FakeBridge : Stagewatch.Companion.ICompanionBridge
 {
     public bool Allowed { get; set; }
-    public SnapshotHub Snapshots { get; } = new();
+    public SnapshotHub Snapshots { get; init; } = new();
+    /// <summary>The host's served rule (IShowControl.ServedStuck), as a test plays it; null for the hub's own word.</summary>
+    public Func<bool>? Stuck { get; init; }
+    public bool ServedStuck => Stuck?.Invoke() ?? Snapshots.FrameStale;
     public List<ShowCommand> Commands { get; } = new();
     public List<(string, MessageUrgency, FlashRate)> Messages { get; } = new();
     public TimerEngine Engine { get; } = new();

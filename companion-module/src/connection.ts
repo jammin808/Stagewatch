@@ -24,7 +24,10 @@ export type LinkStatus =
 	| { kind: 'connected' }
 	| { kind: 'disconnected'; reason: string }
 	| { kind: 'denied'; reason: string }
-	/** The link is fine but Stagewatch itself has stopped updating (its show thread is stuck). */
+	/**
+	 * The link is fine but no time from Stagewatch's show thread can be served as current (stalled, or resuming from a stall): said by
+	 * `PONG … STUCK` or by a SNAPSHOT marked `"stuck":true`, and ended only by a PONG without STUCK.
+	 */
 	| { kind: 'stuck' }
 
 /**
@@ -293,11 +296,19 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 			case 'SNAPSHOT': {
 				const snap = this.#parse<Snapshot>(rest)
 				if (!snap) return
+				// A frame marked stuck (an answer while Stagewatch serves no time as current, its subscribe answer's too) is never drawn:
+				// the link is up and stuck. Nor is any frame while stuck: the first PONG without STUCK asks for the newest.
+				const marked = (snap as { stuck?: unknown }).stuck === true
 				if (!this.#ready) {
 					this.#ready = true
 					this.#backoffMs = this.#t.minBackoffMs
-					this.emit('status', { kind: 'connected' })
+					if (!marked) this.emit('status', { kind: 'connected' })
 				}
+				if (marked && !this.#stuck) {
+					this.#stuck = true
+					this.emit('status', { kind: 'stuck' })
+				}
+				if (this.#stuck) return
 				this.emit('snapshot', snap)
 				return
 			}
@@ -325,12 +336,14 @@ export class StagewatchConnection extends EventEmitter<ConnectionEvents> {
 				this.emit('protocolError', rest)
 				return
 			case 'PONG': {
-				// "PONG <token> STUCK": Stagewatch answers but its show has stopped turning over.
+				// "PONG <token> STUCK": Stagewatch answers but no time from its show thread can be served as current. A PONG without it
+				// after a stuck one asks for the newest frame, which is drawn when it comes (no frame was drawn while stuck).
 				if (!this.#ready) return
 				const stuck = /\bSTUCK\b/.test(rest)
 				if (stuck !== this.#stuck) {
 					this.#stuck = stuck
 					this.emit('status', stuck ? { kind: 'stuck' } : { kind: 'connected' })
+					if (!stuck) this.#socket?.write('SNAPSHOT\n')
 				}
 				return
 			}

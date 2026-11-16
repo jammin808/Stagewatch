@@ -104,7 +104,7 @@ Stagewatch 2.22 sends each window it controls with the frame — its light, whet
 Stagewatch 2.21 judges the whole room once a second — every show app it was set up with or can hear, its own links and its windows — and says one thing: ready for doors, or not, and why.
 
 - **Variables:** `network_ready` — `yes`, `no` or `unknown`; `network_red` and `network_amber`, how many of its checks are red (each blocks) and amber (to look at, never blocking).
-- **Unknown is never ready.** `network_ready` is `unknown` when Stagewatch is not connected, when it has stopped updating (stuck), and from a Stagewatch older than 2.21, which sends no verdict; the counts are then empty.
+- **Unknown is never ready.** `network_ready` is `unknown` when Stagewatch is not connected, when it serves no current time (stuck: its show thread has stalled or is resuming from a stall), and from a Stagewatch older than 2.21, which sends no verdict; the counts are then empty.
 - **Feedback:** *Show network: Not ready for doors* — true while a check is red. With no verdict it is true as well, unless you untick *Also while there is no verdict*.
 - **Preset:** *Ready for doors* (with the live displays) — green "DOORS READY" with the number of amber checks under it ("2 amber": ready, with two things to look at) only from a verdict that says ready, amber "DOORS UNKNOWN" with no verdict, red "NOT READY" with the number of red checks. The reasons are in Stagewatch: Producer → Show network, or the Showcaller page.
 
@@ -156,5 +156,5 @@ Stagewatch web port in the connection settings), and `/state` returns the live f
 ### Reliability
 
 - **Efficient updates.** Stagewatch pushes a complete frame only when something visible changes, about once a second while running. The module sends Companion only the values and feedbacks that actually changed.
-- **Dead-link detection.** A heartbeat catches a dead link within 12 seconds, and the module reconnects automatically (1 s, backing off to 10 s). While offline, the timer keys show `OFFLINE` rather than a frozen time.
+- **Dead-link detection.** A heartbeat catches a dead link within 12 seconds, and the module reconnects automatically (1 s, backing off to 10 s). While offline, the timer keys show `OFFLINE` rather than a frozen time. While Stagewatch answers but serves no current time (its show thread has stalled or is resuming from a stall: its `PONG … STUCK`, or a frame it marks stuck, as it marks the frame it answers a deck that connects during a stall), the module shows a warning and blanks the timer keys, keeps what Stagewatch said this deck may do, and draws no frame until a `PONG` without `STUCK`, when it asks for the newest one.
 - **No stale presses.** A key pressed while disconnected is **not** queued and replayed later, because a stale _Start_ or _Next_ arriving after a reconnect could disrupt a live show. It is logged instead.

@@ -191,9 +191,9 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 				this.#setConnected(false)
 				break
 			case 'stuck':
-				this.updateStatus(InstanceStatus.UnknownWarning, 'Stagewatch has stopped updating — the time on keys may be frozen')
-				this.log('warn', 'Stagewatch is connected but has stopped updating')
-				this.#setConnected(false)
+				this.updateStatus(InstanceStatus.UnknownWarning, "No current time from Stagewatch — its show thread has stalled or is resuming; the keys are blank until it serves one")
+				this.log('warn', "Stagewatch is connected but serves no current time (its show thread has stalled or is resuming)")
+				this.#setConnected(false, true)
 				break
 			case 'denied':
 				this.updateStatus(InstanceStatus.InsufficientPermissions, s.reason)
@@ -203,14 +203,18 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 		}
 	}
 
-	#setConnected(connected: boolean): void {
+	/**
+	 * `linkStands` is a stuck Stagewatch's: the link is up, so what this address may do (`ACCESS`, said once per change) still holds and
+	 * is kept; Stagewatch tells it again only when it changes.
+	 */
+	#setConnected(connected: boolean, linkStands = false): void {
 		const wasConnected = this.isConnected
 		this.isConnected = connected
 		const prev = this.snapshot
 		// Offline means unknown: blank the timer rather than show a frozen, wrong time; and what the deck may do is said again once back.
 		if (!connected) {
 			this.snapshot = null
-			this.access = null
+			if (!linkStands) this.access = null
 			this.deskArmed = null
 		}
 		if (wasConnected !== connected || prev !== this.snapshot) {

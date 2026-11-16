@@ -2188,7 +2188,7 @@ test('S6.2a a stuck Stagewatch: PlayMap shows no time', row({
 }));
 
 /** What the rig's own context says of a counting item while its show thread is stuck (Stagewatch's ShowContext.StuckWords, §6 P5). */
-const RIG_STUCK_WORDS = 'the show thread has stopped turning over — no time shown';
+const RIG_STUCK_WORDS = 'the show thread has stalled or not yet caught up — no time shown';
 
 /**
  * The rig as Patterns' Eye draws it now (EYE JSON): its one card, its one edge to the desk (source link, the record verbatim) and its

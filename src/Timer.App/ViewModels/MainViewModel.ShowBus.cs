@@ -81,9 +81,9 @@ public sealed partial class MainViewModel
     private readonly PeerContexts _peerContexts;
     private readonly HashSet<(string KeyId, string Id)> _refusalsJournalled = new();   // show thread
     // The context the doors serve: the last one built and its stuck form, stamped on the hub's clock, so a stalled show thread, or a
-    // build older than the preflight's bound, is served as stuck (§6 P5); it marks the hub alive at the tick's start (MainViewModel).
+    // build older than the preflight's bound, is served as stuck (§6 P5); it marks the hub alive at the tick's start (MainViewModel)
+    // and says when a turn builds, by the time on the hub's clock since the last build (ServedContext.Due).
     private readonly ServedContext _context;
-    private int _contextTick;
 
     /// <summary>IShowAccess: which node each node key speaks for.</summary>
     public NodeBindings Nodes => _nodes;
@@ -148,10 +148,16 @@ public sealed partial class MainViewModel
     /// <summary>A show app's name as it told this Stagewatch (hello or context), or null. Show thread.</summary>
     private string? PeerNameOf(string id) => _network.Rows.FirstOrDefault(r => r.Peer.Id == id && r.Named)?.Peer.Name;
 
-    /// <summary>4 Hz (owner thread): once a second, and on the first tick after a stall, rebuild the context and the Show network rows.</summary>
+    /// <summary>
+    /// 4 Hz (owner thread): at a turn that finds the last build a second old on the hub's clock, and on the first turn after a stall,
+    /// rebuild the context and the Show network rows (<see cref="ServedContext.Due"/>). The build comes before the turn's frame, so
+    /// every frame carries the verdict, windows and desk of a build made in its own turn or after the stall's end; the build of the
+    /// turn that ends a stall reads the frame from before it, so the context stays resuming (served stuck) until the next turn's
+    /// build reads a frame made after it — one turn's tail, never a pre-stall product served live.
+    /// </summary>
     private void RefreshShowBus()
     {
-        if (++_contextTick % 4 != 0 && !_context.Due) return;
+        if (!_context.Due) return;
         var now = DateTime.UtcNow;
         var view = Network(now);
         _network = view;

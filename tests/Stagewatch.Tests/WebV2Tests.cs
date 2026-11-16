@@ -286,7 +286,16 @@ static class WebV2Tests
             await fws.ConnectAsync(new Uri($"ws://127.0.0.1:{fport}/ws"), CancellationToken.None);
             var stuckMsg = await Receive(fws, 4000);
             Check(stuckMsg.Contains("\"live\":false") && !stuckMsg.Contains("\"state\""), $"review P2: a stuck producer sends live:false, not the frozen 05:00 ({stuckMsg[..Math.Min(80, stuckMsg.Length)]})");
-            frozen.Snapshots.MarkAlive();                       // recovers
+            Check(frozen.Snapshots.MarkAlive(), "producer: the mark that ends a stall says so (the hub's one verdict of it)");   // recovers
+            // Within the resuming window (alive again past the bound, no frame published since): a screen that connects now is told
+            // the show is not live and is handed no time — the frame from before the stall is not current (the hub's FrameStale).
+            using (var resuming = new ClientWebSocket())
+            {
+                await resuming.ConnectAsync(new Uri($"ws://127.0.0.1:{fport}/ws"), CancellationToken.None);
+                var first = await Receive(resuming, 4000);
+                Check(frozen.Snapshots.Resuming && !frozen.Snapshots.ProducerStuck && first.Contains("\"live\":false") && !first.Contains("05:00") && !first.Contains("\"state\""),
+                    $"review P2: turned over since a stall but not yet published, /ws sends live:false and no frame from before it ({first[..Math.Min(80, first.Length)]})");
+            }
             frozen.Snapshots.Publish(new ShowSnapshot { State = TimerState.Running, Seconds = 299, Text = "04:59" });
             string back;
             var sw2 = System.Diagnostics.Stopwatch.StartNew();
@@ -604,8 +613,9 @@ static class WebV2Tests
         var mcp = await McpPreflight();
         Check(mcp is { IsError: false } && mcp.Text == fresh, "preflight: MCP's get_preflight returns the route's JSON");
 
-        // Stale: a verdict the host has not rebuilt for more than 3 s is never served as the verdict; at 3 s it still is.
-        clock.Advance(TimeSpan.FromMilliseconds(3000));
+        // Stale: a verdict the host has not rebuilt for longer than the bound (the hub's 3 s plus one 1 s build period) is never served as
+        // the verdict; at the bound it still is.
+        clock.Advance(PreflightWire.MaxAge);
         var edge = await Get(Keyed("/api/preflight"));
         clock.Advance(TimeSpan.FromMilliseconds(1));
         var stale = await Get(Keyed("/api/preflight"));
@@ -619,7 +629,7 @@ static class WebV2Tests
                    && root.GetProperty("rows")[0].GetProperty("words").GetString() == PreflightWire.StuckWords;
         }
         Check(edge.Body == fresh && stale.Status == HttpStatusCode.OK && IsStuck(stale.Body) && !stale.Body.Contains("went away", StringComparison.Ordinal) && IsStuck(staleMcp.Text),
-            $"preflight route: a verdict 3 s old is served; a millisecond older it is answered ready:false, stuck:true and the one red row, on the route and from MCP ({stale.Body})");
+            $"preflight route: a verdict as old as the bound (the hub's 3 s plus the 1 s build period) is served; a millisecond older it is answered ready:false, stuck:true and the one red row, on the route and from MCP ({stale.Body})");
 
         // Stuck: a fresh verdict from a show thread that has stopped turning over is not a verdict either.
         control.Preflight = Verdict(UnixMs());

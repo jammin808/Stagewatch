@@ -204,7 +204,7 @@ test('a stalled show says so at every door a reader asks: GET /api/context (§6 
     // While stuck: the context red, every counting item red with the stuck words, its headline with no time; the state doors say stuck.
     for (let i = 0; i < 100 && !stuckCtx; i++) {
       const c = await rig.context();
-      if (c.light === 'red' && counting(c).length && counting(c).every((it) => it.light === 'red' && it.state === 'the show thread has stopped turning over — no time shown')) stuckCtx = c;
+      if (c.light === 'red' && counting(c).length && counting(c).every((it) => it.light === 'red' && it.state === 'the show thread has stalled or not yet caught up — no time shown')) stuckCtx = c;
       else await pause(100);
     }
     assert.ok(stuckCtx, 'the rig\'s context says its show is stuck (§6 P5)');

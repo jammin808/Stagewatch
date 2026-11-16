@@ -123,7 +123,7 @@ Arguments can also go in the query string: `value` (or `text`, `slot`, `seconds`
 ```
 
 Read-only, no PIN: `/api/state` (current frame, JSON; add `?detail=1` for the running-order projection, advice,
-Q&A and rooms; while the show thread is stuck, the last frame with `"stuck":true` as its last field, 2.24), `/api/config` (presets, quick messages, running order, departments, cue ladders), both behind the viewing code
+Q&A and rooms; while the show thread is stalled or resuming from a stall, the last frame with `"stuck":true` as its last field, 2.24), `/api/config` (presets, quick messages, running order, departments, cue ladders), both behind the viewing code
 when one is set, `/api/help` (the command list people read, `peer` and `desk` among it) and `/api/qr?text=…` (QR code, SVG).
 The PIN or any key: `/report` and `/api/report.csv` (planned vs actual), `/api/report/network.csv` (2.21), `/api/context` and
 `/api/preflight` (2.21). Every route's need is in *What each route needs* (2.20 and 2.21, below).
@@ -253,8 +253,8 @@ and when it will now finish. Leave it blank and the plan starts when the first i
 
 | Tool | Does |
 |---|---|
-| `get_state` | The live detail frame (JSON); while the show thread is stuck, an error saying so and no frame (2.24) |
-| `get_running_order` | Planned / expected / actual for every item; while the show thread is stuck, an error saying so (2.24) |
+| `get_state` | The live detail frame (JSON); while the show thread is stalled or resuming from a stall, an error saying so and no frame (2.24) |
+| `get_running_order` | Planned / expected / actual for every item; while the show thread is stalled or resuming from a stall, an error saying so (2.24) |
 | `run_command` | One command line from the grammar above, e.g. `trim 7 -180`; with `target` (2.22), one line for another show app (below) |
 | `get_report` | The planned-vs-actual report as CSV |
 | `get_proposal` | What became of a proposal `run_command` made: by its number, or (2.22) by a shared proposal's string id, `p17-k3m9` or `p17` |
@@ -768,14 +768,14 @@ network itself lists 32 apps: a configured node it has no room for has no row to
 red by a guess. A node expected only because a node key is bound to it says the other way out in `fix`: revoke the key, or
 let it speak for the new node.
 
-**Stuck is never a confident stale verdict.** While the show thread is stuck, or the verdict was judged more than 3 s
-ago, every door answers `ready:false`, `stuck:true`, `red:1` and the one row `stagewatch:show-thread` (check
+**Stuck is never a confident stale verdict.** While the show thread is stuck, or the verdict was judged more than 4 s
+ago (the show thread's 3 s silence bound plus the 1 s it judges at; 3 s before SW24.1r), every door answers `ready:false`, `stuck:true`, `red:1` and the one row `stagewatch:show-thread` (check
 `stagewatch`): "Stagewatch's show thread is stuck — no verdict until it turns over".
 
 **The readers.** The verdict is never an item of Stagewatch's own context, so its own light stays its own parts' (one hop).
 - **Operator frames** end, after `desk`, with `"network":{"ready":false,"red":1,"amber":1,"stuck":false}` — the frame built
   after each judgement; no public frame carries it, and a host that keeps no preflight sends none (a missing verdict is not
-  a ready one). A frame is sent when the verdict or its counts change. By the route's rule, a frame built more than 3 s
+  a ready one). A frame is sent when the verdict or its counts change. By the route's rule, a frame built more than 4 s
   after the last judgement carries `{"ready":false,"red":1,"amber":0,"stuck":true}` in its place.
 - **MCP** `get_preflight` (no arguments, read-only) returns the route's JSON, by the route's rule.
 - **Companion**: `$(stagewatch:network_ready)` — `yes`, `no`, or `unknown` when stuck, not connected or sent no verdict —
@@ -1757,19 +1757,25 @@ the thing's own.
 | `go-latency` | `health` | amber while 95 % of GOs take longer to reach a screen than they should |
 | `context:trimmed` | `health` | grey, last, only in a context that had to be trimmed (2.19) |
 
-**P5.** While the show thread has stopped turning over, `timer`, `schedule` and `vt` are red and their words are "the show thread has
-stopped turning over — no time shown" in place of a time, and the context is red: no reader takes a counting value from them as
+**P5.** While the show thread has stopped turning over (or is resuming from that), `timer`, `schedule` and `vt` are red and their words are "the show thread has
+stalled or not yet caught up — no time shown" in place of a time (since SW24.1r; "the show thread has stopped turning over — no time shown" before it), and the context is red: no reader takes a counting value from them as
 current. The context is built on the show thread, which builds nothing while it is stuck, so each build makes this stuck form
 beside the live one (`ServedContext`) and every door — `GET /api/context`, MCP's `get_context`, the context Patterns pulls — serves
 the stuck form while the snapshot hub says the show thread is stuck, read at serve time, on the desk and the rig alike (since
 SW24.1p; before it, a stall served the last context built before it, its running time among it). Since SW24.1q the stuck form is
 served by one rule, the one every door a reader asks serves by (`IShowControl.ServedStuck`, `ServedContext.Stuck`): while the hub's
 frame is stale (the show thread stuck, or turned over since a stall and not yet published), while the context is resuming (the thread
-turned over since a stall and has not yet built a context from a frame made after it), or while the last build is older than 3 s, the
-preflight's own bound (`PreflightWire.MaxAge`), the context's age read on the hub's clock. So no context older than the bound is served
-live, and none from before a stall is served live after it, however short the stall past the hub's bound; the first turn after a stall
-builds at once (on the rig its frame comes first and the live form is back in that turn; on the desk the turn builds before its frame,
-so the live form is back from the next turn's build, 250 ms later). The stuck form's headline carries no counting value either (no
+turned over since a stall and has not yet built a context from a frame made after it), or while the last build is older than 4 s, the
+preflight's own bound (`PreflightWire.MaxAge`: the hub's 3 s silence bound plus the 1 s build period), the context's age read on the
+hub's clock. The invariant (since SW24.1r): a door says stuck only when the show thread has been silent past the hub's 3 s bound, is
+resuming from that, or has turned over without building for that bound plus one build period — and then every door a reader asks
+says it together. The build is due by time on the hub's clock, not by a count of turns: a turn builds when it finds the last build a
+second old (`ServedContext.Due`, about 1 ms on the show thread, measured at §14's caps), so a slow but live show thread (turns 800 ms
+apart, or one gap of up to 3 s) is never served stuck, and a build missed while the thread turns over fails closed after 4 s. So no
+context older than the bound is served live, and none from before a stall is served live after it, however short the stall past the
+hub's bound; the first turn after a stall builds at once (on the rig its frame comes first and the live form is back in that turn; on
+the desk the turn builds before its frame, so every frame it publishes carries the verdict, windows and desk of a build made in its own
+turn, and the live form is back from the next turn's build, 250 ms later). The stuck form's headline carries no counting value either (no
 "02:30 behind"). Everything else in the stuck form is as it stood at the context's `at`, from before the stall: its links, its windows
 (still "shown"), the timer's `feeds` rows and the `serves` rows to holders, its health. P5 reddens the counting items and no more, P4's
 `serves` light is what a holder last reported, and `at` dates the rest.
@@ -1777,15 +1783,19 @@ so the live form is back from the next turn's build, 250 ms later). The stuck fo
 **The state doors while stuck (2.24, SW24.1q).** What each door gives while the rule above holds (one rule, read at serve time, so
 the doors a reader asks turn together): `GET /api/state` (plain, `detail=1` and the operator's) answers 200 with the last frame, its
 operator `network` verdict the stuck one (`{"ready":false,"red":1,"amber":0,"stuck":true}`) and `"stuck":true` appended as its last
-field — a live frame has no top-level `stuck`; MCP's `get_state` and `get_running_order` answer an error, "Stuck: Stagewatch's show
-thread has stopped turning over — no time shown until it turns over again (get_context and get_preflight say the same).", and no
-frame (MCP's instructions say so); `get_context`, `GET /api/context`, `get_preflight` and `GET /api/preflight` serve their stuck forms
-(the preflight also by its own age, on its own clock against the time it was built); Companion's pong says `STUCK`. Companion's
-`SNAPSHOT` is unchanged: its stall word is the pong's, which the module draws. `/ws`, which pushes frames, says stuck by the hub's own
-word (`SnapshotHub.FrameStale`: the show thread stuck, or turned over since a stall with no frame since): `{"type":"beat","live":false}`
-every 2 s and no frame (since 2.17), and once it turns over the first frame made after the stall first. The asked doors also age the
-context, built once a second, so at a stall's start they turn stuck up to 750 ms before `/ws` does; at its end `/ws`'s first frame
-comes with the turn's publish, and the asked doors return with the first context built from it.
+field — a live frame has no top-level `stuck`; MCP's `get_state` and `get_running_order` answer an error, "Stuck: no time from
+Stagewatch's show thread can be served as current — it has stalled, or is resuming from a stall and has not yet caught up
+(get_context and get_preflight say the same).", and no frame (MCP's instructions say so); `get_context`, `GET /api/context`,
+`get_preflight` and `GET /api/preflight` serve their stuck forms (the preflight also by its own age, on its own clock against the time
+it was built); Companion's pong says `STUCK`, and since SW24.1r every `SNAPSHOT` Companion answers — the one a module is sent when it
+subscribes, and one it asks for — is the frame marked as `GET /api/state` marks it, so a deck that connects during a stall never draws
+its time as current (its pushed frames, each published by a show thread that turned over, carry no mark). `/ws`, which pushes frames,
+says stuck by the hub's own word (`SnapshotHub.FrameStale`: the show thread stuck, or turned over since a stall with no frame since):
+`{"type":"beat","live":false}` every 2 s and no frame (since 2.17) — a screen that connects in between is told the same — and once it
+turns over the first frame made after the stall first. At a stall's start the asked doors turn together at the hub's 3 s bound (the
+context's age term cannot fire first: a live thread's build is never older than its last gap plus 1 s); `/ws` sends no frame from
+then, and its `live:false` beat comes at its next beat, within `ws.beat.ms` (2 s) after. At its end `/ws`'s first frame comes with the
+turn's publish, and the asked doors return with the context built in the same turn (the rig) or the next (the desk).
 
 ### The rows
 

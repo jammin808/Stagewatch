@@ -25,10 +25,11 @@ public sealed class McpEndpoint
     private readonly Func<bool> _stuck;
 
     /// <summary>
-    /// What <c>get_state</c> and <c>get_running_order</c> answer (an error) while the show thread is stuck: the last frame's time, offset
-    /// and expected times are frozen, so none is given; <c>get_context</c> and <c>get_preflight</c> say the same in their own forms.
+    /// What <c>get_state</c> and <c>get_running_order</c> answer (an error) while the served rule holds: no time from the show thread can
+    /// be served as current — it has stalled past the hub's bound, or is resuming from that and has not yet caught up — so the last
+    /// frame's time, offset and expected times are not given; <c>get_context</c> and <c>get_preflight</c> say the same in their own forms.
     /// </summary>
-    public const string StuckText = "Stuck: Stagewatch's show thread has stopped turning over — no time shown until it turns over again (get_context and get_preflight say the same).";
+    public const string StuckText = "Stuck: no time from Stagewatch's show thread can be served as current — it has stalled, or is resuming from a stall and has not yet caught up (get_context and get_preflight say the same).";
 
     /// <summary>
     /// A full surface's endpoint. <paramref name="preflight"/> is the room's preflight as that surface's doors serve it; without
@@ -101,7 +102,7 @@ public sealed class McpEndpoint
                     ["protocolVersion"] = ProtocolVersion,
                     ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false } },
                     ["serverInfo"] = new JsonObject { ["name"] = "stagewatch", ["title"] = "Stagewatch stage timer", ["version"] = typeof(McpEndpoint).Assembly.GetName().Version?.ToString(3) ?? "2" },
-                    ["instructions"] = "Stagewatch is the live show clock. Read get_state before acting; while Stagewatch's show thread is stuck it answers " +
+                    ["instructions"] = "Stagewatch is the live show clock. Read get_state before acting; while Stagewatch's show thread is stalled or resuming from a stall it answers " +
                                        "an error and no time is current: read get_context or get_preflight, which say so. Change the show only with run_command, " +
                                        "using one command per call. Never black out outputs or reset the timer unless the operator asked for it. " +
                                        "To ask another show app (PlayMap, Patterns, AGMessage) for something, read its verbs with get_context " +
@@ -122,10 +123,10 @@ public sealed class McpEndpoint
     private static JsonArray Tools() => new()
     {
         Tool("get_state", "The live show: timer, phase, current and next item, schedule offset, curfew, forecast, messages, cues and acknowledgements, slides, Q&A. " +
-                          "While the show thread is stuck, an error saying so and no frame: no time from it is current.",
+                          "While the show thread is stalled or resuming from a stall, an error saying so and no frame: no time from it is current.",
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
         Tool("get_running_order", "Every running-order item with planned, expected and actual times (show time zone), status, delay and curfews. " +
-                                  "While the show thread is stuck, an error saying so and no times.",
+                                  "While the show thread is stalled or resuming from a stall, an error saying so and no times.",
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
         Tool("run_command", "Propose one Stagewatch command, e.g. 'nudge 60', 'next', 'trim 7 -180', 'delay 300', 'catchup', " +
                             "'signal message speaker \"Please wrap up\"', 'signal go Lighting', 'q next', 'aux 1 start', 'screen identify'. " +
@@ -180,7 +181,7 @@ public sealed class McpEndpoint
         Tool("get_preflight", "Is the room ready for doors? One verdict over every show app this Stagewatch was set up with or can hear, " +
                               "its own links and its windows: ready (no red row), the red and amber counts, the verdict in words, and one " +
                               "row per check (heard, context, own, key, link, clock, window) with its light, why, and what to do. Amber is " +
-                              "listed and never blocks. stuck:true means Stagewatch itself has stopped turning over: there is no verdict, " +
+                              "listed and never blocks. stuck:true means no verdict from Stagewatch's show thread is current (stalled, or resuming from a stall): " +
                               "so say so, never 'ready'. Read-only.",
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() })
     };

@@ -418,8 +418,8 @@ not run". `docs/WHATS_NEXT.md` has the job's details and the maintainer's action
   PlayMap's TLS carrier and with no cue; the rest is held by the suite against scripted desks and the scripted peer. The rows
   decide on the rig's desk over HTTP with the operator's PIN: its Companion door refuses `peer` and `desk` from another
   machine, and the Companion module itself does not run here; its `network_ready` is read off the rig's Companion door by the
-  module's own rule (a frame's `network`; a STUCK pong throws the frame away, so yes or no after a stall is read from a
-  frame sent after it). S6.3's doors are configured by PlayMap's node key, not by a playout link to it: the VT rows run a
+  module's own rule (a frame's `network`; a STUCK pong or a frame marked stuck throws the frame away, no frame is kept while
+  stuck, and the first pong without STUCK asks for the newest, so yes or no after a stall is read from a frame sent after it). S6.3's doors are configured by PlayMap's node key, not by a playout link to it: the VT rows run a
   rig of their own, so the room's rig runs no playout link.
 - **AGMessage's own context.** AGMessage holds no node key in the lane, so it posts no context: its heard row is held
   green and its context row stays amber, and 'ready for doors' is held on Patterns' and PlayMap's contexts alone until

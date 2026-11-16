@@ -205,6 +205,91 @@ static class CompanionV2Tests
         }
     }
 
+    /// <summary>
+    /// Companion's asked doors by the one served rule (<see cref="IShowControl.ServedStuck"/>), on a real server: the pong says STUCK
+    /// by the host's rule with the hub fresh (a pong on the hub's flag alone fails it), and not on a slow but live show thread (turns
+    /// 800 ms apart, the context built by <see cref="Stagewatch.Show.ServedContext"/> on the hub's injected clock); a module that
+    /// subscribes during a stall is answered the frame marked <c>"stuck":true</c> at its end with the stuck verdict, never the frozen frame
+    /// as live, and so is a SNAPSHOT asked then; once the show turns over and builds, the answer is the live frame with no mark.
+    /// </summary>
+    public static async Task StuckDoors(Action<bool, string> Check)
+    {
+        long nowMs = 9_000_000;
+        var hub = new SnapshotHub(() => Volatile.Read(ref nowMs));
+        var served = new Stagewatch.Show.ServedContext(hub);
+        var hostStuck = false;
+        var bridge = new FakeBridge { Allowed = true, Snapshots = hub, Stuck = () => Volatile.Read(ref hostStuck) || served.Stuck };
+        var frame = new ShowSnapshot { State = TimerState.Running, Seconds = 300, Text = "05:00", Network = new NetworkVerdict(true, 0, 0, false) };
+        var tick = 0;
+        void Turn()
+        {
+            served.MarkAlive();
+            hub.Publish(frame with { Seconds = 300 - tick, Text = "05:00" });
+            if (served.Due) served.Publish(ShowBusSpecTests.OwnInput(hub.Latest, hub.ProducerStuck));
+            tick++;
+        }
+        Turn();
+        var port = FreePort();
+        await using var server = new Stagewatch.Companion.CompanionServer(bridge);
+        server.Start(port, bindAllInterfaces: false);
+
+        async Task<(TcpClient Tcp, StreamReader Reader, Stream Stream)> Open()
+        {
+            var tcp = new TcpClient();
+            await tcp.ConnectAsync(IPAddress.Loopback, port);
+            var stream = tcp.GetStream();
+            return (tcp, new StreamReader(stream, Encoding.UTF8), stream);
+        }
+        static async Task<string?> Answer(StreamReader r, Stream w, string line, string starts)
+        {
+            await w.WriteAsync(Encoding.UTF8.GetBytes(line + "\n"));
+            for (var i = 0; i < 12; i++)
+                if (await ReadLine(r) is { } got && got.StartsWith(starts, StringComparison.Ordinal)) return got;
+            return null;
+        }
+
+        var (tcp, reader, stream) = await Open();
+        using (tcp)
+        {
+            // A slow but live show thread: turns 800 ms apart for ten seconds, a ping after each — never STUCK.
+            var slow = new List<string?>();
+            for (var i = 0; i < 13; i++)
+            {
+                Interlocked.Add(ref nowMs, 800);
+                Turn();
+                slow.Add(await Answer(reader, stream, "PING " + i.ToString(System.Globalization.CultureInfo.InvariantCulture), "PONG"));
+            }
+            Check(slow.All(p => p is { } x && !x.Contains("STUCK", StringComparison.Ordinal)), $"companion stuck doors: a slow but live show thread's pongs never say STUCK ({string.Join(" | ", slow)})");
+            // The host's rule with the hub fresh: STUCK by it.
+            Volatile.Write(ref hostStuck, true);
+            var byRule = await Answer(reader, stream, "PING r1", "PONG");
+            Volatile.Write(ref hostStuck, false);
+            Check(!hub.FrameStale && byRule == "PONG r1 STUCK", $"companion stuck doors: the pong says STUCK by the host's served rule, the hub fresh ({byRule})");
+        }
+
+        // A stall: the module that subscribes during it is answered the frame marked stuck, and so is a SNAPSHOT it asks.
+        Interlocked.Add(ref nowMs, 10_000);
+        var (tcp2, reader2, stream2) = await Open();
+        using (tcp2)
+        {
+            var subscribed = await Answer(reader2, stream2, "SUBSCRIBE JSON", "SNAPSHOT ");
+            var asked = await Answer(reader2, stream2, "SNAPSHOT", "SNAPSHOT ");
+            var pong = await Answer(reader2, stream2, "PING s1", "PONG");
+            Check(hub.ProducerStuck && subscribed is { } sub && sub.EndsWith("," + SnapshotJson.StuckField + "}", StringComparison.Ordinal)
+                  && sub.Contains("\"stuck\":true}", StringComparison.Ordinal) && asked is { } a && a.EndsWith("," + SnapshotJson.StuckField + "}", StringComparison.Ordinal)
+                  && pong == "PONG s1 STUCK",
+                $"companion stuck doors: a module that subscribes during a stall is answered the frame marked stuck, never the frozen frame as live ({subscribed?[..Math.Min(80, subscribed.Length)]} … {pong})");
+            Check(subscribed is { } s2 && s2.Contains("\"network\":{\"ready\":false", StringComparison.Ordinal),
+                $"companion stuck doors: the marked frame carries the stuck verdict, not the one it was built with ({subscribed})");
+            // It turns over: the first turn after the stall publishes and builds; the answer is live, unmarked.
+            Turn();
+            var back = await Answer(reader2, stream2, "SNAPSHOT", "SNAPSHOT ");
+            var backPong = await Answer(reader2, stream2, "PING s2", "PONG");
+            Check(back is { } b && !b.Contains(SnapshotJson.StuckField, StringComparison.Ordinal) && backPong == "PONG s2",
+                $"companion stuck doors: once the show turns over and builds, the answer is the live frame with no mark ({backPong})");
+        }
+    }
+
     static async Task<string?> ReadLine(StreamReader r)
     {
         using var cts = new CancellationTokenSource(2000);

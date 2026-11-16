@@ -164,8 +164,11 @@ Rules (game netcode, on purpose):
   least every `ws.beat.ms` (2 s). When the show thread stops turning over for `show.stuck.ms` (3 s) it sends
   `{"type":"beat","live":false}` and no frame until it recovers: treat the last frame as stale. The doors a reader asks turn
   together by one rule (2.24, REMOTE.md's "The state doors while stuck"): `GET /api/state` serves the last frame with `"stuck":true`
-  as its last field, `/api/context` its stuck form (§6 P5) and MCP's `get_state` an error saying so; that rule also ages the context
-  (built once a second), so at a stall's start it can turn up to 750 ms before the `/ws` beat.
+  as its last field, `/api/context` its stuck form (§6 P5), MCP's `get_state` an error saying so, and Companion's answered `SNAPSHOT`
+  the frame marked as `/api/state` marks it, while the show thread is silent past `show.stuck.ms`, or resuming from that; that rule
+  also ages the context (built by time, `show.build.ms`) against `served.age.ms`, which a live show thread never reaches, so a slow
+  show thread is never called stuck (since SW24.1r). At a stall's start the asked doors turn together at `show.stuck.ms` and `/ws`
+  sends no frame from then; its `live:false` beat follows at its next beat, within `ws.beat.ms`.
 - **Commands:** one grammar for everything (HTTP `/api/<verb>/…`, WebSocket `{"cmd":…,"args":[…]}`, OSC, the Companion TCP line
   protocol, triggers, MCP). `GET /api/help` returns it. Send an id (`X-Request-Id`, `"id"`, `@id`) and the answer is a receipt that
   says applied, refused or only accepted (Show Bus §3).
@@ -578,7 +581,7 @@ From Stagewatch's side; PlayMap's own `docs/SHOWBUS-NODE.md` is its reference.
 
 Each number the page names, as Stagewatch's code has it. A name that is a §14 row has §14's value: Stagewatch keeps that row. The
 `find.`, `slides.`, `cid.`, `http.`, `ws.`, `show.`, `pin.`, `key.`, `read.`, `ack.`, `signal.`, `patterns.` and `playout.` rows,
-and `hello.failed.beats`, `proposal.run.chars` and `proposal.collectors`, are Stagewatch's own.
+and `hello.failed.beats`, `proposal.run.chars`, `proposal.collectors` and `served.age.ms`, are Stagewatch's own.
 
 | number | value | what it is |
 |---|---|---|
@@ -617,6 +620,8 @@ and `hello.failed.beats`, `proposal.run.chars` and `proposal.collectors`, are St
 | `http.drain.ms` | 10000 | how long that reading lasts at most; the `413` follows either way |
 | `ws.beat.ms` | 2000 | the most time between two messages on `/ws` |
 | `show.stuck.ms` | 3000 | a show thread silent this long is stuck: `{"type":"beat","live":false}` |
+| `show.build.ms` | 1000 | the context and the preflight are built at a turn of the show thread that finds the last build this old |
+| `served.age.ms` | 4000 | a context or preflight older than this is served stuck: `show.stuck.ms` plus `show.build.ms`, which a live show thread never reaches |
 | `pin.wrong.per.minute` | 5 | wrong PINs that lock a device out of the PIN and keys for the rest of its minute |
 | `view.wrong.per.minute` | 5 | wrong view passes that lock a device out of view passes for the rest of its minute |
 | `key.requests.per.minute` | 600 | requests a key may make in a minute |

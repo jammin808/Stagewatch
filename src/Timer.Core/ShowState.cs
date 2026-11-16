@@ -243,11 +243,14 @@ public sealed class SnapshotHub
     /// idle show publishes nothing for minutes, so frames alone can't tell "quiet" from "frozen"; this can.
     /// The first call switches the check on. A call that ends a stall (the hub said stuck until it) leaves the hub
     /// <see cref="Resuming"/> until the producer's next <see cref="Publish"/>: the latest frame is still the one from before the stall.
+    /// Returns whether this call ended a stall: the hub's one verdict of it, for anything that marks its own resuming by the same edge.
     /// </summary>
-    public void MarkAlive()
+    public bool MarkAlive()
     {
-        if (ProducerStuck) Volatile.Write(ref _resuming, true);   // before alive: a reader that sees it alive sees it resuming
+        var ended = ProducerStuck;
+        if (ended) Volatile.Write(ref _resuming, true);   // before alive: a reader that sees it alive sees it resuming
         Volatile.Write(ref _aliveAt, _clockMs());
+        return ended;
     }
 
     private bool _resuming;

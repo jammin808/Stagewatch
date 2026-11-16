@@ -64,6 +64,9 @@ static class NodesDocTests
         ("http.drain.ms", () => Ms(Private<TimeSpan>(typeof(WebServer).Assembly.GetType("Stagewatch.Remote.HttpRequest"), "DrainFor"))),
         ("ws.beat.ms", () => Ms(WebServer.HeartbeatEvery)),
         ("show.stuck.ms", () => Ms(SnapshotHub.StuckAfter)),
+        // The context and the preflight: built at a turn that finds the last build this old, and served live while no older than this.
+        ("show.build.ms", () => Ms(PreflightWire.BuildEvery)),
+        ("served.age.ms", () => Ms(PreflightWire.MaxAge)),
         ("pin.wrong.per.minute", () => WebServer.WrongPinsPerMinute),
         ("view.wrong.per.minute", () => WebServer.WrongViewPassesPerMinute),
         ("key.requests.per.minute", () => ApiKeys.PerMinute),
