@@ -166,9 +166,10 @@ Rules (game netcode, on purpose):
   together by one rule (2.24, REMOTE.md's "The state doors while stuck"): `GET /api/state` serves the last frame with `"stuck":true`
   as its last field, `/api/context` its stuck form (§6 P5), MCP's `get_state` an error saying so, and Companion's answered `SNAPSHOT`
   the frame marked as `/api/state` marks it, while the show thread is silent past `show.stuck.ms`, or resuming from that; that rule
-  also ages the context (built by time, `show.build.ms`) against `served.age.ms`, which a live show thread never reaches, so a slow
-  show thread is never called stuck (since SW24.1r). At a stall's start the asked doors turn together at `show.stuck.ms` and `/ws`
-  sends no frame from then; its `live:false` beat follows at its next beat, within `ws.beat.ms`.
+  also ages the context and the preflight (built by time, `show.build.ms`) against `served.age.ms`, which a live show thread never
+  reaches, so a slow show thread is never called stuck (since SW24.1r); every one of these ages is read on the show thread's own
+  clock, never the wall clock, which only dates what a reader sees (since SW24.1s). At a stall's start the asked doors turn together
+  at `show.stuck.ms` and `/ws` sends no frame from then; its `live:false` beat follows at its next beat, within `ws.beat.ms`.
 - **Commands:** one grammar for everything (HTTP `/api/<verb>/…`, WebSocket `{"cmd":…,"args":[…]}`, OSC, the Companion TCP line
   protocol, triggers, MCP). `GET /api/help` returns it. Send an id (`X-Request-Id`, `"id"`, `@id`) and the answer is a receipt that
   says applied, refused or only accepted (Show Bus §3).
@@ -621,7 +622,7 @@ and `hello.failed.beats`, `proposal.run.chars`, `proposal.collectors` and `serve
 | `ws.beat.ms` | 2000 | the most time between two messages on `/ws` |
 | `show.stuck.ms` | 3000 | a show thread silent this long is stuck: `{"type":"beat","live":false}` |
 | `show.build.ms` | 1000 | the context and the preflight are built at a turn of the show thread that finds the last build this old |
-| `served.age.ms` | 4000 | a context or preflight older than this is served stuck: `show.stuck.ms` plus `show.build.ms`, which a live show thread never reaches |
+| `served.age.ms` | 4000 | a context or preflight older than this on the show thread's clock is served stuck: `show.stuck.ms` plus `show.build.ms`, which a live show thread never reaches |
 | `pin.wrong.per.minute` | 5 | wrong PINs that lock a device out of the PIN and keys for the rest of its minute |
 | `view.wrong.per.minute` | 5 | wrong view passes that lock a device out of view passes for the rest of its minute |
 | `key.requests.per.minute` | 600 | requests a key may make in a minute |

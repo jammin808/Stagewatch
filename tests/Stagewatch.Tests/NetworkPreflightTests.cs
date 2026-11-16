@@ -76,9 +76,13 @@ static class NetworkPreflightTests
         Check(ready.Verdict == new NetworkVerdict(true, 0, 0, false) && IdsOnce(ready),
             "preflight: the verdict as judged is ready, the counts, and never stuck (stuck is the doors' answer); every row has an id of its own");
         var maxAge = (long)PreflightWire.MaxAge.TotalMilliseconds;   // the hub's 3 s bound plus the 1 s build period
-        Check(maxAge == 4000 && ready.VerdictAt(ready.AtMs + maxAge) == ready.Verdict && ready.VerdictAt(ready.AtMs + maxAge + 1) == new NetworkVerdict(false, 1, 0, true)
-              && gone13().VerdictAt(gone13().AtMs + maxAge + 100) is { Ready: false, Stuck: true, Red: 1 } && PreflightWire.Carried(null, 0, 10_000) is null,
-            "preflight: a frame carries the verdict while it is at most 4 s old (the hub's bound plus one build period), then the stuck one — never the last verdict as if it stood; a host with none carries none");
+        // Carried on the show thread's clock (the hub's), whatever the judging's wall time: judged at hub time 70_000 here.
+        Check(maxAge == 4000 && PreflightWire.Carried(ready.Verdict, 70_000, 70_000 + maxAge, false) == ready.Verdict
+              && PreflightWire.Carried(ready.Verdict, 70_000, 70_000 + maxAge + 1, false) == new NetworkVerdict(false, 1, 0, true)
+              && PreflightWire.Carried(gone13().Verdict, 70_000, 70_000 + maxAge + 100, false) is { Ready: false, Stuck: true, Red: 1 }
+              && PreflightWire.Carried(ready.Verdict, 70_000, 70_001, beforeStall: true) == PreflightWire.StuckVerdict
+              && PreflightWire.Carried(null, 0, 10_000, false) is null && PreflightWire.Carried(null, 0, 1, true) is null,
+            "preflight: a frame carries the verdict while it is at most 4 s old (the hub's bound plus one build period) and not judged before a stall the frame is the first to publish past, else the stuck one — never the last verdict as if it stood; a host with none carries none");
         static PreflightResult gone13() => Run(T0, View(T0, [Hello("playmap", PlayMap, "Stage left", 13)]), [Link]);
 
         // ---- a configured node: stale is amber, gone is red, never heard is red
@@ -252,10 +256,11 @@ static class NetworkPreflightTests
         }
         var built = ready.ToJson();
         var nowMs = ready.AtMs;
-        Check(PreflightWire.At(built) == nowMs && PreflightWire.Served(built, false, nowMs + 3900) == built && PreflightWire.Served(null, true, nowMs) is null,
-            "preflight served: a verdict 3.9 s old is served as it is; a host with none is answered none, stuck or not");
-        foreach (var (name, json) in new[] { ("the show thread stuck", PreflightWire.Served(built, true, nowMs + 100)), ("a verdict 4.1 s old", PreflightWire.Served(built, false, nowMs + 4100)),
-                     ("a verdict that tells no time", PreflightWire.Served("{\"ready\":true}", false, nowMs)) })
+        Check(PreflightWire.At(built) == nowMs && PreflightWire.Served(built, false, 3900, nowMs + 3900) == built && PreflightWire.Served(built, false, 4000, nowMs - 3_600_000) == built
+              && PreflightWire.Served(null, true, 0, nowMs) is null,
+            "preflight served: a verdict 3.9 s or 4 s old on the host's clock is served as it is, whatever the wall time; a host with none is answered none, stuck or not");
+        foreach (var (name, json) in new[] { ("the show thread stuck", PreflightWire.Served(built, true, 100, nowMs + 100)), ("a verdict 4.1 s old", PreflightWire.Served(built, false, 4100, nowMs)),
+                     ("a verdict that tells no time", PreflightWire.Served("{\"ready\":true}", false, 0, nowMs)) })
         {
             using var doc = JsonDocument.Parse(json!);
             var root = doc.RootElement;

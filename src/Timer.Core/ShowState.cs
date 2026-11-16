@@ -247,13 +247,28 @@ public sealed class SnapshotHub
     /// </summary>
     public bool MarkAlive()
     {
-        var ended = ProducerStuck;
-        if (ended) Volatile.Write(ref _resuming, true);   // before alive: a reader that sees it alive sees it resuming
-        Volatile.Write(ref _aliveAt, _clockMs());
+        var now = _clockMs();
+        var at = Volatile.Read(ref _aliveAt);
+        var ended = at != long.MinValue && now - at > (long)StuckAfter.TotalMilliseconds;
+        if (ended)
+        {
+            Volatile.Write(ref _stallEndedAt, now);   // before resuming: a frame built while resuming reads the end of this stall
+            Volatile.Write(ref _resuming, true);      // before alive: a reader that sees it alive sees it resuming
+        }
+        Volatile.Write(ref _aliveAt, now);
         return ended;
     }
 
     private bool _resuming;
+    private long _stallEndedAt = long.MinValue;
+
+    /// <summary>
+    /// Whether something the producer made at <paramref name="atMs"/> on the hub's clock (<see cref="NowMs"/>) is from before a stall a
+    /// frame built now has not yet published past: the producer is stuck (nothing it made is current until it turns over), or it is
+    /// <see cref="Resuming"/> and <paramref name="atMs"/> is before the alive mark that ended the stall. Read on the producer's thread as
+    /// it builds a frame, so no frame published at the turn that ends a stall carries a product of the time before it as current.
+    /// </summary>
+    public bool MadeBeforeStall(long atMs) => ProducerStuck || (Resuming && atMs < Volatile.Read(ref _stallEndedAt));
 
     /// <summary>
     /// The producer has turned over since a stall and has not published since: <see cref="Latest"/> is the frame from before the stall,
@@ -706,13 +721,6 @@ public interface IShowContext
     string? OwnInst => null;
 
     /// <summary>
-    /// The room's preflight as this node last built it (<see cref="PreflightWire.Write"/>), or null when it keeps none. Any
-    /// thread may read it. A door never serves it as it is: <see cref="PreflightWire.Served"/> answers for a stuck show thread
-    /// and for a verdict gone stale. It is never an item of <see cref="ContextJson"/>: this node's own light stays one hop.
-    /// </summary>
-    string? PreflightJson() => null;
-
-    /// <summary>
     /// A peer posted its context with <paramref name="credential"/>, what the request proved (Show Bus §11). Status 200
     /// with the proof the context is held with; 400 when it isn't a context this node can hold; 403 when the credential
     /// may not speak for its node. A refusal stores nothing.
@@ -823,6 +831,16 @@ public interface IShowControl : IShowCommands, IShowAccess, IShowCrew, IShowScre
     /// a stall or older than the preflight's bound); a host that keeps none answers by its hub's own word.
     /// </summary>
     bool ServedStuck => Snapshots.FrameStale;
+
+    /// <summary>
+    /// The room's preflight as every door a reader asks serves it (<c>GET /api/preflight</c>, MCP's <c>get_preflight</c>), read at serve
+    /// time on any thread; null when the host keeps none. Never the verdict as it was built once it may not stand: the stuck answer
+    /// (<see cref="PreflightWire.Served"/>, dated <paramref name="wallMs"/>, the wall time a reader sees) while <see cref="ServedStuck"/>
+    /// holds or the judging is older than <see cref="PreflightWire.MaxAge"/> on the host's hub clock, beside its context's build — never
+    /// on the wall clock. It is never an item of <see cref="IShowContext.ContextJson"/>: this node's own light stays one hop. A host serves
+    /// one only by this member (<c>ServedContext.Preflight</c>), so no door can serve a preflight it has not aged on that clock.
+    /// </summary>
+    string? ServedPreflight(long wallMs) => null;
 }
 
 public sealed record RemoteConfig(

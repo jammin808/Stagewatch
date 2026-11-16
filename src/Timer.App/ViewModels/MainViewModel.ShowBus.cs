@@ -120,15 +120,15 @@ public sealed partial class MainViewModel
     public bool ServedStuck => _context.Stuck;
 
     // The room's preflight ('ready for doors'), judged once a second on the show thread from the same join as every other reader
-    // of the show network, and published whole: the route's JSON with the time it was built (a door serves it only while fresh),
-    // the result the frame's verdict, the desk's header and the copilot's facts read. Never an item of this Stagewatch's context.
+    // of the show network, and published whole: to the doors and the frame through the served context, stamped on the hub's clock
+    // beside the context (ServedContext.PublishPreflight); the result the desk's header and the copilot's facts read. Never an item of
+    // this Stagewatch's context.
     private readonly SeenNodes _seenNodes = new();   // show thread
-    private volatile string? _preflightJson;
     private volatile PreflightResult? _preflight;
     private string _networkLine = "";                // show thread: the network's counts, before the verdict joins them
 
-    /// <summary>IShowContext: the preflight as last judged (any thread may read it); the doors decide whether it is still fresh.</summary>
-    public string? PreflightJson() => _preflightJson;
+    /// <summary>IShowControl: the preflight as every door a reader asks serves it — the served context's rule and age, the rig's too.</summary>
+    public string? ServedPreflight(long wallMs) => _context.Preflight(wallMs);
 
     /// <summary>The Show network header's tooltip: the verdict, then each row with its light in a shape and a word (<see cref="NetworkPreflight.Text"/>).</summary>
     [ObservableProperty] private string _preflightTip = "";
@@ -177,9 +177,11 @@ public sealed partial class MainViewModel
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
             now, _hub.Latest, _hub.ProducerStuck, links, Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
             PlayoutRows(), windows, health, rows);
-        _context.Publish(input);
         SyncPeerRows(now, view);
         RefreshPreflight(now, view, [.. ShowContext.PreflightItems(links), .. windows.Select(w => w.Item), .. health]);
+        // The judging is published before the pair, as the rig's turn publishes it: the pair's publish may clear the context's resuming,
+        // and a door that reads it cleared must find this turn's judging, never the one from before the stall served live.
+        _context.Publish(input);
         RefreshPlayoutConfig();
         RefreshDeskReaders();
         var hello = OwnHello;
@@ -191,7 +193,8 @@ public sealed partial class MainViewModel
     /// <summary>
     /// Show thread, once a second: the room's verdict from this second's join, the nodes heard before, what is configured (each
     /// playout link's peer, each node key bound to an id), this Stagewatch's own link and window items and the keys refused. The
-    /// frame carries the verdict from the next frame built, while it is fresh; the header says it after the network's counts.
+    /// frame carries the verdict from the next frame built, by the served context's rule (<see cref="ServedContext.FrameVerdict"/>);
+    /// the header says it after the network's counts.
     /// </summary>
     private void RefreshPreflight(DateTime now, NetworkView view, IReadOnlyList<ContextItem> items)
     {
@@ -206,7 +209,7 @@ public sealed partial class MainViewModel
             KeyNames = NetworkPreflight.KeyNames(_apiKeys),
         });
         _preflight = result;
-        _preflightJson = result.ToJson();
+        _context.PublishPreflight(result);
         ShowNetworkLine = NetworkPreflight.Line(_networkLine, result);
         PreflightTip = NetworkPreflight.Text(result);
 

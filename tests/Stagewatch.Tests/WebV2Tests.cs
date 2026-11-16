@@ -25,9 +25,21 @@ static class WebV2Tests
         };
         public const string NetworkCsv = "# " + ShowReport.Sample + "\r\n" + ShowReport.NetworkColumns + "\r\n2026-10-25 04:20:11,Stage left,playmap,9f8e7d6c,2026-10-25 04:20:11,node key 'Stage left',PLAYLIST GO show\r\n";
         public volatile bool NoReport;
-        /// <summary>The preflight this host last built (IShowContext.PreflightJson), or null: it keeps none.</summary>
-        public volatile string? Preflight;
-        public string? PreflightJson() => Preflight;
+        /// <summary>A preflight as this host built it, stamped on its hub's clock when it was set.</summary>
+        sealed record Judged(string Json, long AtMs);
+        volatile Judged? _preflight;
+        /// <summary>The preflight this host last built, or null: it keeps none. Setting it stamps it on the hub's clock, as a host's ServedContext does.</summary>
+        public string? Preflight
+        {
+            get => _preflight?.Json;
+            set => _preflight = value is null ? null : new Judged(value, Snapshots.NowMs);
+        }
+        /// <summary>IShowControl.ServedPreflight as a host serves it: the one rule first, then the judging, aged on the hub's clock.</summary>
+        public string? ServedPreflight(long wallMs)
+        {
+            var stuck = ServedStuck;
+            return _preflight is { } p ? PreflightWire.Served(p.Json, stuck, Snapshots.NowMs - p.AtMs, wallMs) : null;
+        }
         /// <summary>The host's own word beside its hub's (a context older than its bound, or resuming after a stall): IShowControl.ServedStuck.</summary>
         public volatile bool ContextStuck;
         public bool ServedStuck => ContextStuck || Snapshots.FrameStale;
@@ -540,9 +552,10 @@ static class WebV2Tests
     /// <summary>
     /// GET /api/preflight on a real server, and its other doors: read scope (401 with no credential, any key reads it, with its rate
     /// headers), nothing in its address (a query is 400, the PIN's included), 404 when the host keeps none; the host's verdict
-    /// passed through byte for byte while it is fresh, and the stuck answer in its place once it is older than 3 s or the show
-    /// thread is stuck — on the route and from MCP's get_preflight alike. A verdict's age is read on the server's preflight clock,
-    /// a manual one here, so no round trip's length decides a check. The operator frame ends desk then network; the public
+    /// passed through byte for byte while it is fresh, and the stuck answer in its place once it is older than the bound or the show
+    /// thread is stuck — on the route and from MCP's get_preflight alike. A verdict's age is read on the host's hub clock, an injected
+    /// one here, so no round trip's length decides a check; the server's preflight clock (a manual wall clock here) only dates the
+    /// stuck answer, so a step of it an hour either way moves no answer. The operator frame ends desk then network; the public
     /// frames have neither. What the rows say is NetworkPreflightTests' and the preflight e2e's.
     /// </summary>
     static async Task PreflightRoute(Action<bool, string> Check)
@@ -613,13 +626,30 @@ static class WebV2Tests
         var mcp = await McpPreflight();
         Check(mcp is { IsError: false } && mcp.Text == fresh, "preflight: MCP's get_preflight returns the route's JSON");
 
-        // Stale: a verdict the host has not rebuilt for longer than the bound (the hub's 3 s plus one 1 s build period) is never served as
-        // the verdict; at the bound it still is.
-        clock.Advance(PreflightWire.MaxAge);
+        // The wall clock stepped an hour forward and an hour back: no door moves, the verdict's age being read on the hub's clock.
+        clock.Advance(TimeSpan.FromHours(1));
+        var aheadHour = await Get(Keyed("/api/preflight"));
+        var aheadHourMcp = await McpPreflight();
+        clock.Advance(TimeSpan.FromHours(-2));
+        var backHour = await Get(Keyed("/api/preflight"));
+        var backHourMcp = await McpPreflight();
+        clock.Advance(TimeSpan.FromHours(1));
+        Check(aheadHour.Body == fresh && aheadHourMcp.Text == fresh && backHour.Body == fresh && backHourMcp.Text == fresh,
+            $"preflight route: the wall clock stepped an hour forward or back moves no answer — the verdict's age is read on the host's hub clock ({aheadHour.Body.Length}, {backHour.Body.Length})");
+
+        // Stale: a verdict the host has not rebuilt for longer than the bound (the hub's 3 s plus one 1 s build period) on its hub's clock,
+        // the show thread turning over all the while, is never served as the verdict; at the bound it still is.
+        var hubBound = (long)SnapshotHub.StuckAfter.TotalMilliseconds;
+        Interlocked.Add(ref nowMs, hubBound);
+        control.Snapshots.MarkAlive();
+        Interlocked.Add(ref nowMs, (long)PreflightWire.MaxAge.TotalMilliseconds - hubBound);
         var edge = await Get(Keyed("/api/preflight"));
-        clock.Advance(TimeSpan.FromMilliseconds(1));
+        Interlocked.Add(ref nowMs, 1);
         var stale = await Get(Keyed("/api/preflight"));
         var staleMcp = await McpPreflight();
+        clock.Advance(TimeSpan.FromHours(-1));
+        var staleBack = await Get(Keyed("/api/preflight"));
+        clock.Advance(TimeSpan.FromHours(1));
         static bool IsStuck(string json)
         {
             using var doc = JsonDocument.Parse(json);
@@ -628,8 +658,9 @@ static class WebV2Tests
                    && root.GetProperty("rows").GetArrayLength() == 1 && root.GetProperty("rows")[0].GetProperty("id").GetString() == PreflightWire.StuckId
                    && root.GetProperty("rows")[0].GetProperty("words").GetString() == PreflightWire.StuckWords;
         }
-        Check(edge.Body == fresh && stale.Status == HttpStatusCode.OK && IsStuck(stale.Body) && !stale.Body.Contains("went away", StringComparison.Ordinal) && IsStuck(staleMcp.Text),
-            $"preflight route: a verdict as old as the bound (the hub's 3 s plus the 1 s build period) is served; a millisecond older it is answered ready:false, stuck:true and the one red row, on the route and from MCP ({stale.Body})");
+        Check(edge.Body == fresh && stale.Status == HttpStatusCode.OK && IsStuck(stale.Body) && !stale.Body.Contains("went away", StringComparison.Ordinal) && IsStuck(staleMcp.Text)
+              && !control.Snapshots.FrameStale && IsStuck(staleBack.Body) && PreflightWire.At(staleBack.Body) == UnixMs() - 3_600_000,
+            $"preflight route: a verdict as old as the bound (the hub's 3 s plus the 1 s build period) on the hub's clock is served; a millisecond older it is answered ready:false, stuck:true and the one red row, on the route and from MCP, the hub alive, and the wall clock stepped back an hour only dates that answer ({stale.Body})");
 
         // Stuck: a fresh verdict from a show thread that has stopped turning over is not a verdict either.
         control.Preflight = Verdict(UnixMs());

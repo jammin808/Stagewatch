@@ -298,7 +298,7 @@ public static class Program
                     Expect(doorsMenu.SequenceEqual(new[] { "Copy the preflight", "Copy", "Remote settings…" }) && copyButton.Content as string == "Copy the preflight"
                            && copyButton.IsVisible && Stagewatch.App.Help.ContextHelp.GetTip(copyButton) == "network-ready" && Stagewatch.App.Help.HelpContent.Tip("network-ready") is not null,
                            $"Copy the preflight on the right-click and the button ({string.Join(", ", doorsMenu)})");
-                    Expect(vm.PreflightJson() is { } served && Stagewatch.Core.PreflightWire.At(served) is not null
+                    Expect(vm.ServedPreflight(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) is { } served && Stagewatch.Core.PreflightWire.At(served) is not null
                            && System.Text.Json.JsonDocument.Parse(served).RootElement.GetProperty("words").GetString() == preflightText.Split('\n')[0],
                            "the preflight the doors serve is the one the desk shows");
                     Save(w, "producer-show-network");

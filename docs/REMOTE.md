@@ -770,13 +770,20 @@ let it speak for the new node.
 
 **Stuck is never a confident stale verdict.** While the show thread is stuck, or the verdict was judged more than 4 s
 ago (the show thread's 3 s silence bound plus the 1 s it judges at; 3 s before SW24.1r), every door answers `ready:false`, `stuck:true`, `red:1` and the one row `stagewatch:show-thread` (check
-`stagewatch`): "Stagewatch's show thread is stuck — no verdict until it turns over".
+`stagewatch`): "Stagewatch's show thread is stuck — no verdict until it turns over". Since SW24.1s every age here is read on the
+show thread's own clock (the snapshot hub's, the one its silence and the context's build are read on), the judging stamped on it
+beside the context: the wall clock dates the verdict's `at` and the stuck answer's, for a reader to see, and nothing else, so a step of
+it (an hour forward or back) moves no door between the verdict and stuck.
 
 **The readers.** The verdict is never an item of Stagewatch's own context, so its own light stays its own parts' (one hop).
 - **Operator frames** end, after `desk`, with `"network":{"ready":false,"red":1,"amber":1,"stuck":false}` — the frame built
   after each judgement; no public frame carries it, and a host that keeps no preflight sends none (a missing verdict is not
   a ready one). A frame is sent when the verdict or its counts change. By the route's rule, a frame built more than 4 s
-  after the last judgement carries `{"ready":false,"red":1,"amber":0,"stuck":true}` in its place.
+  after the last judgement carries `{"ready":false,"red":1,"amber":0,"stuck":true}` in its place, and so does a frame built while
+  the show thread is stuck, or at the turn that ends a stall before that turn's judging (since SW24.1s: no frame carries a verdict
+  judged before a stall as current). On the rig, whose turn publishes its frame before it judges, the frame of the turn that ends a
+  stall carries the stuck verdict and the next frame (250 ms later) the one judged in that turn; on the desk, which judges first, it
+  carries the verdict judged in its own turn.
 - **MCP** `get_preflight` (no arguments, read-only) returns the route's JSON, by the route's rule.
 - **Companion**: `$(stagewatch:network_ready)` — `yes`, `no`, or `unknown` when stuck, not connected or sent no verdict —
   with `network_red`, `network_amber` and the feedback *Show network: Not ready for doors* (docs/COMPANION.md).
@@ -1786,8 +1793,9 @@ operator `network` verdict the stuck one (`{"ready":false,"red":1,"amber":0,"stu
 field — a live frame has no top-level `stuck`; MCP's `get_state` and `get_running_order` answer an error, "Stuck: no time from
 Stagewatch's show thread can be served as current — it has stalled, or is resuming from a stall and has not yet caught up
 (get_context and get_preflight say the same).", and no frame (MCP's instructions say so); `get_context`, `GET /api/context`,
-`get_preflight` and `GET /api/preflight` serve their stuck forms (the preflight also by its own age, on its own clock against the time
-it was built); Companion's pong says `STUCK`, and since SW24.1r every `SNAPSHOT` Companion answers — the one a module is sent when it
+`get_preflight` and `GET /api/preflight` serve their stuck forms (the preflight also by its own age, on the hub's clock against the
+judging's stamp beside the context's, since SW24.1s; before it on the wall clock against its `at`, so near the bound it could disagree
+with the other doors by the two clocks' granularity and moved with a wall-clock step); Companion's pong says `STUCK`, and since SW24.1r every `SNAPSHOT` Companion answers — the one a module is sent when it
 subscribes, and one it asks for — is the frame marked as `GET /api/state` marks it, so a deck that connects during a stall never draws
 its time as current (its pushed frames, each published by a show thread that turned over, carry no mark). `/ws`, which pushes frames,
 says stuck by the hub's own word (`SnapshotHub.FrameStale`: the show thread stuck, or turned over since a stall with no frame since):
@@ -1795,7 +1803,9 @@ says stuck by the hub's own word (`SnapshotHub.FrameStale`: the show thread stuc
 turns over the first frame made after the stall first. At a stall's start the asked doors turn together at the hub's 3 s bound (the
 context's age term cannot fire first: a live thread's build is never older than its last gap plus 1 s); `/ws` sends no frame from
 then, and its `live:false` beat comes at its next beat, within `ws.beat.ms` (2 s) after. At its end `/ws`'s first frame comes with the
-turn's publish, and the asked doors return with the context built in the same turn (the rig) or the next (the desk).
+turn's publish, and the asked doors return with the context built in the same turn (the rig) or the next (the desk). On the rig the
+frame of that turn carries the stuck verdict (it was built before the turn's judging), so for that one turn (250 ms) `GET /api/state`
+serves a live frame whose `network` still says stuck — the safe side; the desk's frame of that turn carries the verdict judged in it.
 
 ### The rows
 

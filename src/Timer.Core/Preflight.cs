@@ -22,7 +22,10 @@ public sealed record NetworkVerdict(bool Ready, int Red, int Amber, bool Stuck);
 /// <summary>
 /// The preflight on the wire (<c>GET /api/preflight</c>, MCP <c>get_preflight</c>): its JSON, and the rule every door serves it by —
 /// a verdict is never a confident stale one. While the show thread is stuck, or the verdict a host last built is older than
-/// <see cref="MaxAge"/> (or tells no time this reader can read), the answer is the stuck one: not ready, one red row. Pure.
+/// <see cref="MaxAge"/> (or tells no time this reader can read), the answer is the stuck one: not ready, one red row. A verdict's
+/// age is read on the host's show-thread clock (its hub's, <c>SnapshotHub.NowMs</c>), the clock the hub's silence and the context's
+/// build are read on, never on the wall clock: a step of the wall clock moves no stuck rule. Its <c>at</c> is the wall time a reader
+/// sees, and only that. Pure.
 /// </summary>
 public static class PreflightWire
 {
@@ -33,7 +36,7 @@ public static class PreflightWire
 
     /// <summary>
     /// How often a host whose show thread turns over judges the room and builds its context: at a turn that finds the last build this
-    /// old on its show thread's clock (the desk's and the rig's once a second; a context pair's build costs about 1 ms of the 250 ms turn).
+    /// old on its show thread's clock, its hub's (the desk's and the rig's once a second; a context pair's build costs about 1 ms of the 250 ms turn).
     /// </summary>
     public static readonly TimeSpan BuildEvery = TimeSpan.FromSeconds(1);
 
@@ -110,14 +113,14 @@ public static class PreflightWire
     }
 
     /// <summary>
-    /// What a door serves: null when the host keeps no preflight; the stuck answer while <paramref name="showStuck"/>, or when
-    /// <paramref name="built"/> is older than <see cref="MaxAge"/> at <paramref name="nowMs"/> or tells no time; else
-    /// <paramref name="built"/> as it is.
+    /// What a door serves: null when the host keeps no preflight; the stuck answer, dated <paramref name="wallMs"/>, while
+    /// <paramref name="showStuck"/> (the host's one served rule), or when <paramref name="built"/> is <paramref name="ageMs"/> old on the
+    /// host's show-thread clock and that is older than <see cref="MaxAge"/>, or it tells no time; else <paramref name="built"/> as it is.
     /// </summary>
-    public static string? Served(string? built, bool showStuck, long nowMs)
+    public static string? Served(string? built, bool showStuck, long ageMs, long wallMs)
     {
         if (built is null) return null;
-        if (showStuck || At(built) is not { } at || nowMs - at > (long)MaxAge.TotalMilliseconds) return Stuck(nowMs);
+        if (showStuck || ageMs > (long)MaxAge.TotalMilliseconds || At(built) is null) return Stuck(wallMs);
         return built;
     }
 
@@ -125,13 +128,12 @@ public static class PreflightWire
     public static NetworkVerdict StuckVerdict { get; } = new(Ready: false, Red: 1, Amber: 0, Stuck: true);
 
     /// <summary>
-    /// What a frame carries, by the doors' own rule: null from a host that keeps no preflight; <paramref name="verdict"/> while it
-    /// was judged within <see cref="MaxAge"/> of <paramref name="nowMs"/>; else <see cref="StuckVerdict"/> — a frame still being
-    /// built while the judging has stopped never repeats the last verdict as if it stood.
+    /// What a frame carries, by the doors' own rule: null from a host that keeps no preflight; <see cref="StuckVerdict"/> when
+    /// <paramref name="verdict"/> was judged before a stall the frame has not yet published past (<paramref name="beforeStall"/>: the
+    /// hub's <c>MadeBeforeStall</c> at the judging's time), or more than <see cref="MaxAge"/> before <paramref name="nowMs"/> on the same
+    /// show-thread clock as <paramref name="atMs"/>; else <paramref name="verdict"/> — a frame never repeats a verdict from before a stall,
+    /// or from a judging that has stopped, as if it stood.
     /// </summary>
-    public static NetworkVerdict? Carried(NetworkVerdict? verdict, long atMs, long nowMs)
-        => verdict is null ? null : nowMs - atMs > (long)MaxAge.TotalMilliseconds ? StuckVerdict : verdict;
-
-    /// <summary><see cref="Served"/> at this moment on the machine's clock.</summary>
-    public static string? ServedNow(string? built, bool showStuck) => Served(built, showStuck, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+    public static NetworkVerdict? Carried(NetworkVerdict? verdict, long atMs, long nowMs, bool beforeStall)
+        => verdict is null ? null : beforeStall || nowMs - atMs > (long)MaxAge.TotalMilliseconds ? StuckVerdict : verdict;
 }

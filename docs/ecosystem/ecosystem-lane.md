@@ -1051,7 +1051,7 @@ S4.1 and S4.2 are also where G44's first untested pairing is proved: Stagewatch'
 - `SeenNodes` (10 min, 32) and the stuck answer.
 
 **`src/Timer.Core/ShowState.cs`, `SnapshotJson.cs`** (SW-G49b)
-- `IShowContext.PreflightJson()` (default null).
+- `IShowContext.PreflightJson()` (default null; since SW24.1s `IShowControl.ServedPreflight(wallMs)`, the preflight aged on the hub's clock).
 - The operator frame's `network` after `desk`.
 
 **`src/Timer.Remote/WebServer.cs`, `McpEndpoint.cs`** (SW-G49b)

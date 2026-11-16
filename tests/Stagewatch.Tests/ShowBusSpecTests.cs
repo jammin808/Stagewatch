@@ -2357,11 +2357,18 @@ static class ShowBusSpecTests
             + "frame stale, the context resuming after a stall, or its build older than the preflight's bound, on injected time) has its timer, its "
             + "schedule and its VT countdown red with the stuck words, its light red and no counting value in its headline, never the running time it "
             + "last built; at the stuck bound it is still the live one; after a stall it is the stuck one until a build from a frame made after it, in "
-            + "the rig's order and the desk's, and the live one after; and the desk and the rig serve, turn and answer the asked doors through the one helper");
+            + "the rig's order and the desk's, and the live one after; and the desk and the rig serve, turn and answer the asked doors through the one helper, "
+            + "each publishing its judging before its pair");
         Check(SlowThreadKept(), _slowWhy + " showbus spec: a slow but live show thread is never served stuck: on injected time, in the rig's turn order and the desk's, "
             + "turns 800 ms apart for ten seconds and a 2.9 s gap at each phase of the build cycle leave every asked door live (the served rule, the context, "
             + "the preflight's answer), and a 3.1 s or 3.5 s gap turns every one stuck together, by the hub, from the read past its bound, live again "
-            + "after it; the desk's frame at the turn that ends the stall never carries the verdict from before it as current");
+            + "after it, the wall clock stepped an hour each way moving none; no frame at the turn that ends the stall carries the verdict from before "
+            + "it as current, in the rig's order or the desk's, nor a command's frame built after the stall before the turn's mark");
+        Check(ReadOrderKept(), "showbus spec: the served context reads its flags before its pair and its judging: a reader whose first clock read lets the "
+            + "show thread's whole build land (the pair, the judging and the resuming mark's clear) serves that build, never the one from before the stall, "
+            + "in the rig's order and the desk's (a frame published past the stall before its build, its judging landed alone: still stuck)");
+        Check(WallClockKept(), "showbus spec: no stuck rule reads the wall clock: on the hub's injected clock, with the wall clock stepped an hour forward and "
+            + "back at the bound's edges, the served rule, the context, the preflight and the frame's verdict each say what they said");
         Check(OrderKept(12), "showbus spec: Stagewatch keeps P7: its reds and ambers first, then every item with a row to another node, then the rest");
         Check(MessagesKept(), "showbus spec: Stagewatch keeps P8 for its messages: no cue item or recent line carries a message's, a nudge's or an audience "
             + "question's words, while the desk still journals them and a department's cue words still go");
@@ -2494,7 +2501,8 @@ static class ShowBusSpecTests
     /// than the bound at the turn that ends it) is still never served live from before it. A build that stops while the thread turns over
     /// is served stuck once it is older than the bound. The stuck form's headline carries no counting value, a schedule offset among
     /// them. <see cref="ServedContext.Stuck"/> says what <see cref="ServedContext.Json"/> serves at every step. And the desk and the rig
-    /// serve, turn and answer the asked doors' rule through the one helper.
+    /// serve, turn and answer the asked doors' rule through the one helper: the context, the rule, the preflight (published to it and
+    /// served by it) and the frame's verdict (<see cref="ServedContext.FrameVerdict"/>, no wall-clock age left in either frame builder).
     /// </summary>
     static bool StuckServedKept()
     {
@@ -2584,10 +2592,18 @@ static class ShowBusSpecTests
         var refresh = desk.IndexOf("private void RefreshShowBus()", StringComparison.Ordinal);
         var built = refresh < 0 ? -1 : desk.IndexOf("_context.Publish(input);", refresh, StringComparison.Ordinal);
         var deskBuildsFirst = built > refresh && !Regex.IsMatch(desk[refresh..built], @"(?<![\w.])Publish\(\)");
+        // Its judging is published before its pair, as the rig's is (ReadOrderKept): the pair's publish may clear the resuming mark, and a
+        // door that finds it cleared must find this turn's judging. The judging is RefreshPreflight's; it is called once, before the build.
+        var judgedFirst = built > refresh && desk.IndexOf("RefreshPreflight(now, view,", refresh, StringComparison.Ordinal) is var judging
+                          && judging > refresh && judging < built && desk.Split("RefreshPreflight(now, view,").Length == 2;
+        var systems = Source("src/Timer.App/ViewModels/MainViewModel.Systems.cs") ?? "";
         var wired = new[] { desk, rig }.All(t => t.Contains("ContextJson() => _context.Json();", StringComparison.Ordinal)
                                                  && t.Contains("ServedStuck => _context.Stuck;", StringComparison.Ordinal)
+                                                 && t.Contains("ServedPreflight(long wallMs) => _context.Preflight(wallMs);", StringComparison.Ordinal)
+                                                 && t.Contains("_context.PublishPreflight(result);", StringComparison.Ordinal)
                                                  && t.Contains("_context.MarkAlive();", StringComparison.Ordinal))
-                    && Line(desk, "if (!_context.Due) return;") && deskBuildsFirst
+                    && new[] { systems, rig }.All(t => Line(t, "Network = _context.FrameVerdict(),") && !t.Contains("VerdictAt(", StringComparison.Ordinal))
+                    && Line(desk, "if (!_context.Due) return;") && deskBuildsFirst && judgedFirst
                     && Line(rig, "if (_context.Due)")
                     && desk.Split("_context.Due").Length == 2 && rig.Split("_context.Due").Length == 2
                     && !desk.Contains("_contextTick", StringComparison.Ordinal) && !rig.Contains("++_tick", StringComparison.Ordinal)
@@ -2612,14 +2628,18 @@ static class ShowBusSpecTests
     /// only when the show thread has been silent past the hub's bound, is resuming from that, or has turned over without building for
     /// <see cref="ServedContext.MaxAge"/> — and then at every asked door together. The asked doors as a host serves them: the served rule
     /// (<see cref="ServedContext.Stuck"/>: the state doors, MCP, the Companion pong and SNAPSHOT answer), the context it serves, and the
-    /// preflight's stuck answer (<see cref="PreflightWire.Served"/>, its verdict built in the same turn as the context, aged on the same
-    /// clock). Held: turns 800 ms apart for ten seconds, read every 50 ms — no door stuck; on 250 ms turns, one 2.9 s gap begun at each
-    /// turn of the build cycle and at each 50 ms within it — no door stuck through the gap; a 3.1 s gap — every door stuck together from
-    /// the read past the hub's bound, by the hub (its producer stuck), and none before it; and back to live at the turn after it (the
-    /// rig) or the turn after that (the desk, whose turn that ends a stall builds from the frame from before it: one turn's tail, every
-    /// door still stuck together). In the desk's order the frame published at the turn that ends a 3.1 s or a 3.5 s stall carries a
-    /// verdict judged in that turn, never one from before the stall as current (<see cref="PreflightWire.Carried"/>); the rig's order
-    /// carries the pre-stall verdict there while it is younger than the bound, an open item of WHATS_NEXT, not held here.
+    /// preflight it serves (<see cref="ServedContext.Preflight"/>, judged in the same turn as the context, in the host's order, and aged
+    /// on the same clock), with the wall clock the judging and the stuck answer are dated by stepped an hour forward and back across
+    /// turns, which no door reads. Held: turns 800 ms apart for ten seconds, read every 50 ms — no door stuck; on 250 ms turns, one 2.9 s
+    /// gap begun at each turn of the build cycle and at each 50 ms within it — no door stuck through the gap, and the frame after it
+    /// carrying the verdict as judged; a 3.1 s gap — every door stuck together from the read past the hub's bound, by the hub (its
+    /// producer stuck), and none before it; and back to live at the turn after it (the rig) or the turn after that (the desk, whose turn
+    /// that ends a stall builds from the frame from before it: one turn's tail, every door still stuck together). In both orders no frame
+    /// published at the turn that ends a 3.1 s or a 3.5 s stall carries a verdict judged before it as current
+    /// (<see cref="ServedContext.FrameVerdict"/>): the rig's (its frame before its judging) carries the stuck verdict, the desk's (its
+    /// judging first) the verdict judged in that turn; and the frame after that carries the verdict judged after the stall in both. A
+    /// command's frame built after the stall and before the turn's mark carries the stuck verdict by the producer's own term, the judging
+    /// still younger than the bound at the 3.1 s gap.
     /// </summary>
     static bool SlowThreadKept() => SlowThread(desk: false) && SlowThread(desk: true);
 
@@ -2640,17 +2660,23 @@ static class ShowBusSpecTests
         var hub = new SnapshotHub(() => Volatile.Read(ref nowMs));
         var served = new ServedContext(hub);
         var frame = Running() with { Elements = DisplayElements.All };
-        string? preflight = null;
-        // The verdict as the host judges it with each build, and the one the last published frame carries (Carried, at the frame's time).
+        // The wall clock a host dates its judging and the stuck answer by, stepped an hour forward and back across turns: no door reads it.
+        var tick = 0;
+        long Wall() => Volatile.Read(ref nowMs) + 1_700_000_000_000 + (tick % 3 - 1) * 3_600_000L;
+        // The verdict as the host judges it with each build (published beside the pair, in the host's order), and the one each frame
+        // carries (ServedContext.FrameVerdict, as the host builds its frame), with the hub time of the judging it was built after.
         var judged = new NetworkVerdict(Ready: true, Red: 0, Amber: 0, Stuck: false);
         long judgedAt = 0;
         var published = new List<(NetworkVerdict? Verdict, long JudgedAt)>();
-        var tick = 0;
         void Frame()
         {
-            var at = Volatile.Read(ref nowMs);
-            published.Add((preflight is null ? null : PreflightWire.Carried(judged, judgedAt, at), judgedAt));
+            published.Add((served.FrameVerdict(), judgedAt));
             hub.Publish(frame with { Text = (tick++ % 2 == 0) ? "04:59" : "04:58" });
+        }
+        void Judge()
+        {
+            judgedAt = Volatile.Read(ref nowMs);
+            served.PublishPreflight(new PreflightResult(Wall(), true, 0, 0, 1, "ready", []));
         }
         void Turn()
         {
@@ -2658,9 +2684,9 @@ static class ShowBusSpecTests
             if (!desk) Frame();
             if (served.Due)
             {
+                // Both hosts judge before the pair: the rig inside its context's input, the desk in RefreshShowBus before its build's publish.
+                Judge();
                 served.Publish(Own(hub.Latest, hub.ProducerStuck, [], []));
-                judgedAt = Volatile.Read(ref nowMs);
-                preflight = PreflightWire.Write(judgedAt, true, false, 0, 0, 1, "ready", []);
             }
             if (desk) Frame();
         }
@@ -2671,7 +2697,7 @@ static class ShowBusSpecTests
             var rule = served.Stuck;
             var json = served.Json();
             var context = json is not null && TimerWords(json) == ShowContext.StuckWords;
-            var answer = PreflightWire.Served(preflight, rule, Volatile.Read(ref nowMs));
+            var answer = served.Preflight(Wall());
             var verdict = answer is not null && answer.Contains("\"stuck\":true", StringComparison.Ordinal);
             said = FormattableString.Invariant($"rule {rule}, context {context}, preflight {verdict}");
             return rule == context && rule == verdict ? rule : null;
@@ -2693,10 +2719,12 @@ static class ShowBusSpecTests
             return true;
         }
         var ok = true;
-        // Turns 800 ms apart for ten seconds: never stuck.
+        // Turns 800 ms apart for ten seconds: never stuck, and every frame carries the verdict as judged.
         leg = "turns 800 ms apart";
         Turn();
         for (var i = 0; i < 12_500 / 800 && ok; i++) { ok &= Wait(800, 50, d => d == false); Turn(); ok &= Doors() == false; }
+        if (published.Skip(1).Any(f => f.Verdict != judged) && _slowWhy.Length == 0) _slowWhy = $"{host}, {leg}: a frame carried the stuck verdict";
+        ok &= published.Skip(1).All(f => f.Verdict == judged);
         // 250 ms turns; a 2.9 s gap begun at each turn of the build cycle (0 to 3 turns past a build), its last turn before the gap
         // also late by each 50 ms within a turn, so the build is from 0 to 950 ms old when the gap begins: never stuck.
         var cycle = (int)(ServedContext.BuildEvery.TotalMilliseconds / 250);
@@ -2707,13 +2735,18 @@ static class ShowBusSpecTests
             ok &= Wait(phase % 5 * 50, 50, d => d == false);
             Turn();
             ok &= Wait(2_900, 10, d => d == false);
+            published.Clear();
             Turn();
             ok &= Doors() == false;
+            // The turn after a gap under the hub's bound ends no stall: its frame carries the verdict as judged.
+            if (published.Any(f => f.Verdict != judged) && _slowWhy.Length == 0) _slowWhy = $"{host}, {leg}: the turn after the gap carried the stuck verdict";
+            ok &= published.All(f => f.Verdict == judged);
         }
         // A 3.1 s gap and a 3.5 s gap: live up to the hub's bound, then every door stuck together, by the hub; live again from the
-        // turn after it (the rig) or the turn after that (the desk); the desk's frame at the turn that ends it never the pre-stall verdict.
+        // turn after it (the rig) or the turn after that (the desk); no frame at the turn that ends it carries the verdict from before it.
         var bound = (long)SnapshotHub.StuckAfter.TotalMilliseconds;
-        foreach (var gap in new long[] { 3_100, 3_500 })
+        var gaps = new[] { bound + 100, bound + 500 };
+        foreach (var gap in gaps)
         {
             leg = FormattableString.Invariant($"a {gap} ms gap");
             for (var i = 0; i < cycle * 2 && ok; i++) { ok &= Wait(250, 250, d => d == false); Turn(); }
@@ -2724,17 +2757,28 @@ static class ShowBusSpecTests
                 return since <= bound ? d == false && !hub.ProducerStuck : d == true && hub.ProducerStuck;
             });
             var endedAt = Volatile.Read(ref nowMs);
+            // A command run on the show thread after the stall and before the turn's mark (the desk's tick runs at Background priority,
+            // so queued commands run first) builds a frame with the producer still stuck: it carries the stuck verdict, by the producer's
+            // own term, while the judging from before the stall is still younger than the bound at the 3.1 s gap.
+            var command = served.FrameVerdict();
+            var young = gap != gaps[0] || endedAt - judgedAt < (long)ServedContext.MaxAge.TotalMilliseconds;
+            if ((command != PreflightWire.StuckVerdict || !young) && _slowWhy.Length == 0)
+                _slowWhy = FormattableString.Invariant($"{host}, {leg}: a command's frame before the turn's mark carried {command} (judged {endedAt - judgedAt} ms before)");
+            ok &= command == PreflightWire.StuckVerdict && young && hub.ProducerStuck;
             published.Clear();
             Turn();
+            // Every frame the turn that ends the stall publishes: the stuck verdict, or one judged in that turn — the rig's (its frame
+            // before its judging) the stuck one, the desk's (its judging first) the one judged in it.
+            var stale = published.FindIndex(f => f.Verdict != PreflightWire.StuckVerdict && !(f.Verdict is not null && f.JudgedAt >= endedAt));
+            var fresh = published.Count > 0 && stale < 0
+                        && (desk ? published[^1].Verdict == judged : published[^1].Verdict == PreflightWire.StuckVerdict);
+            if (!fresh && _slowWhy.Length == 0)
+                _slowWhy = published.Count == 0 ? $"{host}, {leg}: the turn that ends it published no frame"
+                    : stale >= 0 ? FormattableString.Invariant($"{host}, {leg}: frame {stale + 1} of the turn that ends it carries a verdict judged {endedAt - published[stale].JudgedAt} ms before it, not stuck")
+                    : $"{host}, {leg}: the turn that ends it carried {published[^1].Verdict}";
+            ok &= fresh;
             if (desk)
             {
-                // Every frame the turn that ends the stall publishes: the stuck verdict, or one judged in that turn.
-                var stale = published.FindIndex(f => f.Verdict != PreflightWire.StuckVerdict && !(f.Verdict is not null && f.JudgedAt >= endedAt));
-                var fresh = published.Count > 0 && stale < 0;
-                if (!fresh && _slowWhy.Length == 0)
-                    _slowWhy = stale < 0 ? $"{host}, {leg}: the turn that ends it published no frame"
-                        : FormattableString.Invariant($"{host}, {leg}: frame {stale + 1} of the turn that ends it carries a verdict judged {endedAt - published[stale].JudgedAt} ms before it, not stuck");
-                ok &= fresh;
                 // One turn's tail: the build of the turn that ended the stall read the frame from before it; every door still stuck.
                 var tail = Doors();
                 if (tail != true && _slowWhy.Length == 0) _slowWhy = $"{host}, {leg}: the turn that ends it said {said}, not stuck at every door";
@@ -2745,8 +2789,136 @@ static class ShowBusSpecTests
             var back = Doors();
             if (back != false && _slowWhy.Length == 0) _slowWhy = $"{host}, {leg}: after it the doors said {said}";
             ok &= back == false && !hub.FrameStale;
+            // The next frame carries the verdict judged after the stall, in both orders.
+            published.Clear();
+            ok &= Wait(250, 250, d => d == false);
+            Turn();
+            var again = published.Count > 0 && published.All(f => f.Verdict == judged && f.JudgedAt >= endedAt);
+            if (!again && _slowWhy.Length == 0) _slowWhy = $"{host}, {leg}: the frame after it does not carry the verdict judged after the stall";
+            ok &= again;
         }
         return ok;
+    }
+
+    /// <summary>
+    /// The served context reads the flags before what it serves (kept since SW24.1s; held by reading until then). A reader on another
+    /// thread can be pre-empted between its reads; here the pre-emption is made deterministic: the hub's injected clock, the first thing
+    /// a reader's flag read calls, runs the show thread's whole build of the turn after a stall (the judging, the pair, and with them the
+    /// clear of the context's resuming mark) inside the reader's first clock read. With the flags read first, the reader reads the cleared
+    /// flag and then the new build: it serves the new context (<see cref="ServedContext.Json"/>) and the new judging
+    /// (<see cref="ServedContext.Preflight"/>). Read the other way it would serve the context and the judging from before the stall, live
+    /// (both younger than the bound) — which this check fails. Then the desk's order after a command's frame has cleared the hub's resuming:
+    /// its judging landed alone still serves stuck, and with its pair the new judging. <see cref="ServedContext.Stuck"/> serves nothing of
+    /// the pair, so its order is not observable this way and is not held here.
+    /// </summary>
+    static bool ReadOrderKept()
+    {
+        long nowMs = 2_000_000;
+        Action? hook = null;
+        var hub = new SnapshotHub(() =>
+        {
+            var h = hook;
+            hook = null;
+            h?.Invoke();
+            return Volatile.Read(ref nowMs);
+        });
+        var served = new ServedContext(hub);
+        var frame = Running() with { Elements = DisplayElements.All };
+        static PreflightResult Judged(long wallMs) => new(wallMs, true, 0, 0, 1, "ready", []);
+        served.MarkAlive();
+        hub.Publish(frame);
+        served.PublishPreflight(Judged(1_700_000_000_000));
+        served.Publish(Own(frame, false, [], []));
+        var before = served.Json();
+        var beforePreflight = served.Preflight(1_700_000_000_500);
+        // A stall just past the hub's bound: the build from before it is younger than the context's bound when it ends, so only the
+        // order of the reads, never the age, can keep it from being served live. A change of either bound that breaks this fails here.
+        var stall = (long)SnapshotHub.StuckAfter.TotalMilliseconds + 100;
+        var underBound = stall < (long)ServedContext.MaxAge.TotalMilliseconds;
+        Interlocked.Add(ref nowMs, stall);
+        served.MarkAlive();
+        hub.Publish(frame with { Text = "04:59", Seconds = 299 });   // the rig's frame of the turn: the hub current again, the context still resuming
+        var held = served.Json() != before && served.Stuck;
+        void Build()
+        {
+            served.PublishPreflight(Judged(1_700_000_003_100));
+            served.Publish(Own(hub.Latest, hub.ProducerStuck, [], []));
+        }
+        hook = Build;
+        var json = served.Json();
+        var landed = hook is null;
+        var after = served.Json();
+        // Again for the preflight: a fresh stall, then the build inside the reader's first clock read.
+        Interlocked.Add(ref nowMs, stall);
+        served.MarkAlive();
+        hub.Publish(frame with { Text = "04:58", Seconds = 298 });
+        var stalePreflight = served.Preflight(1_700_000_006_200);
+        hook = () =>
+        {
+            served.PublishPreflight(Judged(1_700_000_006_200));
+            served.Publish(Own(hub.Latest, hub.ProducerStuck, [], []));
+        };
+        var preflight = served.Preflight(1_700_000_006_200);
+        var preflightLanded = hook is null;
+        // The desk's order, with a frame published past the stall before its build (a command run after the turn's mark, the hub no longer
+        // resuming): its build publishes the judging and then the pair. A reader whose first clock read lands the judging alone (the desk's
+        // build up to its pair) still reads the context resuming and serves stuck, never the judging from before the stall; one whose first
+        // read lands the pair serves the new judging. (The pair published first, with the judging from before the stall still held, would
+        // be served live: the desk's order is held by StuckServedKept's source fence.)
+        Interlocked.Add(ref nowMs, stall);
+        served.MarkAlive();
+        hub.Publish(frame with { Text = "04:57", Seconds = 297 });
+        var commandPast = !hub.Resuming && served.Stuck;
+        hook = () => served.PublishPreflight(Judged(1_700_000_009_300));
+        var deskMid = served.Preflight(1_700_000_009_300);
+        var deskMidLanded = hook is null;
+        hook = () => served.Publish(Own(hub.Latest, hub.ProducerStuck, [], []));
+        var deskBuilt = served.Preflight(1_700_000_009_300);
+        var deskLanded = hook is null;
+        return underBound && before is not null && beforePreflight is not null && held && landed && json == after && json != before && !served.Stuck
+               && preflightLanded && stalePreflight is not null && stalePreflight.Contains("\"stuck\":true", StringComparison.Ordinal)
+               && preflight is not null && PreflightWire.At(preflight) == 1_700_000_006_200 && preflight.Contains("\"stuck\":false", StringComparison.Ordinal)
+               && commandPast && deskMidLanded && deskMid is not null && deskMid.Contains("\"stuck\":true", StringComparison.Ordinal)
+               && deskLanded && deskBuilt is not null && PreflightWire.At(deskBuilt) == 1_700_000_009_300 && deskBuilt.Contains("\"stuck\":false", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// No stuck rule reads the wall clock (kept since SW24.1s): every door ages the context and the judging on the hub's clock, and the wall
+    /// clock only dates the judging and the stuck answer for a reader to see. On the hub's injected clock, at a build's age of the bound
+    /// and of the bound and a millisecond, the served rule, the context, the preflight (its stuck words or the judging) and the frame's
+    /// verdict each say the same with the wall clock an hour ahead, as it is, and an hour behind.
+    /// </summary>
+    static bool WallClockKept()
+    {
+        long nowMs = 3_000_000;
+        var hub = new SnapshotHub(() => Volatile.Read(ref nowMs));
+        var served = new ServedContext(hub);
+        var frame = Running() with { Elements = DisplayElements.All };
+        const long Wall = 1_700_000_000_000;
+        const long Hour = 3_600_000;
+        served.MarkAlive();
+        hub.Publish(frame);
+        served.PublishPreflight(new PreflightResult(Wall, true, 0, 0, 1, "ready", []));
+        served.Publish(Own(frame, false, [], []));
+        var ok = true;
+        var bound = (long)SnapshotHub.StuckAfter.TotalMilliseconds;
+        var maxAge = (long)ServedContext.MaxAge.TotalMilliseconds;
+        // The show thread turns over at the hub's bound, building nothing: the build ages to the context's bound, then past it.
+        Interlocked.Add(ref nowMs, bound);
+        served.MarkAlive();
+        foreach (var (age, stuck) in new[] { (maxAge, false), (maxAge + 1, true) })
+        {
+            Volatile.Write(ref nowMs, 3_000_000 + age);
+            var said = new[] { -Hour, 0, Hour }.Select(step =>
+            {
+                var p = served.Preflight(Wall + age + step);
+                var preflightStuck = p is not null && p.Contains("\"stuck\":true", StringComparison.Ordinal);
+                return (served.Stuck, Context: served.Json(), preflightStuck, Judging: preflightStuck ? null : p, Frame: served.FrameVerdict());
+            }).ToList();
+            ok &= said.All(x => x.Stuck == stuck && x.preflightStuck == stuck && x.Context == said[0].Context && x.Judging == said[0].Judging
+                                && x.Frame == (stuck ? PreflightWire.StuckVerdict : new NetworkVerdict(true, 0, 0, false)));
+        }
+        return ok && !hub.FrameStale;
     }
 
     /// <summary>

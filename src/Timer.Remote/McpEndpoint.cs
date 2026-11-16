@@ -33,11 +33,12 @@ public sealed class McpEndpoint
 
     /// <summary>
     /// A full surface's endpoint. <paramref name="preflight"/> is the room's preflight as that surface's doors serve it; without
-    /// one, the control's own under the same rule (<see cref="PreflightWire.Served"/>): never a stale verdict, never a stuck show's.
+    /// one, the control's own served form (<see cref="IShowControl.ServedPreflight"/>, its stuck answer dated now): never a stale
+    /// verdict, never a stuck show's.
     /// </summary>
     public McpEndpoint(IShowControl control, Func<byte[]> detailFrame, Func<string?>? preflight = null)
         : this(control, control, control, detailFrame, () => control.ServedStuck, control,
-            preflight ?? (() => PreflightWire.ServedNow(control.PreflightJson(), control.ServedStuck)), control) { }
+            preflight ?? (() => control.ServedPreflight(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())), control) { }
 
     /// <summary>
     /// MCP needs only these: run commands, read the report and the show's context, and route agents' commands to the operator.

@@ -19,6 +19,9 @@ namespace Stagewatch.Show;
 /// still turns over fails closed by age. Everything in the stuck form but its counting items and its headline is as it stood at the
 /// context's <c>at</c>, from before the stall: links, windows still "shown", the timer's <c>feeds</c> rows and the <c>serves</c> rows
 /// to holders, health — P5 reddens counting items and no more, and <c>at</c> dates the rest.
+/// The room's preflight is kept beside the pair, judged in the same turn and stamped on the same clock (<see cref="PublishPreflight"/>):
+/// every asked door serves it by the one rule and its own age on that clock (<see cref="Preflight"/>), and every frame carries its verdict
+/// by the same (<see cref="FrameVerdict"/>), so no stuck rule reads the wall clock and a step of it moves none of them.
 /// </summary>
 public sealed class ServedContext(SnapshotHub hub)
 {
@@ -30,7 +33,11 @@ public sealed class ServedContext(SnapshotHub hub)
 
     private sealed record Pair(string Live, string Stuck, long AtMs);
 
+    /// <summary>A judging of the room: its verdict, its route JSON (whose <c>at</c> is the wall time a reader sees) and its time on the hub's clock.</summary>
+    private sealed record Judged(NetworkVerdict Verdict, string Json, long AtMs);
+
     private volatile Pair? _pair;
+    private volatile Judged? _preflight;
     private volatile bool _resuming;   // written on the show thread
 
     /// <summary>
@@ -87,6 +94,38 @@ public sealed class ServedContext(SnapshotHub hub)
         if (_pair is not { } p) return null;
         return stale || Old(p, hub.NowMs) ? p.Stuck : p.Live;
     }
+
+    /// <summary>
+    /// Publishes the room's preflight as the show thread judged it (show thread, in the turn that builds the context), stamped on the
+    /// hub's clock beside the pair. It is judged from the same join as the context, before the flags of the turn that ends a stall clear:
+    /// every host publishes its judging before its pair (<see cref="Publish"/> may clear the context's resuming, and a reader that finds it
+    /// cleared must find the judging of that turn), the desk and the rig alike.
+    /// </summary>
+    public void PublishPreflight(PreflightResult result) => _preflight = new Judged(result.Verdict, result.ToJson(), hub.NowMs);
+
+    /// <summary>
+    /// The preflight every door a reader asks serves (<c>GET /api/preflight</c>, MCP's <c>get_preflight</c>; any thread, read at serve
+    /// time): null before the first judging; the stuck answer, dated <paramref name="wallMs"/> (the wall time a reader sees), while
+    /// <see cref="Stuck"/> holds or the judging is older than <see cref="MaxAge"/> on the hub's clock; else the judging as it was written.
+    /// The flags and the pair are read before the judging, so a judging read after a cleared flag is at least the one of the turn that
+    /// cleared it.
+    /// </summary>
+    public string? Preflight(long wallMs)
+    {
+        var stuck = Stuck;
+        if (_preflight is not { } p) return null;
+        return PreflightWire.Served(p.Json, stuck, hub.NowMs - p.AtMs, wallMs);
+    }
+
+    /// <summary>
+    /// The verdict the frame being built carries (show thread, as the frame is built): null before the first judging; the stuck verdict
+    /// for a judging from before a stall the hub has not yet published past (<see cref="SnapshotHub.MadeBeforeStall"/>) or older than
+    /// <see cref="MaxAge"/> on the hub's clock (<see cref="PreflightWire.Carried"/>); else the verdict as judged. So a frame built at the
+    /// turn that ends a stall before that turn's judging (the rig's order) carries the stuck verdict, and one built after it (the
+    /// desk's) the verdict judged in its own turn.
+    /// </summary>
+    public NetworkVerdict? FrameVerdict()
+        => _preflight is { } p ? PreflightWire.Carried(p.Verdict, p.AtMs, hub.NowMs, hub.MadeBeforeStall(p.AtMs)) : null;
 
     private bool Stale => hub.FrameStale || _resuming;
 

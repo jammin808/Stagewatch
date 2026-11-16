@@ -39,14 +39,13 @@ public sealed record PreflightInput(DateTime NowUtc, NetworkView Network, IReadO
 /// <summary>
 /// The room's verdict at one moment: ready while no row is red (amber is counted, listed and never blocks), the counts over every
 /// row, the verdict in words, and the rows — red, amber, green, then by name — at most <see cref="PreflightWire.MaxRows"/>.
+/// <see cref="AtMs"/> is the judging's wall time, its route's <c>at</c>, for a reader to see; nothing ages it: the host's
+/// <see cref="ServedContext"/> stamps the judging on its hub's clock, and every door and frame ages it on that.
 /// </summary>
 public sealed record PreflightResult(long AtMs, bool Ready, int Red, int Amber, int Green, string Words, IReadOnlyList<PreflightRow> Rows)
 {
     /// <summary>The verdict as judged: ready, the counts, never stuck (stuck is what a door or a frame says in its place).</summary>
     public NetworkVerdict Verdict => new(Ready, Red, Amber, Stuck: false);
-
-    /// <summary>The verdict as an operator frame built at <paramref name="nowMs"/> carries it (<see cref="PreflightWire.Carried"/>): the stuck one once this has gone stale.</summary>
-    public NetworkVerdict VerdictAt(long nowMs) => PreflightWire.Carried(Verdict, AtMs, nowMs)!;
 
     /// <summary>The route's JSON (<see cref="PreflightWire.Write"/>).</summary>
     public string ToJson() => PreflightWire.Write(AtMs, Ready, stuck: false, Red, Amber, Green, Words, Rows);

@@ -146,16 +146,16 @@ public sealed class WebServer : IAsyncDisposable
     }
 
     /// <summary>
-    /// The room's preflight as every door of this server gives it (GET /api/preflight, MCP get_preflight): the host's, or the stuck
-    /// answer while the show thread is stuck or the host's verdict has gone stale (<see cref="PreflightWire.Served"/>); null when
-    /// the host keeps none. Any thread.
+    /// The room's preflight as every door of this server gives it (GET /api/preflight, MCP get_preflight): the host's served form
+    /// (<see cref="IShowControl.ServedPreflight"/>: the judging, or the stuck answer while the host's served rule holds or the judging
+    /// is older than the bound on the host's hub clock); null when the host keeps none. Any thread.
     /// </summary>
-    public string? ServedPreflight()
-        => PreflightWire.Served(_control.PreflightJson(), _control.ServedStuck, PreflightClock.GetUtcNow().ToUnixTimeMilliseconds());
+    public string? ServedPreflight() => _control.ServedPreflight(PreflightClock.GetUtcNow().ToUnixTimeMilliseconds());
 
     /// <summary>
-    /// The clock a verdict's age is read on (<see cref="PreflightWire.MaxAge"/>): the system's, or a manual one that ages a verdict
-    /// without waiting. Fixed when the server is made.
+    /// The wall clock the stuck answer is dated by (its <c>at</c>, the time a reader sees): the system's, or a manual one. No verdict's
+    /// age is read on it — that is the host's hub clock — so a step of it moves no answer between the verdict and stuck. Fixed when
+    /// the server is made.
     /// </summary>
     public TimeProvider PreflightClock { get; init; } = TimeProvider.System;
 

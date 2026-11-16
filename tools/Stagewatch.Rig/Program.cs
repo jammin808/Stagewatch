@@ -93,8 +93,9 @@ using Stagewatch.Show;
 // of each node configured (a --playout link's peer, the node a node key is bound to) or seen, and of its own links and windows. A
 // configured node gone is red, one only seen amber. GET /api/preflight serves it (read scope, no query), never stale and never
 // from a stalled show thread (then not ready, stuck); operator frames end with network (ready, red, amber, stuck) after desk, the
-// stuck verdict in place of one judged more than 4 s (PreflightWire.MaxAge) before the frame was built; MCP has get_preflight. A change of the verdict is
-// a log line.
+// stuck verdict in place of one judged more than 4 s (PreflightWire.MaxAge) before the frame was built or before a stall the frame
+// is the first to publish past, every age on the show thread's clock (the hub's), none on the wall clock; MCP has get_preflight. A
+// change of the verdict is a log line.
 // A message that asks for its acknowledgement (message <text> <urgency> <flash> ack) is the app's: a speaker signal on the
 // app's own board (SignalBoard, ids counting from 1), its receipt's refs.messageId naming it, frames carrying messageId,
 // messageAck ("sent", then "done" once acknowledged: a message signal completes on its first answer) and messageAckBy, and the
@@ -423,11 +424,11 @@ sealed class Rig : ICompanionBridge, IDisposable
     private List<(string Id, string Secret)>? _madeKeys;
     /// <summary>The show network as last joined (owner thread, once a second), for any thread to read.</summary>
     private volatile NetworkView _network = NetworkView.Empty;
-    // The room's preflight, as the app keeps it: judged once a second on the owner thread from the same join, published whole — the
-    // route's JSON with the time it was built (the web server serves it only while fresh and the show turns over), and the result
-    // whose verdict the frame carries while it is fresh (the stuck one once it is not, by the doors' own rule).
+    // The room's preflight, as the app keeps it: judged once a second on the owner thread from the same join, published whole to the
+    // served context, stamped on the hub's clock beside the context (ServedContext.PublishPreflight) — what the doors serve by the one
+    // rule and its age on that clock, and the verdict the frame carries by the same (the stuck one for a judging from before a stall
+    // the frame has not published past, or gone stale); the last result, for the log line when the verdict changes.
     private readonly SeenNodes _seenNodes = new();   // owner thread
-    private volatile string? _preflightJson;
     private PreflightResult? _preflight;             // owner thread
 
     // --playout: the links it runs and the app's executor over them; the peer step of the receipted command being run (owner thread).
@@ -1397,7 +1398,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             Timings = timings.ToEquatableArray(),
             ConfigVersion = _configVersion,
             Desk = _desk.Said,
-            Network = _preflight?.VerdictAt(new DateTimeOffset(now).ToUnixTimeMilliseconds()),
+            Network = _context.FrameVerdict(),
             Windows = _windowViews,
         };
     }
@@ -1506,7 +1507,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             Refused = _nodes.RefusedSince(now - PeerContexts.KeepFor, _nodeId),
             KeyNames = NetworkPreflight.KeyNames(_apiKeys),
         });
-        _preflightJson = result.ToJson();
+        _context.PublishPreflight(result);
         if (_preflight?.Verdict != result.Verdict) Log("preflight: " + result.Words);
         _preflight = result;
     }
@@ -1537,7 +1538,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     public bool McpAllowed => true;
     public string? ContextJson() => _context.Json();
     public bool ServedStuck => _context.Stuck;
-    public string? PreflightJson() => _preflightJson;
+    public string? ServedPreflight(long wallMs) => _context.Preflight(wallMs);
     public string? OwnNodeId => _nodeId;
     public string? OwnInst => _inst;
     public IReadOnlyList<ApiKey> ApiKeys => _apiKeys;
