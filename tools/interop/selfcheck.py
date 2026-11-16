@@ -363,6 +363,9 @@ def sdk_checks(fx, base):
     check(r.returncode == 0 and doc is not None and doc.get('patterns', {}).get('commit') == c['G']
           and f'with the .NET SDK {SDK}, as dotnet resolves its global.json' in r.stdout,
           f'build.sh builds a sibling with the SDK its global.json names, and says so ({said(r)}; {r.stdout.strip()[-300:]!r})')
+    mapper_line = next((l for l in r.stdout.splitlines() if 'mapper: dotnet build' in l), '')
+    check(mapper_line.endswith(f'with the .NET SDK {SDK}, the newest this machine has (it has no global.json)'),
+          f'build.sh says the SDK a sibling with no global.json builds with, as dotnet answers in its clone ({mapper_line!r})')
     r, doc = fx.build(base / 'out-sdk-missing', sdk='10.0.999')
     words = (doc or {}).get('notRun', '')
     check(r.returncode == 3 and f'names the .NET SDK {SDK} (rollForward latestPatch)' in words and 'it has: 10.0.999' in words

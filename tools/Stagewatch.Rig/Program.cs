@@ -119,8 +119,9 @@ using Stagewatch.Show;
 //                "listening":true|false,"peers":[{"t","id","address","addresses":[…],"ageS","conflict":"…"|null}]}
 //   nodes        the show apps' node links on /ws as its web server holds them (WebServer.ListNodes), no secret in them →
 //                {"rig":"nodes","at":<unix ms>,"nodes":[{"t","id","verified":"key"|"operator"|"none","keyId","address","links",
-//                "words":"…"|null}]}: one row per id named and what speaks for it, the key that admitted it by its id (never
-//                its secret), and the rig's own words for a link it verifies none; a socket that only claims an id, with no
+//                "words":"…"|null,"connectedAt":<unix ms>}]}: one row per id named and what speaks for it, the key that admitted
+//                it by its id (never its secret), the rig's own words for a link it verifies none, and when its first socket was
+//                accepted (a socket that closes and is dialled again is a new time); a socket that only claims an id, with no
 //                credential that proves one, is a claim and not listed
 //   links        its playout links (--playout) as they stand, no secret in them → {"rig":"links","at":<unix ms>,"links":[{"name",
 //                "kind","node","pairing":"none|paired|open","clock":{"offsetMs","rttMs","errMs","apart"}|null,"record":{…},"standing",
@@ -901,9 +902,10 @@ sealed class Rig : ICompanionBridge, IDisposable
     /// <summary>
     /// <c>nodes</c>: the show apps' node links on /ws as the web server holds them (<see cref="WebServer.ListNodes"/>), read off the
     /// show thread: one row per id named and what speaks for it, with its kind, the proof that speaks for its id (key, operator
-    /// or none), the key that admitted it by its id, its address, how many sockets it is and, for one verified none, why in the
-    /// rig's own words. A key's id is public (the ready line names it); its secret never leaves --secrets-out. A socket that only
-    /// claims an id, with no credential that proves one, is a claim, not a node link, and is not listed.
+    /// or none), the key that admitted it by its id, its address, how many sockets it is, for one verified none why in the rig's
+    /// own words, and when its first socket was accepted (unix ms, the web server's own time for it). A key's id is public (the
+    /// ready line names it); its secret never leaves --secrets-out. A socket that only claims an id, with no credential that
+    /// proves one, is a claim, not a node link, and is not listed.
     /// </summary>
     private object NodeLinkRows()
     {
@@ -915,7 +917,7 @@ sealed class Rig : ICompanionBridge, IDisposable
             nodes = (web?.ListNodes() ?? Array.Empty<NodeLinkFact>()).Select(n => new
             {
                 t = n.Kind, id = n.Id, verified = NodeBindings.Word(n.Verified), keyId = n.KeyId, address = n.Address, links = n.Links,
-                words = n.Words,
+                words = n.Words, connectedAt = new DateTimeOffset(n.ConnectedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
             }),
         };
     }

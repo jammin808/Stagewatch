@@ -1909,7 +1909,8 @@ Stagewatch's own `10.0.x`):
 | Mapper (PlayMap) | 2ae7ac7b | tests only since 031c9a3 (its device-lock, ShownLineTests and pool-bound test mends); no LINK yet | names none (no `global.json`): the newest SDK the machine has |
 | AGMessage | d0e3961 | 0.5.0 (`engines` Node ≥ 24.11) | not .NET |
 
-Stagewatch has no `global.json` and builds with the newest .NET 10 SDK; this bench's is 10.0.115. **Stagewatch's CI runs only on
+Stagewatch has no `global.json` and builds with the newest .NET 10 SDK; this bench's was 10.0.115 then (10.0.404 beside it since
+2026-11-16, SW24.1u). **Stagewatch's CI runs only on
 main, tags and pull requests**, so nothing of 2.23 has run there from this branch: SW23.0's change to the interop jobs and
 `interop-heads.yml` is checked with actionlint only, and the first run on main (or a run by hand, *The interop lane in CI*, above)
 is its proof — the job fails at its first step until `SIBLINGS_READ_TOKEN` exists, should the maintainer not have made it since
@@ -1976,7 +1977,7 @@ What each unit moved to another, and left, as written when it landed (*since the
   sharer, four ShownLineTests and ten pool-bound tests each run their work on a thread of their own); AGMessage stays at
   d0e3961, which the lane builds as it was. Each pin was read pushed on `claude/serene-pasteur-bq058o` and built in the lane's
   own clone.
-  - **Patterns pins its SDK.** Its `global.json` names 10.0.115 (`rollForward` `latestPatch`, its 98.6), and dotnet refuses a
+  - **Patterns pins its SDK.** Its `global.json` then named 10.0.115 (`rollForward` `latestPatch`, its 98.6), and dotnet refuses a
     machine whose SDKs are all of another feature band. `tools/interop/sdk.sh` asks dotnet in each clone before any build, so
     dotnet's own rules decide (a `global.json` naming no version takes the newest SDK; comments and trailing commas are read as
     dotnet reads them), and a machine where dotnet resolves no SDK there is not run, in words that name the SDK to install and
@@ -1987,7 +1988,7 @@ What each unit moved to another, and left, as written when it landed (*since the
     with `setup-dotnet` (a step per .NET sibling, run only when a version is named) beside the `10.0.x` they install for
     Stagewatch, which has no `global.json` and keeps building with the newest .NET 10 SDK. Stagewatch's CI runs only on main,
     tags and pull requests, so the workflow change is not proved from this branch: actionlint passes both files, and the first
-    run on main is its proof. This bench's SDK is 10.0.115, so here the lane built Patterns with it.
+    run on main is its proof. This bench's SDK was then 10.0.115, so here the lane built Patterns with it.
   - **Patterns' wire waits for the first byte.** At its 98.1 the wire on 9697 tells TLS from plain by a connection's first byte
     and writes nothing before it (REMOTE.md at the pin: "A client that waits for the greeting before it speaks is closed so").
     The lane's wire client (`tests/interop/lib/wire.cjs`) now speaks first: `Wire.connect` resolves once the socket is up, and
@@ -2229,7 +2230,10 @@ in the pin); it offers no LINK yet (Mapper's PM-9b), so **its links stay at leve
 pins it, and its rows S9.1, S9.2, S5.4 and S6.2b read Patterns' Eye drawing this Stagewatch; S6.2b found that a stuck show's
 context was served stale, and SW24.1p mends it (below). *Since then (SW24.1t):* Round 100 closed at a794633 (`CONTEXT POST`,
 a told link closing until its socket ends, the Stagewatch link's rise published whole), and the lane pins it with no row weakened and
-one row added (below).
+one row added (below). *Since then (SW24.1u):* Patterns' Round 101 closed at d7ef79a (a repair round: a speaker message whose
+request never reached a connection is not-sent), and PlayMap's two fix batches of 2026-11-16 are at cf576ffc (its Stagewatch link
+writes no ping before the connection's first message is read); the lane pins both with no row weakened, three rows added and one
+held tighter (below).
 
 ### The units
 
@@ -2243,7 +2247,8 @@ it did and left in its own words, as written when it landed.
 | SW24.1q | ec28135 | The review of SW24.1p's mend, read by two adversarial readers after it landed, and the unit's own review: one rule for every door a reader asks (`ServedContext.Stuck`, `IShowControl.ServedStuck`: the hub's frame stale — stuck, or turned over since a stall and not yet published, `SnapshotHub.Resuming` — the context resuming until a build from a frame made after the stall, or the build older than `PreflightWire.MaxAge`, 3 s, on the hub's clock), read by `GET /api/context`, `get_context`, `GET /api/state`, `get_state`, `get_running_order`, the preflight's stuck answer and Companion's `STUCK` pong; `/ws` by the hub's `FrameStale`; so no context or frame from before a stall is served live after it, and the first turn after a stall builds at once (`MarkAlive`, `Due`); the stuck headline carries no schedule offset; `GET /api/state` marks a stuck show's frame `"stuck":true` at its end with the stuck verdict, and MCP's `get_state` and `get_running_order` answer the stuck words (MCP's instructions say so; the endpoint's `stuck` is required); the desk and the rig turn and serve through the one helper; the fences on injected time, in e2e and in S6.2b; the served pair's cost measured | The stuck form's other items as at its `at` (P5 asks no more); Companion's `SNAPSHOT` keeps its own stuck word (the pong's `STUCK`); `/ws` turns at a stall's start by the hub's flag, up to 750 ms after the asked doors; the preflight ages on its own clock, the context on the hub's; the desk's door held by the unit check's source fence, its walk-through the maintainer's PC work |
 | SW24.1r | 6931ddc | The review of SW24.1q's fold-in, read by two adversarial readers after it landed: the context and the preflight built by time on the hub's clock (`ServedContext.Due`: a turn that finds the last build `PreflightWire.BuildEvery`, 1 s, old), served live while no older than `PreflightWire.MaxAge` = the hub's 3 s bound plus that 1 s (4 s), so a slow but live show thread is never served stuck and every asked door turns at a stall's start with the hub; Companion's answered `SNAPSHOT` (the subscribe answer's too) marked stuck by the one rule, and the module drawing no frame while stuck, asking `SNAPSHOT` at the first pong without `STUCK` and keeping `ACCESS` across a stuck; the lows (flags read before the pair, the context's resuming mark from the hub's own verdict, the stuck words); the fences on injected time, at the Companion door and on `/ws`, and the desk's due line held whole; the unit's own review folded in (the desk keeps building before its frame, so no frame of its carries a pre-stall verdict as current; the context's stuck words; the papers' `/ws` timing) | The rig's frame at the turn that ends a 3 to 4 s stall carries the verdict judged before it (open, below); the preflight's stuck words (decision 16's); the preflight's clock beside the hub's; the module's package version moves with the app on the PC; the desk's walk-through the maintainer's; the flag-before-pair order held by reading, not a check |
 | SW24.1s | cf1817a | The items SW24.1r's fold-in left open: no frame carries a verdict judged before a stall as current (`SnapshotHub.MadeBeforeStall`: the show thread stuck, or resuming and the judging older than the alive mark that ended the stall; `PreflightWire.Carried`'s one new term, read through `ServedContext.FrameVerdict` by the rig's `Frame()` and the desk's `BuildSnapshot` alike), so the rig's frame at the turn that ends a stall carries the stuck verdict and the desk's the one judged in its turn; one clock: the preflight judged and stamped on the hub's clock beside the context pair (`ServedContext.PublishPreflight`) and served by the one rule and that age (`ServedContext.Preflight`, `IShowControl.ServedPreflight`, which `GET /api/preflight` and MCP's `get_preflight` read; `IShowContext.PreflightJson` and the wall-clock `PreflightWire.ServedNow` and `PreflightResult.VerdictAt` gone), the wall clock dating only the `at` a reader sees; the flags-before-pair order held by a deterministic check (`ReadOrderKept`: the show thread's build run inside the reader's first clock read); the wall clock stepped an hour each way moving no door (`WallClockKept`, `SlowThreadKept`, the preflight route's test) | The preflight's stuck words (decision 16's, the owner's); on the rig the frame of the turn that ends a stall still carries the windows and desk word of the build before it (its order is kept; its verdict no longer); the desk's walk-through the maintainer's |
-| SW24.1t | this commit (`git log --grep SW24.1t`; its hash goes in the next papers commit) | The lane at Patterns' Round 100 (a794633, closed): the pin moved and every row held as it was (the run before any row moved: LAN 44 of 44, laptop 5 of 5, offline 3 of 3; the unit's whole validate after: unit 6256, e2e 94 of 94, self-check 75, LAN 45 of 45, laptop 5 of 5, offline 3 of 3); S4.6, S4.7 and S9.1 read 100.5's `told` false on the open accepted link (STATE's `decks` row, EYE JSON's accepted row) and S4.7 the dropped connection's grey ended row untold; S6.2b reads the operator's frame and its verdict, `/api/preflight` and MCP's `get_state`, `get_running_order`, `get_context` and `get_preflight` stuck in the same moment by the one served-stuck rule (Companion's door stays S8.3's, `/ws` is not read); S9.3 (new) reads that no app posts its context to Patterns (`bus.posted`, `bus.postRefused`, `bus.apps[].posted`, the journal's `ContextPost` rows, `patterns.log`'s refusal summaries); no product change | A closing link's `told` window (no outside way to make Patterns tell the link its last word, and no linger on a desk); a real app's `CONTEXT POST` (no poster at these pins); S9.2's counting half and S5.4's `serves` edge, unchanged at this pin; the turn-over frame's verdict not observable from outside |
+| SW24.1t | b59c654 | The lane at Patterns' Round 100 (a794633, closed): the pin moved and every row held as it was (the run before any row moved: LAN 44 of 44, laptop 5 of 5, offline 3 of 3; the unit's whole validate after: unit 6256, e2e 94 of 94, self-check 75, LAN 45 of 45, laptop 5 of 5, offline 3 of 3); S4.6, S4.7 and S9.1 read 100.5's `told` false on the open accepted link (STATE's `decks` row, EYE JSON's accepted row) and S4.7 the dropped connection's grey ended row untold; S6.2b reads the operator's frame and its verdict, `/api/preflight` and MCP's `get_state`, `get_running_order`, `get_context` and `get_preflight` stuck in the same moment by the one served-stuck rule (Companion's door stays S8.3's, `/ws` is not read); S9.3 (new) reads that no app posts its context to Patterns (`bus.posted`, `bus.postRefused`, `bus.apps[].posted`, the journal's `ContextPost` rows, `patterns.log`'s refusal summaries); no product change | A closing link's `told` window (no outside way to make Patterns tell the link its last word, and no linger on a desk); a real app's `CONTEXT POST` (no poster at these pins); S9.2's counting half and S5.4's `serves` edge, unchanged at this pin; the turn-over frame's verdict not observable from outside |
+| SW24.1u | this commit (`git log --grep SW24.1u`; its hash goes in the next papers commit) | The lane at Patterns' Round 101 (d7ef79a, closed) and PlayMap's two fix batches of 2026-11-16 (cf576ffc): the pins moved and every row held as it was (the run before any row moved: LAN 45 of 45, laptop 5 of 5, offline 3 of 3; the unit's whole validate after: unit 6256, e2e 95 of 95, self-check 76, LAN 48 of 48, laptop 5 of 5, offline 3 of 3), Patterns built with the .NET SDK 10.0.404 its `global.json` now names and Mapper with 10.0.404, the newest this bench has; S2.1d (new) holds PlayMap's link to the rig one connection past its 12 s drop bound, in the rig's own record (its `nodes` line's new `connectedAt`, the time the rig accepted each socket); S2.1b holds PlayMap's refused link one socket, one link at every read, through its watch while the rig keeps it open; S3.8 (new) reads Patterns' speaker message not-sent in both of 101.2's words, with the rig's cable pulled, and reaching the rig never; S3.9 (new) reads one the rig took and never answered unconfirmed; the lane's build line names the SDK of a sibling with no `global.json`; no product change | The order of PlayMap's first ping against the rig's first message (no outside reader sees it); a keyless PlayMap link asked for a viewing code (no lane row has a rig with one); 101.3 and 101.6's Nodes-line words (no reader of the lane's sees them) |
 
 The release's papers (SW24.2) are this section, REMOTE.md's 2.24 section, FEATURES.md's 2.24 entry, and the sentences of NODES.md,
 README.md and ECOSYSTEM.md that had gone stale; they change no code. Between 2.23's head and SW24.1, one commit of the plan
@@ -2294,13 +2299,13 @@ The tree's versions still read 2.16.0 (`src/Timer.App/Timer.App.csproj`, `compan
 papers, nothing here bumps a version or makes a tag; `release.ps1` moves them on the PC. 2.24.0 goes after 2.23.0, from the commit
 that carries this section. No file of the Companion module changed in 2.24; it takes 2.24.0 with the app, as each release's module
 does. A tag waits for CI's interop job beside the other jobs (the owner's answer S-interop-gate), at the pins
-`tools/interop/siblings.json` holds for this release — Patterns' pin moved by SW24.1p and again by SW24.1t, the others as SW23.1p left them — each sibling
+`tools/interop/siblings.json` holds for this release — Patterns' pin moved by SW24.1p, SW24.1t and SW24.1u, Mapper's by SW24.1u, AGMessage's as SW23.1p left it — each sibling
 built with the SDK its own `global.json` names (`tools/interop/sdk.sh`):
 
 | Sibling | Pin | What it is | SDK |
 |---|---|---|---|
-| Patterns | a794633 | its Round 100, closed (100.1–100.8: `CONTEXT POST`, a told link closing for every reader, device sessions, the Stagewatch link's rise published whole, the papers), on its Round 99 (52e176b: the Eye's network) and Round 98's acceptor (2515017) | 10.0.115 (`global.json`, `rollForward` `latestPatch`) |
-| Mapper (PlayMap) | 2ae7ac7b | tests only since 031c9a3; no LINK yet | names none (no `global.json`): the newest SDK the machine has |
+| Patterns | d7ef79a | its Round 101, closed (a repair round: 101.2 a speaker message whose request never reached a connection is not-sent; 101.3 and 101.6 the Nodes line's words; 101.5 the SDK pin moved), on its Round 100 (a794633: `CONTEXT POST`, a told link closing for every reader), its Round 99 (52e176b: the Eye's network) and Round 98's acceptor (2515017) | 10.0.404 (`global.json`, `rollForward` `latestPatch`) |
+| Mapper (PlayMap) | cf576ffc | fix-link-first-ping (9b7d1fca: its Stagewatch link writes no ping before the connection's first message is read) and fix-hold-tests (tests only); no LINK yet | names none (no `global.json`): the newest SDK the machine has, 10.0.404 here |
 | AGMessage | d0e3961 | 0.5.0 (`engines` Node ≥ 24.11) | not .NET |
 
 **§14's `landed` list, as it stands**: `*Landed (§14): Stagewatch, Patterns, Mapper.*` (docs/SHOWBUS.md), unchanged by 2.24.
@@ -2308,7 +2313,8 @@ built with the SDK its own `global.json` names (`tools/interop/sdk.sh`):
 9ca83889…, peer f36847cf…); AGMessage's is not compared, as its 1.3 copy has not landed (AGMessage 0.6.0, another session's branch,
 still carries Show Bus 1.2). The master's body did not change in 2.24.
 
-Stagewatch has no `global.json` and builds with the newest .NET 10 SDK; this bench's is 10.0.115. **Stagewatch's CI runs only on
+Stagewatch has no `global.json` and builds with the newest .NET 10 SDK; this bench has had 10.0.404 beside 10.0.115 since
+2026-11-16, so Stagewatch (and Mapper) now build here with 10.0.404. **Stagewatch's CI runs only on
 main, tags and pull requests**, so nothing of 2.24 has run there from this branch (this session cannot see the repository's
 secrets either; *The interop lane in CI*, above, has the maintainer's steps).
 
@@ -2386,6 +2392,39 @@ crafted master licence file rejected, and an owner-only file and its backup writ
       field of the frame dates its verdict, so the lane cannot tell a judging from before the stall from one made after it in the
       first frames after the turn-over; S6.2b holds the doors while stuck, and SW24.1s' checks on injected time (`SlowThreadKept`,
       `ReadOrderKept`) hold the turn.
+  - **At Patterns' Round 101 and PlayMap's two fix batches (SW24.1u).** The lane pins Patterns d7ef79a and Mapper cf576ffc, and
+    every row stands as it was, none weakened: the run at the new pins before any row moved was whole (LAN 45 of 45, the laptop 5
+    of 5, offline 3 of 3), and so was the unit's whole validate with the new rows (LAN 48 of 48, the laptop 5 of 5, offline 3 of 3),
+    Patterns built with the .NET SDK 10.0.404 its `global.json` now names and Mapper, which names none, with 10.0.404, the newest
+    this bench has (each read from the lane's own build line). Proved in addition: PlayMap's link to the rig,
+    given its own key afresh, stays one connection past its 12 s drop bound — the rig's own record keeps the one socket it accepted,
+    and PlayMap's STATE says the link live and paired at every read until 16 s after that socket was accepted (S2.1d): with the real
+    apps, the link, which since cf576ffc writes its first ping only after the connection's first message is read, stays live past
+    its drop bound because the rig speaks first (the reliance fix-link-first-ping's own tests, against a fake Stagewatch, could not
+    hold); the row does not tell this pin from the one before it, against a rig that speaks first an early ping was harmless too;
+    PlayMap's link refused for the free key keeps the one socket it was refused on, one link at every read, through S2.1b's watch
+    while the rig keeps the refused link open (no redial while refused; run 476's case, a link refused and closed, is the open
+    viewing-code row below); a
+    speaker message Patterns sends while its link cannot reach the rig ends `not-sent` in 101.2's words, both of them — 'no connection
+    to Stagewatch <name> could be made' with the rig's cable pulled, 'the link to Stagewatch <name> dropped before it was sent' with
+    the cable pulled and Patterns' connections to the rig ended as the message waits — in Patterns' STATE (`stage.speakerAck`) and one
+    journal row each, and neither reaches the rig (S3.8); and one the rig took and never answered stays `unconfirmed`, 'no answer in
+    4 s', and is on the rig's speaker screen once its show thread turns over (S3.9). Open, each with what it waits for:
+    - **The order of PlayMap's first ping.** That the rig heard nothing of PlayMap's on a socket before its own first message is not
+      read: the link is TLS (no capture of the lane's sees its messages), the rig keeps no per-socket order of first messages
+      (`WebServer`'s `/ws` client records its accept time, which `connectedAt` now says, and nothing of the order), and PlayMap
+      records none. It waits for a reader of that order: the rig's `nodes` line saying, per socket, whether a message came in before
+      its first one went out (a field the web server would have to keep, a Stagewatch change of its own unit), or a PlayMap STATE field
+      for its first write; S2.1d holds only the liveness it buys, and adds no row that restates liveness as order.
+    - **A link the rig shuts (a viewing code asked).** The run-476 test's own case — a keyless PlayMap link that the rig's viewing-code
+      door refuses and closes unread — has no lane row: the room's rig runs with no `--view`, and every row reads it so. It waits for
+      a row with a rig of its own started with `--view` (as the VT rows run one) and PlayMap's operator line linking to it with no
+      key; PlayMap's `link` control line takes a key file today (`tests/interop/apps/playmap.cjs`), so a keyless line comes first.
+    - **The unconfirmed leg's other shape.** S3.9 makes the rig hold the request by stopping its show thread (its web server answers
+      `accepted` 3 s after it took the request, the answer lost in the pulled cable, within Patterns' 4 s); a rig whose web server
+      never answers at all has no control line, so the 'connection closed before Stagewatch <name> answered' words are not read.
+    - **Patterns' 101.3 and 101.6** changed only what the Nodes line draws beside a key's standing (the approval desk's words); STATE
+      does not carry them, and no row of the lane reads the Nodes line, so no row is added.
   - **Mended in SW24.1p: a stuck show's context was served stale.** The rig and the desk build their context on the show thread
     (`tools/Stagewatch.Rig/Program.cs` `Tick`, `MainViewModel.ShowBus.cs` `RefreshShowBus`), so while it was stuck `GET /api/context`,
     MCP's `get_context` and the context Patterns pulls were the last one built before the stall — a running countdown served as
@@ -2834,6 +2873,92 @@ crafted master licence file rejected, and an owner-only file and its backup writ
     LAN 45 of 45, the laptop 5 of 5, offline 3 of 3, every lane passed. In it S9.3 read 34 journal rows and 59 log lines with no
     `ContextPost` row and no refusal summary, S6.2b read the rig's doors 8.3 s before the stall's own end, and S4.7's dropped row was
     ended, grey, verified by the code and untold. No row failed in any run.
+- **The lane at Patterns' Round 101 and PlayMap's two fix batches (SW24.1u).** A lane unit after SW24.1t; nothing of Stagewatch's
+  product changed, as the lane proved no defect of Stagewatch's own. The rig (a tool) gained one field on a control line, and the lane's
+  build line names the SDK of a sibling with no `global.json`.
+  - **The pins and the SDKs.** `tools/interop/siblings.json` pins Patterns at d7ef79a (its Round 101.4, the round's papers; on its
+    pushed working branch, `git branch -r --contains d7ef79a`) and Mapper at cf576ffc (fix-hold-tests, after fix-link-first-ping
+    at 9b7d1fca; on its pushed working branch, `git branch -r --contains cf576ffc`); AGMessage d0e3961 as it was. Patterns'
+    `global.json` names the .NET SDK 10.0.404 since its 101.5; this bench has had 10.0.404 beside 10.0.115 since 2026-11-16, and
+    the lane's build lines say: Patterns "with the .NET SDK 10.0.404, as dotnet resolves its global.json", Mapper "with the .NET
+    SDK 10.0.404, the newest this machine has (it has no global.json)". The second line is new: `tools/interop/build.sh` named
+    only a `global.json`'s SDK before, so it now asks dotnet in a clone with none which SDK it takes (the self-check holds the
+    words, 76 checks). Stagewatch, which pins nothing, builds here with 10.0.404 too. The lane's first run at the pins, before any
+    row moved, was whole: LAN 45 of 45, the laptop 5 of 5, offline 3 of 3, every row held to the words it held at a794633 and
+    2ae7ac7b.
+  - **The rig's `nodes` line** says, at each row's end, `connectedAt`: when the rig accepted that row's first socket (the web
+    server's own `NodeLinkFact.ConnectedUtc`, unix ms), so a reader tells one connection held from a closed one dialled again.
+    Nothing of the product moved; `tests/e2e/nodes.e2e.cjs` holds the field to the socket's acceptance, to the same time on a
+    second read, and to a later time, one link, once that socket is closed and dialled again with the same key (the property the
+    no-redial reads of S2.1d and S2.1b rest on).
+  - **S2.1d (new): PlayMap's first ping, with the real apps.** Where the lane links PlayMap to the rig with its own key (S0.1's
+    start, and again in S2.1b and here), the row takes PlayMap's link off at its own machine until the rig holds none for it,
+    gives its own key again (LINK STAGEWATCH, as its operator types it), and reads, every 250 ms from the first read that shows it
+    until 16 s after the rig accepted the socket (PlayMap's drop bound, Show Bus 1.3 §14 `link.drop.ms`, 12 s from the
+    connection's start, and two of the rig's 2 s beats), that the rig's own record of it is one link proved by PlayMap's key and
+    accepted at one time, and that PlayMap's STATE says the link live and paired with the rig's certificate pinned. In the first
+    run with the rows: paired 308 ms after the line, the socket accepted 5 ms after it, read 64 times from 303 ms to 16.2 s after
+    it was accepted, one connection throughout. With the real apps it holds what fix-link-first-ping relies on, which its own tests
+    (against a fake Stagewatch) could not: PlayMap's link, which since cf576ffc writes no ping before the connection's first message
+    is read and keeps its silence rule from the connection's start, stays live past its drop bound because the rig speaks first. It
+    does not prove the mend itself: against this rig, which is live and speaks first, an early ping was harmless too, so the row
+    does not tell this pin from 2ae7ac7b. Whether the rig heard nothing of PlayMap's
+    before its own first message on that socket is not read, and no row restates liveness as that order: the link is TLS, the rig
+    keeps no order of a socket's first messages (only its acceptance), and PlayMap records none (open, above).
+  - **S2.1b, held tighter.** Its free-key watch (7 s past PlayMap's next context post) now also holds that the rig's record keeps
+    the one socket PlayMap was refused on — one link at every read of the watch (the rig groups a node's sockets and names the
+    oldest's time, so a redial beside the old socket reads as two links) and one accepted time from the refusal through the
+    watch — so PlayMap holds the one connection while the rig keeps the refused link open, never dialling again. Run 476's red
+    test was about another case, a link the rig refuses and closes unread (the viewing-code door), which has no lane row (open,
+    above). In the first run: 27 reads, all live and amber, one connection.
+  - **S3.8 (new) and S3.9 (new): the speaker's receipts.** Read from Patterns' wire, STATE and journal, with the rig's cable as
+    the lane's means. The wire answers `STAGE MESSAGE` with a bare `OK` whichever way a message goes, so each row reads the route
+    from Patterns' journal: a `Requested` row in its own words, "To Stagewatch Rig Hall's speaker: '…' — its receipt and the
+    speaker's ACK come back here", which a message kept on the desk never gets. S3.8: the control goes to the rig's speaker screen
+    (STATE `speakerFrom` `stagewatch`, `speakerAck` `sent`, the journal's "on the speaker's screen (message 1)", the rig's frame
+    naming message 1 in its words); the rig's cable pulled before Patterns' link has heard the silence, a message whose request
+    reaches no connection is `not-sent` (in the first run 4.1 s after the line, Patterns' 4 s call), "no connection to Stagewatch
+    Rig Hall could be made", one journal row; the cable pulled again and Patterns' one connection to the rig ended with lan.py's
+    drop as the next message waits for its connection, `not-sent` (in the first run 127 ms after the line), "the link to Stagewatch
+    Rig Hall dropped before it was
+    sent"; neither reached the rig: with the cable back and every link live, its frame still names message 1 in the control's
+    words, and the next message is applied there as message 2. S3.9: the rig's show thread stopped (`stall 9000`), a message said
+    2 ms after, the rig's cable pulled 1 s after the line while the rig's web server holds the request for its show thread (it
+    answers `accepted` 3 s after it took it, into the pulled cable, and the row fails on that margin if the pull came 3 s or more
+    after the line); Patterns' receipt is `unconfirmed` (in the first run 4.1 s after the line), "no answer in 4 s", one journal
+    row and none saying not sent; the cable back, the rig runs it as its show thread turns over and its frame names it (in the
+    first run 6 ms after, message 3) — it had reached the rig — and Patterns' STATE stage row then says it `speakerFrom`
+    `stagewatch`, `speakerAck` `sent` (recorded, not held). Each receipt word is read while STATE's `pendingSpeaker` is the leg's
+    own message, so it is that message's and never an earlier leg's, and each journal row is held by its `Outcome` (`not-sent`,
+    `unconfirmed`) beside its words. Each row clears the rig's speaker screen at its end. The rows read
+    101.2 as REMOTE.md's STAGE MESSAGE row at d7ef79a says it; a message asked while Patterns' link has already gone (stale or
+    gone) never becomes a speaker call at all and stays on the desk's displays with the route's words, which no row asks.
+  - **Read, and no row: Patterns' 101.3 and 101.6.** They change what Patterns' Nodes line draws beside a key's standing (the
+    approval desk's words, one value with the standing); STATE carries none of it and no lane row reads the Nodes line (the rows'
+    `standing` reads are the rig's own playout link's, S4.6 and S4.7), so no row is added.
+  - **Open** (each with what it waits for, in *What this release did not do*, above): the order of PlayMap's first ping against
+    the rig's first message; a keyless PlayMap link the rig's viewing-code door shuts; a rig whose web server never answers.
+    ECOSYSTEM.md's lane line still names the pins of 2.23 (Patterns' Round 99.7, PlayMap 2ae7ac7b); it is outside this
+    unit's papers, left for the next papers commit.
+  - **The runs.** `tools/test.sh build interop` at the new pins before any row moved (LAN 45 of 45, laptop 5 of 5, offline 3 of 3);
+    the new rows in scoped reruns while they were written; a whole validate with them (unit 6256, e2e 94 of 94, the self-check 76,
+    LAN 48 of 48, laptop 5 of 5, offline 3 of 3: S2.1d paired 105 ms after the line, its socket accepted 7 ms after it, 65 reads
+    from 98 ms to 16.2 s; S3.8's legs `not-sent` 4.1 s and 117 ms after their lines; S3.9 `unconfirmed` 4.0 s after its line, its
+    frame naming message 3 7 ms after the turn-over). Then the unit's review was folded in (S2.1b's watch holds one link at every
+    read; S3.8 and S3.9 read each receipt word while `pendingSpeaker` is the leg's own message and hold each journal row's
+    `Outcome`; S3.9 holds its cable pull inside the rig's 3 s receipt wait; `nodes.e2e.cjs` holds a later `connectedAt` for a
+    socket dialled again), and the unit's whole validate ran once with the final files, each lane its own run, TMPDIR under
+    artifacts and removed after: `tools/test.sh build unit` (unit 6256 passed, 0 failed, 0 temp items left; `InteropDocTests`
+    holds BUILD.md's rows table to the drivers, S2.1d, S3.8 and S3.9 among them), `tools/test.sh e2e` (95 of 95, `nodes.e2e.cjs`
+    holding `connectedAt` and its redial leg) and `tools/test.sh interop` (the self-check 76 of 76; Patterns built "with the .NET
+    SDK 10.0.404, as dotnet resolves its global.json", Mapper "with the .NET SDK 10.0.404, the newest this machine has (it has no
+    global.json)"; LAN 48 of 48, the laptop 5 of 5, offline 3 of 3), every lane passed. In it S2.1d's link was paired 105 ms
+    after the line, its socket accepted 8 ms after it and read 65 times from 97 ms to 16.2 s after, one connection throughout;
+    S2.1b's watch read 27 times, all live and amber, one link at each read, one socket; S3.8's no-connection leg was `not-sent`
+    4.1 s after its line and its dropped leg 108 ms after (one connection of Patterns' to the rig ended), each read with its own
+    message pending, the control message 1 and the one after the legs message 2 on the rig; S3.9's cable was pulled 1.0 s after
+    its line, its receipt `unconfirmed` 4.05 s after it, and the rig's frame named it (message 3) 107 ms after its show thread
+    turned over. No row failed in either validate, and none was rerun.
 - **The 2.24 papers (SW24.2).** REMOTE.md's 2.24 section (each item and row, and what a reader may rely on), NODES.md §4's context
   and node links and §6–§7's level-0 items, FEATURES.md's 2.24 entry, README.md's index and release line, ECOSYSTEM.md's roadmap
   and lane lines, and this section; no code. The version stays 2.16.0 in the tree, as `release.ps1` moves it on the PC.

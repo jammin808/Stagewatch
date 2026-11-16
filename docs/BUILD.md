@@ -136,7 +136,8 @@ tools/test.sh help            # what each lane does, and the variables a person 
   three); `heard` reads its hello table, the hellos it hears with
   `--bus` and nothing else (each id's kind, address, age and conflict mark); `nodes` reads its own record of the show
   apps' node links on `/ws` (each by the id it named, what speaks for that id, key, operator or none, the key that admitted
-  it by its id, never its secret, and its words for one it verifies none; a socket that only claims an id is not one);
+  it by its id, never its secret, its words for one it verifies none, and when it accepted its first socket, `connectedAt`,
+  so a socket dialled again is a new time; a socket that only claims an id is not one);
   `links` reads its playout links as they stand (each link's kind and node as its peer said them, where its pairing
   stands, the clock its matched pongs believe and its 13.16.3 record, never a token); `revoke <key id>` is the desk's
   Revoke for a node key the rig made (the key leaves `--state` and every socket it admitted is checked again at once, so a
@@ -208,15 +209,17 @@ tools/test.sh help                                # every lane, and every variab
   none of its remote branches is refused, even if it was pushed since from elsewhere: `git fetch` in that repository's
   `.git` brings its remote branches up to date and changes no working tree.
 - A sibling whose `global.json` pins its .NET SDK builds with that SDK only: dotnet refuses a machine whose SDKs are all of
-  another feature band. Patterns pins one since its round 98 (10.0.115, `rollForward` `latestPatch`); Mapper and AGMessage pin
-  none. Before any build starts, `tools/interop/sdk.sh` asks dotnet in each clone, where its `global.json` applies, so dotnet's
-  own rules decide (a `global.json` that names no version takes the newest SDK; comments in it are read as dotnet reads them),
+  another feature band. Patterns pins one since its round 98 (10.0.115 then; 10.0.404, the 10.0.4xx band, since its 101.5,
+  `rollForward` `latestPatch`); Mapper and AGMessage pin none. Before any build starts, `tools/interop/sdk.sh` asks dotnet in
+  each clone, where its `global.json` applies, so dotnet's own rules decide (a `global.json` that names no version takes the
+  newest SDK; comments in it are read as dotnet reads them),
   and a machine where dotnet resolves no SDK there is not run, in words that name the SDK to install and the SDKs it has:
   Microsoft's `dotnet-install.sh --version <that SDK>` into the dotnet folder, beside the others (apt's `dotnet-sdk-10.0` is
   one feature band). `tools/setup-dev.sh` says the same for the pins in `siblings.json`, and says a pin its sibling's
   repository has not fetched. CI's interop job and the nightly heads job install each SDK a sibling's `global.json` names
   (`sdk.sh --named` reads it from the checkout) beside the `10.0.x` they install; Stagewatch has no `global.json` and builds
-  with the newest .NET 10 SDK the machine has.
+  with the newest .NET 10 SDK the machine has. Each build's line says the SDK it builds with: the one dotnet resolves from the
+  sibling's `global.json`, or, for a sibling with none (Mapper), the newest the machine has, as dotnet answers in its clone.
 - When the machine's Node is not one AGMessage's `engines` field accepts, the Node `build.sh` pins is fetched once into
   `artifacts/interop/node`, its SHA-256 checked, and never installed on the machine (`SW_INTEROP_AGMESSAGE_NODE` names
   another).
@@ -228,8 +231,11 @@ tools/test.sh help                                # every lane, and every variab
   comes with the pin that brings it. `SW_INTEROP_HEADS=1` runs each sibling at the commit its repository has checked out
   instead (still pushed only), and `builds.json` and the matrix say how far each is from its pin: the nightly drift report,
   which moves no pin.
-- The pins are the siblings' pushed heads: Patterns a794633 (its Round 100 closed: `CONTEXT POST` from another app over a verified
-  PeerLink, STATE's `bus.posted` and `bus.postRefused` and each `bus.apps` row's `posted`, which row S9.3 reads at none; a link it has
+- The pins are the siblings' pushed heads: Patterns d7ef79a (its Round 101 closed, a repair round: a speaker message whose
+  request never reached a connection is `not-sent` in the link's words, which rows S3.8 and S3.9 read beside `unconfirmed` for one
+  the rig took and never answered; its `global.json` names the .NET SDK 10.0.404; on its Round 100, closed at a794633:
+  `CONTEXT POST` from another app over a verified PeerLink, STATE's `bus.posted` and `bus.postRefused` and each `bus.apps`
+  row's `posted`, which row S9.3 reads at none; a link it has
   told its last word `told` and closing until its socket ends, at the end of STATE's `decks` rows and EYE JSON's accepted row, which
   rows S4.6, S4.7 and S9.1 read untold; on its Round 99, closed at 52e176b: the Eye draws each app once, folded by the id its link
   proved, each link as one edge that says its source and carries its record, and EYE JSON and STATE's `eye` and `bus.apps` rows say
@@ -239,8 +245,11 @@ tools/test.sh help                                # every lane, and every variab
   nothing before it, so every client of it speaks first: the lane's own wire client says its `HELLO` and then hears the `NONCE`
   that byte brought, row S0.1 holds that a connection which says nothing for 1.5 s hears nothing, and the VT rigs' playout
   links to it speak first too; its hello does not say `cap peerlink` yet, and the rigs' links to it stay level 0, amber,
-  legacy), PlayMap 2ae7ac7b (tests only since 031c9a3's fix batches, whose line wire says its greeting STATE only after a
-  connection's proof, so a level-0 link to it counts no line it could not read; it offers no LINK yet), AGMessage d0e3961
+  legacy), PlayMap cf576ffc (its fix-link-first-ping, 9b7d1fca: its Stagewatch link writes no ping before the connection's first
+  message is read, its silence rule still running from the connection's start, so it relies on the rig speaking first, which
+  row S2.1d reads holding past the drop bound, and
+  fix-hold-tests, tests only; on 031c9a3's fix batches, whose line wire says its greeting STATE only after a connection's proof,
+  so a level-0 link to it counts no line it could not read; it offers no LINK yet), AGMessage d0e3961
   (0.5.0). Patterns' link proves itself to the rig and the rig to it with the node key the rig made for it, pins the
   certificate the proof was made over and keeps a floor, so no person's Trust is asked on the LAN (row S0.2 reads the bench's
   trust line finding nothing waiting). The laptop and offline topologies link at 127.0.0.1.
@@ -311,7 +320,8 @@ once those are removed, for every secret of the register, in either case. A row'
 | S1.5 | lan | every app hears the rig: kind `main`, its node id, from the rig's own address where the reader says one; Patterns draws the rig it follows no better than its link's record, amber only with that record live and amber, the key taken, and either at level 0 and `legacy` or at level 1, both ways proved and pinned, flagged `scope` alone (the verdict's scope `node`: Stagewatch's own verdict word against its kit, held until the spec decides, WHATS_NEXT), and the rig's own context, read from the rig, neither amber nor red with the headline Patterns draws |
 | S1.6 | lan | one id is one peer: read every 500 ms for 20 s, the rig, Patterns and PlayMap (its NODES, its STATE's peers and its context's) each list every show app they hear once; PlayMap reads the rig's Show Bus 1.3 hello as live and unmarked at the rig's one address at every read, and marks an id two senders say in turn (a control: hellos of the driver's own id, sent to PlayMap alone) |
 | S2.1 | lan | PlayMap's context reaches the rig: its link paired with the rig's certificate pinned, the rig's row for it proved by its own key, and a change of it there and back within 9.5 s |
-| S2.1b | lan | PlayMap reads the rig's verdict on its node link from both ends, its link and the rig's own record (`nodes`): its link taken off until the rig holds none for it, then given the free key, which speaks for no node, at its own machine, it is refused in the rig's own words and the rig's record says that key's link verified none in them; its link live and never paired through a 7 s watch (amber in its context, no proven link in the rig's row or record); given its own key again, it is paired again with the rig's certificate still pinned, the rig's record its key's alone |
+| S2.1b | lan | PlayMap reads the rig's verdict on its node link from both ends, its link and the rig's own record (`nodes`): its link taken off until the rig holds none for it, then given the free key, which speaks for no node, at its own machine, it is refused in the rig's own words and the rig's record says that key's link verified none in them; its link live and never paired through a 7 s watch (amber in its context, no proven link in the rig's row or record, which keeps open the one socket PlayMap was refused on: one link at every read and one accepted time, no redial while the rig keeps the refused link open; a link the rig refuses and closes has no row); given its own key again, it is paired again with the rig's certificate still pinned, the rig's record its key's alone |
+| S2.1d | lan | PlayMap's link to the rig, taken off and given its own key again at its own machine, is paired within 5 s and stays one connection past its drop bound (§14 `link.drop.ms`, 12 s from the connection's start: since PlayMap's fix-link-first-ping at cf576ffc its first ping waits for the rig's first message, and the rig speaks first; the row does not tell this pin from the one before it): read every 250 ms until 16 s after the rig accepted its socket, the rig's record (`nodes`, with the time it accepted each socket, `connectedAt`) is one link proved by PlayMap's key and accepted at one time, and PlayMap's STATE says it live and paired with the rig's certificate pinned at every read; whether the rig heard nothing of PlayMap's before its own first message is not read (no outside reader sees a TLS socket's first messages in order) |
 | S2.1c | lan | PlayMap's context names the peers it follows (§6 P2): `link:patterns` follows `@<Patterns' id>` and `link:stagewatch` follows `@<the rig's id>`, each in its link item's light, the item saying "not proved" |
 | S2.3 | lan | Patterns' context reaches the rig: its link over TLS with its key, the rig's row for it proved by that key, and a change of it there and back within 9.5 s |
 | S2.4 | lan | Patterns reads the rig's context: its STATE says the rig's own headline, and a change of it there and back within 9.5 s |
@@ -329,6 +339,8 @@ once those are removed, for every secret of the register, in either case. A row'
 | S9.3 | lan | no app posts its context to Patterns by `CONTEXT POST` at these pins, and Patterns says so, read after every other row but S7.4 and S7.1 (the last of which stops the apps): STATE's `bus.posted` empty and `bus.postRefused` (the minute now open) 0, no `bus.apps` row marked `posted`, no `Remote`/`ContextPost` row in its journal and no refusal summary in its `patterns.log` for the whole run (an ended minute's refusals are summed there by the first read of the posted table after it, and the lane reads Patterns' STATE throughout); the absence, not a post (no app at these pins posts one, and the lane's own wire client stands in for none) |
 | S6.1 | lan | the rig killed and restarted: every link lets go, then is gone, then is live again, Patterns following the rig as the node its key is bound to (its record naming the rig's id at level 1, both ways proved, under that key's kid) |
 | S6.1b | lan | the rig's cable pulled: every link goes stale, then gone, through silence; put back, every link is live again, Patterns following the rig as its node by its key (S6.1's check), and its link record, settled, still the rig's id at level 1, both ways proved, pinned and under the floor it kept |
+| S3.8 | lan | Patterns' speaker message through its Stagewatch link (its Round 101.2): the control on the rig's speaker screen (Patterns' `stage.speakerAck` `sent`, its journal row naming the rig's message id); with the rig's cable pulled before Patterns' link hears the silence, a message whose request reached no connection is `not-sent` within 8 s, 'no connection to Stagewatch <name> could be made', one journal row; with the cable pulled again and Patterns' connections to the rig ended (`lan.py`'s drop) as the next one waits for its connection, `not-sent`, 'the link to Stagewatch <name> dropped before it was sent'; neither reached the rig (its frame still names the control's id and words, and the next message gets a later id) |
+| S3.9 | lan | a speaker message the rig took and never answered stays `unconfirmed` in Patterns: the rig's show thread stopped (9 s), the message said at once, the rig's cable pulled 1 s after while its web server holds the request; Patterns' receipt `unconfirmed` within 8 s, 'no answer in 4 s', one journal row; the cable back, the rig runs it when its show thread turns over and its frame says its words |
 | S6.2a | lan | a stuck Stagewatch: PlayMap's link stays live and shows no time, for Stagewatch's own reason, and the rig's running time again once the show turns over |
 | S3.3 | lan | Patterns' assistant proposes a look to the rig's desk (the bench's `propose look`): pending there at review as the bench's own `APPLY <id>` naming the look, approved by the operator (`desk approve <id>`), Patterns applies it once, opening EDIT SAFE with the air's look unchanged, its chip says applied once, and the rig's desk says done |
 | S3.4 | lan | the rig's desk sends Patterns `VIDEO STOP` (`peer patterns`) with a synthetic clip on its air: the clip is held at its top, the rig rates it high by Patterns' table, and the rig's desk says done in Patterns' words (`ran VIDEO STOP: OK`) |

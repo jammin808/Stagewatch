@@ -144,6 +144,8 @@ done <<< "$pins"
 # One build at a time, each in its own tree, with no build server left behind to meet another tree's build. A sibling whose
 # global.json pins its .NET SDK (Patterns does) builds with that SDK only, as dotnet resolves it in the clone's own folder; a
 # machine where dotnet resolves none there is said, with the SDK to install, before any build starts (tools/interop/sdk.sh).
+# Each build's line names the SDK it builds with: the one dotnet resolves from the sibling's global.json, or, for a sibling
+# that has none (Mapper), the newest the machine has, as dotnet answers in that clone.
 declare -A sdk_of
 for app in patterns mapper; do
   sdk_of[$app]=$("$root/tools/interop/sdk.sh" "$app" "${tree[$app]}")
@@ -154,7 +156,13 @@ for app in patterns mapper; do
   esac
 done
 for app in patterns mapper; do
-  say "$app: dotnet build ${build_of[$app]} at $(git -C "${tree[$app]}" rev-parse --short=12 HEAD)${sdk_of[$app]:+ with the .NET SDK ${sdk_of[$app]}, as dotnet resolves its global.json}"
+  how="as dotnet resolves its global.json"
+  sdk=${sdk_of[$app]}
+  if [ -z "$sdk" ]; then
+    how="the newest this machine has (it has no global.json)"
+    sdk=$(cd "${tree[$app]}" && dotnet --version 2>/dev/null)
+  fi
+  say "$app: dotnet build ${build_of[$app]} at $(git -C "${tree[$app]}" rev-parse --short=12 HEAD)${sdk:+ with the .NET SDK $sdk, $how}"
   (cd "${tree[$app]}" && dotnet build "${build_of[$app]}" -c Release -v q -nologo --disable-build-servers) ||
     stop 1 "$app did not build (dotnet's words above)"
 done

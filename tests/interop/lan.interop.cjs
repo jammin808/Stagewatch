@@ -23,7 +23,10 @@
 // stops it), so the room's rig, its doors and its rows are as they were. The Eye rows (S9.1, S9.2, S5.4 and the Eye half of S6.2b)
 // read Patterns' EYE JSON over the same paired wire client (its link fields ride to paired connections only), judged on fields by
 // lib/eye.cjs, each beside the rig's own context where it compares them; S9.3 reads Patterns' STATE over that client and its journal
-// in the bench's home. The rows run in order, each a node:test test
+// in the bench's home. S2.1d reads PlayMap's one connection to the rig past PlayMap's drop bound in the rig's own record (its `nodes`
+// line, the time the rig accepted each socket); S3.8 and S3.9 send Patterns' speaker messages to the rig with the rig's cable
+// pulled (S3.9 with its show thread stopped as well) and read Patterns' receipts in its STATE and its journal in the bench's home.
+// The rows run in order, each a node:test test
 // that writes its matrix row; S0.1 starts the apps (the rig first, which the others link to) and every later row reads the
 // apps it started; the rows that stall the rig or take an app down (and back) come after the others, then S9.3 (read-only, placed
 // there on purpose so that its reads of Patterns' journal and log cover the whole run), S7.4 (no address ever
@@ -1591,7 +1594,7 @@ async function playmapLinkItem() {
 
 test("S2.1b PlayMap reads the rig's verdict on its node link", row({
   id: 'S2.1b',
-  title: "PlayMap reads the rig's verdict on its node link: its link taken off until the rig holds no node link for it, then given the free key, which speaks for no node, by its operator at its own machine, it dials the rig and is refused in the rig's own words within 5 s, the rig's own record of the link verified none in those words; from the answer on its link is live and never paired, watched for 7 s past its next context post: amber in its context, the rig's row for it with no proven link at every read and no proven node link in the rig's record; given its own key again, which speaks for it, it is paired again within 5 s with the rig's certificate still pinned, the rig's record its key's alone, verified key; every key stays bound as it was, and no address is counted",
+  title: "PlayMap reads the rig's verdict on its node link: its link taken off until the rig holds no node link for it, then given the free key, which speaks for no node, by its operator at its own machine, it dials the rig and is refused in the rig's own words within 5 s, the rig's own record of the link verified none in those words; from the answer on its link is live and never paired, watched for 7 s past its next context post: amber in its context, the rig's row for it with no proven link at every read and no proven node link in the rig's record, which keeps open the one socket PlayMap was refused on (one link and one accepted time at every read: no redial while the rig keeps the refused link open); given its own key again, which speaks for it, it is paired again within 5 s with the rig's certificate still pinned, the rig's record its key's alone, verified key; every key stays bound as it was, and no address is counted",
   apps: ['playmap', 'stagewatch'],
   deadlineMs: [HELLO_MS, HELLO_MS],
 }, async (r) => {
@@ -1609,7 +1612,7 @@ test("S2.1b PlayMap reads the rig's verdict on its node link", row({
   const words = `playmap ${ids.playmap} speaks with its own key`;
   // The rig's own record of the node links naming PlayMap's id (its `nodes` line), as the fields a verdict is read by.
   const rigLinks = async () => (await sw.nodes()).filter((n) => n.id === ids.playmap)
-    .map(({ t, verified, keyId, links, words: w }) => ({ t, verified, keyId, links, words: w }));
+    .map(({ t, verified, keyId, links, words: w, connectedAt }) => ({ t, verified, keyId, links, words: w, connectedAt }));
   // The rig's record holds the free key's link refused in its words, or no link at all; never a proven one, never another key's.
   const refusedOnly = (rows, when) => {
     const other = rows.filter((n) => n.t !== 'playmap' || n.verified !== 'none' || n.keyId !== keys.free.id || n.words !== words);
@@ -1640,7 +1643,7 @@ test("S2.1b PlayMap reads the rig's verdict on its node link", row({
   };
   // The rig's record once PlayMap's own key speaks again: its key's link alone, verified key, and the free key's gone.
   const ownKeyOnly = async () => {
-    const rows = await rigLinks();
+    const rows = (await rigLinks()).map(({ connectedAt, ...x }) => x);
     const own = [{ t: 'playmap', verified: 'key', keyId: keys.playmap.id, links: 1, words: null }];
     if (JSON.stringify(rows) !== JSON.stringify(own)) throw new Error(`the rig's record of PlayMap's node link is ${JSON.stringify(rows)}, not ${JSON.stringify(own)}`);
     return rows;
@@ -1693,8 +1696,10 @@ test("S2.1b PlayMap reads the rig's verdict on its node link", row({
     // Then for the watch, at every read: refused in the rig's words (live, or held once a refused post holds the key and the
     // connection is down), never paired, never green in PlayMap's context; the rig's row for PlayMap there with no proven link;
     // the rig's record the free key's link refused in its words, or none while PlayMap's connection is down.
-    const watch = { ms: REFUSED_WATCH_MS, reads: 0, states: {}, items: {}, rigRecord: { refused: 0, none: 0 } };
+    const watch = { ms: REFUSED_WATCH_MS, reads: 0, states: {}, items: {}, rigRecord: { refused: 0, none: 0 }, connections: 0 };
     facts.freeKey.watch = watch;
+    // Each socket the rig accepted for the refused link, by the time it accepted it: PlayMap holds the one it was refused on.
+    const accepted = new Set(facts.freeKey.rigRecord.map((n) => n.connectedAt));
     const end = Date.now() + REFUSED_WATCH_MS;
     while (Date.now() < end) {
       const l = notPaired(await pm.stagewatchLink(), 'during the watch');
@@ -1705,11 +1710,19 @@ test("S2.1b PlayMap reads the rig's verdict on its node link", row({
       if (!i || i.light === 'green') throw new Error(`PlayMap's context says its Stagewatch link is ${JSON.stringify(i)} with the free key`);
       await rigRowUnproven('during the watch');
       const rows = refusedOnly(await rigLinks(), 'during the watch');
+      // The rig groups sockets by id, key and verdict and names the oldest's time: a redial beside the old socket is links 2.
+      const many = rows.filter((n) => n.links !== 1);
+      if (many.length) throw fatal(`the rig's record of PlayMap's refused link at read ${watch.reads + 1} of the watch holds ${JSON.stringify(many)}, not one socket`);
       watch.reads++;
       watch.states[l.state] = (watch.states[l.state] || 0) + 1;
       watch.items[i.light] = (watch.items[i.light] || 0) + 1;
       watch.rigRecord[rows.length ? 'refused' : 'none']++;
+      for (const n of rows) accepted.add(n.connectedAt);
       await new Promise((res) => setTimeout(res, 250));
+    }
+    watch.connections = accepted.size;
+    if (accepted.size !== 1 || facts.freeKey.rigRecord.some((n) => n.links !== 1)) {
+      throw new Error(`PlayMap's refused link was ${accepted.size} sockets the rig accepted through the watch (${JSON.stringify([...accepted])}), not the one it was refused on`);
     }
 
     facts.ownReceipt = await pm.linkStagewatch(sw.address, keys.playmap);
@@ -1732,6 +1745,93 @@ test("S2.1b PlayMap reads the rig's verdict on its node link", row({
       if (!restored) await pm.linkStagewatch(sw.address, keys.playmap).then(() => said('PlayMap given its own key again'), (e) => said(`giving PlayMap its own key again: ${e.message}`));
       await until(pairedWithOwnKey, HELLO_MS, "PlayMap's link paired again with its own key")
         .then(() => said('PlayMap paired again with its own key'), (e) => said(`PlayMap not paired again with its own key: ${e.message}`));
+    }
+  }
+  facts.bindings.after = boundAsHanded('after the row');
+  await lockoutAfter(r);
+}));
+
+/**
+ * PlayMap's own drop bound for its Stagewatch link (Show Bus 1.3 §14 `link.drop.ms`, PlayMap's PeerLink.DropMs at the pin): a link
+ * that has heard nothing for this long from its connection's start is dropped and dialled again.
+ */
+const PLAYMAP_DROP_MS = 12000;
+/** S2.1d watches PlayMap's link this long from the rig's acceptance of its socket: its drop bound and two of the rig's 2 s beats. */
+const PAST_DROP_MS = PLAYMAP_DROP_MS + 4000;
+
+test("S2.1d PlayMap's link to the rig is one connection past its drop bound", row({
+  id: 'S2.1d',
+  title: "PlayMap's link to the rig, taken off until the rig holds none for it and given its own key again by its operator at its own machine, is paired within 5 s and stays one connection past its drop bound (Show Bus 1.3 §14 link.drop.ms, 12 s from the connection's start) with no redial: read every 250 ms from the moment the rig's own record shows it until 16 s after the rig accepted its socket, the rig's record of it is one link verified by PlayMap's key and accepted at one time (its connectedAt never moves, so no socket closed and none was dialled again), and PlayMap's STATE says the link live and paired with the rig's certificate pinned at every read (PlayMap's fix-link-first-ping at cf576ffc writes no ping before the first message is read, its silence rule running from the connection's start: the rig speaking first keeps it); whether the rig heard nothing of PlayMap's on that socket before its own first message is not read here: no reader outside the two apps sees the order of a TLS socket's first messages, and neither app records it",
+  apps: ['playmap', 'stagewatch'],
+  deadlineMs: [HELLO_MS, PAST_DROP_MS],
+}, async (r) => {
+  r.evidence.push(run.log('playmap.wire'), run.log('playmap-operator.wire'), run.log('playmap-operator.out'), apps.playmap.engineLog,
+    run.log('stagewatch.err'));
+  const pm = apps.playmap;
+  const sw = apps.stagewatch;
+  const keys = rigKeys();
+  // Kept in the row as each step reads it, so a row that fails keeps what it read up to the failure.
+  const facts = {};
+  r.facts = facts;
+  facts.bindings = { before: boundAsHanded('before the row') };
+  const pinned = `certificate is the one pinned (${shortFingerprint(sw.tls)})`;
+  // The rig's own record of the node links naming PlayMap's id (its `nodes` line), with when the rig accepted each one's socket.
+  const rigLinks = async () => (await sw.nodes()).filter((n) => n.id === ids.playmap)
+    .map(({ t, verified, keyId, links, words, connectedAt }) => ({ t, verified, keyId, links, words, connectedAt }));
+  // PlayMap's link as its STATE says it: live and paired with the rig's certificate pinned, or why not.
+  const notPaired = (l) => (l.state !== 'live' || l.paired !== true ? `${l.state}, paired ${l.paired}: ${l.detail}`
+    : !(l.detail || '').includes(pinned) ? `not saying the rig's certificate is pinned: ${l.detail}` : '');
+  let changed = false;
+  let done = false;
+  try {
+    changed = true;
+    facts.offReceipt = await pm.unlinkStagewatch();
+    await until(async () => { const l = await pm.stagewatchLink(); return l.state === 'off' ? l : null; }, HELLO_MS, "PlayMap's link to the rig off");
+    await until(async () => ((await rigLinks()).length === 0 ? [] : null), HELLO_MS, 'the rig holding no node link for PlayMap');
+    // The time before the line is said: the rig may accept the socket before the line's receipt comes back.
+    const askedAt = Date.now();
+    facts.ownReceipt = await pm.linkStagewatch(sw.address, keys.playmap);
+    const up = await until(async () => {
+      const l = await pm.stagewatchLink();
+      const why = notPaired(l);
+      if (why) throw new Error(`PlayMap's link to the rig is ${why}`);
+      const rows = await rigLinks();
+      if (rows.length !== 1 || rows[0].verified !== 'key' || rows[0].keyId !== keys.playmap.id || rows[0].links !== 1) {
+        throw new Error(`the rig's record of PlayMap's link is ${JSON.stringify(rows)}, not one link proved by its key`);
+      }
+      return { link: l, rig: rows[0] };
+    }, HELLO_MS, "PlayMap's link to the rig paired with its own key, one link in the rig's record");
+    const pairedMs = S.inTime(askedAt, HELLO_MS, "PlayMap's link paired with its own key");
+    const start = up.rig.connectedAt;
+    if (!Number.isInteger(start) || start < askedAt || start > Date.now()) {
+      throw new Error(`the rig's record says PlayMap's socket was accepted at ${start}, not after the line that gave its key (${askedAt})`);
+    }
+    const once = { t: 'playmap', verified: 'key', keyId: keys.playmap.id, links: 1, words: null, connectedAt: start };
+    facts.up = { pairedMs, acceptedMsAfterLine: start - askedAt, firstReadMs: Date.now() - start, detail: up.link.detail };
+    // The watch: at every read, the one connection the rig accepted at `start`, and PlayMap's link live and paired over it.
+    const watch = { fromMs: Date.now() - start, reads: 0, toMs: 0 };
+    facts.watch = watch;
+    for (;;) {
+      const rows = await rigLinks();
+      const at = Date.now() - start;
+      if (JSON.stringify(rows) !== JSON.stringify([once])) {
+        throw fatal(`${at} ms after the rig accepted PlayMap's socket its record is ${JSON.stringify(rows)}, not the one connection it accepted then`);
+      }
+      const why = notPaired(await pm.stagewatchLink());
+      if (why) throw fatal(`${at} ms after the rig accepted PlayMap's socket PlayMap's link is ${why}`);
+      watch.reads++;
+      watch.toMs = at;
+      if (at >= PAST_DROP_MS) break;
+      await sleep(250);
+    }
+    if (watch.fromMs >= PLAYMAP_DROP_MS) throw new Error(`the watch began ${watch.fromMs} ms after the socket was accepted, past the drop bound it is to cover`);
+    done = true;
+  } finally {
+    // The rows after this one find PlayMap paired with its own key, whatever happened here; what the cleanup did is said on
+    // standard error, never thrown over the row's own failure.
+    if (changed && !done) {
+      const said = (m) => console.error(`S2.1d's cleanup: ${run.secrets.scrub(m)}`);
+      await pm.linkStagewatch(sw.address, keys.playmap).then(() => said('PlayMap given its own key again'), (e) => said(`giving PlayMap its own key again: ${e.message}`));
     }
   }
   facts.bindings.after = boundAsHanded('after the row');
@@ -2651,6 +2751,188 @@ test("S6.1b the rig's cable pulled", row({
   if (settled.tls !== 'pinned') wrong.push(`tls ${settled.tls}, not pinned`);
   if (!settled.floor || settled.floor.tls !== true || settled.floor.level !== 1 || settled.floor.proof !== 'mutual') wrong.push(`floor ${JSON.stringify(settled.floor)}`);
   if (wrong.length) throw new Error(`Patterns' link record settled after the cable: ${wrong.join('; ')} — "${settled.words}"`);
+  await lockoutAfter(r);
+}));
+
+/**
+ * How long Patterns' speaker call waits for the rig's answer (its StagewatchFrame.SideCallWithin, 4 s at the pin): its receipt is
+ * read within that × 1.5 + 2 s of the line.
+ */
+const SPEAKER_CALL_MS = 4000 * 1.5 + 2000;
+
+/** Patterns' journal rows (patterns.showlog.jsonl in the bench's home) written at or after `since` (unix ms, this kernel's clock, as
+ *  Patterns' AtUtc is), oldest first. */
+function patternsJournalSince(since) {
+  const file = path.join(apps.patterns.folders.home, 'patterns.showlog.jsonl');
+  return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean)
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter((x) => x && Date.parse(x.AtUtc) >= since);
+}
+
+/** Patterns' journal rows of its speaker messages since `since`: each message's `Requested` row and its receipts' rows, in Patterns'
+ *  own words (StageSpeakerWords). */
+const speakerRows = (since) => patternsJournalSince(since).filter((x) => x.Kind === 'StageMessage' && x.Target === 'speaker');
+
+/**
+ * One STAGE MESSAGE through Patterns' wire, as an operator's deck says it, that Patterns sends to the rig's speaker: the wire answers
+ * a bare `OK` whichever way the message went, so the route is read from Patterns' journal, whose `Requested` row says the message
+ * went to the rig's speaker (StageSpeakerWords.ViaReply), never "on this desk's displays only". Resolves with when the line was said.
+ */
+async function speakerMessage(name, text) {
+  const at = Date.now();
+  const said = await apps.patterns.say(`STAGE MESSAGE ${text}`);
+  if (said !== 'OK') throw new Error(`Patterns answered STAGE MESSAGE with ${JSON.stringify(said)}`);
+  const via = `To Stagewatch ${name}'s speaker: '${text}' — its receipt and the speaker's ACK come back here.`;
+  await until(async () => speakerRows(at).find((x) => x.Outcome === 'Requested' && x.Message === via) || null, HELLO_MS,
+    `Patterns' journal saying the message went to Stagewatch ${name}'s speaker`);
+  return at;
+}
+
+/**
+ * Patterns' STATE stage row's receipt word for its speaker's message (stage.speakerAck) once it is `want`, within ms of `from`, read
+ * while the row's waiting speaker message (stage.pendingSpeaker, this desk's latest unanswered one) is `text`: the receipt word is
+ * the latest message's, so with `text` the latest the word is that message's and never an earlier leg's.
+ */
+const speakerAck = (want, text, from, ms, what) => until(async () => {
+  const st = (await apps.patterns.state()).stage || {};
+  return st.speakerAck === want && st.pendingSpeaker === text
+    ? { speakerAck: st.speakerAck, speakerFrom: st.speakerFrom, speakerAckBy: st.speakerAckBy, pendingSpeaker: st.pendingSpeaker } : null;
+}, S.left(from, ms), what);
+
+/** A journal row's outcome is the receipt's own (Patterns' StageMessage row Outcome), held beside its words. */
+const outcomeIs = (row, want) => {
+  if (row.Outcome !== want) throw new Error(`Patterns' journal row "${row.Message}" has outcome ${JSON.stringify(row.Outcome)}, not ${want}`);
+  return row;
+};
+
+/** Every link to the rig live and Patterns following it as its node by its key (S6.1's check), within the gone bound of `from`. */
+const linksBack = (from, name, what) => until(async () => {
+  const l = await stagewatchLinks();
+  const notYet = notFollowingByKey(l, name);
+  if (allLive(l) && notYet.length === 0) return l;
+  throw new Error(`not back yet: ${JSON.stringify({ playmap: l.playmap.state, agmessage: l.agmessage.state, patterns: l.patterns.state, patternsRecord: l.patterns.record })}${notYet.length ? `; ${notYet.join('; ')}` : ''}`);
+}, S.left(from, GONE_MS), what);
+
+test("S3.8 Patterns' speaker message not sent while its link cannot reach the rig", row({
+  id: 'S3.8',
+  title: "Patterns' speaker message through its Stagewatch link (Patterns' Round 101.2, Show Bus 1.3 13.12.3: never written is not-sent, written and unanswered unconfirmed), read over the paired wire, in Patterns' STATE (stage.speakerAck) and its journal: the control first, a STAGE MESSAGE the rig puts on its speaker's screen (Patterns' receipt sent, its journal row naming the rig's message id, the rig's frame saying its words); then, the rig's cable pulled while Patterns' link has not yet heard the silence (its route still open: Patterns' journal says it went to the rig's speaker, the wire answering a bare OK), a message whose request never reached a connection ends not-sent within 8 s in Patterns' words 'no connection to Stagewatch <name> could be made', one journal row; then, the cable pulled again and Patterns' connections to the rig ended with lan.py's drop as the next message waits for its connection, not-sent in 'the link to Stagewatch <name> dropped before it was sent'; and neither reached the rig: with the cable back and every link live, the rig's frame still names the control's message id and words, and the next message Patterns sends it is applied with a later id",
+  apps: ['patterns', 'stagewatch'],
+  deadlineMs: [SPEAKER_CALL_MS, HELLO_MS],
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'), run.log('lan.out'), run.log('stagewatch.err'));
+  const sw = apps.stagewatch;
+  const facts = {};
+  r.facts = facts;
+  const before = await until(async () => { const l = await stagewatchLinks(); return allLive(l) && !notFollowingByKey(l, l.patterns.name).length ? l : null; },
+    ROOM_READY_MS, 'every link to the rig live, Patterns following it as its node by its key');
+  const name = before.patterns.name;
+  const rigAddr = lan.host('stagewatch').addr;
+  const words = (tag) => `interop speaker ${tag} ${hex(3)}`;
+  const rigNames = async (text) => { const f = await sw.frame(); return f.message === text && Number.isInteger(f.messageId) && f.messageId > 0 ? f : null; };
+
+  // The control: Patterns' message on the rig's speaker screen, its receipt sent, its journal row naming the rig's id for it.
+  const a = words('control');
+  const aAt = await speakerMessage(name, a);
+  const onRig = await until(() => rigNames(a), HELLO_MS, "the rig's frame naming the control message");
+  facts.control = { rigMessageId: onRig.messageId, ack: await speakerAck('sent', a, aAt, HELLO_MS, "Patterns' receipt for the control: sent") };
+  if (facts.control.ack.speakerFrom !== 'stagewatch') throw new Error(`Patterns says its control message is from "${facts.control.ack.speakerFrom}", not sent through the rig`);
+  const placed = `stage message → Stagewatch ${name}: on the speaker's screen (message ${onRig.messageId})`;
+  facts.control.row = await until(async () => speakerRows(aAt).find((x) => x.Message === placed) || null, HELLO_MS, `Patterns' journal row "${placed}"`);
+
+  // A not-sent leg: the cable pulled, a message whose route is still open, then `act` (nothing more, or the drop) and its receipt.
+  const notSent = async (tag, act, why) => {
+    const text = words(tag);
+    await lan.cable('stagewatch', 'down');
+    const downAt = Date.now();
+    let leg;
+    try {
+      const at = await speakerMessage(name, text);
+      const acted = await act();
+      const ack = await speakerAck('not-sent', text, at, SPEAKER_CALL_MS, `Patterns' receipt not-sent (${why})`);
+      const ms = S.inTime(at, SPEAKER_CALL_MS, `Patterns' receipt not-sent (${why})`);
+      const want = `stage message → Stagewatch ${name}: not sent (${why}) — shown on this desk's displays only`;
+      const row = outcomeIs(await until(async () => speakerRows(at).find((x) => x.Message === want) || null, HELLO_MS, `Patterns' journal row "${want}"`), 'not-sent');
+      leg = { text, saidMsAfterCable: at - downAt, acted, ackMs: ms, ack, row: { Origin: row.Origin, Outcome: row.Outcome, Message: row.Message } };
+    } finally {
+      await lan.cable('stagewatch', 'up');
+    }
+    const upAt = Date.now();
+    await linksBack(upAt, name, `every link to the rig live again after the ${tag} leg, Patterns following it by its key`);
+    leg.backMs = S.since(upAt);
+    return leg;
+  };
+  facts.noConnection = await notSent('no-connection', async () => null, `no connection to Stagewatch ${name} could be made`);
+  facts.dropped = await notSent('dropped', async () => {
+    const n = await lan.drop('patterns', rigAddr, sw.ports.http);
+    if (n < 1) throw new Error(`lan.py ended ${n} connections of Patterns' to the rig, not its link's`);
+    return { connectionsEnded: n };
+  }, `the link to Stagewatch ${name} dropped before it was sent`);
+
+  // Neither reached the rig: its frame still names the control's message, and the next message is applied there with a later id.
+  const still = await sw.frame();
+  if (still.message !== a || still.messageId !== onRig.messageId) {
+    throw new Error(`the rig's frame names message ${still.messageId} "${still.message}" after the not-sent legs, not the control's ${onRig.messageId}`);
+  }
+  for (const leg of [facts.noConnection, facts.dropped]) {
+    if (JSON.stringify(still).includes(leg.text)) throw new Error(`the rig's frame holds the words of a message Patterns did not send: ${leg.text}`);
+  }
+  const e = words('after');
+  const eAt = await speakerMessage(name, e);
+  const next = await until(() => rigNames(e), HELLO_MS, "the rig's frame naming the message after the not-sent legs");
+  if (!(next.messageId > onRig.messageId)) throw new Error(`the rig numbered the message after the legs ${next.messageId}, not after the control's ${onRig.messageId}`);
+  facts.after = { rigMessageId: next.messageId, ack: await speakerAck('sent', e, eAt, HELLO_MS, "Patterns' receipt for the message after the legs: sent") };
+  // The rig's speaker screen cleared, so the rows after this one find no message of this row's on it.
+  await sw.command('clearmessage');
+  facts.cleared = await until(async () => { const f = await sw.frame(); return !f.message ? { message: f.message || '' } : null; }, HELLO_MS, "the rig's speaker screen cleared");
+  await lockoutAfter(r);
+}));
+
+test("S3.9 Patterns' speaker message the rig took and never answered", row({
+  id: 'S3.9',
+  title: "a speaker message the rig received and did not answer stays unconfirmed in Patterns (Round 101.2: written and unanswered is unconfirmed, never not-sent): the rig's show thread stopped (its `stall` line, 9 s), a STAGE MESSAGE said at once while Patterns' route is still open (its journal saying it went to the rig's speaker), the rig's cable pulled 1 s after, while the rig's web server holds the request for its show thread (the rig answers 'accepted' 3 s after it took it, into the pulled cable); Patterns' receipt is unconfirmed within 8 s of the line, in its words 'no answer in 4 s', one journal row; the cable back, the rig runs the message when its show thread turns over and its frame names the message's words within 5 s of that: it reached the rig; every link is live again after",
+  apps: ['patterns', 'stagewatch'],
+  deadlineMs: [SPEAKER_CALL_MS, HELLO_MS],
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'), run.log('lan.out'), run.log('stagewatch.out'));
+  const sw = apps.stagewatch;
+  const facts = {};
+  r.facts = facts;
+  const before = await until(async () => { const l = await stagewatchLinks(); return allLive(l) && !notFollowingByKey(l, l.patterns.name).length && !l.patterns.stuck ? l : null; },
+    ROOM_READY_MS, 'every link to the rig live, Patterns following it as its node by its key and not stuck');
+  const name = before.patterns.name;
+  const text = `interop speaker unanswered ${hex(3)}`;
+  const stall = await sw.stall(9000);
+  let ran;
+  let upAt;
+  try {
+    const at = await speakerMessage(name, text);
+    facts.saidMsAfterStall = at - stall.stalledAt;
+    await sleep(1000);
+    await lan.cable('stagewatch', 'down');
+    facts.cableMsAfterLine = Date.now() - at;
+    // The rig answers 'accepted' 3 s after it took the request (WebServer.ReceiptWait), which is after the line: a pull later than
+    // that would let the answer through, and the row would fail on the receipt's word rather than on the margin the pull missed.
+    if (facts.cableMsAfterLine >= 3000) throw new Error(`the rig's cable was pulled ${facts.cableMsAfterLine} ms after the line, not before the rig's 3 s receipt wait`);
+    facts.ack = await speakerAck('unconfirmed', text, at, SPEAKER_CALL_MS, "Patterns' receipt unconfirmed");
+    facts.ackMs = S.inTime(at, SPEAKER_CALL_MS, "Patterns' receipt unconfirmed");
+    const want = `stage message → Stagewatch ${name}: unconfirmed (no answer in 4 s) — it may be on the speaker's screen; shown on this desk's displays only meanwhile`;
+    const row = outcomeIs(await until(async () => speakerRows(at).find((x) => x.Message === want) || null, HELLO_MS, `Patterns' journal row "${want}"`), 'unconfirmed');
+    facts.row = { Origin: row.Origin, Outcome: row.Outcome, Message: row.Message };
+    const others = speakerRows(at).filter((x) => x !== row && /not sent/.test(x.Message));
+    if (others.length) throw new Error(`Patterns' journal says the message was not sent: ${JSON.stringify(others.map((x) => x.Message))}`);
+  } finally {
+    await lan.cable('stagewatch', 'up');
+    upAt = Date.now();
+    ran = await stall.running(15000);
+  }
+  // It reached the rig: once its show thread turns over the rig runs it, and its frame says its words.
+  const onRig = await until(async () => { const f = await sw.frame(); return f.message === text ? f : null; }, S.left(ran, HELLO_MS), "the rig's frame naming the unanswered message once its show thread turned over");
+  facts.rig = { messageId: onRig.messageId, ranAt: ran, namedMsAfterRunning: Date.now() - ran };
+  await linksBack(upAt, name, 'every link to the rig live again, Patterns following it by its key');
+  // What Patterns made of the frame that names it after its receipt (recorded, not held: the receipt above is the row's leg).
+  facts.after = (await apps.patterns.state()).stage;
+  await sw.command('clearmessage');
+  facts.cleared = await until(async () => { const f = await sw.frame(); return !f.message ? { message: f.message || '' } : null; }, HELLO_MS, "the rig's speaker screen cleared");
   await lockoutAfter(r);
 }));
 

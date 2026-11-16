@@ -59,8 +59,14 @@ const peerRow = (id, pred = () => true) =>
 
 test('a show app with its node key hears its verdict first, then frames, and is never a screen', async () => {
   assert.equal(rig.ready.nodeKeys.length, 2, 'the ready line names each key made in this run, with its secret');
+  const dialledAt = Date.now();
   const a = await dial('node=pat00001&t=patterns', key1.secret);
   await a.next(() => true, 5000, 'the first message');
+  // The rig's record says when it accepted the socket, and says it again unchanged while that socket stays.
+  const accepted = async () => (await rig.control('nodes', (j) => j.rig === 'nodes')).nodes.find((n) => n.id === 'pat00001').connectedAt;
+  const first = await accepted();
+  assert.ok(Number.isInteger(first) && first >= dialledAt && first <= Date.now(), `connectedAt ${first} is when the socket was accepted`);
+  assert.equal(await accepted(), first, 'the same socket keeps the time it was accepted');
   assert.deepEqual(a.messages[0].json, { type: 'auth', ok: true, scope: 'node', node: { t: 'patterns', id: 'pat00001', verified: 'key' } });
   await a.next((j) => j.type === 'state', 5000, 'a frame after the verdict', 1);
 
@@ -179,6 +185,25 @@ test('the operator\'s PIN on a node link proves the operator: verified operator,
   assert.equal(row.verified, 'operator');
   assert.deepEqual(await nodeLinks('agm00001'), [{ t: 'messenger', id: 'agm00001', verified: 'operator', keyId: null, links: 1, words: null }]);
   assert.ok(!(await rig.screens()).some((s) => s.id.includes('agm00001')));
+});
+
+test('a node socket closed and dialled again is a new acceptance in the rig\'s record: a later connectedAt, one link', async () => {
+  // The lane's no-redial rows read one acceptance time through a watch as one socket held: a redial must be a new time.
+  const keyRows = async () => (await rig.control('nodes', (j) => j.rig === 'nodes')).nodes.filter((n) => n.id === 'pat00001' && n.verified === 'key');
+  const [held] = await keyRows();
+  assert.equal(held.links, 1, JSON.stringify(held));
+  await links[0].close();
+  await until(async () => (await keyRows()).length === 0, 5000, 'the rig holding no key link for pat00001');
+  const closedAt = Date.now();
+  const again = await rig.link('node=pat00001&t=patterns', key1.secret);
+  // The file's later tests read the show app's link as links[0]: the new socket takes the closed one's place.
+  links[0] = again;
+  assert.equal((await again.next(() => true, 5000, 'the verdict')).json.node.verified, 'key');
+  const rows = await keyRows();
+  assert.equal(rows.length, 1, JSON.stringify(rows));
+  assert.equal(rows[0].links, 1);
+  assert.ok(rows[0].connectedAt > held.connectedAt && rows[0].connectedAt >= closedAt,
+    `the socket dialled again was accepted at ${rows[0].connectedAt}, not after the first (${held.connectedAt}) closed (${closedAt})`);
 });
 
 test('screen disconnect all: the browser is told to stay off; the show apps stay open and keep hearing frames', async () => {
