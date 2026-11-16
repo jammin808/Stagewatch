@@ -2224,7 +2224,10 @@ another app's context posted over a verified PeerLink, `CONTEXT POST`). Round 99
 the lane's pin (ff01e34), 99.3 (04c2990, the feed) and 99.4 (6f5600f, the desk's readers) were pushed after it and are not pinned,
 and 99.5 and 99.6 had not landed when these papers were written. By rule R3 the lane rows that read Patterns' Eye drawing this
 Stagewatch wait for that round (below). PlayMap's half: its context names its peers and the timer it draws (its spine, cddf83b6,
-in the pin); it offers no LINK yet (Mapper's PM-9b), so **its links stay at level 0** — legacy, amber, and they say so.
+in the pin); it offers no LINK yet (Mapper's PM-9b), so **its links stay at level 0** — legacy, amber, and they say so. *Since then
+(SW24.1p):* Round 99 closed at 52e176b (99.3 the feed, 99.4 and 99.5 the desk's and the wire's readers, 99.6 the papers), the lane
+pins it, and its rows S9.1, S9.2, S5.4 and S6.2b read Patterns' Eye drawing this Stagewatch; S6.2b found that a stuck show's
+context was served stale, and SW24.1p mends it (below).
 
 ### The units
 
@@ -2234,6 +2237,7 @@ it did and left in its own words, as written when it landed.
 | Unit | Commit | What landed | What it left |
 |---|---|---|---|
 | SW24.1 | 61e300e | The context by §6 P1–P8 (`ShowContext`, `ScreenWindows`, `PlayoutLink.PeerNode`, `PlayoutProof.Use`): each playout link a `link` item with one row to `@<node id>`, its node said proved or not; each link accepted on `/ws` a `link:ws:<id>` item with its row, the rest in `link:unproved`; `clock:<node id>`; `timer -feeds->` only a timer page; `serves` rows to grant holders; the `vt` item fed by its node; P5 over the schedule and `vt`; P6 kinds; P7 order; P8 words; `ShowBusSpecTests` holding each rule kept; lane rows S1.5, S1c.3, S4.3, S4.4 read the new shapes | no lane row proves Patterns draws the rows (Round 99's feed is not pinned); a withdrawn grant's grey `serves`; `/layout` counted as no timer page; `follows` for every accepted link |
+| SW24.1p | this commit (`git log --grep SW24.1p`; its hash goes in the next papers commit) | The lane at Patterns' Round 99 (52e176b, closed): S9.1 one card per app on Patterns' Eye (each rig drawn once, by the id its link proved, one edge whose source is `link` and whose record is the link's own, no deck); S9.2 Patterns reads the rig's 2.24 rows (each `@` end placed on one edge, no cut edge, the level-0 `link:ws:` items lighting no app green; the counting of ends it draws no card for compared at 0 = 0); S5.4 the window chain as far as the pins give it (the thing and its withdrawal); S6.2b held tighter with the stuck rig on Patterns' Eye and on the rig's own context; every existing row held unchanged. The one defect of Stagewatch's own the lane proved, mended: a stuck show's context was served stale, and every door now serves its stuck form (`ServedContext`, desk and rig), with a check on injected time | S9.2's counting half unexercised (no rig row names a node Patterns draws no card for); S5.4's `serves` edge (no row for a held grant on this bench) and Patterns' screen-to-window edge (its OPEN L107); AGMessage's displays on Patterns' Eye (Round 100 and AGMessage's unit) |
 
 The release's papers (SW24.2) are this section, REMOTE.md's 2.24 section, FEATURES.md's 2.24 entry, and the sentences of NODES.md,
 README.md and ECOSYSTEM.md that had gone stale; they change no code. Between 2.23's head and SW24.1, one commit of the plan
@@ -2284,12 +2288,12 @@ The tree's versions still read 2.16.0 (`src/Timer.App/Timer.App.csproj`, `compan
 papers, nothing here bumps a version or makes a tag; `release.ps1` moves them on the PC. 2.24.0 goes after 2.23.0, from the commit
 that carries this section. No file of the Companion module changed in 2.24; it takes 2.24.0 with the app, as each release's module
 does. A tag waits for CI's interop job beside the other jobs (the owner's answer S-interop-gate), at the pins
-`tools/interop/siblings.json` holds for this release — unchanged since SW23.1p — each sibling built with the SDK its own
-`global.json` names (`tools/interop/sdk.sh`):
+`tools/interop/siblings.json` holds for this release — Patterns' pin moved by SW24.1p, the others as SW23.1p left them — each sibling
+built with the SDK its own `global.json` names (`tools/interop/sdk.sh`):
 
 | Sibling | Pin | What it is | SDK |
 |---|---|---|---|
-| Patterns | ff01e34 | its Round 99.7, on Round 98's acceptor (2515017) and Round 99.0–99.2 | 10.0.115 (`global.json`, `rollForward` `latestPatch`) |
+| Patterns | 52e176b | its Round 99, closed (99.0–99.7: the Eye's network, the feed, the desk's and the wire's readers, the papers), on Round 98's acceptor (2515017) | 10.0.115 (`global.json`, `rollForward` `latestPatch`) |
 | Mapper (PlayMap) | 2ae7ac7b | tests only since 031c9a3; no LINK yet | names none (no `global.json`): the newest SDK the machine has |
 | AGMessage | d0e3961 | 0.5.0 (`engines` Node ≥ 24.11) | not .NET |
 
@@ -2313,13 +2317,45 @@ crafted master licence file rejected, and an owner-only file and its backup writ
   window. WPF compiles on Linux and is never claimed as seen; the walk-through, `pwsh tools\smoke.ps1`, the seven Windows-only checks
   and the release itself (`tools\release.ps1 -Version 2.24.0 -ModuleVersion 2.24.0`) are the maintainer's, on the PC, and were not
   run here.
-- **Lane rows left open for after Patterns' Round 99 closes.** Train 7's interop rows — one node per app on Patterns' Eye (this
-  Stagewatch drawn once, folded by the id its link proved), no duplicate deck, and window chains with the real apps (a Stagewatch
-  window `serves` the Patterns desk and that desk's screen shows it) — read Patterns' feed and readers (its 99.3 to 99.5) and wait
-  for the round's papers (99.6) and a pushed head the lane can pin; the lane stays at ff01e34 meanwhile, and none of those rows was
-  written in 2.24. What they would read is said in SW24.1's notes (below). G24's Stagewatch half — the `serves` row to the holder and
-  the holder's claims in the window's words — landed; its Patterns half (a screen's own row to the Stagewatch window it shows) is
-  Patterns'.
+- **Train 7's interop rows: what the lane proves at Patterns' Round 99 (SW24.1p), and what stays open.** Proved, on the LAN at
+  Patterns 52e176b: one card per app id on Patterns' Eye, the room's rig and a rig linked to Patterns' wire by LINK each drawn once
+  by the id its link proved, one edge each whose source is `link` and whose record is that link's own, and no `deck:` card (S9.1);
+  Patterns reads this Stagewatch's 2.24 rows, every `@` end placed on one edge (a link item's row on the record edge, a row to an app
+  it draws as one claim edge), no edge cut (`left.edges` 0), and the level-0 `link:ws:` items lighting no app green (S9.2); a stuck rig
+  drawn on Patterns' Eye as 13.16.1 gives it, its card no better than amber with the stall's words, the same counting things as before
+  the stall each `? — no time shown` and red, and all as before once it turns over, while the rig's own context keeps §6 P5 (S6.2b).
+  Open, each with what it waits for:
+  - **S9.2's counting half.** EYE's `unplaced` equals the rig's own count of `@` ends Patterns draws no card for, but at these pins
+    that count is 0 on both sides (every row of the rig's ends at Patterns or at PlayMap, which Patterns draws), so a Patterns that
+    never counted would pass: the row records it as not exercised. It waits for a lane step that gives the rig a row to a node
+    Patterns has no card for (a third node linked to the rig's `/ws`, the next lane unit that adds one).
+  - **The plan's "every link green" for a stuck rig** does not hold, and the contract says why: 13.16.1 makes a stuck show's link
+    △ amber "says its show is stuck", which Patterns' record does (`PeerLinkMachine.cs:1040` at 52e176b) and S6.2b asserts; at these
+    pins the rig's link is amber anyway, flag `scope` (the verdict's scope word, held, below). eye.md's "the link edge stays green"
+    (its §5 and the lane list) is the design's word against the hashed contract; the spec edit decides, and the row moves with it.
+  - **The window chain (eye.md §3.3).** S5.4 proves the half that stands: the window Patterns holds is the rig's window item and a
+    thing of the rig's card on Patterns' Eye (source `told`, in the item's light), and it leaves the Eye with its withdrawal; the
+    `serves` rows and edges are compared at zero (none written, none drawn), which proves no edge. On this bench the grant
+    stays `held` (no page opens without WebView2, S5.1's finding), and §6 P4 as Stagewatch keeps it writes a `serves` row only while
+    the holder shows the window (green) or it is sent or opening (amber) (`ScreenWindows.HolderLight`,
+    `src/Timer.Core/ScreenWindows.cs:919`), so no `serves` edge is drawn here: it waits for a grant that opens (S5.1w, the Windows job
+    or the walk) or for the owner's word on whether a held grant gets a row (P4 gives one per holder but no light for a holder that
+    has opened nothing; a `sent` grant, not yet acknowledged, gets amber where a `held` one gets none). The other half — an edge of
+    Patterns' own from the screen that shows the window to it — is Patterns' OPEN L107 at 52e176b ("this desk draws no edge of its
+    own from a screen to the granted window it shows").
+  - **AGMessage's displays on Patterns' Eye** wait for Patterns' Round 100 (`CONTEXT POST` over a verified PeerLink) and AGMessage's
+    own unit that posts (Patterns' OPEN L127: an app that posts nothing is drawn by its hello alone); no row is added for them.
+  - **Mended in SW24.1p: a stuck show's context was served stale.** The rig and the desk build their context on the show thread
+    (`tools/Stagewatch.Rig/Program.cs` `Tick`, `MainViewModel.ShowBus.cs` `RefreshShowBus`), so while it was stuck `GET /api/context`,
+    MCP's `get_context` and the context Patterns pulls were the last one built before the stall — a running countdown served as
+    "running, 4:12 left", green, to every peer and AI for as long as the stall lasted — and §6 P5's red counting items never reached
+    the wire, where `/api/preflight` answered stuck (`PreflightWire.Served`). The lane's first run at this pin showed it (the rig's
+    context 4 s into the stall: its timer grey "idle", its schedule grey "not started"). Now each build publishes the context and its
+    stuck form together (`ServedContext`, `src/Timer.Show/ServedContext.cs`) and `ContextJson()` on the desk and the rig serves the
+    stuck form while the snapshot hub's `ProducerStuck` says so, read at serve time; `ShowBusSpecTests`' "P5 on the wire" check holds
+    it on injected time (live at the stuck bound, stuck a millisecond past it, live again once the thread turns over) and S6.2b reads
+    it from the rig. Patterns then draws the rig's card red rather than amber while stuck once it has pulled the red context
+    (`StagewatchFollow.StuckLight` keeps the worse of the app's own light and amber), which S6.2b allows ("no better than amber").
 - **PlayMap at level 0 until its acceptor lands.** No LINK goes to a PlayMap node on any carrier (2.23's seam,
   `PlayoutProof.PlayMapSpeaksLink`), its playout link's row names the id its STATE gave, "not proved", and its link on `/ws` is an
   amber `link:ws:` item at level 0. It waits for Mapper's PM-9b (LINK on 9941) and PM-9c (LINK on `playmap.lines.v1`); PlayMap's
@@ -2368,6 +2404,55 @@ crafted master licence file rejected, and an owner-only file and its backup writ
     the desk, its words carrying the rig's `link:patterns` words) and its count of cross-node rows it left unplaced. A withdrawn
     grant's grey `serves` row is not published; `/layout` counts as no timer page (a known under-report). The desk walk-through is
     the maintainer's PC work, not run.
+- **The interop lane at Patterns' Round 99 (SW24.1p).** The lane proved one defect of Stagewatch's own, and this unit mends it (a
+  stuck show's context served stale, above: `ServedContext` in Timer.Show, the desk's and the rig's `ContextJson()` through it, and
+  `ShowBusSpecTests`' "P5 on the wire" check); nothing else of the product changed.
+  - **The pin.** `tools/interop/siblings.json` pins Patterns at 52e176b (its Round 99.6, the round's papers, seen on Patterns'
+    pushed working branch; built in the lane's own clone with SDK 10.0.115); Mapper stays at 2ae7ac7b and AGMessage at
+    d0e3961. 99.3 to 99.5 ride with it: the feed (`ShowBusFeed`), one projection of lights (`ShowBusView.Network`), and EYE JSON's
+    appended fields (each node's `app`, `source`, `collapsed`; each edge's `source`, `claim`, `link`; `left.edges`, `apps`,
+    `linkLights`, `unplaced`) and STATE's `eye` and `bus.apps` appended rows. Every existing row passed at the new pin as written
+    (a run of the lane before any new row: LAN 41 of 41, laptop 5 of 5, offline 3 of 3): none reads a word or field 99.3 to 99.5
+    moved — S1.1 and S1.5's EYE card reads find the card by its id and the address in its words as before, and STATE's `bus.apps`
+    rows keep their fields with the new ones at the end — so no row was changed to pass.
+  - **New rows, each read from Patterns' EYE JSON over the lane's paired wire client** (the link fields ride to paired connections
+    only), in a new section S9 and the window section, specified in BUILD.md's rows table: S9.1 (between S4.6 and S4.7, while S4.6's
+    rig is linked to Patterns' wire) reads `nodes` (each card's `id`, `kind`, `app`, `source`), `edges` (between each card and the desk:
+    `source`, `claim`, `link`, light and mark against the record's), `linkLights` against the link edges, `apps` against the cards,
+    STATE's `bus.apps` and `decks`; S9.2 (after S4.7) reads the rig's `/api/context` and EYE in one read and places each row with an `@`
+    end as Patterns' contract does, each on exactly one edge between its ends (whatever that edge's source), comparing `unplaced` with
+    the rig's own count (0 = 0 at these pins, recorded as not exercised) and holding `left.edges` at 0; S5.4 (after S5.1) grants a
+    window of its own and reads the rig's item and rows beside the Eye's thing and edges (zero of each for a held grant); `lib/eye.cjs` holds the shared readers. Each row captures the EYE
+    JSON and the rig's context it judged (the sweep reads them).
+  - **S6.2b, tightened rather than twinned.** The same stall now reads the rig's own context and Patterns' Eye before, during and
+    after it: the rig's timer and schedule red with the stuck words and its context red (the mend); the card no better than amber with
+    the stall's words, the edge the record verbatim with show `stuck` and amber, the same counting things as before the stall (their
+    kinds read from the rig's context by id, never from the drawn words) each `? — no time shown — its show is stuck` and red, and the
+    rig's context, the card, the edge and every counting thing in its light and words as before within a context's read of the
+    turn-over. Patterns' Stagewatch row in STATE is no better than amber while stuck and its link record amber (13.16.1): with the
+    mend the row turns red once Patterns reads the rig's red context (`StuckLight`, the worse of the app's light and amber), where the
+    stale context had left it amber. The bound held is the lane's `STUCK_MS` (9.5 s from the rig's own stall time); the plan's
+    stuckMs + 4 s is recorded beside it, not held, because the rig's verdict offers no `stuck` and carries no `stuckMs` (13.6.6 has
+    it carry one only beside `stuck`), and the lane adds no number of its own.
+  - **The runs.** The first LAN run with the new rows failed S5.4 as first written (it asked for a `serves` row the rig does not
+    write for a held grant: the finding above, the row rewritten to what P4 gives) and S8.4 for the bench (PlayMap's own context red
+    for CPU 97 % while another tree's build ran, closing the doors: its own words in the row), with S7.4 and S7.1 failing behind them
+    (S7.4 names the rows before it that did not pass; S7.1 found AGMessage still down from S8.4). S8.4's cause is the bench's, by the
+    lane's facts, not a row's: PlayMap's own `cpu` item red ("CPU 97 %") was the one red row of the verdict, and it did not come back
+    at a quieter moment. `tools/test.sh build unit interop` after the rewrite, every topology whole: LAN 44 of 44 (S9.1, S9.2 and S5.4
+    new; S6.2b held tighter), the laptop 5 of 5, offline 3 of 3. In that run the rig's own context, read 4 s into the stall, still said
+    its timer grey "idle" and its schedule grey "not started" (the finding above). With the mend and the review's tightenings, the
+    first lane run failed S6.2b once, and S7.4 behind it: Patterns' Stagewatch row read red while stuck where the row asked amber. The
+    cause is the mend's, by the row's own words, not a flake: Patterns had pulled the rig's stuck context, red by §6 P5, before its
+    link said stuck, and `StuckLight` keeps the worse of the app's light and amber; the row now holds the link's record amber (13.16.1)
+    and the row no better than amber. The unit's whole validate, `tools/test.sh build unit e2e interop` on the tree as committed:
+    unit 6237 passed, 0 failed (the seven Windows-only checks named, not run), e2e 93 of 93, and the lane at 52e176b with every
+    topology whole — LAN 44 of 44, the laptop 5 of 5, offline 3 of 3. In it the rig's own context said stuck 4.4 s after its stall
+    (timer and schedule red with the stuck words, the context red), Patterns' Eye drew the card amber with the stall's words at 4.4 s
+    (it had not yet pulled the red context) and as before 0.6 s after the turn-over, and S9.2 compared `unplaced` at 0 = 0 with
+    `left.edges` 0.
+  - **What it left.** The plan's "every link green" for a stuck rig, S9.2's counting half, the window chain's `serves` edge and
+    screen edge, and AGMessage's displays: each above with what it waits for.
 - **The 2.24 papers (SW24.2).** REMOTE.md's 2.24 section (each item and row, and what a reader may rely on), NODES.md §4's context
   and node links and §6–§7's level-0 items, FEATURES.md's 2.24 entry, README.md's index and release line, ECOSYSTEM.md's roadmap
   and lane lines, and this section; no code. The version stays 2.16.0 in the tree, as `release.ps1` moves it on the PC.

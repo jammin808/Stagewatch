@@ -407,7 +407,9 @@ sealed class Rig : ICompanionBridge, IDisposable
     private Dictionary<string, long>? _receiptRefs;
     private bool _blackout;
     private readonly HoldingSelection _holding = new();
-    private volatile string? _context;
+    // The context the doors serve: the last one built and its stuck form, so a stalled owner thread is served as stuck (§6 P5).
+    private readonly ServedContext _context = new();
+    private bool _contextBuilt;   // owner thread
 
     // Node keys and what they speak for (Show Bus §11): the keys as saved, owner thread only; an immutable copy for the
     // servers, swapped whole; the bindings every node route and /ws speak through; the contexts show apps post.
@@ -1255,9 +1257,10 @@ sealed class Rig : ICompanionBridge, IDisposable
         var frame = Frame();
         JournalEdges(frame);
         Snapshots.Publish(frame);
-        if (++_tick % 4 == 0 || _context is null)
+        if (++_tick % 4 == 0 || !_contextBuilt)
         {
-            _context = Context();
+            _context.Publish(Context());
+            _contextBuilt = true;
             // Once a second, as the app: approved lines no app collected or answered become undelivered.
             _desk.Expire();
         }
@@ -1400,11 +1403,11 @@ sealed class Rig : ICompanionBridge, IDisposable
     }
 
     /// <summary>
-    /// Owner thread: the context, with the show network joined as the app joins it (<see cref="ShowNetwork.Summaries"/>): the
+    /// Owner thread: what the context is built from, with the show network joined as the app joins it (<see cref="ShowNetwork.Summaries"/>): the
     /// nodes it hears on the Show Bus (with --bus), the contexts show apps posted and their node links on /ws, by node id; and,
     /// as the app, its own amber <c>bus:hello</c> while its hello cannot go out.
     /// </summary>
-    private string Context()
+    private ContextInput Context()
     {
         var now = DateTime.UtcNow;
         // As the app: each playout link's record (its light and flags) beside its own words, the node at its other end read once, and
@@ -1459,9 +1462,9 @@ sealed class Rig : ICompanionBridge, IDisposable
         // As the app: no rows for a link whose peer answers as another kind than its settings name, which is sent nothing.
         var rows = _o.Playout.Select(l => _playout[l.Name]).OfType<PlayoutLink>().Where(l => l.WrongKind is null)
             .Select(l => new PlayoutRow(l.LinkName, l.Peer, l.Kind ?? "", Starts: l.Kind is not null)).ToList();
-        return ShowContext.Build(new ContextInput(_nodeId, _o.Room, now, Snapshots.Latest, Snapshots.ProducerStuck, links,
+        return new ContextInput(_nodeId, _o.Room, now, Snapshots.Latest, Snapshots.ProducerStuck, links,
             _desk.Collecting(view.Rows.Select(r => r.Peer)), (IReadOnlyList<JournalEntry>?)_journal?.Entries ?? Array.Empty<JournalEntry>(), ShowClock.For("UTC"), 0, rows,
-            windowFacts, health, nodeRows));
+            windowFacts, health, nodeRows);
     }
 
     private HashSet<string> _conflictsLogged = new(StringComparer.Ordinal);   // owner thread: the ids in conflict it logged
@@ -1532,7 +1535,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     public IReadOnlyList<ScreenWindow> Windows => _windows.Windows;
     public string? ViewCode => _o.ViewCode.Length == 0 ? null : _o.ViewCode;
     public bool McpAllowed => true;
-    public string? ContextJson() => _context;
+    public string? ContextJson() => _context.Json(Snapshots.ProducerStuck);
     public string? PreflightJson() => _preflightJson;
     public string? OwnNodeId => _nodeId;
     public string? OwnInst => _inst;

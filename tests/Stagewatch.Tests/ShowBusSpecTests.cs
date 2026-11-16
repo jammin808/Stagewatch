@@ -2353,6 +2353,9 @@ static class ShowBusSpecTests
             + "link its clip comes over, and vMix's clip has no row");
         Check(StuckScheduleKept(), "showbus spec: Stagewatch keeps P5 for its schedule: a stuck show thread turns its timer, its schedule and its VT "
             + "countdown red, each saying the show is stuck in place of a time");
+        Check(StuckServedKept(), "showbus spec: Stagewatch keeps P5 on the wire: the context its doors serve while its show thread is stuck (the hub's "
+            + "ProducerStuck, on injected time) has its timer, its schedule and its VT countdown red with the stuck words and its light red, never the "
+            + "running time it last built; at the stuck bound it is still the live one, and the live one again once the thread turns over");
         Check(OrderKept(12), "showbus spec: Stagewatch keeps P7: its reds and ambers first, then every item with a row to another node, then the rest");
         Check(MessagesKept(), "showbus spec: Stagewatch keeps P8 for its messages: no cue item or recent line carries a message's, a nudge's or an audience "
             + "question's words, while the desk still journals them and a department's cue words still go");
@@ -2467,6 +2470,45 @@ static class ShowBusSpecTests
         var frame = Running() with { Elements = DisplayElements.All, Playout = new PlayoutView("VT1", 42, 90, true, "Patterns", "patterns", "9f8e7d6c") };
         var items = ShowContext.Assess(Own(frame, true, [], [])).Items.Where(i => i.Id is "timer" or "schedule" or ShowContext.VtId).ToList();
         return items.Count == 3 && items.All(i => i.Light == Light.Red && i.State == ShowContext.StuckWords && !Regex.IsMatch(i.State, @"\d:\d\d"));
+    }
+
+    /// <summary>
+    /// P5 on the wire (kept since SW24.1p): the context is built on the show thread, so a stalled thread builds none; what a door serves
+    /// (<see cref="ServedContext"/>) is the stuck form the same build made while the snapshot hub says the producer is stuck, read at serve
+    /// time, and the live one otherwise.
+    /// </summary>
+    static bool StuckServedKept()
+    {
+        long nowMs = 1_000_000;
+        var hub = new SnapshotHub(() => Volatile.Read(ref nowMs));
+        var served = new ServedContext();
+        var none = served.Json(false) is null && served.Json(true) is null;
+        var frame = Running() with { Elements = DisplayElements.All, Playout = new PlayoutView("VT1", 42, 90, true, "Patterns", "patterns", "9f8e7d6c") };
+        hub.MarkAlive();
+        served.Publish(Own(frame, hub.ProducerStuck, [], []));
+        var alive = served.Json(hub.ProducerStuck);
+        Interlocked.Add(ref nowMs, (long)SnapshotHub.StuckAfter.TotalMilliseconds);
+        var edge = served.Json(hub.ProducerStuck);
+        Interlocked.Increment(ref nowMs);
+        var stuck = served.Json(hub.ProducerStuck);
+        hub.MarkAlive();
+        served.Publish(Own(frame, hub.ProducerStuck, [], []));
+        var back = served.Json(hub.ProducerStuck);
+
+        static (string? Light, List<JsonElement> Counting) Read(string? json)
+        {
+            if (json is null) return (null, []);
+            using var doc = JsonDocument.Parse(json);
+            return (Str(doc.RootElement, "light"), Items(doc.RootElement, "items").Where(i => Str(i, "id") is "timer" or "schedule" or ShowContext.VtId)
+                .Select(i => i.Clone()).ToList());
+        }
+        var (aliveLight, aliveCounting) = Read(alive);
+        var (stuckLight, stuckCounting) = Read(stuck);
+        return none && alive is not null && edge == alive && back == alive && aliveLight != Light.Red && aliveCounting.Count == 3
+               && aliveCounting.Any(i => (Str(i, "state") ?? "").Contains("05:00 left", StringComparison.Ordinal))
+               && stuck is not null && stuck != alive && stuckLight == Light.Red && stuckCounting.Count == 3
+               && stuckCounting.All(i => Str(i, "light") == Light.Red && Str(i, "state") == ShowContext.StuckWords && !Regex.IsMatch(Str(i, "state") ?? "", @"\d:\d\d"))
+               && !stuck.Contains("05:00 left", StringComparison.Ordinal);
     }
 
     /// <summary>

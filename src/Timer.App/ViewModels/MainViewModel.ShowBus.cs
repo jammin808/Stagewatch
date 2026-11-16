@@ -80,7 +80,8 @@ public sealed partial class MainViewModel
     private readonly KeySightings _sightings = new();
     private readonly PeerContexts _peerContexts;
     private readonly HashSet<(string KeyId, string Id)> _refusalsJournalled = new();   // show thread
-    private volatile string? _contextJson;
+    // The context the doors serve: the last one built and its stuck form, so a stalled show thread is served as stuck (§6 P5).
+    private readonly ServedContext _context = new();
     private int _contextTick;
 
     /// <summary>IShowAccess: which node each node key speaks for.</summary>
@@ -107,8 +108,11 @@ public sealed partial class MainViewModel
     /// </summary>
     private volatile NetworkView _network = NetworkView.Empty;
 
-    /// <summary>IShowContext: this node's context, rebuilt once a second on the show thread (any thread may read it).</summary>
-    public string? ContextJson() => _contextJson;
+    /// <summary>
+    /// IShowContext: this node's context, rebuilt once a second on the show thread (any thread may read it); while the show thread is
+    /// stuck, the same context with every counting item red and the stuck words (§6 P5), never the last time it drew.
+    /// </summary>
+    public string? ContextJson() => _context.Json(_hub.ProducerStuck);
 
     // The room's preflight ('ready for doors'), judged once a second on the show thread from the same join as every other reader
     // of the show network, and published whole: the route's JSON with the time it was built (a door serves it only while fresh),
@@ -162,7 +166,7 @@ public sealed partial class MainViewModel
         var input = new ContextInput(_nodeId, Settings.Integrations.RoomName.Length > 0 ? Settings.Integrations.RoomName : Environment.MachineName,
             now, _hub.Latest, _hub.ProducerStuck, links, Desk.Collecting(view.Rows.Select(r => r.Peer)), _journal.Entries, ShowClock, _goLatency.Percentile(0.95),
             PlayoutRows(), windows, health, rows);
-        _contextJson = ShowContext.Build(input);
+        _context.Publish(input);
         SyncPeerRows(now, view);
         RefreshPreflight(now, view, [.. ShowContext.PreflightItems(links), .. windows.Select(w => w.Item), .. health]);
         RefreshPlayoutConfig();

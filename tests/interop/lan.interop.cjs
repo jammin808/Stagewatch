@@ -20,7 +20,9 @@
 // the room's, in its namespace on ports of its own and off the show network, with playout links to Patterns' and PlayMap's wires,
 // each paired by proof with that app's own token (handed over in that link's own variable of the rig's environment), and stop it
 // once they end (S4.6 leaves its rig up for S4.7, which drops that rig's one connection to Patterns' wire with lan.py's drop and
-// stops it), so the room's rig, its doors and its rows are as they were. The rows run in order, each a node:test test
+// stops it), so the room's rig, its doors and its rows are as they were. The Eye rows (S9.1, S9.2, S5.4 and the Eye half of S6.2b)
+// read Patterns' EYE JSON over the same paired wire client (its link fields ride to paired connections only), judged on fields by
+// lib/eye.cjs, each beside the rig's own context where it compares them. The rows run in order, each a node:test test
 // that writes its matrix row; S0.1 starts the apps (the rig first, which the others link to) and every later row reads the
 // apps it started; the rows that stall the rig or take an app down (and back) come after the others, S7.4 (no address ever
 // counted) last but one, and S7.1 (no secret anywhere) last, as it stops the apps to sweep what they left (the rig's
@@ -52,6 +54,7 @@ const { Patterns } = require('./apps/patterns.cjs');
 const { PlayMap, DOORS: PlayMapDoors } = require('./apps/playmap.cjs');
 const { AGMessage } = require('./apps/agmessage.cjs');
 const S = require('./lib/scenarios.cjs');
+const E = require('./lib/eye.cjs');
 const { dialLink, kidOf } = require('./lib/link.cjs');
 const { fingerprint } = require('./lib/net.cjs');
 
@@ -890,6 +893,73 @@ test('S4.6 the rig links to Patterns over line by proof', row({
   }
 }));
 
+/**
+ * Row S9.1's read of one app on Patterns' Eye and STATE: its one card and its one edge to the desk (lib/eye.cjs oneCardOneEdge),
+ * no deck drawn from the rig host's address, and STATE's bus.apps holding the id once.
+ */
+function oneApp(eye, st, id) {
+  const { card, edge } = E.oneCardOneEdge(eye, id, [lan.host('stagewatch').addr]);
+  const rows = ((st.bus && st.bus.apps) || []).filter((a) => a.id === id);
+  if (rows.length !== 1) throw new Error(`Patterns' STATE bus.apps holds ${rows.length} rows for ${id}: ${JSON.stringify(rows.map((a) => ({ kind: a.kind, light: a.light })))}`);
+  if (edge.light !== edge.link.light || edge.mark !== edge.link.mark) throw new Error(`the edge for ${id} is ${edge.light} ${edge.mark}, not its record's ${edge.link.light} ${edge.link.mark}`);
+  return { card: { id: card.id, kind: card.kind, label: card.label, light: card.light, source: card.source }, edge, busApp: { kind: rows[0].kind, light: rows[0].light, mark: rows[0].mark } };
+}
+
+test('S9.1 one card per app on Patterns\' Eye', row({
+  id: 'S9.1',
+  title: "Patterns' Eye draws each app once, folded by the id its link proved (Show Bus 1.3 §6 and §13.16, Patterns' Round 99): with Patterns following the room's rig by its key and S4.6's rig linked to Patterns' wire by LINK, EYE JSON holds exactly one card for each rig's node id (its own card, source link) and no deck drawn from the rig host's address, each drawn once as one edge to the desk whose source is link and whose link is that link's record — the room's link the 13.16.3 record STATE carries (level 1, both ways proved, under the kid the rig's key makes), the accepted one the 13.16.5 row (role acceptor, level 1, verified as STATE's decks row says) — in its record's light; STATE's bus.apps holds each id once, linkLights counts every link edge once, and apps every card",
+  apps: ['stagewatch', 'patterns'],
+  deadlineMs: HELLO_MS,
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'));
+  if (!apps.vt || !s46) throw new Error("S4.6's rig is not running on the key it adopted, and no accepted link is there to read");
+  const kid = kidOf(apps.stagewatch.keyFor('patterns').secret);
+  const startAt = Date.now();
+  let last = null;
+  const read = await until(async () => {
+    const st = await apps.patterns.state();
+    const eye = await apps.patterns.eyeJson();
+    last = eye;
+    const deck = (st.decks || []).find((d) => d.level === 1 && d.t === 'stagewatch' && d.id === VT_NODE && !d.ended);
+    if (!deck) throw new Error(`Patterns' decks rows hold no live level-1 link from ${VT_NODE}`);
+    const room = oneApp(eye, st, NODE_ID);
+    const vt = oneApp(eye, st, VT_NODE);
+    // The room's link: the record STATE carries, verbatim on the edge.
+    const rec = st.bus.stagewatch.link;
+    const l = room.edge.link;
+    const wrong = [];
+    if (room.edge.kind !== 'follows') wrong.push(`the room's edge is ${room.edge.kind}, not follows`);
+    if (!l.peer || l.peer.id !== NODE_ID || l.level !== 1 || l.proof !== 'mutual' || l.kid !== kid || l.state !== 'live') wrong.push(`the room's edge carries ${JSON.stringify({ peer: l.peer, level: l.level, proof: l.proof, kid: l.kid, state: l.state })}`);
+    for (const f of ['carrier', 'level', 'tls', 'pin', 'proof', 'kid', 'scope', 'state']) if (l[f] !== rec[f]) wrong.push(`the room's edge says ${f} ${JSON.stringify(l[f])}, STATE's record ${JSON.stringify(rec[f])}`);
+    // The accepted link: its 13.16.5 row, as STATE's decks row lists it.
+    const a = vt.edge.link;
+    if (a.role !== 'acceptor' || a.t !== 'stagewatch' || a.id !== VT_NODE || a.level !== 1 || a.ended !== false) wrong.push(`the accepted edge carries ${JSON.stringify({ role: a.role, t: a.t, id: a.id, level: a.level, ended: a.ended })}`);
+    if (a.verified !== deck.verified || a.kid !== deck.kid || a.scope !== deck.scope) wrong.push(`the accepted edge says ${a.verified}/${a.kid}/${a.scope}, STATE's decks row ${deck.verified}/${deck.kid}/${deck.scope}`);
+    // Every link edge counted once by its light; every card counted in apps.
+    const links = E.linkEdges(eye);
+    const lights = eye.linkLights || {};
+    const counted = ['green', 'amber', 'red', 'grey'].reduce((n, k) => n + (lights[k] || 0), 0);
+    if (counted !== links.length) wrong.push(`linkLights count ${counted} links, the edges whose source is link are ${links.length}`);
+    for (const k of ['green', 'amber', 'red', 'grey']) if ((lights[k] || 0) !== links.filter((e) => e.light === k).length) wrong.push(`linkLights.${k} ${lights[k]}`);
+    const cards = (eye.nodes || []).filter((n) => ['showapp', 'node'].includes(n.kind) && n.id !== E.MORE).length;
+    if (eye.apps !== cards) wrong.push(`apps ${eye.apps}, cards ${cards}`);
+    if (wrong.length) throw new Error(`Patterns' Eye: ${wrong.join('; ')}`);
+    return { room, vt, deck, links: links.length, lights, eye };
+  }, HELLO_MS, "Patterns' Eye drawing each rig once").catch((e) => {
+    if (last) r.evidence.push(run.capture('patterns.eye.s9-1.json', JSON.stringify(last)));
+    throw e;
+  });
+  r.evidence.push(run.capture('patterns.eye.s9-1.json', JSON.stringify(read.eye)));
+  const pick = (l, fields) => Object.fromEntries(fields.map((f) => [f, l[f]]));
+  r.facts = {
+    ms: S.since(startAt),
+    room: { card: read.room.card, edge: { kind: read.room.edge.kind, light: read.room.edge.light, source: read.room.edge.source, claim: read.room.edge.claim, link: pick(read.room.edge.link, ['carrier', 'level', 'tls', 'proof', 'kid', 'scope', 'state', 'flags', 'light']) }, busApp: read.room.busApp },
+    accepted: { card: read.vt.card, edge: { kind: read.vt.edge.kind, light: read.vt.edge.light, source: read.vt.edge.source, claim: read.vt.edge.claim, link: pick(read.vt.edge.link, ['role', 't', 'id', 'carrier', 'level', 'tls', 'verified', 'kid', 'scope', 'flags', 'light', 'ended']) }, busApp: read.vt.busApp },
+    linkLights: read.lights, linkEdges: read.links, apps: read.eye.apps, unplaced: read.eye.unplaced, leftEdges: read.eye.left && read.eye.left.edges,
+  };
+  await vtLockoutAfter(r);
+}));
+
 test('S4.7 the rig redials Patterns with the key it enrolled', row({
   id: 'S4.7',
   title: "S4.6's link dropped alone (its one TCP connection to Patterns' wire ended from the rig's host, lan.py's drop: the cable, the room's rig and Patterns' own link to it untouched): within 5 s the rig's link is verified both ways again, LINK proved with the key Patterns enrolled for it (the kid S4.6 adopted, never the code), pinned as before and under its floor; Patterns lists it at level 1 from the rig's node, verified by that key (`link`) at follow; the link says its scope and refuses `playout patterns play` on the rig, nothing sent, Patterns' clip still paused; and Patterns' own link to the room's rig still follows it as its node by its key",
@@ -959,6 +1029,104 @@ test('S4.7 the rig redials Patterns with the key it enrolled', row({
     r.facts = r.facts || {};
     r.facts.vtStopped = await vtStop();
   }
+}));
+
+/**
+ * Where Patterns places each row of the rig's context with an end at another node (Show Bus 1.3 §6; Patterns' Eye at the pin):
+ * `@<Patterns' id>` is the desk — a link item's row to it is the link Patterns holds, drawn once as that link's record edge with the
+ * rig's word for it after its own (the rig's claim of the same link never drawn beside it), any other row a claim edge to the desk;
+ * `@<an id the Eye draws a card for>` is that card — a claim edge between it and the rig's card (a link item's) or the rig's thing
+ * (any other row), whose source is told and whose claim is the rig's; any other end is left out and counted in `unplaced`. Returns
+ * each row as found ({ row, at, edge }) and the rows left out, or throws with what was read.
+ */
+function rowsPlaced(ctx, eye, rig) {
+  const says = rig.label;
+  const rigCard = E.cardOf(NODE_ID);
+  const kinds = Object.fromEntries((ctx.items || []).map((i) => [i.id, i.kind]));
+  const placed = [];
+  const left = [];
+  const wrong = [];
+  // Every edge between the rig's card and the desk, whatever its source: the link Patterns holds is drawn once, so a told twin of it
+  // beside the record edge is a second edge, never placed.
+  const holds = E.edgesBetween(eye, rigCard, E.DESK);
+  for (const r of E.rowsWithEnds(ctx)) {
+    const linkItem = (kinds[r.local] || '').toLowerCase() === 'link';
+    const far = r.end.node === ids.patterns ? E.DESK : (eye.nodes || []).some((n) => n.id === E.cardOf(r.end.node)) ? E.cardOf(r.end.node) : null;
+    const row = `${r.from} -${r.kind}-> ${r.to}`;
+    if (!far) { left.push(row); continue; }
+    if (linkItem && far === E.DESK) {
+      // The link Patterns holds: one edge, its record's, whose words carry the rig's word for it after the record's.
+      if (holds.length !== 1 || holds[0].source !== 'link') wrong.push(`${row}: ${holds.length} edges between ${rigCard} and the desk (${JSON.stringify(holds.map((e) => ({ kind: e.kind, source: e.source, claim: e.claim })))}), not the one record edge`);
+      else if (!holds[0].words.includes(` · ${says} says: `) && !holds[0].words.includes(` · i ${says} says: `)) wrong.push(`${row}: the link's edge does not carry ${says}'s word (${JSON.stringify(holds.map((e) => e.words))})`);
+      else placed.push({ row, at: 'the record edge of the link Patterns holds', edge: { from: holds[0].from, to: holds[0].to, source: holds[0].source } });
+      continue;
+    }
+    const near = linkItem ? rigCard : `${rigCard}:${r.local}`;
+    const [from, to] = r.outward ? [near, far] : [far, near];
+    const same = (eye.edges || []).filter((e) => e.from === from && e.to === to && e.kind === r.kind.toLowerCase());
+    if (same.length !== 1) { wrong.push(`${row}: ${same.length} ${r.kind} edges ${from} → ${to}, not one`); continue; }
+    const edge = same[0];
+    if (edge.source !== 'told' || edge.claim !== says || edge.link !== null) wrong.push(`${row}: its edge's source "${edge.source}", claim "${edge.claim}", link ${JSON.stringify(edge.link)}, not told, ${says}'s, null`);
+    if (edge.light !== (linkItem ? ((ctx.items || []).find((i) => i.id === r.local) || {}).light : r.light)) wrong.push(`${row}: its edge is ${edge.light}, not the rig's ${linkItem ? "item's" : "row's"} light`);
+    placed.push({ row, at: far === E.DESK ? 'the desk' : `${far}'s card`, edge: { from, to, kind: edge.kind, light: edge.light, source: edge.source, claim: edge.claim } });
+  }
+  if (wrong.length) throw new Error(`Patterns' Eye places the rig's rows wrongly: ${wrong.join('; ')}`);
+  return { placed, left };
+}
+
+test("S9.2 Patterns reads the rig's rows", row({
+  id: 'S9.2',
+  title: "Patterns reads this Stagewatch's context by Show Bus 1.3 §6 (Stagewatch 2.24's P1–P8) and its Eye places every row with an end at another node, read beside the rig's own /api/context in the same read: a row to @<Patterns' id> lands on the desk (the link item's on the record edge of the link Patterns holds, which carries the rig's word for it, never as a second edge), a row to an app the Eye draws a card for is a claim edge between that card and the rig's (source told, claim the rig's, in the row's light), and the rest are counted in EYE's unplaced, which equals the rig's own count of them, with no edge cut (left.edges 0) — at these pins every row's end has a card, so the counting half is compared at 0 = 0 and recorded as not exercised; the rig's level-0 link:ws: items (PlayMap's at these pins) light no app green on Patterns by themselves: its card is not green and not drawn by a link of Patterns' own, and STATE's bus.apps row for it is not green",
+  apps: ['stagewatch', 'patterns', 'playmap', 'agmessage'],
+  deadlineMs: CONTEXT_MS,
+}, async (r) => {
+  r.evidence.push(run.log('patterns.wire'));
+  const startAt = Date.now();
+  let last = null;
+  const read = await until(async () => {
+    const ctx = await apps.stagewatch.context();
+    const eye = await apps.patterns.eyeJson();
+    const st = await apps.patterns.state();
+    last = { ctx, eye };
+    const rig = (eye.nodes || []).find((n) => n.id === E.cardOf(NODE_ID));
+    if (!rig) throw new Error(`Patterns' Eye has no card ${E.cardOf(NODE_ID)}`);
+    const { placed, left } = rowsPlaced(ctx, eye, rig);
+    if (eye.unplaced !== left.length) throw new Error(`Patterns' Eye counts ${eye.unplaced} rows unplaced; the rig's context has ${left.length} with an end the Eye draws no card for: ${JSON.stringify(left)}`);
+    // No cut cross-app edge either (EYE's left.edges, also counted in unplaced), so a cut edge cannot balance a row missed.
+    if (!eye.left || eye.left.edges !== 0) throw new Error(`Patterns' Eye left ${JSON.stringify(eye.left)} edges out`);
+    // A level-0 link the rig accepted is the rig's word about that app, never a light of Patterns' own for it.
+    const level0 = (ctx.items || []).filter((i) => /^link:ws:/.test(i.id) && /^level 0/.test(i.state || '')).map((i) => i.id.slice('link:ws:'.length));
+    const seen = {};
+    for (const id of [...new Set([...level0, ids.playmap, ids.agmessage])]) {
+      const card = (eye.nodes || []).find((n) => n.id === E.cardOf(id));
+      const bus = ((st.bus && st.bus.apps) || []).find((a) => a.id === id);
+      if (!card) throw new Error(`Patterns' Eye has no card for ${id}`);
+      if (card.light === 'green' || card.source === 'link' || E.linkEdges(eye).some((e) => e.from === card.id || e.to === card.id)) throw new Error(`Patterns draws ${id} ${card.light} from source ${card.source}, as if a link of its own proved it`);
+      if (bus && bus.light === 'green') throw new Error(`Patterns' STATE bus.apps says ${id} green`);
+      seen[id] = { card: card.light, source: card.source, bus: bus ? bus.light : null, rigSays: level0.includes(id) ? 'level 0 link:ws:' : 'no link:ws: item' };
+    }
+    if (!level0.length) throw new Error("the rig's context holds no level-0 link:ws: item, which these pins give it for PlayMap");
+    return { ctx, eye, placed, left, level0, seen };
+  }, CONTEXT_MS, "Patterns' Eye placing the rig's rows").catch((e) => {
+    if (last) {
+      r.evidence.push(run.capture('patterns.eye.s9-2.json', JSON.stringify(last.eye)), run.capture('stagewatch.context.s9-2.json', JSON.stringify(last.ctx)));
+    }
+    throw e;
+  });
+  r.evidence.push(run.capture('patterns.eye.s9-2.json', JSON.stringify(read.eye)), run.capture('stagewatch.context.s9-2.json', JSON.stringify(read.ctx)));
+  r.facts = {
+    ms: S.since(startAt),
+    rigRowsWithEnds: read.placed.length + read.left.length,
+    placed: read.placed,
+    unplaced: {
+      eye: read.eye.unplaced, rig: read.left,
+      counting: read.left.length ? 'exercised' : "not exercised at these pins (0 = 0): no row of the rig's names a node Patterns draws no card for",
+    },
+    level0: read.level0,
+    notGreen: read.seen,
+    leftEdges: read.eye.left && read.eye.left.edges,
+  };
+  await lockoutAfter(r);
 }));
 
 /**
@@ -1703,6 +1871,99 @@ test('S5.1 a window granted to Patterns, staged in the preview, gated, never sai
   await lockoutAfter(r);
 }));
 
+/** S5.4's window: granted to Patterns for the chain's read alone, and withdrawn at its end. */
+const S54_WINDOW = 'chain';
+
+/**
+ * The light of a grant's serves row as Stagewatch writes it (Show Bus §6 P4 as ScreenWindows.HolderLight keeps it): green while the
+ * holder reports it shown, amber while it is sent or opening, and no row for any other state — `held` (the holder took its address
+ * and opened no page) among them.
+ */
+const holderLight = (state) => (state === 'shown' ? 'green' : state === 'sent' || state === 'open' ? 'amber' : null);
+
+test('S5.4 the window chain, as far as the pins give it', row({
+  id: 'S5.4',
+  title: "the window chain of Train 7 (eye.md §3.3) as far as the pins give it: a window the rig grants Patterns (window new chain /clock, window grant chain <Patterns' id>, held) is a window item of the rig's own context, and Patterns' Eye draws it as a thing of the rig's card (source told, app the rig's), read beside the rig's context in the same read; the rig's rows from it to @<Patterns' id> are exactly those §6 P4 gives the grant's state as Stagewatch keeps it (green shown, amber sent or open, none otherwise), and each such row is drawn by Patterns as one serves edge from the thing to the desk, the rig's claim (source told, in the row's light), with no edge drawn where the rig writes none; withdrawn, the thing leaves Patterns' Eye within a context's read. On this bench the grant stays held (no page opens without WebView2, S5.1's finding), so P4 gives no serves row: what the row proves is the thing and its withdrawal, the rows and edges compared at zero (none written, none drawn), and the serves edge (open with S5.1w) and Patterns' own edge from its screen to the window (its OPEN L107) are recorded as open, not asserted",
+  apps: ['stagewatch', 'patterns'],
+  deadlineMs: CONTEXT_MS,
+}, async (r) => {
+  r.evidence.push(run.log('stagewatch.err'), run.log('patterns.wire'));
+  const sw = apps.stagewatch;
+  const ok = async (segments, id, what) => {
+    const said = await sw.api(segments, id);
+    if (said.status !== 200 || !said.json || said.json.ok !== true) throw new Error(`${what} answered ${said.status} ${said.text.slice(0, 200)}`);
+    return said.json;
+  };
+  const item = `window:${S54_WINDOW}`;
+  const rigCard = E.cardOf(NODE_ID);
+  const thing = `${rigCard}:${item}`;
+  const grantOf = async () => {
+    const w = (await sw.windows()).find((x) => x.name === S54_WINDOW);
+    return w && (w.grants || []).find((x) => x.node === ids.patterns);
+  };
+  await ok(['window', 'new', S54_WINDOW, '/clock'], 'interop-s5-4-new', 'window new');
+  let deleted = false;
+  let last = null;
+  try {
+    const grantedAt = Date.now();
+    await ok(['window', 'grant', S54_WINDOW, ids.patterns], 'interop-s5-4-grant', 'window grant');
+    // --state holds the window's and the grant's addresses: registered, so the sweep looks for them in every capture (EYE's too).
+    const saved = sw.savedWindows().find((w) => w.name === S54_WINDOW);
+    if (!saved || saved.grants.length !== 1 || saved.grants[0].node !== ids.patterns) throw new Error(`--state keeps ${JSON.stringify(saved)}`);
+    await until(async () => { const g = await grantOf(); return g && g.state === 'held' ? g : null; }, S.left(grantedAt, HELLO_MS), "the rig holding Patterns' grant acknowledged");
+    // The rig's context and Patterns' Eye read together, with the grant's state between them unchanged.
+    const drawn = await until(async () => {
+      const before = await grantOf();
+      const ctx = await sw.context();
+      const eye = await apps.patterns.eyeJson();
+      const after = await grantOf();
+      last = { ctx, eye };
+      if (!before || !after || before.state !== after.state) return null;
+      const own = (ctx.items || []).find((i) => i.id === item);
+      if (!own) throw new Error(`the rig's context has no item ${item}: ${JSON.stringify((ctx.items || []).map((i) => i.id))}`);
+      const rows = (ctx.links || []).filter((l) => l.from === item || l.to === item);
+      const want = holderLight(after.state);
+      const wantRows = want ? [{ from: item, to: `@${ids.patterns}`, kind: 'serves', light: want }] : [];
+      if (JSON.stringify(rows) !== JSON.stringify(wantRows)) throw new Error(`with the grant ${after.state} the rig's rows of ${item} are ${JSON.stringify(rows)}, not P4's ${JSON.stringify(wantRows)}`);
+      const rig = (eye.nodes || []).find((n) => n.id === rigCard);
+      const node = (eye.nodes || []).find((n) => n.id === thing);
+      if (!rig || !node) return null;
+      if (node.app !== NODE_ID || node.source !== 'told' || node.light !== own.light) throw new Error(`Patterns draws ${thing} of app "${node.app}", source "${node.source}", ${node.light}, not the rig's told thing in its ${own.light}`);
+      const edges = (eye.edges || []).filter((e) => (e.from === thing && !e.to.startsWith(rigCard)) || (e.to === thing && !e.from.startsWith(rigCard)));
+      const wantEdges = wantRows.map((w) => ({ from: thing, to: E.DESK, kind: 'serves', light: w.light, source: 'told', claim: rig.label }));
+      const got = edges.map((e) => ({ from: e.from, to: e.to, kind: e.kind, light: e.light, source: e.source, claim: e.claim }));
+      if (JSON.stringify(got) !== JSON.stringify(wantEdges)) throw new Error(`Patterns draws ${thing}'s edges off the rig's card as ${JSON.stringify(got)}, not ${JSON.stringify(wantEdges)}`);
+      return { grant: after.state, item: { id: own.id, kind: own.kind, light: own.light }, rows, thing: { id: node.id, light: node.light, source: node.source }, edges: got };
+    }, S.left(grantedAt, CONTEXT_MS), "Patterns' Eye drawing the granted window as the rig gives it").catch((e) => {
+      if (last) r.evidence.push(run.capture('patterns.eye.s5-4.json', JSON.stringify(last.eye)), run.capture('stagewatch.context.s5-4.json', JSON.stringify(last.ctx)));
+      throw e;
+    });
+    const drawnMs = S.inTime(grantedAt, CONTEXT_MS, "Patterns' Eye drawing the granted window as the rig gives it");
+    r.evidence.push(run.capture('patterns.eye.s5-4.json', JSON.stringify(last.eye)), run.capture('stagewatch.context.s5-4.json', JSON.stringify(last.ctx)));
+    // Withdrawn: the item leaves the rig's context, and the thing Patterns' Eye, within a context's read.
+    const goneAt = Date.now();
+    await ok(['window', 'delete', S54_WINDOW], 'interop-s5-4-delete', 'window delete');
+    deleted = true;
+    await until(async () => {
+      const ctx = await sw.context();
+      const eye = await apps.patterns.eyeJson();
+      if ((ctx.items || []).some((i) => i.id === item)) return null;
+      return (eye.nodes || []).some((n) => n.id === thing) || (eye.edges || []).some((e) => e.from === thing || e.to === thing) ? null : true;
+    }, S.left(goneAt, CONTEXT_MS), "the window gone from the rig's context and Patterns' Eye");
+    const goneMs = S.inTime(goneAt, CONTEXT_MS, "the window gone from the rig's context and Patterns' Eye");
+    r.facts = {
+      ...drawn, drawnMs, withdrawnMs: goneMs,
+      open: {
+        serves: drawn.rows.length ? 'drawn' : `not proved: compared at zero rows and zero edges — the grant stays ${drawn.grant} on this bench (no page opens without WebView2), and §6 P4 as Stagewatch keeps it (ScreenWindows.HolderLight) writes no serves row for a held grant; open with S5.1w`,
+        screenToWindow: "Patterns' OPEN L107: no edge of its own from a screen to a granted window at this pin",
+      },
+    };
+  } finally {
+    if (!deleted) await sw.api(['window', 'delete', S54_WINDOW], 'interop-s5-4-delete');
+  }
+  await lockoutAfter(r);
+}));
+
 /** A line an AI agent proposes to PlayMap through the rig's MCP endpoint (run_command with a target): its reply text. */
 async function mcpPropose(line, reason) {
   const said = await apps.stagewatch.mcp('tools/call', { name: 'run_command', arguments: { command: line, target: ids.playmap, reason } });
@@ -1926,11 +2187,32 @@ test('S6.2a a stuck Stagewatch: PlayMap shows no time', row({
   await lockoutAfter(r);
 }));
 
+/** What the rig's own context says of a counting item while its show thread is stuck (Stagewatch's ShowContext.StuckWords, §6 P5). */
+const RIG_STUCK_WORDS = 'the show thread has stopped turning over — no time shown';
+
+/**
+ * The rig as Patterns' Eye draws it now (EYE JSON): its one card, its one edge to the desk (source link, the record verbatim) and its
+ * counting things (lib/eye.cjs), as fields; a thing's kind is the kind of the rig's own context item of that id, read just before.
+ */
+async function rigOnEye() {
+  const ctx = await apps.stagewatch.context();
+  const eye = await apps.patterns.eyeJson();
+  const { card, edge } = E.oneCardOneEdge(eye, NODE_ID, [lan.host('stagewatch').addr]);
+  const counting = E.thingsOf(eye, NODE_ID, ctx).filter((t) => E.COUNTING.includes(t.kind));
+  return {
+    eye,
+    ctx,
+    card: { light: card.light, sub: card.sub },
+    edge: { light: edge.light, mark: edge.mark, show: edge.link.show, state: edge.link.state, recordLight: edge.link.light },
+    counting: counting.map((t) => ({ item: t.item, kind: t.kind, light: t.light, sub: t.sub })),
+  };
+}
+
 test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
   id: 'S6.2b',
-  title: "a stuck Stagewatch: Patterns' link stays live and amber (its record live and proved) and says stuck with no time from it, and its time comes back once the rig's show turns over; the time to no time is recorded beside the plan's stuckMs + 4 s, or beside the rig's verdict offering no stuckMs",
+  title: "a stuck Stagewatch: Patterns' link stays live and amber (its record live, proved and amber; its row no better than amber, red once it reads the rig's red context) and says stuck with no time from it, and its time comes back once the rig's show turns over; the bound is the lane's STUCK_MS from the rig's own stall time, and the plan's stuckMs + 4 s is recorded beside it, not held, because the rig's verdict offers no stuck and carries no stuckMs (13.6.6 has it carry one only beside stuck); the rig's own context, as GET /api/context serves it, keeps §6 P5 within the same bound: every counting item red with the stuck words and the context red; and Patterns' Eye (EYE JSON) draws the rig as 13.16.1 gives it, within the same bound: its one card no better than amber (amber while it holds the context from before the stall, red once it reads the rig's own red one) with the stall's words, its one edge the link's record verbatim (live, its show stuck, amber), and the same counting things as before the stall, each \"? — no time shown\" and red; and once the show turns over, within a context's read, the rig's context, the card, the edge and every counting thing (light and words) as they were before the stall",
   apps: ['stagewatch', 'patterns'],
-  deadlineMs: [STUCK_MS, RESUME_MS],
+  deadlineMs: [STUCK_MS, RESUME_MS, CONTEXT_MS],
 }, async (r) => {
   r.evidence.push(run.log('stagewatch.out'), run.log('patterns.wire'));
   const pat = apps.patterns;
@@ -1938,20 +2220,68 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
   const link = async () => (await pat.state()).bus.stagewatch;
   const first = await until(async () => { const l = await link(); return l.state === 'live' && l.stuck === false && l.text !== '' ? l : null; }, HELLO_MS,
     "Patterns' Stagewatch time before the stall");
+  // The Eye before the stall: the rig's card, its edge and its counting things, each counting thing showing a count.
+  const eyeBefore = await until(async () => {
+    const e = await rigOnEye();
+    if (!e.counting.length) throw new Error(`Patterns' Eye draws no counting thing of the rig's: ${JSON.stringify(E.thingsOf(e.eye, NODE_ID, e.ctx).map((t) => t.item))}`);
+    // Every counting item of the rig's own context drawn as a thing of its card (the set the stall is then held to).
+    const own = (e.ctx.items || []).filter((i) => E.COUNTING.includes(i.kind)).map((i) => i.id).sort().join(',');
+    if (e.counting.map((t) => t.item).sort().join(',') !== own) return null;
+    return e.card.sub !== E.STUCK_WORDS && e.edge.show !== 'stuck' && e.counting.every((t) => !t.sub.startsWith('? ')) ? e : null;
+  }, HELLO_MS, "Patterns' Eye drawing the rig before the stall");
   const stall = await sw.stall(STALL_MS);
+  const ctxBefore = eyeBefore.ctx;
+  const countingIds = (e) => e.counting.map((t) => t.item).sort().join(',');
   // From the rig's own stall time: stuck within 9.5 s, the link still live (the stuck beat keeps coming) and no time shown.
   const stuck = await until(async () => {
     const l = await link();
     if (l.stuck !== true) return null;
     if (l.state !== 'live') throw new Error(`Patterns says stuck, but its link is ${l.state}`);
     if (l.text !== '') throw new Error(`Patterns says stuck and still shows "${l.text}"`);
-    // The link stays live and amber: its record live and proved (not the silence a stale link would show), its row amber.
+    // The link stays live and amber (13.16.1): its record live, proved and amber (not the silence a stale link would show). Its row
+    // is the app's light no better than amber (Patterns' StuckLight: the worse of the app's own and amber), so red once Patterns has
+    // read the rig's own context, which §6 P5 makes red while the show is stuck.
     if (!l.link || l.link.state !== 'live' || l.link.level !== 1) throw new Error(`Patterns says stuck, but its link's record is ${l.link && l.link.state}, level ${l.link && l.link.level}`);
-    if (l.light !== 'amber') throw new Error(`Patterns says stuck with its row ${l.light}, not amber`);
+    if (l.link.light !== 'amber') throw new Error(`Patterns says stuck with its link's record ${l.link.light}, not amber`);
+    if (!['amber', 'red'].includes(l.light)) throw new Error(`Patterns says stuck with its row ${l.light}, better than amber`);
     return l;
   }, S.left(stall.stalledAt, STUCK_MS), 'Patterns saying the rig is stuck, its link live and amber, with no time');
   const stuckMs = S.since(stall.stalledAt);
   if (stuckMs > STUCK_MS) throw new Error(`Patterns said stuck ${stuckMs} ms after the stall, past ${STUCK_MS}`);
+  // The Eye within the same bound: the card no better than amber with the stall's words, the edge the record verbatim with its show
+  // stuck (13.16.1: the link amber "says its show is stuck"), every counting thing "?" and red (13.16.1 "every value from it ✕", P5).
+  let eyeLast = null;
+  const eyeStuck = await until(async () => {
+    const e = await rigOnEye();
+    eyeLast = e;
+    if (e.card.sub !== E.STUCK_WORDS || e.edge.show !== 'stuck') return null;
+    const wrong = [];
+    if (!['amber', 'red'].includes(e.card.light)) wrong.push(`its card ${e.card.light}`);
+    if (e.edge.state !== 'live' || e.edge.light !== e.edge.recordLight || e.edge.light !== 'amber') wrong.push(`its edge ${e.edge.light}, record ${e.edge.state} ${e.edge.recordLight}`);
+    // The same counting things as before the stall (none dropped: an empty set says nothing), each "?" and red.
+    if (countingIds(e) !== countingIds(eyeBefore)) wrong.push(`its counting things ${countingIds(e)}, not ${countingIds(eyeBefore)} as before the stall`);
+    if (e.counting.some((t) => t.sub !== E.NO_TIME || t.light !== 'red')) return null;
+    if (wrong.length) throw new Error(`Patterns' Eye draws the stuck rig wrongly: ${wrong.join('; ')}`);
+    return e;
+  }, S.left(stall.stalledAt, STUCK_MS), "Patterns' Eye drawing the rig stuck").catch((e) => {
+    if (eyeLast) r.evidence.push(run.capture('patterns.eye.s6-2b.json', JSON.stringify(eyeLast.eye)));
+    throw e;
+  });
+  const eyeStuckMs = S.since(stall.stalledAt);
+  if (eyeStuckMs > STUCK_MS) throw new Error(`Patterns' Eye drew the rig stuck ${eyeStuckMs} ms after the stall, past ${STUCK_MS}`);
+  // The rig's own context as its door serves it while stuck (§6 P5): the counting items it had before the stall, each red with the
+  // stuck words in place of a time, and the context red — the stuck form the show thread built beside the last one (ServedContext).
+  const countingOf = (c) => (c.items || []).filter((i) => E.COUNTING.includes(i.kind)).map((i) => ({ id: i.id, light: i.light, state: i.state }));
+  const idsOf = (list) => list.map((i) => i.id).sort().join(',');
+  const rigCtxStuck = await until(async () => {
+    const c = await sw.context();
+    const counting = countingOf(c);
+    if (idsOf(counting) !== idsOf(countingOf(ctxBefore))) throw new Error(`the rig's context while stuck has counting items ${idsOf(counting)}, not ${idsOf(countingOf(ctxBefore))}`);
+    return c.light === 'red' && counting.length && counting.every((i) => i.light === 'red' && i.state === RIG_STUCK_WORDS) ? c : null;
+  }, S.left(stall.stalledAt, STUCK_MS), "the rig's own context saying its show is stuck (§6 P5)");
+  const rigOwnStuckMs = S.since(stall.stalledAt);
+  if (rigOwnStuckMs > STUCK_MS) throw new Error(`the rig's context said stuck ${rigOwnStuckMs} ms after the stall, past ${STUCK_MS}`);
+  const rigOwnStuck = { light: rigCtxStuck.light, headline: rigCtxStuck.headline, counting: countingOf(rigCtxStuck), ms: rigOwnStuckMs };
   // Until the rig turns over Patterns never shows a time from it; a time read back is held against the rig's own turn-over time.
   let samples = 0;
   let runningAt = null;
@@ -1972,6 +2302,22 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
     S.left(runningAt, RESUME_MS), "Patterns' Stagewatch time again");
   const resumeMs = S.since(runningAt);
   if (resumeMs > RESUME_MS) throw new Error(`Patterns' time came back ${resumeMs} ms after the rig turned over, past ${RESUME_MS}`);
+  // The Eye again as it was: the card's light and words and the edge's light as before the stall, and the same counting things in the
+  // lights and words they had, within a context's read of the turn-over (the card's things are the context Patterns last pulled, every
+  // 5 s, which may be the rig's stuck one until the next pull); the rig's own context its counting items as before.
+  const same = (a, b) => JSON.stringify(a.map((t) => [t.item, t.light, t.sub]).sort()) === JSON.stringify(b.map((t) => [t.item, t.light, t.sub]).sort());
+  const eyeBack = await until(async () => {
+    const e = await rigOnEye();
+    eyeLast = e;
+    return e.card.sub === eyeBefore.card.sub && e.card.light === eyeBefore.card.light && e.edge.show !== 'stuck' && e.edge.light === eyeBefore.edge.light
+      && e.counting.length && same(e.counting, eyeBefore.counting)
+      && JSON.stringify(countingOf(e.ctx)) === JSON.stringify(countingOf(ctxBefore)) ? e : null;
+  }, S.left(runningAt, CONTEXT_MS), "Patterns' Eye drawing the rig as before the stall").catch((e) => {
+    if (eyeLast) r.evidence.push(run.capture('patterns.eye.s6-2b.json', JSON.stringify(eyeLast.eye)));
+    throw e;
+  });
+  const eyeBackMs = S.since(runningAt);
+  const strip = (e) => ({ card: e.card, edge: e.edge, counting: e.counting });
   r.facts = {
     before: { text: first.text, light: first.light },
     stall: { ms: STALL_MS, rigSaid: runningAt - stall.stalledAt },
@@ -1981,6 +2327,10 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
     stuckSamples: samples,
     resumeMs,
     after: { text: back.text, light: back.light },
+    eye: {
+      before: strip(eyeBefore), stuck: strip(eyeStuck), stuckMs: eyeStuckMs, plan: stuckPlan(eyeStuckMs), rigOwnWhileStuck: rigOwnStuck,
+      back: strip(eyeBack), backMs: eyeBackMs,
+    },
   };
   await lockoutAfter(r);
 }));

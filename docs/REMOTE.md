@@ -1758,7 +1758,11 @@ the thing's own.
 | `context:trimmed` | `health` | grey, last, only in a context that had to be trimmed (2.19) |
 
 **P5.** While the show thread has stopped turning over, `timer`, `schedule` and `vt` are red and their words are "the show thread has
-stopped turning over — no time shown" in place of a time: no reader takes a counting value from them as current.
+stopped turning over — no time shown" in place of a time, and the context is red: no reader takes a counting value from them as
+current. The context is built on the show thread, which builds nothing while it is stuck, so each build makes this stuck form
+beside the live one (`ServedContext`) and every door — `GET /api/context`, MCP's `get_context`, the context Patterns pulls — serves
+the stuck form while the snapshot hub says the show thread is stuck, read at serve time, on the desk and the rig alike (since
+SW24.1p; before it, a stall served the last context built before it, its running time among it).
 
 ### The rows
 
@@ -1808,7 +1812,11 @@ words (below).
 The desk and the rig build the same items and rows from the same facts. The network preflight checks the link items it checked
 before (`ShowContext.PreflightItems`: no accepted link, no clock in bounds). The Companion module and the copilot's facts
 (`AiContext`) read none of the rows that moved. Patterns' Stagewatch link reads the context and its Eye draws it; at the
-lane's pin (Patterns ff01e34, its Round 99.7 on 99.0–99.2) no lane row yet proves how Patterns draws the new rows (WHATS_NEXT.md).
+lane's pin (Patterns 52e176b, its Round 99 closed) rows S9.1 and S9.2 prove it draws this Stagewatch once, by the id its link proved,
+and places every row with an `@` end (its counting of the ends it draws no card for compared at 0 = 0: no row of the rig's names
+one), S5.4 that a granted window is a thing of this Stagewatch's card there and leaves with its withdrawal (a held grant has no
+`serves` row, so none is drawn), and S6.2b that this Stagewatch's own context keeps P5 while its show is stuck (WHATS_NEXT.md says
+what stays open).
 The lane holds the rest at the pins: S1.5 and S1c.3 take Stagewatch's own amber only when every amber item is a `link:ws:` link at
 level 0, and name those ids; S4.3 reads each playout link as kind `link` in its record's light; S4.4 one green `clock:<node id>`
 per link.
