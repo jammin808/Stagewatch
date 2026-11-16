@@ -21,7 +21,7 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.24 closed (`fe8224e`); five units after its papers landed (`cf1817a`), the lane unit SW24.1t in flight
+### Stagewatch — 2.24 closed (`fe8224e`); six units after its papers landed (head `b59c654`)
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -76,10 +76,10 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     flags-before-pair order has a check. Open in `docs/WHATS_NEXT.md`: the preflight's stuck words (the owner's decision
     16, unchanged, now also served while resuming); for one rig tick after a stall `/api/state` is live while its
     `network` says stuck; the WPF desk walk-through and the UI smoke run (PC work).
-  - In flight (launched 2026-11-16): SW24.1t, a lane unit that moves the Patterns pin to Round 100's close (`a794633`),
-    holds every row to the new words on both sides, and adds what the new pin makes provable (a closing link, the stuck
-    rig read from both apps again). No app at these pins posts a context to Patterns, so CONTEXT POST with real apps stays
-    an open row. If it is not committed when a session resumes, launch it again from the template with one unit.
+  - SW24.1t (`b59c654`), a lane unit with no product change: the Patterns pin at Round 100's close (`a794633`); LAN 45
+    of 45, laptop 5 of 5, offline 3 of 3. Rows S4.6, S4.7 and S9.1 read `told`; S6.2b reads every asked door while the
+    rig's show thread is stalled; S9.3 (new) holds that no app at these pins posts a context to Patterns, so CONTEXT
+    POST with real apps stays an open row. The next lane unit moves the pin to Patterns' Round 101 close once it lands.
 - **The fold-in rule (both chain templates, 2026-11-16):** a committing stage makes the changes its review names and
   builds no new mechanism; what needs one is written as open with its path and design, and gets a unit of its own.
   Three units in a row (SW24.1p, SW24.1q, Patterns 100.4) landed fold-in code no second reader had read, and each
@@ -93,7 +93,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   first sentence of its shared text, which says what is landed, before a launch).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — Round 100 closed (`a794633`); the plan has no further Patterns round
+### Patterns — Round 100 closed (`a794633`); Round 101, a repair round outside the plan, in flight
 
 - Landed and pushed: Rounds 89–99. Round 98 is the plan's P97 (PLAN §116): this desk is a LINK acceptor on 9697.
   - The plan's units: 98.0 the opening (`b42cc32`), 98.1 TLS told from plain by the first byte (`0dbff3e`; the wire writes
@@ -140,12 +140,24 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     own ticks left; tests only.
   - 100.8 (`3d6700a`; OPEN L128): the Stagewatch link's level-1 rise is published whole (record and key in one read).
   - 100.2 the papers (`a794633`): 3,789 tests; OPEN L128 closed, L131 to L134 added; the tag table's row for round 99.
-  CI: 327 to 329 and 331 red (each root-caused and mended above), 330 and 332 to 334 green; the runs on 100.8 and the
-  papers are read next. Seen on this bench and not mended (carried in REVIEW round 100 and OPEN L134): 
-  `StageSpeakerAppTests.WhenTheLinkGoesWhatWasInFlight…` twice (the second message was written before the link dropped,
-  so the test's premise did not hold) and `ShowBusAppTests.ARateLimitHoldsKeyedCalls…` once (its 403 words). If CI shows
-  either, a short repair round takes them, with CI's file as its evidence.
-- What remains of the plan for Patterns is nothing; PlayMap's Train 8 waits behind round 3's integration pass and the
+  CI: 327 to 329 and 331 red (each root-caused and mended above), 330 and 332 to 335 green, 336 (on the papers,
+  `a794633`) red on one App test.
+- Round 101 (PLAN §119), launched 2026-11-16 from the template with five units, none of them in the plan: 101.0 the
+  opening, three mends and 101.4 the papers (tag row for round 100 = `a794633`). Each case was read by one reader and
+  one adversarial check against the code at `a794633`, nothing run:
+  - 101.1 (CI run 336; tests only): `ShowBusAppTests.ALinkedStagewatchStandingStillRebuildsNothingTickAfterTick` counted
+    one rebuild because a real desk tick crossed 16 ms inside the window and the Desk tick row went amber (OPEN L134 b).
+    A still window pins the Desk tick light red at its baseline; the papers name what the pin stops catching, and a new
+    OPEN row says the row's amber bound is unmeasured against the rig.
+  - 101.2 (bench sighting; product): `StageSpeakerAppTests.WhenTheLinkGoesWhatWasInFlight…`. A speaker call whose
+    request never reached a connection was reported unconfirmed when the link's cancel landed inside the send; it is
+    not-sent. Round 100's papers read this sighting the other way; the code contradicts that reading.
+  - 101.3 (bench sighting; product): `ShowBusAppTests.ARateLimitHoldsKeyedCalls…`. A keyed context answer published the
+    key's standing before its words, so a reader saw "key not accepted" beside the previous answer's words (OPEN L133,
+    clause b). The words are written before the standing they go with, and readers read key first.
+  If the chain is not finished when a session resumes: `git log` in Patterns shows the last unit landed; relaunch with
+  the remaining units.
+- What remains of the plan for Patterns after Round 101 is nothing; PlayMap's Train 8 waits behind round 3's integration pass and the
   owner's gates, AGMessage's Train 9 is its own session's.
 - A stopped chain is relaunched with the remaining units (the template takes the list); a unit is inserted by stopping
   the chain as a unit lands, with the tree clean.
