@@ -15,13 +15,13 @@ carry byte-identical copies of the contract, not of this folder.
 | `data/` | `gaps.json` (G01–G49), `maps-lite.json`, `master-plan.json` (the units as data), `units/*.json` (each design's units) |
 | `workflows/` | The scripts each train ran (implement → adversarial review → fold-in and one commit per unit); the two chain templates in use now (`stagewatch-chain.js`, `patterns-chain.js`); `unit-brief.py`, which builds a unit's brief from this folder; and `patterns-app-parts.sh`, which runs Patterns' App suite as foreground parts. They name this folder by its path in a cloud checkout (`/home/user/Stagewatch/docs/ecosystem`); edit `S` if the trees live elsewhere |
 
-## Where the work stands (2026-11-15)
+## Where the work stands (2026-11-16)
 
 The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Continue development"). Every repository's work
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.24 closed (`fe8224e`); a lane unit waits on Patterns' Round 99
+### Stagewatch — 2.24 closed (`fe8224e`); the lane unit SW24.1p in flight
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -59,8 +59,12 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 - **The owner's to confirm (SW24.1):** an accepted link at level 0 is amber by 13.16.5, so Stagewatch's own context is
   amber while PlayMap or AGMessage (level 0 at these pins) is connected; lane rows S1.5 and S1c.3 accept that amber only
   when every amber item is a level-0 `link:ws:` link, and name the ids in their facts.
-- Next, once Patterns' Round 99 closes: a lane unit that moves the Patterns pin to the round's close and adds the row the
-  plan names (Patterns draws this Stagewatch once and reads the new rows: EYE's edges and the count of cross-node rows).
+- In flight (launched 2026-11-16, Patterns' Round 99 closed): SW24.1p, a lane unit after 2.24's papers. It moves the
+  lane's Patterns pin to Round 99's close (`52e176b`) and adds Train 7's lane rows as far as the pins give them: one card
+  per app id on Patterns' Eye with no `deck:` twin for a proved link, the rig's 2.24 rows read (placed or counted), the
+  window chain's Stagewatch half, the stuck rig (card amber, link green, counts "?"). AGMessage's displays on the Eye wait
+  for Patterns' Round 100 and AGMessage's own unit. If it is not committed when a session resumes, launch it again from
+  the template with one unit (`nobrief`, its task in the session's notes or rewritten from this paragraph).
 - The browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`), which failed now and then beside
   another tree's load, had a race of the check's own (a frame index read once, before the window's reveal); SW23.1p names it
   and mends the check (`docs/WHATS_NEXT.md`). SW23.1 mended an earlier race of the same check; no run has shown these
@@ -70,9 +74,9 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   first sentence of its shared text, which says what is landed, before a launch).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — Round 98 closed (`2515017`); Round 99 in flight
+### Patterns — Round 99 closed (`52e176b`); Round 100 in flight
 
-- Landed and pushed: Rounds 89–98. Round 98 is the plan's P97 (PLAN §116): this desk is a LINK acceptor on 9697.
+- Landed and pushed: Rounds 89–99. Round 98 is the plan's P97 (PLAN §116): this desk is a LINK acceptor on 9697.
   - The plan's units: 98.0 the opening (`b42cc32`), 98.1 TLS told from plain by the first byte (`0dbff3e`; the wire writes
     nothing before the client's first byte), 98.2 LINK and LINK PROOF (`b49a0e8`), 98.3 app keys (`2d2a9c2`: `ptk_`, scoped
     follow/post/drive/operate, enrolled over TLS, desk-only KEY verbs), 98.4 the acceptor's list (`8c123a4`: APP LINKS on the
@@ -89,17 +93,25 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     acceptor's reply-queue cut over a real socket).
   - CI: 309 to 312 green, 313 to 316 red on one App test each, 317 to 319 green. None of the four causes is proved for its
     run; each mend added failure words that name the cause at a next sighting.
-- In flight: Round 99, the plan's P98 (PLAN §117, the Eye sees the room). Landed and pushed: 99.0 the opening (`7555b02`),
+- Round 99, the plan's P98 (PLAN §117, the Eye sees the room), closed at `52e176b`: 99.0 the opening (`7555b02`),
   99.1 EyeNetwork (`e990739`: one card per proved id, a link drawn once as its edge, unplaced rows counted), 99.2 one
   projection for lights (`8f62a0b`: precedence, not "worst"; five readers under one fence; a bounded brief; its body names
-  three departures from §117.1 for the papers), 99.7 (`ff01e34`, inserted for the defect the lane found; below). CI green on
-  all four (runs 320 to 323).
+  three departures from §117.1 for the papers), 99.7 (`ff01e34`, inserted for the defect the lane found; below), 99.3 the
+  feed (`04c2990`: one composition of the show network for every reader; the Eye's gather by revision), 99.4 the desk's
+  readers (`6f5600f`: `NetworkMenus` shared by the Eye, the Nodes card and the deck; `EYE LENS network`; Accept new id),
+  99.5 the wire's readers (`dc3166c`: EYE JSON's and STATE's appended fields, the Super Check's Eye network row, module
+  3.24.0) and 99.6 the papers (`52e176b`: OPEN L125 to L130 added). CI green on every unit's push (runs 320 to 326); the
+  run on the papers is read as Round 100 opens. One sighting stands unexplained: 99.5's validate saw
+  `RemoteTrustTests.AnOpenDeskAndATrustedLoopbackAreGreetedWithStateAsBefore` fail once (REVIEW round 99 holds it).
 - 99.7, as landed: a live typed-address Stagewatch link looks again at who is heard at that address and moves once to the
   node whose dial proves the key, by one rule in Core (`StagewatchAt`) shared with the resolver. A keyless or public-only
   link is never moved (13.4.3), a bound key is never sent to an unproved address, a move the node refuses goes back to the
   address at once, and each is one log line and one journal row.
-- The chain now runs 99.3, 99.4, 99.5, 99.6: 99.3 the feed, 99.4 the desk's readers, 99.5 the wire's readers, 99.6 the papers (the tag
-  table's row for round 98 = `2515017`). Then Round 100 (the plan's P99, CONTEXT POST).
+- In flight (launched 2026-11-16): Round 100, the plan's P99 (PLAN §118): 100.0 the opening, 100.1 CONTEXT POST (another
+  app gives its context over a verified PeerLink at scope post; gated ahead of the router; 128 contexts, 64 KiB each, kept
+  30 s; drawn as a told cluster; a flood test at the wire's cap), 100.2 the papers (the tag table's row for round 99 =
+  `52e176b`). After it the plan has no further Patterns round: what remains is PlayMap's (Train 8, behind round 3's
+  integration pass and the owner's gates) and AGMessage's (Train 9, its own session).
 - The pin's band is the owner's open call: `global.json` names 10.0.115 (this bench's SDK, the 10.0.1xx band); before the
   pin CI built on 10.0.404, the band a current Visual Studio carries. Kept at 1xx, the maintainer's PC installs a 10.0.1xx
   SDK at 10.0.115 or above beside its own; re-pinned to 4xx, this bench installs 10.0.404 at the start of each session.
