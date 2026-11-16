@@ -21,7 +21,7 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.24 closed (`fe8224e`); the lane unit SW24.1p in flight
+### Stagewatch — 2.24 closed (`fe8224e`); four units after its papers landed (`6931ddc`), SW24.1s in flight
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -59,12 +59,25 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 - **The owner's to confirm (SW24.1):** an accepted link at level 0 is amber by 13.16.5, so Stagewatch's own context is
   amber while PlayMap or AGMessage (level 0 at these pins) is connected; lane rows S1.5 and S1c.3 accept that amber only
   when every amber item is a level-0 `link:ws:` link, and name the ids in their facts.
-- In flight (launched 2026-11-16, Patterns' Round 99 closed): SW24.1p, a lane unit after 2.24's papers. It moves the
-  lane's Patterns pin to Round 99's close (`52e176b`) and adds Train 7's lane rows as far as the pins give them: one card
-  per app id on Patterns' Eye with no `deck:` twin for a proved link, the rig's 2.24 rows read (placed or counted), the
-  window chain's Stagewatch half, the stuck rig (card amber, link green, counts "?"). AGMessage's displays on the Eye wait
-  for Patterns' Round 100 and AGMessage's own unit. If it is not committed when a session resumes, launch it again from
-  the template with one unit (`nobrief`, its task in the session's notes or rewritten from this paragraph).
+- After 2.24's papers, landed and pushed (each with its own row and section in `docs/WHATS_NEXT.md`):
+  - SW24.1p (`bc41663`): the lane at Patterns' Round 99 (`52e176b`), LAN 44 of 44, laptop 5 of 5, offline 3 of 3: one
+    card per app on Patterns' Eye (S9.1), the rig's 2.24 rows read (S9.2; the unplaced count compared at zero), the granted
+    window drawn and withdrawn (S5.4; no `serves` edge for a held grant), the stuck rig read from both apps (S6.2b). The
+    lane proved a defect of Stagewatch's own, mended in the same commit: a stuck show thread's context was served stale.
+  - SW24.1q (`ec28135`), SW24.1r (`6931ddc`): two rounds of adversarial review of that mend, each of code a fold-in had
+    written unread. As it stands: one served-stuck rule for every asked door (`GET /api/context`, `GET /api/state` with
+    `"stuck":true` appended last, the MCP tools, the preflight, the Companion pong and its answered `SNAPSHOT`); no
+    pre-stall context or frame served live after a stall; the context and the preflight built by time (1 s) on the hub's
+    clock and served live up to the hub's 3 s plus that second, so a slow but live show thread is never served stuck; the
+    Companion module draws no frame while stuck. The plan's "every link green" for a stuck rig cannot hold (13.16.1 makes
+    a stuck show's link amber): the lane asserts the contract.
+  - In flight (launched 2026-11-16): SW24.1s, the three items SW24.1r left open rather than build unread: the rig's
+    frame at the turn that ends a stall, every stuck rule on the hub's one clock, and a check for the flag-before-pair
+    order. The preflight's stuck words are the owner's decision 16 and are not changed.
+- **The fold-in rule (both chain templates, 2026-11-16):** a committing stage makes the changes its review names and
+  builds no new mechanism; what needs one is written as open with its path and design, and gets a unit of its own.
+  Three units in a row (SW24.1p, SW24.1q, Patterns 100.4) landed fold-in code no second reader had read, and each
+  review of it found medium defects.
 - The browser page-frame checks of the e2e lane (`/countdown`, `/audience`, `/holding`), which failed now and then beside
   another tree's load, had a race of the check's own (a frame index read once, before the window's reveal); SW23.1p names it
   and mends the check (`docs/WHATS_NEXT.md`). SW23.1 mended an earlier race of the same check; no run has shown these
@@ -74,7 +87,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   first sentence of its shared text, which says what is landed, before a launch).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — Round 99 closed (`52e176b`); Round 100 in flight
+### Patterns — Round 99 closed (`52e176b`); Round 100 in flight (100.5 next to land)
 
 - Landed and pushed: Rounds 89–99. Round 98 is the plan's P97 (PLAN §116): this desk is a LINK acceptor on 9697.
   - The plan's units: 98.0 the opening (`b42cc32`), 98.1 TLS told from plain by the first byte (`0dbff3e`; the wire writes
@@ -107,11 +120,25 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   node whose dial proves the key, by one rule in Core (`StagewatchAt`) shared with the resolver. A keyless or public-only
   link is never moved (13.4.3), a bound key is never sent to an unproved address, a move the node refuses goes back to the
   address at once, and each is one log line and one journal row.
-- In flight (launched 2026-11-16): Round 100, the plan's P99 (PLAN §118): 100.0 the opening, 100.1 CONTEXT POST (another
-  app gives its context over a verified PeerLink at scope post; gated ahead of the router; 128 contexts, 64 KiB each, kept
-  30 s; drawn as a told cluster; a flood test at the wire's cap), 100.2 the papers (the tag table's row for round 99 =
-  `52e176b`). After it the plan has no further Patterns round: what remains is PlayMap's (Train 8, behind round 3's
-  integration pass and the owner's gates) and AGMessage's (Train 9, its own session).
+- In flight: Round 100, the plan's P99 (PLAN §118), the last Patterns round of the plan. Landed and pushed: 100.0 the
+  opening (`d1c3df7`), 100.1 CONTEXT POST (`2365871`: another app gives its context over a verified PeerLink at scope
+  post; gated ahead of the router; 128 contexts, 64 KiB each, kept 30 s; a told source on the app's card), and the
+  units the round inserted from CI's red runs and from reviews:
+  - 100.3 (`60bd2ae`; CI runs 327 to 329): a still desk's baseline follows its own first readings; a reading moving
+    within one light moves no word the Eye hashes; "errors caught and contained" named for what it counts.
+  - 100.4 (`258ca83`; run 327's Pixera test): a device session takes each connection's start once, before anything is
+    encoded for it. Unwalked (device links).
+  - 100.5 (in flight; one bench sighting of 100.1's test): a link told its last word is no longer counted as open; the
+    grey row stays the observation of the socket's end (98.4).
+  - 100.6 (queued; the review of 100.4's fold-in): the end of a connection seen whether or not the next is published; a
+    timed-out line forgets its look-ups; an inbound item belongs to the link that raised it; the lows.
+  - 100.7 (queued; CI run 331): every still-Eye assertion takes its baseline after the Eye has read what the desk's own
+    ticks left, the view model kept in step.
+  - 100.2, the papers, last (the tag table's row for round 99 = `52e176b`).
+  CI: 327 to 329 red (the still-desk test, the Pixera test), 330 green (100.3), 331 red on one test (100.7's). The
+  findings each unit works from are in the session's notes, not in the tree; each unit's commit body carries them.
+- A stopped chain is relaunched with the remaining units (the template takes the list); a unit is inserted by stopping
+  the chain as a unit lands, with the tree clean.
 - The pin's band is the owner's open call: `global.json` names 10.0.115 (this bench's SDK, the 10.0.1xx band); before the
   pin CI built on 10.0.404, the band a current Visual Studio carries. Kept at 1xx, the maintainer's PC installs a 10.0.1xx
   SDK at 10.0.115 or above beside its own; re-pinned to 4xx, this bench installs 10.0.404 at the start of each session.
