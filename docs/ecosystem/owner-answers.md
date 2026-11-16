@@ -110,6 +110,32 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   Companion/LineWebSocketTests.cs), a test project's csproj only where the shared file must be named to compile, and a CARRYOVER
   entry: test-only, no product line.
 
+- PlayMap's Windows job and what it showed (2026-11-16, second answer): five items were put to the owner with a
+  recommendation each (all yes); the owner answered "Carry on with your recommendations". What that allows, and no more:
+  1. fix-ci-windows-bounds (items 4 and 5): in `.github/workflows/build.yml`, a 60-minute limit on the windows job; in its
+     test step a deadline per project that, when it runs out, prints the process tree, stops that tree and goes on to the
+     next project; a proof, run on demand, of whether the hang guard's dump setting (`VSTEST_DUMP_FORCENETDUMP=1`) ends a
+     stuck test host on Windows, or the setting's removal if the proof says it does not; and the measurement: a test-only
+     probe in each test host (a file under tests/Shared, on only where the CI job turns it on) recording thread wake
+     overshoot, pool dispatch latency and pool counts to a file both the Windows and the Linux job upload. The leave: the
+     workflow file, a script or probe project under tools/ where the workflow needs one, tests/Shared, a test project's
+     csproj only where a shared file must be named to compile, the papers that describe the job, and a CARRYOVER entry.
+  2. fix-foldercamera-cue-words (item 1): the simulated person in `FolderCameraTests` waits for its own cue's words; a
+     refusal ends the wait at once with its own message. The leave: tests/PlayMap.Engine.Tests/Phone/FolderCameraTests.cs,
+     Phone/PhoneScanKit.cs, another test of the same shape only where the code shows it (DmxPersonalityTests' console
+     start is to be read), and a CARRYOVER entry that also corrects fix-pool-bound-tests' line about this test. Test-only.
+  3. fix-small-test-items (item 2): `StagewatchIdentifyTests`' fake Stagewatch speaks first (a beat), and
+     `OptimiseWorkerEndTests`' hold is seen on a thread of its own; `StagewatchSinkTests`' 403 case is READ first, and is
+     mended in this batch only if its defect is the test's and the mend is test-only: a product defect is written down
+     with its path and design and put to the owner. The leave: tests/PlayMap.Engine.Tests/Host/StagewatchIdentifyTests.cs,
+     Optimise/OptimiseWorkerEndTests.cs, the StagewatchSinkTests file, tests/Shared, and a CARRYOVER entry.
+  4. fix-scan-cue-words (item 3), a product line: the scan's status never names a wait that has ended (between the last
+     locate frame and the first pattern it still said the previous cue's "then SCAN NEXT"). The leave:
+     src/PlayMap.Engine/Scanning/CuedCapture.cs (FolderCamera.cs or ScanRunner.cs only where the words are made), their
+     tests, every reader's fixture that the words move, the papers that quote them, and a CARRYOVER entry.
+  The owner did not object to the two CI actions taken on run 479 (a cancel and one re-run); a stuck run is cancelled and
+  re-run once, bounded, and said.
+
 - The six open calls (2026-11-16): put to the owner with a recommendation each, the owner answered "Yes to all". What that
   allows, and no more:
   1. M-PMX, PlayMap's first ping: the link sends no ping before its first message is read (CI run 476 on Mapper 46129380;
