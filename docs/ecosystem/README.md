@@ -21,7 +21,7 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.24 closed (`fe8224e`); six units after its papers landed (head `b59c654`)
+### Stagewatch — 2.24 closed (`fe8224e`); six units after its papers landed (`b59c654`), the lane unit SW24.1u in flight
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -80,7 +80,11 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   - SW24.1t (`b59c654`), a lane unit with no product change: the Patterns pin at Round 100's close (`a794633`); LAN 45
     of 45, laptop 5 of 5, offline 3 of 3. Rows S4.6, S4.7 and S9.1 read `told`; S6.2b reads every asked door while the
     rig's show thread is stalled; S9.3 (new) holds that no app at these pins posts a context to Patterns, so CONTEXT
-    POST with real apps stays an open row. The next lane unit moves the pin to Patterns' Round 101 close once it lands.
+    POST with real apps stays an open row.
+  - In flight (launched 2026-11-16): SW24.1u, a lane unit that moves the pins to Patterns' Round 101 close (`d7ef79a`,
+    built with the SDK 10.0.404 its `global.json` names) and to PlayMap's `cf576ffc`, and proves with the real apps what
+    fix-link-first-ping could only show against a fake (PlayMap's link to the rig stays live past its 12 s drop bound
+    with one connection). If it is not committed when a session resumes, launch it again from the template.
 - **The fold-in rule (both chain templates, 2026-11-16):** a committing stage makes the changes its review names and
   builds no new mechanism; what needs one is written as open with its path and design, and gets a unit of its own.
   Three units in a row (SW24.1p, SW24.1q, Patterns 100.4) landed fold-in code no second reader had read, and each
@@ -94,7 +98,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   first sentence of its shared text, which says what is landed, before a launch).
 - Stagewatch's CI runs on main, tags and pull requests only, so nothing runs on the working branch.
 
-### Patterns — Round 100 closed (`a794633`); Round 101, a repair round outside the plan, in flight
+### Patterns — Round 101 closed (`d7ef79a`); the plan has no further Patterns round
 
 - Landed and pushed: Rounds 89–99. Round 98 is the plan's P97 (PLAN §116): this desk is a LINK acceptor on 9697.
   - The plan's units: 98.0 the opening (`b42cc32`), 98.1 TLS told from plain by the first byte (`0dbff3e`; the wire writes
@@ -143,33 +147,34 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   - 100.2 the papers (`a794633`): 3,789 tests; OPEN L128 closed, L131 to L134 added; the tag table's row for round 99.
   CI: 327 to 329 and 331 red (each root-caused and mended above), 330 and 332 to 335 green, 336 (on the papers,
   `a794633`) red on one App test.
-- Round 101 (PLAN §119), launched 2026-11-16 from the template with five units, none of them in the plan: 101.0 the
-  opening, three mends and 101.4 the papers (tag row for round 100 = `a794633`). Each case was read by one reader and
-  one adversarial check against the code at `a794633`, nothing run:
-  - 101.1 (CI run 336; tests only): `ShowBusAppTests.ALinkedStagewatchStandingStillRebuildsNothingTickAfterTick` counted
-    one rebuild because a real desk tick crossed 16 ms inside the window and the Desk tick row went amber (OPEN L134 b).
-    A still window pins the Desk tick light red at its baseline; the papers name what the pin stops catching, and a new
-    OPEN row says the row's amber bound is unmeasured against the rig.
-  - 101.2 (bench sighting; product): `StageSpeakerAppTests.WhenTheLinkGoesWhatWasInFlight…`. A speaker call whose
-    request never reached a connection was reported unconfirmed when the link's cancel landed inside the send; it is
-    not-sent. Round 100's papers read this sighting the other way; the code contradicts that reading.
-  - 101.3 (bench sighting; product): `ShowBusAppTests.ARateLimitHoldsKeyedCalls…`. A keyed context answer published the
-    key's standing before its words, so a reader saw "key not accepted" beside the previous answer's words (OPEN L133,
-    clause b). The words are written before the standing they go with, and readers read key first.
-  If the chain is not finished when a session resumes: `git log` in Patterns shows the last unit landed; relaunch with
-  the remaining units.
+- Round 101 (PLAN §119), a repair round outside the plan, closed at `d7ef79a` on 2026-11-16. Each case was read by one
+  reader and one adversarial check against the code before its unit:
+  - 101.0 the opening (`f2e20a4`).
+  - 101.1 (`ebb8f8a`; CI run 336; tests only): a still window pins the Desk tick light red at its baseline, so a real
+    desk tick crossing 16 ms inside the window no longer counts as a rebuild (OPEN L134 b). The pin stops catching a
+    subject that itself slows the desk tick; OPEN L135 says the row's amber bound is unmeasured against the rig.
+  - 101.2 (`a475624`; bench sighting; product): a speaker call whose request never reached a connection is not-sent; a
+    call whose deadline runs out before any connection is also not-sent now; written and unanswered stays unconfirmed.
+  - 101.3 (`5520584`) and 101.6 (`85761f5`; bench sighting; product): the key's standing and the approval words are one
+    value written in one step; a context answer's words are its own, a 2xx takes back only a context answer's words, an
+    overtaken answer writes none. Left open (L133): the approval queue's own refusal words have no overtaken check.
+  - 101.5 (`bcbb74e`; the owner's answer of 2026-11-16): `global.json` names 10.0.404. The newer band's analysis
+    reported nothing in the tree; CI run 341 built every job on 10.0.404, green.
+  - 101.4 the papers (`d7ef79a`): tag row for round 100 = `a794633`.
+  CI: runs 337 to 341 green (the opening, 101.1, 101.2, 101.3, 101.5); the runs on 101.6 and the papers are read next.
 - What remains of the plan for Patterns after Round 101 is nothing; PlayMap's Train 8 waits behind round 3's integration pass and the
   owner's gates, AGMessage's Train 9 is its own session's.
 - A stopped chain is relaunched with the remaining units (the template takes the list); a unit is inserted by stopping
   the chain as a unit lands, with the tree clean.
-- The pin's band (the owner's answer of 2026-11-16): it moves to 10.0.404, the 10.0.4xx band a current Visual Studio
-  carries, as a unit of Round 101 (101.5, inserted ahead of the papers). Apt's `dotnet-sdk-10.0` gives this bench only
-  10.0.115, so at the start of a session the 10.0.404 SDK is added beside it, touching no file apt installed: download
-  `dotnet-sdk-10.0.404-linux-x64.tar.gz` from builds.dotnet.microsoft.com, check its SHA-512 against the release metadata,
-  and `tar -xzf … --skip-old-files -C /usr/lib/dotnet ./sdk/10.0.404 ./packs/Microsoft.NETCore.App.Host.linux-x64`. Both
-  SDKs carry the runtime 10.0.15, so tests run on the same runtime. Done in this session on 2026-11-16: from then on
-  Stagewatch and Mapper, which pin nothing, build here with 10.0.404 (what their CI installs), and Patterns with 10.0.115
-  until its pin moves.
+- The pin's band (the owner's answer of 2026-11-16): 10.0.404, the 10.0.4xx band a current Visual Studio carries,
+  landed as Round 101.5 (`bcbb74e`) and proved on CI (run 341). The maintainer's PC needs a 10.0.4xx SDK at 10.0.404 or
+  newer; with only another band dotnet refuses ("A compatible .NET SDK was not found. Requested SDK version: 10.0.404").
+  Apt's `dotnet-sdk-10.0` gives this bench only 10.0.115, so at the start of a session the 10.0.404 SDK is added beside
+  it, touching no file apt installed: download `dotnet-sdk-10.0.404-linux-x64.tar.gz` from builds.dotnet.microsoft.com,
+  check its SHA-512 against the release metadata, and
+  `tar -xzf … --skip-old-files -C /usr/lib/dotnet ./sdk/10.0.404 ./packs/Microsoft.NETCore.App.Host.linux-x64`. Both
+  SDKs carry the runtime 10.0.15. Without it Patterns does not build here. Stagewatch and Mapper, which pin nothing,
+  build here with the newest SDK present (10.0.404 once it is added; what Mapper's CI installs).
 - **Read CI after every push** (a build clean here can fail there), and root-cause a red run before the next unit lands
   on top of it. A small agent reads the run list; the failed job's log is downloaded only when a run is red.
 - Template: `workflows/patterns-chain.js` (units carry both the round's and the plan's numbers; a unit with no plan is one
@@ -211,6 +216,25 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 - Open in the last batch's CARRYOVER entry, for the owner: a dialler whose next line is not in when the node next reads after
   its HELLO is still greeted inside its handshake (a race, unmeasured); Patterns' node device on a trusted address counts one
   discarded STATE there and says why in its own words.
+- Two batches on the owner's answers of 2026-11-16 ("The six open calls", items 1 and 2), both pushed:
+  fix-link-first-ping (`9b7d1fca`: the Stagewatch link writes no ping before the connection's first message is read; the
+  silence rule still runs from the connection's start; CI run 478 green on all three jobs) and fix-hold-tests
+  (`cf576ffc`: the holds of `BackupMirrorLinkTests`, `HelloTests` and `VerbRowTests` are seen on a thread of their own;
+  tests only).
+- CI run 479 on `cf576ffc`: Linux and the installer green. The Windows job's test step was open 85 minutes on the first
+  attempt (the 5-minute hang guard did not end it; the job has no time limit) and was cancelled; no log of that attempt
+  exists (the job's log is not served and the run's archive lacks it). Read by three readers and an adversarial check,
+  nothing run: every wait the batch added has a deadline and the batch is not shown at fault; the best-supported suspect
+  is the guard's own hang-dump path on Windows (`VSTEST_DUMP_FORCENETDUMP=1`, set on that job since 2026-10-22 and by
+  PlayMap's own notes never yet exercised there). Re-run once: the step took its normal 14 minutes and failed on one
+  Engine test no batch of this session's last two touched, `FolderCameraTests.AManualFolderTakesTheNewestPictureOnScanNext`
+  ("the scan never ended" at its 2-minute wait); the batch's three test files passed on Windows. That failure is being
+  read. PlayMap's Windows job has been red or hung on five of its last six runs, each on a different test.
+- Asked of the owner and not yet answered: a time limit on the Windows job (60 minutes), a per-project deadline in its
+  test step that prints the process tree, a proof or removal of the hang-dump setting (all in `.github/workflows/build.yml`,
+  the owner's file); and three test-only items outside the approved files (`StagewatchIdentifyTests`' fake says nothing
+  first; `OptimiseWorkerEndTests`' hold; `StagewatchSinkTests`' 403 case). No push to Mapper until the Windows stall is
+  understood.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
 - Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch).
