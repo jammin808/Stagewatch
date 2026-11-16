@@ -162,7 +162,10 @@ Rules (game netcode, on purpose):
   any key), the screens list, a window's address, every command.
 - **Frames.** `ws://<pc>:9924/ws` pushes every frame, latest wins (each with `v` and a rising `seq`), and a `{"type":"beat"}` at
   least every `ws.beat.ms` (2 s). When the show thread stops turning over for `show.stuck.ms` (3 s) it sends
-  `{"type":"beat","live":false}` and no frame until it recovers: treat the last frame as stale.
+  `{"type":"beat","live":false}` and no frame until it recovers: treat the last frame as stale. The doors a reader asks turn
+  together by one rule (2.24, REMOTE.md's "The state doors while stuck"): `GET /api/state` serves the last frame with `"stuck":true`
+  as its last field, `/api/context` its stuck form (§6 P5) and MCP's `get_state` an error saying so; that rule also ages the context
+  (built once a second), so at a stall's start it can turn up to 750 ms before the `/ws` beat.
 - **Commands:** one grammar for everything (HTTP `/api/<verb>/…`, WebSocket `{"cmd":…,"args":[…]}`, OSC, the Companion TCP line
   protocol, triggers, MCP). `GET /api/help` returns it. Send an id (`X-Request-Id`, `"id"`, `@id`) and the answer is a receipt that
   says applied, refused or only accepted (Show Bus §3).

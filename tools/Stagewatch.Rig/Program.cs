@@ -407,9 +407,9 @@ sealed class Rig : ICompanionBridge, IDisposable
     private Dictionary<string, long>? _receiptRefs;
     private bool _blackout;
     private readonly HoldingSelection _holding = new();
-    // The context the doors serve: the last one built and its stuck form, so a stalled owner thread is served as stuck (§6 P5).
-    private readonly ServedContext _context = new();
-    private bool _contextBuilt;   // owner thread
+    // The context the doors serve: the last one built and its stuck form, stamped on the hub's clock, so a stalled owner thread, or a
+    // build older than the preflight's bound, is served as stuck (§6 P5) — the desk's own ServedContext, by the same rule.
+    private readonly ServedContext _context;
 
     // Node keys and what they speak for (Show Bus §11): the keys as saved, owner thread only; an immutable copy for the
     // servers, swapped whole; the bindings every node route and /ws speak through; the contexts show apps post.
@@ -472,6 +472,7 @@ sealed class Rig : ICompanionBridge, IDisposable
     {
         _o = o;
         _certificate = certificate;
+        _context = new ServedContext(Snapshots);
         _nodeId = o.NodeId ?? "rig-" + ScreenWindows.NewId()[1..];
         if (o.Journal is { } journal)
         {
@@ -1235,14 +1236,14 @@ sealed class Rig : ICompanionBridge, IDisposable
     }
 
     /// <summary>Owner thread, 4 Hz and after every command: the frame (published only when something visible changed) and,
-    /// once a second, the context. Alive is marked before the frame is published, so a link the frame wakes never reads
+    /// once a second and on the first tick after a stall, the context. Alive is marked before the frame is published, so a link the frame wakes never reads
     /// the show as stuck.</summary>
     private int _tick;
     // Whether the item in hand has started in this load (owner thread): its cues GO once, the first time its timer counts.
     private bool _cuesStarted;
     private void Tick()
     {
-        Snapshots.MarkAlive();
+        _context.MarkAlive();   // the hub's MarkAlive, and after a stall the context built in this tick
         if (!_cuesStarted && Engine.IsCounting)
         {
             _cuesStarted = true;
@@ -1257,10 +1258,9 @@ sealed class Rig : ICompanionBridge, IDisposable
         var frame = Frame();
         JournalEdges(frame);
         Snapshots.Publish(frame);
-        if (++_tick % 4 == 0 || !_contextBuilt)
+        if (++_tick % 4 == 0 || _context.Due)
         {
             _context.Publish(Context());
-            _contextBuilt = true;
             // Once a second, as the app: approved lines no app collected or answered become undelivered.
             _desk.Expire();
         }
@@ -1535,7 +1535,8 @@ sealed class Rig : ICompanionBridge, IDisposable
     public IReadOnlyList<ScreenWindow> Windows => _windows.Windows;
     public string? ViewCode => _o.ViewCode.Length == 0 ? null : _o.ViewCode;
     public bool McpAllowed => true;
-    public string? ContextJson() => _context.Json(Snapshots.ProducerStuck);
+    public string? ContextJson() => _context.Json();
+    public bool ServedStuck => _context.Stuck;
     public string? PreflightJson() => _preflightJson;
     public string? OwnNodeId => _nodeId;
     public string? OwnInst => _inst;

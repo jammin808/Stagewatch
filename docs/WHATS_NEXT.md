@@ -2237,7 +2237,8 @@ it did and left in its own words, as written when it landed.
 | Unit | Commit | What landed | What it left |
 |---|---|---|---|
 | SW24.1 | 61e300e | The context by §6 P1–P8 (`ShowContext`, `ScreenWindows`, `PlayoutLink.PeerNode`, `PlayoutProof.Use`): each playout link a `link` item with one row to `@<node id>`, its node said proved or not; each link accepted on `/ws` a `link:ws:<id>` item with its row, the rest in `link:unproved`; `clock:<node id>`; `timer -feeds->` only a timer page; `serves` rows to grant holders; the `vt` item fed by its node; P5 over the schedule and `vt`; P6 kinds; P7 order; P8 words; `ShowBusSpecTests` holding each rule kept; lane rows S1.5, S1c.3, S4.3, S4.4 read the new shapes | no lane row proves Patterns draws the rows (Round 99's feed is not pinned); a withdrawn grant's grey `serves`; `/layout` counted as no timer page; `follows` for every accepted link |
-| SW24.1p | this commit (`git log --grep SW24.1p`; its hash goes in the next papers commit) | The lane at Patterns' Round 99 (52e176b, closed): S9.1 one card per app on Patterns' Eye (each rig drawn once, by the id its link proved, one edge whose source is `link` and whose record is the link's own, no deck); S9.2 Patterns reads the rig's 2.24 rows (each `@` end placed on one edge, no cut edge, the level-0 `link:ws:` items lighting no app green; the counting of ends it draws no card for compared at 0 = 0); S5.4 the window chain as far as the pins give it (the thing and its withdrawal); S6.2b held tighter with the stuck rig on Patterns' Eye and on the rig's own context; every existing row held unchanged. The one defect of Stagewatch's own the lane proved, mended: a stuck show's context was served stale, and every door now serves its stuck form (`ServedContext`, desk and rig), with a check on injected time | S9.2's counting half unexercised (no rig row names a node Patterns draws no card for); S5.4's `serves` edge (no row for a held grant on this bench) and Patterns' screen-to-window edge (its OPEN L107); AGMessage's displays on Patterns' Eye (Round 100 and AGMessage's unit) |
+| SW24.1p | bc41663 | The lane at Patterns' Round 99 (52e176b, closed): S9.1 one card per app on Patterns' Eye (each rig drawn once, by the id its link proved, one edge whose source is `link` and whose record is the link's own, no deck); S9.2 Patterns reads the rig's 2.24 rows (each `@` end placed on one edge, no cut edge, the level-0 `link:ws:` items lighting no app green; the counting of ends it draws no card for compared at 0 = 0); S5.4 the window chain as far as the pins give it (the thing and its withdrawal); S6.2b held tighter with the stuck rig on Patterns' Eye and on the rig's own context; every existing row held unchanged. The one defect of Stagewatch's own the lane proved, mended: a stuck show's context was served stale, and every door now serves its stuck form (`ServedContext`, desk and rig), with a check on injected time | S9.2's counting half unexercised (no rig row names a node Patterns draws no card for); S5.4's `serves` edge (no row for a held grant on this bench) and Patterns' screen-to-window edge (its OPEN L107); AGMessage's displays on Patterns' Eye (Round 100 and AGMessage's unit) |
+| SW24.1q | this commit (`git log --grep SW24.1q`; its hash goes in the next papers commit) | The review of SW24.1p's mend, read by two adversarial readers after it landed, and the unit's own review: one rule for every door a reader asks (`ServedContext.Stuck`, `IShowControl.ServedStuck`: the hub's frame stale — stuck, or turned over since a stall and not yet published, `SnapshotHub.Resuming` — the context resuming until a build from a frame made after the stall, or the build older than `PreflightWire.MaxAge`, 3 s, on the hub's clock), read by `GET /api/context`, `get_context`, `GET /api/state`, `get_state`, `get_running_order`, the preflight's stuck answer and Companion's `STUCK` pong; `/ws` by the hub's `FrameStale`; so no context or frame from before a stall is served live after it, and the first turn after a stall builds at once (`MarkAlive`, `Due`); the stuck headline carries no schedule offset; `GET /api/state` marks a stuck show's frame `"stuck":true` at its end with the stuck verdict, and MCP's `get_state` and `get_running_order` answer the stuck words (MCP's instructions say so; the endpoint's `stuck` is required); the desk and the rig turn and serve through the one helper; the fences on injected time, in e2e and in S6.2b; the served pair's cost measured | The stuck form's other items as at its `at` (P5 asks no more); Companion's `SNAPSHOT` keeps its own stuck word (the pong's `STUCK`); `/ws` turns at a stall's start by the hub's flag, up to 750 ms after the asked doors; the preflight ages on its own clock, the context on the hub's; the desk's door held by the unit check's source fence, its walk-through the maintainer's PC work |
 
 The release's papers (SW24.2) are this section, REMOTE.md's 2.24 section, FEATURES.md's 2.24 entry, and the sentences of NODES.md,
 README.md and ECOSYSTEM.md that had gone stale; they change no code. Between 2.23's head and SW24.1, one commit of the plan
@@ -2356,6 +2357,9 @@ crafted master licence file rejected, and an owner-only file and its backup writ
     it on injected time (live at the stuck bound, stuck a millisecond past it, live again once the thread turns over) and S6.2b reads
     it from the rig. Patterns then draws the rig's card red rather than amber while stuck once it has pulled the red context
     (`StagewatchFollow.StuckLight` keeps the worse of the app's own light and amber), which S6.2b allows ("no better than amber").
+    *Reviewed in SW24.1q:* the mend served the pre-stall context as current for up to three ticks after a stall (the hub stopped
+    saying stuck at once, the pair was rebuilt each fourth tick), its stuck headline still said the frozen schedule offset, and the
+    frame doors (`GET /api/state`, MCP's `get_state`) said nothing of a stall at all; each is mended (each unit's notes, below).
 - **PlayMap at level 0 until its acceptor lands.** No LINK goes to a PlayMap node on any carrier (2.23's seam,
   `PlayoutProof.PlayMapSpeaksLink`), its playout link's row names the id its STATE gave, "not proved", and its link on `/ws` is an
   amber `link:ws:` item at level 0. It waits for Mapper's PM-9b (LINK on 9941) and PM-9c (LINK on `playmap.lines.v1`); PlayMap's
@@ -2453,6 +2457,112 @@ crafted master licence file rejected, and an owner-only file and its backup writ
     `left.edges` 0.
   - **What it left.** The plan's "every link green" for a stuck rig, S9.2's counting half, the window chain's `serves` edge and
     screen edge, and AGMessage's displays: each above with what it waits for.
+- **The review of SW24.1p's mend (SW24.1q).** Two adversarial readers read bc41663's `ServedContext` after it landed; what they found
+  sound stays as it was (one immutable pair behind one reference, the stuck flag read at serve time, both own-context doors through it,
+  the pair built on the show thread because the journal is a live list). What they found, and what moved:
+  - **The recovery edge (medium, both readers).** `MarkAlive` is the tick's first act, so the hub stopped saying stuck at once, but the
+    pair was rebuilt each fourth tick: for up to three ticks every door served the context built before the stall as current, a running
+    countdown green with a time wrong by the whole stall, which a peer pulling then kept until its next pull; and at a stall's start the
+    context turned stuck later than `/api/preflight`, which has an age bound. Now the pair carries the hub clock's time of its build
+    (`SnapshotHub.NowMs`, the hub's injected clock, never one of the context's own) and is served stuck while the hub says stuck **or**
+    the build is older than `ServedContext.MaxAge`, which is `PreflightWire.MaxAge` (3 s): the bound on how old a built answer may be
+    and still be served, the preflight's own bound (`SnapshotHub.StuckAfter`, also 3 s, is the other half of the rule, the producer's
+    silence); the context's age is read on the hub's clock, the preflight's on its own against the time it was built. A build that
+    stops while the thread still turns over fails closed the same way. The age alone did not close the edge (the unit's own review,
+    below): the turn that ends a stall now also marks the context resuming, and it stays served stuck until a build from a frame made
+    after the stall. The first turn after a stall also
+    builds at once (`ServedContext.MarkAlive`, in place of the hub's, notes the stall and `Due` makes `RefreshShowBus` and the rig's
+    `Tick` build in that turn), so the live form is back in the first tick rather than the fourth; between that turn's `MarkAlive`
+    and its build the door still serves the stuck form.
+  - **The unit's own review (one medium, five low), folded in.** (a) *One rule for every asked door (medium).* With the age bound the
+    context turned stuck by its build's age while `GET /api/state`, MCP's `get_state` and `/ws` turned by the hub's flag; the build
+    runs each fourth tick, so it can be up to 750 ms older than the last mark, and the reader measured the context stuck 151, 526 and
+    711 ms before `/api/state` on the rig. Now `ServedContext.Stuck` is the one rule and `IShowControl.ServedStuck` carries it to every
+    door a reader asks (`GET /api/state`, MCP's two tools and its `get_preflight`, `GET /api/preflight`'s stuck answer, Companion's
+    `STUCK` pong); a host with no `ServedContext` answers by its hub's `FrameStale`. `/ws` stays on the hub's word (it pushes frames;
+    on the context's rule it would hold the first frame after a stall until the context's build), and REMOTE.md and NODES.md say it
+    can turn up to 750 ms after the asked doors. The e2e's state leg now reads its mark by that one rule, so it no longer rides the
+    order of a fresh build and the stall. (b) *The frame doors' recovery edge.* After a stall the turn's mark cleared the hub's flag
+    before the turn published its frame, so between the two `GET /api/state` served the pre-stall frame unmarked. `SnapshotHub.Resuming`
+    holds from the mark that ends a stall until the next `Publish` (an unchanged frame's too), and `FrameStale` is stuck or resuming;
+    `/ws` reads it too, so a heartbeat in that gap no longer hands out the frozen frame. (c) *The overclaim.* A build just after a mark,
+    then a stall just past the hub's bound from that mark: at the turn that ends it the build is younger than the bound, and the age
+    alone served it live. The resuming mark (set by `ServedContext.MarkAlive` when the hub says stuck, ended only by a build made while
+    the hub is no longer resuming, so the desk's build from the pre-stall frame does not end it) closes it exactly; the papers now say
+    what the code holds. (d) *Two clocks.* The preflight ages on `WebServer.PreflightClock` against the wall-clock `at` its builder wrote,
+    the context on the hub's; worded as such, and left open (one clock for both is the preflight's own unit). (e) *The e2e's cost.* The
+    new test's stall is `STUCK_AFTER` + 3 s (6 s) rather than a second 9 s one. (f) *MCP.* Its instructions say what `get_state` answers
+    while stuck, and the endpoint's `stuck` is a required argument rather than a never-stuck default.
+  - **The headline (medium).** The stuck form's headline said "… no time shown · 02:30 behind", the offset from the frozen frame.
+    `ShowContext.Assess` now adds the offset only when the show thread is not stuck; no other word of the stuck form is built from a
+    frame's time, offset or count (the timer's, the schedule's and the VT's words are the stuck words; the label "item 4 of 12" is a
+    place the stuck thread cannot move). P5 as written; `docs/SHOWBUS.md` is not edited.
+  - **The state doors (medium; older than the mend, the same class).** `GET /api/state` and MCP's `get_state` and `get_running_order`
+    served the last frame with its running time and no stuck mark for the whole stall, while `/ws` sent the stuck beat and the context
+    and the preflight said stuck. Now, read at serve time from the same flag: `GET /api/state` (plain, public detail and operator)
+    answers 200 with the last frame, its operator `network` verdict the stuck one, and `"stuck":true` appended as its last field
+    (`SnapshotJson.Stuck`; a live frame has no top-level `stuck`, so every reader in this tree that parses it — `ask.js`'s title, the
+    lane's `frame()` and `operatorFrame()`, the e2e files, the rig's tests — reads it unchanged); MCP's `get_state` and
+    `get_running_order` answer an error, `McpEndpoint.StuckText`, and no frame, their tool descriptions saying so. The copilot's facts
+    read no frame through these doors (`AiContext` is built on the desk from the show's own state); the Companion module reads
+    `SNAPSHOT` over TCP, not `/api/state`, and draws a stall from the pong's `STUCK`, so it is unchanged. What a reader gets while
+    stuck, door by door, is REMOTE.md's "The state doors while stuck".
+  - **The fences (low, both).** The unit check now runs the product's orders on injected time — a stall past the bound, `MarkAlive`
+    without a build (the stuck form still, the turn due), the rig's turn (frame, then build: live) and the desk's (build from the
+    pre-stall frame: still stuck and due; its frame; the next turn's build: live), the stall just past the hub's bound after a build a
+    moment after the mark (stuck between the frame and the build, by the resuming mark alone), `Stuck` agreeing with what `Json` serves
+    at every step — and a build that stops while the thread turns over
+    (stuck at the bound plus 250 ms); its fixture is 150 s behind, so the live headline says "02:30 behind" and the stuck one holds no
+    clock time; and it holds the desk's and the rig's doors to the one helper (`ContextJson() => _context.Json();`, `_context.MarkAlive();`,
+    `_context.Due`, `ServedStuck => _context.Stuck;`, no `_hub.MarkAlive()` or `Snapshots.MarkAlive()` of their own), which is what holds the desk's door here: no lane on
+    this bench runs the desk. `WebV2Tests`' preflight route holds the state doors on injected time (live: no mark; stuck: the mark last
+    and the stuck verdict, MCP's two tools the stuck words; turned over but no frame yet: still marked; back: no mark; the host's own
+    rule with the hub fresh: marked, and the preflight's stuck answer on the route and from MCP the same). `tests/e2e/stall.e2e.cjs` gains a test against the rig: during
+    its stall `GET /api/context` red with every counting item red and the stuck words and no time in its headline, `GET /api/state` (plain
+    and operator) ending `"stuck":true`, MCP's two tools the stuck words; and for 2 s from the rig's running line every context read the
+    stuck form or one built after the stall, its timer never saying what it said before it. Mutation proof, each run with the build, the
+    unit suite and the stall e2e and the tree restored after: the age bound dropped from `Json` — the unit check and the e2e's recovery
+    leg fail; the headline's guard dropped — the unit check fails (the rig's offset is under 30 s, so the e2e passes); `StateJson`
+    serving the plain frame — the state-door check and the e2e fail; MCP's `get_state` guard dropped — the state-door check and the
+    e2e fail; the turn-after-a-stall build dropped (`Due` only before the first build) — the unit check fails (the e2e passes: the age
+    bound still fails closed and the live form is back within the fourth tick); the rig's `Tick` marking the hub directly — the unit
+    check's source fence fails. And for the fold-in, each a build and the whole unit suite with the tree restored after (seven runs):
+    `Stuck`/`Json` without the resuming mark — the unit check fails (its desk and just-past-the-bound legs); `Publish` ending the mark
+    while the hub still resumes — the unit check fails (the desk's leg); the hub's `Publish` leaving `Resuming` — the unit check, the
+    state doors' recovery, the host-rule leg, `/ws`'s "frames resume" and S12's acceptor check fail; the hub's `MarkAlive` setting no
+    `Resuming` — the unit check, the state doors' and the preflight's recovery legs fail; `StateJson`, the preflight or MCP's `stuck` on
+    the hub's flag alone — the host-rule leg of that door fails (and the recovery leg where the door also lost `Resuming`).
+  - **The cost (low).** Each publish builds the context twice on the show thread. Measured by `ShowBusTests` on this bench (4 cores,
+    shared with another tree's chain) at §14's caps — the most windows with their grants, the most playout and accepted links, trimmed,
+    and 2000 journal rows — `ServedContext.Publish` takes a median of 0.92 ms (p95 1.24 ms, max 1.32 ms over 40 runs) against 0.51 ms
+    for one `ShowContext.Build`: under 0.4 % of the desk's 250 ms tick, once a second (the committing run: 0.77 ms median, p95 0.86 ms,
+    against 0.38 ms). The figure calls for no governor, so none
+    lands (deriving the stuck form from the live build's assessment stays unwritten); the check prints it and bounds nothing.
+  - **The words (low).** Everything in the stuck form but its counting items and its headline is as it stood at the context's `at`,
+    from before the stall: its links, its windows (still "shown"), the timer's `feeds` rows and the `serves` rows to holders, its health.
+    P5 makes the counting items red and no more; P3 gives a `feeds` row no light rule and P4 lights a `serves` row by what its holder
+    reports, which a stuck thread has not read since `at`; so neither row takes the timer's red. `ServedContext`'s summary and REMOTE.md's
+    P5 paragraph say so.
+  - **The lane.** S6.2b, at the same pins, now also holds the stuck headline with no clock time, `GET /api/state`'s stuck mark during
+    the stall, and, read beside Patterns' recovery, every read of the rig's own context for 2 s from its turn-over the stuck form or one
+    built after it, with the live one back within that time: the row had tolerated the stale window (its "as before" check matched the
+    pre-stall context exactly). The committing run found one more tolerance and closed it: the row's Eye "before the stall" was taken
+    while Patterns still held the rig's stuck context from S6.2a's stall (which ends a moment before S6.2b's begins), so "as before"
+    could be met by a stuck drawing; the before read now waits, within a context's read, for a live one (neither stuck wording in the
+    card or a counting thing, the rig's own context not its stuck form). BUILD.md's row says so. `tools/test.sh interop` at the same pins
+    (Patterns 52e176b, Mapper 2ae7ac7b, AGMessage d0e3961), every topology whole and no row weakened: LAN 44 of 44, the laptop 5 of 5,
+    offline 3 of 3, the self-check 75 of 75. Two earlier runs in this unit under another tree's build were not whole, each by the
+    lane's known load fact and not by this unit: PlayMap's preflight red on its own CPU (98 % and 100 %) in S8.3 and S8.4, with S7.4
+    counting them, and once S6.2b's Eye not back within its bound while the desk tick of Patterns' bench said it stuttered; a run at a
+    quieter moment was whole. In S6.2b's whole run (with the live before read: the rig's card amber "Welcome — Host · idle") the rig's
+    own context said stuck 3.9 s after its stall; from its turn-over its 36 reads of its context in 2 s were none from before the
+    stall, the first built in the turn-over's own millisecond; Patterns' time came back 2.0 s after it and its Eye drew the rig live
+    again 6.1 s after it, inside the row's 9.5 s context bound.
+  - **What it left.** The stuck form's non-counting items and rows as at `at` (above: P5 asks no more); Companion's `SNAPSHOT` still the
+    last frame while stuck (its stall word is the pong's); `/ws` turning at a stall's start by the hub's flag, up to 750 ms after the
+    asked doors (they also age the context); the preflight's age on its own clock, the context's on the hub's (one clock is the
+    preflight's own unit); the desk's own door held by the source fence and the shared helper, its walk-through the maintainer's PC
+    work, not run.
 - **The 2.24 papers (SW24.2).** REMOTE.md's 2.24 section (each item and row, and what a reader may rely on), NODES.md §4's context
   and node links and §6–§7's level-0 items, FEATURES.md's 2.24 entry, README.md's index and release line, ECOSYSTEM.md's roadmap
   and lane lines, and this section; no code. The version stays 2.16.0 in the tree, as `release.ps1` moves it on the PC.

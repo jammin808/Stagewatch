@@ -410,7 +410,8 @@ public static class ShowContext
             f.Title.Length > 0 ? f.Title : "No item",
             timerState,
         };
-        if (f.ItemCount > 0 && f.OffsetSeconds is { } off && Math.Abs(off) >= 30)
+        // P5: a stuck show's headline carries no counting value — the offset is the frozen frame's, as stale as its time.
+        if (!x.ShowThreadStuck && f.ItemCount > 0 && f.OffsetSeconds is { } off && Math.Abs(off) >= 30)
             headline.Add(off > 0 ? $"{TimerTick.FormatSeconds(off)} behind" : $"{TimerTick.FormatSeconds(-off)} ahead");
         if (standing.Count > 0) headline.Add(string.Join(", ", standing) + " standing by");
         // A link this desk accepted on /ws is amber over green while 13.16.5 says so (level 0, plain, a key seen in clear), and so is

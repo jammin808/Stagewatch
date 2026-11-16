@@ -30,6 +30,25 @@ public static class SnapshotJson
     /// <summary>Trusted callers (Companion, MCP): detail = the full operator frame.</summary>
     public static byte[] Serialize(ShowSnapshot s, bool detail) => Serialize(s, detail ? FrameAccess.Operator : FrameAccess.Public);
 
+    /// <summary>The frame's own last field while its producer is stuck, appended at the end of its object: <c>"stuck":true</c>.</summary>
+    public const string StuckField = "\"stuck\":true";
+
+    /// <summary>
+    /// What a door that answers by request (<c>GET /api/state</c>) serves while the show thread is stuck: the last frame for
+    /// <paramref name="access"/>, its room verdict (the operator's <c>network</c>, where it has one) the stuck one, never the verdict the
+    /// frame was built with, and <see cref="StuckField"/> appended last — so a reader never takes its time as current. Every other field
+    /// is as the frame was built, before the stall. A live frame carries no <c>stuck</c> field of its own at the top.
+    /// </summary>
+    public static byte[] Stuck(ShowSnapshot s, FrameAccess access)
+    {
+        var frame = Serialize(s.Network is null ? s : s with { Network = PreflightWire.StuckVerdict }, access);
+        var tail = ",\"stuck\":true}"u8;   // StuckField, then the object's end
+        var stuck = new byte[frame.Length - 1 + tail.Length];
+        frame.AsSpan(0, frame.Length - 1).CopyTo(stuck);
+        tail.CopyTo(stuck.AsSpan(frame.Length - 1));
+        return stuck;
+    }
+
     public static byte[] Serialize(ShowSnapshot s, FrameAccess access)
     {
         var detail = access != FrameAccess.Public;

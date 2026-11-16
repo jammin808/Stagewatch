@@ -22,22 +22,34 @@ public sealed class McpEndpoint
     private readonly IShowApprovals? _approvals;
     private readonly Func<byte[]> _detailFrame;
     private readonly Func<string?> _preflight;
+    private readonly Func<bool> _stuck;
+
+    /// <summary>
+    /// What <c>get_state</c> and <c>get_running_order</c> answer (an error) while the show thread is stuck: the last frame's time, offset
+    /// and expected times are frozen, so none is given; <c>get_context</c> and <c>get_preflight</c> say the same in their own forms.
+    /// </summary>
+    public const string StuckText = "Stuck: Stagewatch's show thread has stopped turning over — no time shown until it turns over again (get_context and get_preflight say the same).";
 
     /// <summary>
     /// A full surface's endpoint. <paramref name="preflight"/> is the room's preflight as that surface's doors serve it; without
     /// one, the control's own under the same rule (<see cref="PreflightWire.Served"/>): never a stale verdict, never a stuck show's.
     /// </summary>
     public McpEndpoint(IShowControl control, Func<byte[]> detailFrame, Func<string?>? preflight = null)
-        : this(control, control, control, detailFrame, control, preflight ?? (() => PreflightWire.ServedNow(control.PreflightJson(), control.Snapshots.ProducerStuck)), control) { }
+        : this(control, control, control, detailFrame, () => control.ServedStuck, control,
+            preflight ?? (() => PreflightWire.ServedNow(control.PreflightJson(), control.ServedStuck)), control) { }
 
     /// <summary>
     /// MCP needs only these: run commands, read the report and the show's context, and route agents' commands to the operator.
     /// <paramref name="preflight"/> is the room's preflight as served; with none, get_preflight says there is none here.
     /// <paramref name="approvals"/> is the shared queue a line for another app waits in; with none, such a line is refused.
+    /// <paramref name="stuck"/> is the rule every door a reader asks serves by (<see cref="IShowControl.ServedStuck"/>), read at each call:
+    /// while it holds, <c>get_state</c> and <c>get_running_order</c> answer <see cref="StuckText"/> in place of the frame they read. It is
+    /// required: a surface that leaves it out would serve a frozen time as current.
     /// </summary>
-    public McpEndpoint(IShowCommands commands, IShowReports reports, IShowAgents agents, Func<byte[]> detailFrame, IShowContext? context = null,
-        Func<string?>? preflight = null, IShowApprovals? approvals = null)
+    public McpEndpoint(IShowCommands commands, IShowReports reports, IShowAgents agents, Func<byte[]> detailFrame, Func<bool> stuck,
+        IShowContext? context = null, Func<string?>? preflight = null, IShowApprovals? approvals = null)
     {
+        _stuck = stuck;
         _commands = commands;
         _reports = reports;
         _agents = agents;
@@ -89,7 +101,8 @@ public sealed class McpEndpoint
                     ["protocolVersion"] = ProtocolVersion,
                     ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false } },
                     ["serverInfo"] = new JsonObject { ["name"] = "stagewatch", ["title"] = "Stagewatch stage timer", ["version"] = typeof(McpEndpoint).Assembly.GetName().Version?.ToString(3) ?? "2" },
-                    ["instructions"] = "Stagewatch is the live show clock. Read get_state before acting. Change the show only with run_command, " +
+                    ["instructions"] = "Stagewatch is the live show clock. Read get_state before acting; while Stagewatch's show thread is stuck it answers " +
+                                       "an error and no time is current: read get_context or get_preflight, which say so. Change the show only with run_command, " +
                                        "using one command per call. Never black out outputs or reset the timer unless the operator asked for it. " +
                                        "To ask another show app (PlayMap, Patterns, AGMessage) for something, read its verbs with get_context " +
                                        "{\"peer\":\"<its id>\"} and call run_command with one line it lists and its id as target: that line always " +
@@ -108,9 +121,11 @@ public sealed class McpEndpoint
 
     private static JsonArray Tools() => new()
     {
-        Tool("get_state", "The live show: timer, phase, current and next item, schedule offset, curfew, forecast, messages, cues and acknowledgements, slides, Q&A.",
+        Tool("get_state", "The live show: timer, phase, current and next item, schedule offset, curfew, forecast, messages, cues and acknowledgements, slides, Q&A. " +
+                          "While the show thread is stuck, an error saying so and no frame: no time from it is current.",
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
-        Tool("get_running_order", "Every running-order item with planned, expected and actual times (show time zone), status, delay and curfews.",
+        Tool("get_running_order", "Every running-order item with planned, expected and actual times (show time zone), status, delay and curfews. " +
+                                  "While the show thread is stuck, an error saying so and no times.",
             new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }),
         Tool("run_command", "Propose one Stagewatch command, e.g. 'nudge 60', 'next', 'trim 7 -180', 'delay 300', 'catchup', " +
                             "'signal message speaker \"Please wrap up\"', 'signal go Lighting', 'q next', 'aux 1 start', 'screen identify'. " +
@@ -181,9 +196,11 @@ public sealed class McpEndpoint
         switch (name)
         {
             case "get_state":
+                if (_stuck()) return Text(StuckText, isError: true);
                 return Text(Encoding.UTF8.GetString(_detailFrame()));
             case "get_running_order":
             {
+                if (_stuck()) return Text(StuckText, isError: true);
                 var frame = JsonNode.Parse(_detailFrame()) as JsonObject;
                 return Text(frame?["timings"]?.ToJsonString() ?? "[]");
             }

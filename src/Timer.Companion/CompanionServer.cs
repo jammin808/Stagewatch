@@ -550,7 +550,7 @@ public sealed class CompanionServer : IAsyncDisposable
                         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                         pong = FormattableString.Invariant($"PONG {t1} {now} {now}");
                     }
-                    Enqueue(_server._bridge.Snapshots.ProducerStuck ? pong + " STUCK" : pong);
+                    Enqueue(_server._bridge.ServedStuck ? pong + " STUCK" : pong);   // the rule every door a reader asks serves by
                     break;
                 case "QUIT":
                     _life.Cancel();

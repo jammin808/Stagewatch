@@ -28,6 +28,9 @@ static class WebV2Tests
         /// <summary>The preflight this host last built (IShowContext.PreflightJson), or null: it keeps none.</summary>
         public volatile string? Preflight;
         public string? PreflightJson() => Preflight;
+        /// <summary>The host's own word beside its hub's (a context older than its bound, or resuming after a stall): IShowControl.ServedStuck.</summary>
+        public volatile bool ContextStuck;
+        public bool ServedStuck => ContextStuck || Snapshots.FrameStale;
         public volatile bool Mcp = true;
         public (string? Secret, bool Required) CrewKeyPolicy { get; set; } = ("test-secret", true);
         public IReadOnlyList<string> CrewDepartments => new[] { "Lighting", "Sound" };
@@ -628,7 +631,17 @@ static class WebV2Tests
             $"preflight route: with a stuck SnapshotHub the answer is stuck:true, never the verdict the host last built ({stuck.Body})");
         control.Snapshots.MarkAlive();
         control.Preflight = Verdict(UnixMs());
-        Check((await Get(Keyed("/api/preflight"))).Body == control.Preflight, "preflight route: the verdict is back once the show thread turns over");
+        var resuming = await Get(Keyed("/api/preflight"));
+        control.Snapshots.Publish(control.Snapshots.Latest);   // the turn's frame, here unchanged: current again
+        Check(control.Snapshots.Resuming == false && IsStuck(resuming.Body) && (await Get(Keyed("/api/preflight"))).Body == control.Preflight,
+            $"preflight route: once the show thread turns over, still stuck until its first frame after the stall, then the verdict ({resuming.Body})");
+        // The host's own rule beside the hub's: a context older than its bound says stuck at this door too, the hub fresh.
+        control.ContextStuck = true;
+        var hostStuck = await Get(Keyed("/api/preflight"));
+        var hostStuckMcp = await McpPreflight();
+        control.ContextStuck = false;
+        Check(!control.Snapshots.FrameStale && IsStuck(hostStuck.Body) && IsStuck(hostStuckMcp.Text) && (await Get(Keyed("/api/preflight"))).Body == control.Preflight,
+            $"preflight route: the host's served rule (IShowControl.ServedStuck) is the stuck answer's, on the route and from MCP ({hostStuck.Body})");
 
         // The frame: desk, then network, the operator's alone.
         var operatorFrame = await Get(Keyed("/api/state?detail=1"));
@@ -643,6 +656,68 @@ static class WebV2Tests
         var without = await Get(Keyed("/api/state?detail=1"));
         Check(without.Body.EndsWith(",\"desk\":{\"pending\":0,\"next\":null,\"apps\":[]}}", StringComparison.Ordinal),
             "frame: a host that keeps no preflight sends no network field — a missing verdict is never read as ready");
+
+        // The state doors while the show thread is stuck (the hub's flag, read at serve time): GET /api/state, plain, public detail and
+        // the operator's, is the last frame with "stuck":true appended last and the operator's room verdict the stuck one; MCP's
+        // get_state and get_running_order answer the stuck words as an error and no frame. Once the thread turns over, the frame again.
+        async Task<(string Text, bool IsError)> McpTool(string name)
+        {
+            var msg = new HttpRequestMessage(HttpMethod.Post, "/mcp")
+            {
+                Content = new StringContent("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"" + name + "\",\"arguments\":{}}}", Encoding.UTF8, "application/json"),
+            };
+            msg.Headers.Add("X-Stagewatch-Pin", "4321");
+            using var doc = JsonDocument.Parse(await (await http.SendAsync(msg)).Content.ReadAsStringAsync());
+            var result = doc.RootElement.GetProperty("result");
+            return (result.GetProperty("content")[0].GetProperty("text").GetString() ?? "", result.TryGetProperty("isError", out var e) && e.GetBoolean());
+        }
+        control.Snapshots.Publish(new ShowSnapshot { State = TimerState.Running, Seconds = 298, Text = "04:58", Network = new NetworkVerdict(true, 0, 0, false) });
+        control.Snapshots.MarkAlive();
+        var liveStates = new[] { await Get(new HttpRequestMessage(HttpMethod.Get, "/api/state")), await Get(new HttpRequestMessage(HttpMethod.Get, "/api/state?detail=1")),
+            await Get(Keyed("/api/state?detail=1")) };
+        var liveMcp = await McpTool("get_state");
+        Interlocked.Exchange(ref nowMs, nowMs + 3_001);
+        var stuckStates = new[] { await Get(new HttpRequestMessage(HttpMethod.Get, "/api/state")), await Get(new HttpRequestMessage(HttpMethod.Get, "/api/state?detail=1")),
+            await Get(Keyed("/api/state?detail=1")) };
+        static bool MarkedStuck(string body)
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.GetProperty("stuck").GetBoolean();
+        }
+        var stuckState = await McpTool("get_state");
+        var stuckOrder = await McpTool("get_running_order");
+        Check(liveStates.All(s => s.Status == HttpStatusCode.OK && !s.Body.Contains(SnapshotJson.StuckField, StringComparison.Ordinal))
+              && liveStates[2].Body.EndsWith(",\"network\":{\"ready\":true,\"red\":0,\"amber\":0,\"stuck\":false}}", StringComparison.Ordinal)
+              && liveMcp is { IsError: false } && liveMcp.Text.Contains("\"text\":\"04:58\"", StringComparison.Ordinal),
+            $"state doors: a live show's frame carries no stuck mark, and get_state is the frame (…{liveStates[2].Body[Math.Max(0, liveStates[2].Body.Length - 80)..]})");
+        Check(control.Snapshots.ProducerStuck
+              && stuckStates.All(s => s.Status == HttpStatusCode.OK && s.Body.EndsWith("," + SnapshotJson.StuckField + "}", StringComparison.Ordinal)
+                  && s.Body.Contains("\"text\":\"04:58\"", StringComparison.Ordinal) && MarkedStuck(s.Body))
+              && stuckStates[2].Body.EndsWith(",\"network\":{\"ready\":false,\"red\":1,\"amber\":0,\"stuck\":true}," + SnapshotJson.StuckField + "}", StringComparison.Ordinal)
+              && !stuckStates[0].Body.Contains("\"network\"", StringComparison.Ordinal)
+              && stuckState is { IsError: true, Text: McpEndpoint.StuckText } && stuckOrder is { IsError: true, Text: McpEndpoint.StuckText },
+            $"state doors: while stuck GET /api/state ends \"stuck\":true with the operator's verdict the stuck one, and MCP's get_state and get_running_order say stuck (…{stuckStates[2].Body[Math.Max(0, stuckStates[2].Body.Length - 100)..]}; {stuckState.Text})");
+        // It turns over: until its first frame after the stall the frame from before it is still served stuck, then the frame unmarked.
+        control.Snapshots.MarkAlive();
+        var resumingState = await Get(Keyed("/api/state?detail=1"));
+        var resumingMcp = await McpTool("get_state");
+        control.Snapshots.Publish(new ShowSnapshot { State = TimerState.Running, Seconds = 295, Text = "04:55", Network = new NetworkVerdict(true, 0, 0, false) });
+        var backState = await Get(Keyed("/api/state?detail=1"));
+        var backMcp = await McpTool("get_state");
+        Check(!control.Snapshots.ProducerStuck && resumingState.Body.EndsWith("," + SnapshotJson.StuckField + "}", StringComparison.Ordinal)
+              && resumingMcp is { IsError: true, Text: McpEndpoint.StuckText }
+              && !backState.Body.Contains(SnapshotJson.StuckField, StringComparison.Ordinal) && backState.Body.Contains("\"text\":\"04:55\"", StringComparison.Ordinal)
+              && backMcp is { IsError: false },
+            "state doors: once the show thread turns over, the frame from before the stall still marked stuck until the first frame after it, then that frame with no mark");
+        // The host's own rule beside the hub's (its context older than the bound): the state doors say stuck by it, the hub fresh.
+        control.ContextStuck = true;
+        var hostState = await Get(Keyed("/api/state?detail=1"));
+        var hostPlain = await Get(new HttpRequestMessage(HttpMethod.Get, "/api/state"));
+        var hostMcp = await McpTool("get_running_order");
+        control.ContextStuck = false;
+        Check(!control.Snapshots.FrameStale && hostState.Body.EndsWith("," + SnapshotJson.StuckField + "}", StringComparison.Ordinal)
+              && hostPlain.Body.EndsWith("," + SnapshotJson.StuckField + "}", StringComparison.Ordinal) && hostMcp is { IsError: true, Text: McpEndpoint.StuckText },
+            "state doors: GET /api/state and MCP serve by the host's one rule (IShowControl.ServedStuck), not the hub's flag alone");
     }
 
     /// <summary>

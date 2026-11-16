@@ -2210,7 +2210,7 @@ async function rigOnEye() {
 
 test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
   id: 'S6.2b',
-  title: "a stuck Stagewatch: Patterns' link stays live and amber (its record live, proved and amber; its row no better than amber, red once it reads the rig's red context) and says stuck with no time from it, and its time comes back once the rig's show turns over; the bound is the lane's STUCK_MS from the rig's own stall time, and the plan's stuckMs + 4 s is recorded beside it, not held, because the rig's verdict offers no stuck and carries no stuckMs (13.6.6 has it carry one only beside stuck); the rig's own context, as GET /api/context serves it, keeps §6 P5 within the same bound: every counting item red with the stuck words and the context red; and Patterns' Eye (EYE JSON) draws the rig as 13.16.1 gives it, within the same bound: its one card no better than amber (amber while it holds the context from before the stall, red once it reads the rig's own red one) with the stall's words, its one edge the link's record verbatim (live, its show stuck, amber), and the same counting things as before the stall, each \"? — no time shown\" and red; and once the show turns over, within a context's read, the rig's context, the card, the edge and every counting thing (light and words) as they were before the stall",
+  title: "a stuck Stagewatch: Patterns' link stays live and amber (its record live, proved and amber; its row no better than amber, red once it reads the rig's red context) and says stuck with no time from it, and its time comes back once the rig's show turns over; the bound is the lane's STUCK_MS from the rig's own stall time, and the plan's stuckMs + 4 s is recorded beside it, not held, because the rig's verdict offers no stuck and carries no stuckMs (13.6.6 has it carry one only beside stuck); the rig's own context, as GET /api/context serves it, keeps §6 P5 within the same bound: every counting item red with the stuck words, the context red and no time in its headline, and GET /api/state marks the frame stuck; from the rig's turn-over on, every read of its context is the stuck form or one built after the turn-over, never the one from before the stall, and the live one is back within 2 s; and Patterns' Eye (EYE JSON), read live before the stall (never a stuck form it still holds from an earlier one), draws the rig as 13.16.1 gives it, within the same bound: its one card no better than amber (amber while it holds the context from before the stall, red once it reads the rig's own red one) with the stall's words, its one edge the link's record verbatim (live, its show stuck, amber), and the same counting things as before the stall, each \"? — no time shown\" and red; and once the show turns over, within a context's read, the rig's context, the card, the edge and every counting thing (light and words) as they were before the stall",
   apps: ['stagewatch', 'patterns'],
   deadlineMs: [STUCK_MS, RESUME_MS, CONTEXT_MS],
 }, async (r) => {
@@ -2227,8 +2227,14 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
     // Every counting item of the rig's own context drawn as a thing of its card (the set the stall is then held to).
     const own = (e.ctx.items || []).filter((i) => E.COUNTING.includes(i.kind)).map((i) => i.id).sort().join(',');
     if (e.counting.map((t) => t.item).sort().join(',') !== own) return null;
-    return e.card.sub !== E.STUCK_WORDS && e.edge.show !== 'stuck' && e.counting.every((t) => !t.sub.startsWith('? ')) ? e : null;
-  }, HELLO_MS, "Patterns' Eye drawing the rig before the stall");
+    // Live, not a stuck form Patterns still holds from a stall before this row (S6.2a's ends a moment before it): neither Patterns'
+    // own stuck words nor the rig's in the card or a counting thing, and the rig's own context not its stuck form, so "as before"
+    // below can only be met by the live drawing.
+    const rigStuck = (w) => (w || '').includes(RIG_STUCK_WORDS);
+    return e.card.sub !== E.STUCK_WORDS && !rigStuck(e.card.sub) && e.edge.show !== 'stuck'
+      && e.counting.every((t) => !t.sub.startsWith('? ') && !rigStuck(t.sub))
+      && (e.ctx.items || []).filter((i) => E.COUNTING.includes(i.kind)).every((i) => i.state !== RIG_STUCK_WORDS) ? e : null;
+  }, CONTEXT_MS, "Patterns' Eye drawing the rig live before the stall");
   const stall = await sw.stall(STALL_MS);
   const ctxBefore = eyeBefore.ctx;
   const countingIds = (e) => e.counting.map((t) => t.item).sort().join(',');
@@ -2282,6 +2288,10 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
   const rigOwnStuckMs = S.since(stall.stalledAt);
   if (rigOwnStuckMs > STUCK_MS) throw new Error(`the rig's context said stuck ${rigOwnStuckMs} ms after the stall, past ${STUCK_MS}`);
   const rigOwnStuck = { light: rigCtxStuck.light, headline: rigCtxStuck.headline, counting: countingOf(rigCtxStuck), ms: rigOwnStuckMs };
+  // Its headline carries no time (P5: no counting value, a schedule offset among them), and its state door marks the frame stuck.
+  if (/\d:\d\d/.test(rigCtxStuck.headline || '')) throw new Error(`the rig's stuck headline carries a time: ${rigCtxStuck.headline}`);
+  const rigFrameStuck = await sw.frame();
+  if (rigFrameStuck.stuck !== true) throw new Error("the rig's GET /api/state while stuck carries no stuck mark");
   // Until the rig turns over Patterns never shows a time from it; a time read back is held against the rig's own turn-over time.
   let samples = 0;
   let runningAt = null;
@@ -2298,8 +2308,22 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
     await Promise.race([running, sleep(100)]);
   }
   await running;
+  // The rig's own context from its turn-over on, read beside Patterns' recovery: every read the stuck form or one the rig built after it
+  // turned over, never the live one from before the stall (ServedContext's age bound; this row's 'back' check alone matched that one).
+  const rigAfter = (async () => {
+    const reads = [];
+    for (const end = Date.now() + 2000; Date.now() < end; await sleep(50)) {
+      const c = await sw.context();
+      reads.push({ at: c.at, counting: countingOf(c) });
+    }
+    return reads;
+  })();
   const back = await until(async () => { const l = await link(); return l.state === 'live' && l.stuck === false && l.text !== '' ? l : null; },
     S.left(runningAt, RESUME_MS), "Patterns' Stagewatch time again");
+  const afterReads = await rigAfter;
+  const staleRead = afterReads.find((x) => !(x.counting.length && x.counting.every((i) => i.light === 'red' && i.state === RIG_STUCK_WORDS)) && !(x.at >= runningAt));
+  if (staleRead) throw new Error(`the rig served a context built before it turned over (${runningAt}) after it: ${JSON.stringify(staleRead)}`);
+  if (!afterReads.some((x) => x.at >= runningAt)) throw new Error(`the rig's live context was not back within 2 s of its turn-over (${afterReads.length} reads)`);
   const resumeMs = S.since(runningAt);
   if (resumeMs > RESUME_MS) throw new Error(`Patterns' time came back ${resumeMs} ms after the rig turned over, past ${RESUME_MS}`);
   // The Eye again as it was: the card's light and words and the edge's light as before the stall, and the same counting things in the
@@ -2325,6 +2349,7 @@ test('S6.2b a stuck Stagewatch: Patterns shows no time', row({
     plan: stuckPlan(stuckMs),
     stuck: { state: stuck.state, light: stuck.light, headline: stuck.headline, record: { state: stuck.link.state, show: stuck.link.show, light: stuck.link.light, level: stuck.link.level } },
     stuckSamples: samples,
+    rigAfter: { reads: afterReads.length, stuckForm: afterReads.filter((x) => x.at < runningAt).length, liveAfterMs: (afterReads.find((x) => x.at >= runningAt) || { at: NaN }).at - runningAt },
     resumeMs,
     after: { text: back.text, light: back.light },
     eye: {

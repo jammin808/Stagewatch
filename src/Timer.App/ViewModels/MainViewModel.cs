@@ -119,6 +119,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
     {
         _store = store;
         _license = license;
+        _context = new ServedContext(_hub);
         _peerContexts = new PeerContexts(_nodes);
         _ui = Dispatcher.CurrentDispatcher;
         _nodes.Bound += OnNodeBound;   // raised on any thread; saved and journalled on the show thread
@@ -187,7 +188,7 @@ public sealed partial class MainViewModel : ObservableObject, ICompanionBridge, 
         var todTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         todTimer.Tick += (_, _) =>
         {
-            _hub.MarkAlive();      // first: proves the show thread is turning over, even when nothing changes
+            _context.MarkAlive();  // first: proves the show thread is turning over, even when nothing changes (and, after a stall, builds the context now)
             TimeOfDayText = Fmt(DateTime.Now);
             UpdateStretchInfo();
             UpdateSystems();

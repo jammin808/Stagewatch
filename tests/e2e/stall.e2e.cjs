@@ -5,7 +5,10 @@
 // throughout (they never wait for the show thread), and a command sent meanwhile is only accepted, then applied once the
 // show runs; on a socket its receipt's one follow-up (final) then says it ran, and how late (lateMs, Show Bus 13.12.4–5). A key
 // first used while the show is stuck is still kept when the rig is stopped. These bytes are the ones Patterns' fake Stagewatch
-// replays for a stuck show.
+// replays for a stuck show. The doors a reader asks say stuck too: GET /api/context serves the stuck form (§6 P5: the counting
+// items red with the stuck words, no time in its headline), GET /api/state the last frame marked "stuck":true at its end, MCP's
+// get_state and get_running_order the stuck words; and once the show turns over no read of the context is the one from before the
+// stall (ServedContext's rule: resuming until a build from a frame after the stall, the age bound, the build on the first turn).
 'use strict';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -159,6 +162,97 @@ test('the control reader refuses what it does not know, a stall out of range and
   assert.ok(running.at - stall.at >= 1490, `ran again ${running.at - stall.at} ms later`);
   const again = await rig.stall(10);
   await again.running;
+});
+
+test('a stalled show says so at every door a reader asks: GET /api/context (§6 P5), GET /api/state and MCP; and once it turns over no door serves the context from before the stall', async () => {
+  const COUNTING = ['timer', 'schedule'];
+  const counting = (c) => (c.items || []).filter((i) => COUNTING.includes(i.kind));
+  const clockTime = /\d:\d\d/;
+  const state = async (detail) => {
+    const res = await fetch(`${rig.base}/api/state${detail ? '?detail=1' : ''}`, { headers: detail ? { 'X-Stagewatch-Pin': rig.pin } : {} });
+    return { status: res.status, text: await res.text() };
+  };
+  const mcp = async (name) => {
+    const res = await fetch(`${rig.base}/mcp`, {
+      method: 'POST', headers: { 'X-Stagewatch-Pin': rig.pin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: {} } }),
+    });
+    const { result } = await res.json();
+    return { text: result.content[0].text, isError: result.isError === true };
+  };
+  // A running countdown, so the context from before the stall says a time that the one after it cannot.
+  await rig.run('start');
+  let before = null;
+  for (let i = 0; i < 40 && !before; i++) {
+    const c = await rig.context();
+    const timer = (c.items || []).find((it) => it.id === 'timer');
+    if (timer && /^running, /.test(timer.state) && clockTime.test(timer.state)) before = c;
+    else await pause(100);
+  }
+  assert.ok(before, 'the rig\'s countdown runs before the stall');
+  const live = await state(false);
+  assert.ok(!live.text.endsWith(',"stuck":true}') && JSON.parse(live.text).stuck === undefined, 'a live frame carries no stuck mark');
+  assert.equal((await mcp('get_state')).isError, false, 'get_state is the frame while the show runs');
+  const beforeWords = new Map(counting(before).map((i) => [i.id, i.state]));
+
+  // Long enough to reach the stuck form at every door (STUCK_AFTER and the reads), no longer: this lane's time is the show's.
+  const DOORS_STALL = STUCK_AFTER + 3000;
+  const stall = await rig.stall(DOORS_STALL);
+  // A failure while stuck lets the stall end before it is thrown, so the next test's stall is not refused as a second one.
+  let stuckCtx = null;
+  try {
+    // While stuck: the context red, every counting item red with the stuck words, its headline with no time; the state doors say stuck.
+    for (let i = 0; i < 100 && !stuckCtx; i++) {
+      const c = await rig.context();
+      if (c.light === 'red' && counting(c).length && counting(c).every((it) => it.light === 'red' && it.state === 'the show thread has stopped turning over — no time shown')) stuckCtx = c;
+      else await pause(100);
+    }
+    assert.ok(stuckCtx, 'the rig\'s context says its show is stuck (§6 P5)');
+    assert.ok(Date.now() - stall.at <= STUCK_AFTER + 2000, `the context said stuck ${Date.now() - stall.at} ms after the stall`);
+    assert.deepEqual(counting(stuckCtx).map((i) => i.id).sort(), [...beforeWords.keys()].sort(), 'the same counting items as before the stall');
+    assert.ok(!clockTime.test(stuckCtx.headline), 'no time in the stuck headline: ' + stuckCtx.headline);
+    // The state doors serve by the context's one rule (IShowControl.ServedStuck), so once the context says stuck they do too, at once.
+    const [plain, operator] = [await state(false), await state(true)];
+    for (const s of [plain, operator]) {
+      assert.equal(s.status, 200);
+      assert.ok(s.text.endsWith(',"stuck":true}') && JSON.parse(s.text).stuck === true, 'GET /api/state marks the frame stuck, last: …' + s.text.slice(-60));
+    }
+    const op = JSON.parse(operator.text);
+    if (op.network) assert.deepEqual(op.network, { ready: false, red: 1, amber: 0, stuck: true }, 'the operator frame\'s verdict is the stuck one');
+    for (const name of ['get_state', 'get_running_order']) {
+      const said = await mcp(name);
+      assert.ok(said.isError && /^Stuck: /.test(said.text) && !clockTime.test(said.text), `${name} says stuck and no time: ${said.text}`);
+    }
+  } catch (e) {
+    await stall.running;
+    throw e;
+  }
+
+  // Once it turns over: every read of the context, from the rig's running line on, is the stuck form or one built after the stall —
+  // never the live one from before it (whose words a counting item would carry again).
+  const running = await stall.running;
+  const until = Date.now() + 2000;
+  let reads = 0;
+  let fresh = null;
+  while (Date.now() < until) {
+    const c = await rig.context();
+    reads++;
+    const items = counting(c);
+    const stuckForm = items.every((it) => it.light === 'red' && it.state === stuckCtx.items.find((s) => s.id === it.id).state);
+    if (!stuckForm) {
+      assert.ok(c.at >= stall.at + DOORS_STALL - 50, `a live context after the stall built at ${c.at}, before the show turned over (${running.at})`);
+      // The countdown's words carry its time: the one before the stall can never be said again by a context built after it.
+      const timer = items.find((it) => it.id === 'timer');
+      assert.notEqual(timer.state, beforeWords.get('timer'), `the timer says what it said before the stall: ${timer.state}`);
+      fresh = fresh || c;
+    }
+    await pause(20);
+  }
+  assert.ok(reads >= 20, `${reads} reads of the context after the stall`);
+  assert.ok(fresh, 'the live context is back within 2 s of the show turning over');
+  const back = await state(true);
+  assert.equal(JSON.parse(back.text).stuck, undefined, 'the frame again, with no stuck mark');
+  assert.equal((await mcp('get_state')).isError, false, 'get_state is the frame again');
 });
 
 test('a key first used while the show is stalled is kept when the rig is stopped (Ctrl+C): its binding is saved and the rig exits 0', async () => {

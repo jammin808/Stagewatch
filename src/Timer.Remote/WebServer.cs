@@ -151,7 +151,7 @@ public sealed class WebServer : IAsyncDisposable
     /// the host keeps none. Any thread.
     /// </summary>
     public string? ServedPreflight()
-        => PreflightWire.Served(_control.PreflightJson(), _control.Snapshots.ProducerStuck, PreflightClock.GetUtcNow().ToUnixTimeMilliseconds());
+        => PreflightWire.Served(_control.PreflightJson(), _control.ServedStuck, PreflightClock.GetUtcNow().ToUnixTimeMilliseconds());
 
     /// <summary>
     /// The clock a verdict's age is read on (<see cref="PreflightWire.MaxAge"/>): the system's, or a manual one that ages a verdict
@@ -619,6 +619,15 @@ public sealed class WebServer : IAsyncDisposable
         return f.Json;
     }
 
+    /// <summary>
+    /// What <c>GET /api/state</c> serves: the latest frame for an access level; while the host's served rule holds
+    /// (<see cref="IShowControl.ServedStuck"/>, read at serve time: the one the context, the preflight and MCP read), that frame marked
+    /// stuck at its end with its room verdict the stuck one (<see cref="SnapshotJson.Stuck"/>), so a poller never takes a frozen time or
+    /// verdict as current.
+    /// </summary>
+    private byte[] StateJson(FrameAccess access)
+        => _control.ServedStuck ? SnapshotJson.Stuck(_control.Snapshots.Latest, access) : CurrentFrameJson(access);
+
     private byte[] CurrentConfigJson()
     {
         var version = _control.Snapshots.Latest.ConfigVersion;
@@ -972,7 +981,7 @@ public sealed class WebServer : IAsyncDisposable
                 var access = !wantDetail ? FrameAccess.Public
                     : IsAuthorized(req, remote, ApiKeyScope.Read) ? FrameAccess.Operator : FrameAccess.PublicDetail;
                 if (KeyOver(req) is { } limited) { await WriteDenied(stream, limited, ct); return; }
-                await WriteAsync(stream, 200, "application/json", CurrentFrameJson(access), ct, cors: true, extra: RateHeaders(req)); return;
+                await WriteAsync(stream, 200, "application/json", StateJson(access), ct, cors: true, extra: RateHeaders(req)); return;
             }
             case "/api/crew-links":
             {
@@ -2444,8 +2453,9 @@ public sealed class WebServer : IAsyncDisposable
             }
             // The link being alive isn't enough: if the show thread has stopped turning over, the last frame is a
             // frozen time. Say so (screens go stale) and send no frame until it recovers — a reconnecting screen
-            // must not be handed the frozen frame as if it were current either.
-            if (_control.Snapshots.ProducerStuck)
+            // must not be handed the frozen frame as if it were current either, nor, once it turns over, the frame from before the
+            // stall before the first frame after it (the hub's FrameStale: the pushed doors' word, the hub's own).
+            if (_control.Snapshots.FrameStale)
             {
                 await client.SendTextAsync(StuckBeat, ct);
                 await client.WaitForSignalAsync(HeartbeatEvery, ct);

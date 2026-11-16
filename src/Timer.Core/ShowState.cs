@@ -241,9 +241,31 @@ public sealed class SnapshotHub
     /// <summary>
     /// The producer (the show thread) says it is still turning over, whether or not anything changed. A paused or
     /// idle show publishes nothing for minutes, so frames alone can't tell "quiet" from "frozen"; this can.
-    /// The first call switches the check on.
+    /// The first call switches the check on. A call that ends a stall (the hub said stuck until it) leaves the hub
+    /// <see cref="Resuming"/> until the producer's next <see cref="Publish"/>: the latest frame is still the one from before the stall.
     /// </summary>
-    public void MarkAlive() => Volatile.Write(ref _aliveAt, _clockMs());
+    public void MarkAlive()
+    {
+        if (ProducerStuck) Volatile.Write(ref _resuming, true);   // before alive: a reader that sees it alive sees it resuming
+        Volatile.Write(ref _aliveAt, _clockMs());
+    }
+
+    private bool _resuming;
+
+    /// <summary>
+    /// The producer has turned over since a stall and has not published since: <see cref="Latest"/> is the frame from before the stall,
+    /// its time wrong by the whole stall. The next <see cref="Publish"/> ends it, an unchanged frame's too (that frame is current again).
+    /// </summary>
+    public bool Resuming => Volatile.Read(ref _resuming);
+
+    /// <summary>
+    /// Whether <see cref="Latest"/> may not be served as current: the producer is stuck, or it is <see cref="Resuming"/>. What a door
+    /// that pushes frames (the /ws stuck beat, Companion's STUCK pong) reads at each send.
+    /// </summary>
+    public bool FrameStale => ProducerStuck || Resuming;
+
+    /// <summary>The hub's clock now, in its own milliseconds: what the producer's liveness is read on, for anything aged by the same rule.</summary>
+    public long NowMs => _clockMs();
 
     /// <summary>After this long without a sign of life the producer counts as stuck: screens say so instead of showing the last frame.</summary>
     public static readonly TimeSpan StuckAfter = TimeSpan.FromSeconds(3);
@@ -304,9 +326,10 @@ public sealed class SnapshotHub
     public bool Publish(ShowSnapshot snapshot)
     {
         var latest = Volatile.Read(ref _latest);
-        if (snapshot.Equals(latest)) return false;
+        if (snapshot.Equals(latest)) { Volatile.Write(ref _resuming, false); return false; }
         snapshot = snapshot with { Seq = new FrameSeq(latest.Seq.Value + 1) };   // one owner thread publishes: no race on the count
         Volatile.Write(ref _latest, snapshot);
+        Volatile.Write(ref _resuming, false);   // after the frame: a reader that sees it resumed sees the new frame
         foreach (var m in Volatile.Read(ref _mailboxes))
         {
             Volatile.Write(ref m.Pending, snapshot);
@@ -789,6 +812,14 @@ public interface IShowControl : IShowCommands, IShowAccess, IShowCrew, IShowScre
 {
     /// <summary>A full surface has the remote config, so its departments come from there unless the host says otherwise.</summary>
     IReadOnlyList<string> IShowCrew.CrewDepartments => GetRemoteConfig().Departments ?? Array.Empty<string>();
+
+    /// <summary>
+    /// The one rule every door a reader asks (<c>GET /api/state</c>, MCP's <c>get_state</c> and <c>get_running_order</c>, the preflight's
+    /// stuck answer, the context) serves by, read at serve time on any thread: while it holds no time from the show thread is served as
+    /// current. A host that serves its context through <c>ServedContext</c> answers by that (its frame stale, its context resuming after
+    /// a stall or older than the preflight's bound); a host that keeps none answers by its hub's own word.
+    /// </summary>
+    bool ServedStuck => Snapshots.FrameStale;
 }
 
 public sealed record RemoteConfig(

@@ -796,6 +796,32 @@ static class ShowBusTests
             $"windows in the context (§14 with P2–P4): the most windows, grants, playout and accepted links fit or trim in §6's order ({maxSent.Bytes} bytes, "
             + $"{maxSent.Items.Count} items, {maxSent.Links.Count} of {ShowContext.Links(maxInput).Count} rows; {maxWords}{OutOfOrder(maxSteps)})");
 
+        // What the served pair costs the show thread (ServedContext.Publish builds the live form and the stuck form): measured on the
+        // busiest context §14 lets through — the caps above, trimmed, with a long journal — and printed beside one Build; it bounds
+        // nothing, as the measured figure calls for no governor (WHATS_NEXT records it).
+        var busyJournal = Enumerable.Range(0, 2000).Select(i => new JournalEntry(t0.AddSeconds(i), JournalKind.Note, i % 12, "note " + i.ToString(CultureInfo.InvariantCulture))).ToList();
+        var busyInput = maxInput with { Journal = busyJournal, Frame = new ShowSnapshot { Mode = TimerMode.Countdown, State = TimerState.Running, Seconds = 300, Text = "05:00",
+            Title = "Keynote", ItemIndex = 3, ItemCount = 12, OffsetSeconds = 150, ScheduleText = "02:30 behind", Elements = DisplayElements.All } };
+        var served = new ServedContext(new SnapshotHub());
+        for (var i = 0; i < 5; i++) { served.Publish(busyInput); ShowContext.Build(busyInput); }
+        const int Runs = 40;
+        var publishMs = new List<double>(Runs);
+        var buildMs = new List<double>(Runs);
+        for (var i = 0; i < Runs; i++)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            served.Publish(busyInput);
+            publishMs.Add(sw.Elapsed.TotalMilliseconds);
+            sw.Restart();
+            ShowContext.Build(busyInput);
+            buildMs.Add(sw.Elapsed.TotalMilliseconds);
+        }
+        static double P(List<double> xs, double q) { var s = xs.Order().ToList(); return s[Math.Min(s.Count - 1, (int)Math.Ceiling(q * s.Count) - 1)]; }
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"cost: ServedContext.Publish at §14's caps (trimmed, {busyJournal.Count} journal rows): median {P(publishMs, 0.5):0.00} ms, p95 {P(publishMs, 0.95):0.00} ms, max {publishMs.Max():0.00} ms; one ShowContext.Build: median {P(buildMs, 0.5):0.00} ms ({Runs} runs, {Environment.ProcessorCount} cores)"));
+        Check(served.Json() is { } busyServed && Read(busyServed).Bytes <= ShowContext.MaxBytes,
+            "context cost: the served pair at §14's caps is built and fits context.bytes (its time is printed, not bounded)");
+
         // The thirteen rows in §6's notation, each rated through its own table by its row.
         var table = VerbTable.Compile(ShowContext.Commands.Select(c => new PeerCommand(c.Verb, c.Risk, c.Words)));
         var rated = new (string Line, string Risk)[]

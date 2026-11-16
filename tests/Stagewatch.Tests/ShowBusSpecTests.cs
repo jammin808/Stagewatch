@@ -2353,9 +2353,11 @@ static class ShowBusSpecTests
             + "link its clip comes over, and vMix's clip has no row");
         Check(StuckScheduleKept(), "showbus spec: Stagewatch keeps P5 for its schedule: a stuck show thread turns its timer, its schedule and its VT "
             + "countdown red, each saying the show is stuck in place of a time");
-        Check(StuckServedKept(), "showbus spec: Stagewatch keeps P5 on the wire: the context its doors serve while its show thread is stuck (the hub's "
-            + "ProducerStuck, on injected time) has its timer, its schedule and its VT countdown red with the stuck words and its light red, never the "
-            + "running time it last built; at the stuck bound it is still the live one, and the live one again once the thread turns over");
+        Check(StuckServedKept(), "showbus spec: Stagewatch keeps P5 on the wire: the context its doors serve while its served rule holds (the hub's "
+            + "frame stale, the context resuming after a stall, or its build older than the preflight's bound, on injected time) has its timer, its "
+            + "schedule and its VT countdown red with the stuck words, its light red and no counting value in its headline, never the running time it "
+            + "last built; at the stuck bound it is still the live one; after a stall it is the stuck one until a build from a frame made after it, in "
+            + "the rig's order and the desk's, and the live one after; and the desk and the rig serve, turn and answer the asked doors through the one helper");
         Check(OrderKept(12), "showbus spec: Stagewatch keeps P7: its reds and ambers first, then every item with a row to another node, then the rest");
         Check(MessagesKept(), "showbus spec: Stagewatch keeps P8 for its messages: no cue item or recent line carries a message's, a nudge's or an audience "
             + "question's words, while the desk still journals them and a department's cue words still go");
@@ -2473,42 +2475,117 @@ static class ShowBusSpecTests
     }
 
     /// <summary>
-    /// P5 on the wire (kept since SW24.1p): the context is built on the show thread, so a stalled thread builds none; what a door serves
-    /// (<see cref="ServedContext"/>) is the stuck form the same build made while the snapshot hub says the producer is stuck, read at serve
-    /// time, and the live one otherwise.
+    /// P5 on the wire (kept since SW24.1p, its recovery and headline since SW24.1q): the context is built on the show thread, so a stalled
+    /// thread builds none; what a door serves (<see cref="ServedContext.Json"/>) is the stuck form the same build made while
+    /// <see cref="ServedContext.Stuck"/> holds — the hub's frame stale (stuck, or turned over since a stall and not yet published), the
+    /// context resuming after a stall, or the build older than <see cref="ServedContext.MaxAge"/> (the preflight's bound), all read at
+    /// serve time on the hub's injected clock — and the live one otherwise. Held in the orders the product runs: a stall past the bound;
+    /// the thread's first turn after it marks the hub alive (<see cref="ServedContext.MarkAlive"/>) before it builds, and between the two
+    /// the door still serves the stuck form; the rig's turn publishes its frame and then builds (<see cref="ServedContext.Due"/>): live; the
+    /// desk's turn builds before its frame is published, from the frame from before the stall: still stuck and still due, and live only
+    /// from the next turn's build. A stall just past the hub's bound after a build a moment after the last turn's mark (the build younger
+    /// than the bound at the turn that ends it) is still never served live from before it. A build that stops while the thread turns over
+    /// is served stuck once it is older than the bound. The stuck form's headline carries no counting value, a schedule offset among
+    /// them. <see cref="ServedContext.Stuck"/> says what <see cref="ServedContext.Json"/> serves at every step. And the desk and the rig
+    /// serve, turn and answer the asked doors' rule through the one helper.
     /// </summary>
     static bool StuckServedKept()
     {
         long nowMs = 1_000_000;
         var hub = new SnapshotHub(() => Volatile.Read(ref nowMs));
-        var served = new ServedContext();
-        var none = served.Json(false) is null && served.Json(true) is null;
-        var frame = Running() with { Elements = DisplayElements.All, Playout = new PlayoutView("VT1", 42, 90, true, "Patterns", "patterns", "9f8e7d6c") };
-        hub.MarkAlive();
+        var served = new ServedContext(hub);
+        var none = served.Json() is null && served.Due && !served.Stuck;
+        var bound = (long)SnapshotHub.StuckAfter.TotalMilliseconds;
+        // 150 s behind: the live headline says so, the stuck one must not.
+        var frame = Running() with { Elements = DisplayElements.All, OffsetSeconds = 150, ScheduleText = "02:30 behind",
+            Playout = new PlayoutView("VT1", 42, 90, true, "Patterns", "patterns", "9f8e7d6c") };
+        var agree = true;
+        string? live;
+        string? Read() { var json = served.Json(); agree &= json is null || served.Stuck == (json != live); return json; }
+        served.MarkAlive();
+        var dueFirst = served.Due;
+        hub.Publish(frame);
         served.Publish(Own(frame, hub.ProducerStuck, [], []));
-        var alive = served.Json(hub.ProducerStuck);
-        Interlocked.Add(ref nowMs, (long)SnapshotHub.StuckAfter.TotalMilliseconds);
-        var edge = served.Json(hub.ProducerStuck);
+        live = served.Json();
+        var alive = Read();
+        var notDue = !served.Due;
+        Interlocked.Add(ref nowMs, bound);
+        var edge = Read();
         Interlocked.Increment(ref nowMs);
-        var stuck = served.Json(hub.ProducerStuck);
-        hub.MarkAlive();
+        var stuck = Read();
+        Interlocked.Add(ref nowMs, 7_000);   // a 10 s stall
+        // The rig's first turn after the stall: alive first, its frame, then the build. Until the build the pre-stall context is never served.
+        served.MarkAlive();
+        var between = Read();
+        var dueAfter = served.Due && !hub.ProducerStuck && hub.Resuming;
+        hub.Publish(frame with { Text = "04:59" });
+        var framed = Read();
         served.Publish(Own(frame, hub.ProducerStuck, [], []));
-        var back = served.Json(hub.ProducerStuck);
+        var back = Read();
+        var rigLive = back == alive && !served.Due && !served.Stuck;
+        // The desk's: alive first, the build (from the frame from before the stall, the hub still resuming), then its frame.
+        Interlocked.Add(ref nowMs, 10_000);
+        served.MarkAlive();
+        served.Publish(Own(frame, hub.ProducerStuck, [], []));
+        var deskBuilt = Read();
+        var deskDue = served.Due;
+        hub.Publish(frame with { Text = "04:58" });
+        var deskFramed = Read();
+        Interlocked.Add(ref nowMs, 250);
+        served.MarkAlive();
+        var deskDueNext = served.Due;
+        served.Publish(Own(frame, hub.ProducerStuck, [], []));
+        var deskBack = Read();
+        // A build a moment after the turn's mark, then a stall just past the hub's bound from that mark: at the turn that ends it the
+        // build is younger than the bound, and still the door serves the stuck form until the next build.
+        Interlocked.Add(ref nowMs, 250);
+        served.MarkAlive();
+        Interlocked.Add(ref nowMs, 5);
+        served.Publish(Own(frame, hub.ProducerStuck, [], []));
+        Interlocked.Add(ref nowMs, bound - 4);
+        var youngStuck = hub.ProducerStuck && Read() == stuck;
+        served.MarkAlive();
+        var youngBetween = Read();
+        hub.Publish(frame with { Text = "04:57" });
+        var youngFramed = Read();   // the hub's frame is current again and the build is younger than the bound: only the resuming mark holds it
+        var young = youngStuck && youngBetween == stuck && youngFramed == stuck && served.Due && !hub.FrameStale;
+        served.Publish(Own(frame, hub.ProducerStuck, [], []));
+        var youngBack = Read();
+        // The thread turns over every 250 ms but builds nothing: stuck once the build is older than the bound, whatever the hub says.
+        var maxAge = (long)ServedContext.MaxAge.TotalMilliseconds;
+        for (var t = 0; t < maxAge / 250; t++) { Interlocked.Add(ref nowMs, 250); served.MarkAlive(); }
+        var lastLive = Read();
+        Interlocked.Add(ref nowMs, 250);
+        served.MarkAlive();
+        var unbuilt = Read();
+        var aliveHub = !hub.FrameStale && served.Stuck;
 
-        static (string? Light, List<JsonElement> Counting) Read(string? json)
+        static (string? Light, string Headline, List<JsonElement> Counting) Parse(string? json)
         {
-            if (json is null) return (null, []);
+            if (json is null) return (null, "", []);
             using var doc = JsonDocument.Parse(json);
-            return (Str(doc.RootElement, "light"), Items(doc.RootElement, "items").Where(i => Str(i, "id") is "timer" or "schedule" or ShowContext.VtId)
+            return (Str(doc.RootElement, "light"), Str(doc.RootElement, "headline") ?? "", Items(doc.RootElement, "items").Where(i => Str(i, "id") is "timer" or "schedule" or ShowContext.VtId)
                 .Select(i => i.Clone()).ToList());
         }
-        var (aliveLight, aliveCounting) = Read(alive);
-        var (stuckLight, stuckCounting) = Read(stuck);
-        return none && alive is not null && edge == alive && back == alive && aliveLight != Light.Red && aliveCounting.Count == 3
-               && aliveCounting.Any(i => (Str(i, "state") ?? "").Contains("05:00 left", StringComparison.Ordinal))
+        var (aliveLight, aliveHeadline, aliveCounting) = Parse(alive);
+        var (stuckLight, stuckHeadline, stuckCounting) = Parse(stuck);
+        var desk = (Source("src/Timer.App/ViewModels/MainViewModel.ShowBus.cs") ?? "") + (Source("src/Timer.App/ViewModels/MainViewModel.cs") ?? "");
+        var rig = Source("tools/Stagewatch.Rig/Program.cs") ?? "";
+        var wired = new[] { desk, rig }.All(t => t.Contains("ContextJson() => _context.Json();", StringComparison.Ordinal)
+                                                 && t.Contains("ServedStuck => _context.Stuck;", StringComparison.Ordinal)
+                                                 && t.Contains("_context.MarkAlive();", StringComparison.Ordinal) && t.Contains("_context.Due", StringComparison.Ordinal))
+                    && !desk.Contains("_hub.MarkAlive()", StringComparison.Ordinal) && !rig.Contains("Snapshots.MarkAlive()", StringComparison.Ordinal);
+        return none && dueFirst && notDue && alive is not null && edge == alive && lastLive == alive && aliveLight != Light.Red
+               && aliveCounting.Count == 3 && aliveCounting.Any(i => (Str(i, "state") ?? "").Contains("05:00 left", StringComparison.Ordinal))
+               && aliveHeadline.Contains("02:30 behind", StringComparison.Ordinal)
                && stuck is not null && stuck != alive && stuckLight == Light.Red && stuckCounting.Count == 3
                && stuckCounting.All(i => Str(i, "light") == Light.Red && Str(i, "state") == ShowContext.StuckWords && !Regex.IsMatch(Str(i, "state") ?? "", @"\d:\d\d"))
-               && !stuck.Contains("05:00 left", StringComparison.Ordinal);
+               && !stuck.Contains("05:00 left", StringComparison.Ordinal)
+               && stuckHeadline.Contains(ShowContext.StuckWords, StringComparison.Ordinal) && !Regex.IsMatch(stuckHeadline, @"\d:\d\d")
+               && between == stuck && dueAfter && framed == stuck && rigLive
+               && deskBuilt == stuck && deskDue && deskFramed == stuck && deskDueNext && deskBack == alive
+               && young && youngBack == alive
+               && unbuilt == stuck && aliveHub && agree && wired && ServedContext.MaxAge == PreflightWire.MaxAge;
     }
 
     /// <summary>
