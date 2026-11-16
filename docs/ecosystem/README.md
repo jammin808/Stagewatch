@@ -21,7 +21,7 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.24 closed (`fe8224e`); six units after its papers landed (`b59c654`), the lane unit SW24.1u in flight
+### Stagewatch — 2.24 closed (`fe8224e`); seven units after its papers landed (head `30e6370`)
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -81,10 +81,16 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     of 45, laptop 5 of 5, offline 3 of 3. Rows S4.6, S4.7 and S9.1 read `told`; S6.2b reads every asked door while the
     rig's show thread is stalled; S9.3 (new) holds that no app at these pins posts a context to Patterns, so CONTEXT
     POST with real apps stays an open row.
-  - In flight (launched 2026-11-16): SW24.1u, a lane unit that moves the pins to Patterns' Round 101 close (`d7ef79a`,
-    built with the SDK 10.0.404 its `global.json` names) and to PlayMap's `cf576ffc`, and proves with the real apps what
-    fix-link-first-ping could only show against a fake (PlayMap's link to the rig stays live past its 12 s drop bound
-    with one connection). If it is not committed when a session resumes, launch it again from the template.
+  - SW24.1u (`30e6370`), a lane unit with no product change: pins at Patterns `d7ef79a` (built with the SDK 10.0.404 its
+    `global.json` names) and PlayMap `cf576ffc`. Whole at the new pins before any row moved (LAN 45 of 45, laptop 5 of 5,
+    offline 3 of 3); with its rows, e2e 95 of 95, LAN 48 of 48, laptop 5 of 5, offline 3 of 3. New rows: S2.1d (PlayMap's
+    link to the rig stays one connection for 16 s, past PlayMap's 12 s drop bound: what fix-link-first-ping relies on,
+    with the real apps; it does not tell the new pin from the old), S3.8 (Patterns' speaker message ends not-sent in both
+    of 101.2's words and never reaches the rig), S3.9 (a message the rig took and never answered stays unconfirmed);
+    S2.1b tightened to one socket. The rig's `nodes` control line ends each row with `connectedAt` (a tool, not the
+    product). Open, each in `docs/WHATS_NEXT.md`: the order of PlayMap's first ping against the rig's first message (TLS,
+    recorded by neither app); a keyless PlayMap link the viewing-code door shuts (no lane rig runs with `--view`); a rig
+    whose web server never answers. `docs/ECOSYSTEM.md`'s lane line still names 2.23's pins (outside that unit's papers).
 - **The fold-in rule (both chain templates, 2026-11-16):** a committing stage makes the changes its review names and
   builds no new mechanism; what needs one is written as open with its path and design, and gets a unit of its own.
   Three units in a row (SW24.1p, SW24.1q, Patterns 100.4) landed fold-in code no second reader had read, and each
@@ -161,7 +167,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   - 101.5 (`bcbb74e`; the owner's answer of 2026-11-16): `global.json` names 10.0.404. The newer band's analysis
     reported nothing in the tree; CI run 341 built every job on 10.0.404, green.
   - 101.4 the papers (`d7ef79a`): tag row for round 100 = `a794633`.
-  CI: runs 337 to 341 green (the opening, 101.1, 101.2, 101.3, 101.5); the runs on 101.6 and the papers are read next.
+  CI: runs 337 to 343 green, every push of the round (342 on 101.6, 343 on the papers).
 - What remains of the plan for Patterns after Round 101 is nothing; PlayMap's Train 8 waits behind round 3's integration pass and the
   owner's gates, AGMessage's Train 9 is its own session's.
 - A stopped chain is relaunched with the remaining units (the template takes the list); a unit is inserted by stopping
@@ -226,15 +232,28 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   exists (the job's log is not served and the run's archive lacks it). Read by three readers and an adversarial check,
   nothing run: every wait the batch added has a deadline and the batch is not shown at fault; the best-supported suspect
   is the guard's own hang-dump path on Windows (`VSTEST_DUMP_FORCENETDUMP=1`, set on that job since 2026-10-22 and by
-  PlayMap's own notes never yet exercised there). Re-run once: the step took its normal 14 minutes and failed on one
-  Engine test no batch of this session's last two touched, `FolderCameraTests.AManualFolderTakesTheNewestPictureOnScanNext`
-  ("the scan never ended" at its 2-minute wait); the batch's three test files passed on Windows. That failure is being
-  read. PlayMap's Windows job has been red or hung on five of its last six runs, each on a different test.
-- Asked of the owner and not yet answered: a time limit on the Windows job (60 minutes), a per-project deadline in its
-  test step that prints the process tree, a proof or removal of the hang-dump setting (all in `.github/workflows/build.yml`,
-  the owner's file); and three test-only items outside the approved files (`StagewatchIdentifyTests`' fake says nothing
-  first; `OptimiseWorkerEndTests`' hold; `StagewatchSinkTests`' 403 case). No push to Mapper until the Windows stall is
-  understood.
+  PlayMap's own notes never yet exercised there). It stays unexplained. Re-run once: the step took its normal 14 minutes
+  and failed on one Engine test, `FolderCameraTests.AManualFolderTakesTheNewestPictureOnScanNext` ("the scan never
+  ended" at its 2-minute wait); the batch's three test files passed on Windows.
+- That failure, read by three readers and an adversarial check with the re-run's log (cause read, not observed): a race
+  in the test. Its simulated person takes any "…then SCAN NEXT" as its cue; between the last locate frame and the first
+  pattern the previous cue's words still show, so it presses before the camera waits, PlayMap refuses (correctly), the
+  refusal is hidden and the scan waits past the test's 2 minutes. Not Windows-specific; made likelier by
+  fix-pool-bound-tests (`2ae7ac7b`), which moved that person onto a thread of its own and whose CARRYOVER entry
+  misstates the test's shape; `cf576ffc` did not touch the path. It does not explain the 85 minutes. The mend is
+  test-only (`FolderCameraTests.cs`: wait for the cue's own words; optionally `PhoneScanKit.cs`: a refusal ends the wait
+  with its own message) and waits on the owner. A product point surfaced beside it, the owner's to judge: the scan
+  status keeps showing the previous cue's "then SCAN NEXT" through that gap (`src/PlayMap.Engine/Scanning/CuedCapture.cs`).
+  PlayMap's Windows job has been red or hung on five of its last six runs, each on a different test.
+- Asked of the owner on 2026-11-16 and not yet answered (nothing is pushed to Mapper until then): (1) the test-only
+  mend of the FolderCameraTests race; (2) three test-only items outside the approved files (`StagewatchIdentifyTests`'
+  fake says nothing first, so since the ping fix its tests must finish inside 12 s; `OptimiseWorkerEndTests`' hold;
+  `StagewatchSinkTests`' 403 case, to be read first); (3) the stale "then SCAN NEXT" words in the product; (4) in
+  `.github/workflows/build.yml`: a 60-minute limit on the Windows job, a per-project deadline in its test step that
+  prints the process tree, a proof or removal of the hang-dump setting; (5) a measurement: a test-only probe in each
+  test host recording thread wake overshoot, pool dispatch latency and pool counts to a file the Windows job uploads, to
+  tell whether the different red tests share a cause (a held pool, an oversubscribed 4-vCPU runner) or are separate
+  defects. The findings are in the session's scratch only; the two paragraphs above carry what they found.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
 - Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch).
