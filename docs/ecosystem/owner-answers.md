@@ -110,6 +110,30 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   Companion/LineWebSocketTests.cs), a test project's csproj only where the shared file must be named to compile, and a CARRYOVER
   entry: test-only, no product line.
 
+- The six open calls (2026-11-16): put to the owner with a recommendation each, the owner answered "Yes to all". What that
+  allows, and no more:
+  1. M-PMX, PlayMap's first ping: the link sends no ping before its first message is read (CI run 476 on Mapper 46129380;
+     `StagewatchLinkTests.AKeylessLinkAskedForTheViewingCodeIsRefusedInThoseWordsAndHeld`). A new round-2 fix batch,
+     fix-link-first-ping, is allowed with the leave src/PlayMap.Net/Links/StagewatchLink.cs, tests/PlayMap.Net.Tests/
+     StagewatchLinkTests.cs with the fakes it uses, a paper only where it words the beat's order, and a CARRYOVER entry: a
+     product line, low severity, with a test that fails without it on every platform.
+  2. M-PMX, the remaining test-only cases in one batch: `BackupMirrorLinkTests`' holds (CI run 477 on Mapper 2ae7ac7b),
+     `HelloTests.AHelloIsCountedHeardOnlyOnceThePeerTableHasTakenItIn` (the same shape) and `VerbRowTests`' one test
+     fix-pool-bound-tests' Open list names. A new round-2 fix batch, fix-hold-tests, is allowed with the leave
+     tests/PlayMap.Engine.Tests/Fleet/BackupMirrorLinkTests.cs, tests/PlayMap.Net.Tests/HelloTests.cs,
+     tests/PlayMap.Engine.Tests/VerbRowTests.cs, tests/Shared (the existing helper or one small file beside it) and a CARRYOVER
+     entry: test-only, no product line.
+  3. Patterns' SDK band: the pin moves from 10.0.115 (the 10.0.1xx band) to 10.0.404 (the 10.0.4xx band, the one a current
+     Visual Studio carries), `rollForward` `latestPatch` as before. It lands as a unit of its own in Patterns; what the newer
+     band's analysis reports is mended, never silenced. This bench installs the 10.0.404 SDK beside its own at the start of a
+     session (docs/ecosystem/README.md says how).
+  4. The contract's word for an operator's CLOSE on a line wire (Patterns OPEN L115): yes, as part of Show Bus 1.4 (a
+     `disconnect` class on the line carrier, held `peerlink.hold.disconnect.ms`); 1.4 is not opened for this alone, and 1.3
+     stays final until then.
+  5. SW24.1's amber: confirmed. An accepted link at level 0 is amber by 13.16.5, so Stagewatch's own context is amber while
+     PlayMap or AGMessage is linked at level 0; the headline stays the show's own. The owner may look at it on a real show.
+  6. The preflight's stuck words (decision 16) stay as they are, also while the show thread is resuming.
+
 - Patterns' SDK (2026-11-14): asked whether Patterns pins its .NET SDK (OPEN L114: CI's runner image built with a newer SDK whose
   analysis failed the build on every unit of Round 97), with patch updates only, at the cost that the maintainer's PC must have
   that SDK's feature band installed, the owner answered "Yes". It lands as a unit Round 98 inserts (a global.json with

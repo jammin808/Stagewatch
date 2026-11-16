@@ -56,9 +56,10 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   serves its holder only on a grant over the holder's own verified link, `clock:<node id>` per measured clock, the `vt`
   item, no message words in `recent`; unit 6236, e2e 93 of 93, LAN 41 of 41, laptop 5 of 5, offline 3 of 3) and SW24.2
   (`fe8224e`: the papers). It waits for its release on the maintainer's PC (`-Version 2.24.0 -ModuleVersion 2.24.0`).
-- **The owner's to confirm (SW24.1):** an accepted link at level 0 is amber by 13.16.5, so Stagewatch's own context is
-  amber while PlayMap or AGMessage (level 0 at these pins) is connected; lane rows S1.5 and S1c.3 accept that amber only
-  when every amber item is a level-0 `link:ws:` link, and name the ids in their facts.
+- **Confirmed by the owner (2026-11-16, SW24.1):** an accepted link at level 0 is amber by 13.16.5, so Stagewatch's own
+  context is amber while PlayMap or AGMessage (level 0 at these pins) is connected; lane rows S1.5 and S1c.3 accept that
+  amber only when every amber item is a level-0 `link:ws:` link, and name the ids in their facts. The preflight's stuck
+  words stay as decision 16 wrote them.
 - After 2.24's papers, landed and pushed (each with its own row and section in `docs/WHATS_NEXT.md`):
   - SW24.1p (`bc41663`): the lane at Patterns' Round 99 (`52e176b`), LAN 44 of 44, laptop 5 of 5, offline 3 of 3: one
     card per app on Patterns' Eye (S9.1), the rig's 2.24 rows read (S9.2; the unplaced count compared at zero), the granted
@@ -161,9 +162,14 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   owner's gates, AGMessage's Train 9 is its own session's.
 - A stopped chain is relaunched with the remaining units (the template takes the list); a unit is inserted by stopping
   the chain as a unit lands, with the tree clean.
-- The pin's band is the owner's open call: `global.json` names 10.0.115 (this bench's SDK, the 10.0.1xx band); before the
-  pin CI built on 10.0.404, the band a current Visual Studio carries. Kept at 1xx, the maintainer's PC installs a 10.0.1xx
-  SDK at 10.0.115 or above beside its own; re-pinned to 4xx, this bench installs 10.0.404 at the start of each session.
+- The pin's band (the owner's answer of 2026-11-16): it moves to 10.0.404, the 10.0.4xx band a current Visual Studio
+  carries, as a unit of Round 101 (101.5, inserted ahead of the papers). Apt's `dotnet-sdk-10.0` gives this bench only
+  10.0.115, so at the start of a session the 10.0.404 SDK is added beside it, touching no file apt installed: download
+  `dotnet-sdk-10.0.404-linux-x64.tar.gz` from builds.dotnet.microsoft.com, check its SHA-512 against the release metadata,
+  and `tar -xzf … --skip-old-files -C /usr/lib/dotnet ./sdk/10.0.404 ./packs/Microsoft.NETCore.App.Host.linux-x64`. Both
+  SDKs carry the runtime 10.0.15, so tests run on the same runtime. Done in this session on 2026-11-16: from then on
+  Stagewatch and Mapper, which pin nothing, build here with 10.0.404 (what their CI installs), and Patterns with 10.0.115
+  until its pin moves.
 - **Read CI after every push** (a build clean here can fail there), and root-cause a red run before the next unit lands
   on top of it. A small agent reads the run list; the failed job's log is downloaded only when a run is red.
 - Template: `workflows/patterns-chain.js` (units carry both the round's and the plan's numbers; a unit with no plan is one
@@ -211,12 +217,11 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 
 ### Open findings carried into the next units
 
-- **The owner's to decide:** whether a PIN-only Stagewatch may be an open acceptor; the band of Patterns' SDK pin (1xx or
-  4xx); the mend of PlayMap's first ping before its first read; the
-  test-only mends of `BackupMirrorLinkTests`' holds (with `HelloTests`) and of `VerbRowTests`; the contract's word for an
-  operator's CLOSE of a link on a line wire (Patterns OPEN L115). Three stray files at the filesystem root of the cloud container
-  (`/WebServer.cs.bak`, `/WebServer.cs.keep`, `/module.log`: stages' scratch copies, no secret in them) could not be removed
-  from the session; they are in no repository.
+- **The owner's to decide:** whether a PIN-only Stagewatch may be an open acceptor. Answered on 2026-11-16
+  (`owner-answers.md`, "The six open calls"): PlayMap's first ping and the test-only holds (two batches, launched that
+  day: fix-link-first-ping, then fix-hold-tests), the SDK band (10.0.404), the CLOSE word (with Show Bus 1.4, not before).
+  Three stray files at the filesystem root of the cloud container (`/WebServer.cs.bak`, `/WebServer.cs.keep`,
+  `/module.log`: stages' scratch copies, no secret in them) could not be removed from the session; they are in no repository.
 - **Stagewatch:** `stuck` is not offered until measured; the 429 bounds are chosen, not measured; the sleeps SW22.11m left
   (its list is in `docs/WHATS_NEXT.md`); the e2e page-frame checks under load.
 - **The interop lane does not prove yet:** PlayMap's timer row, AGMessage 0.6.0, the one-laptop race of PlayMap's greeting.
