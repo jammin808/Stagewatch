@@ -15,13 +15,13 @@ carry byte-identical copies of the contract, not of this folder.
 | `data/` | `gaps.json` (G01–G49), `maps-lite.json`, `master-plan.json` (the units as data), `units/*.json` (each design's units) |
 | `workflows/` | The scripts each train ran (implement → adversarial review → fold-in and one commit per unit); the two chain templates in use now (`stagewatch-chain.js`, `patterns-chain.js`); `unit-brief.py`, which builds a unit's brief from this folder; and `patterns-app-parts.sh`, which runs Patterns' App suite as foreground parts. They name this folder by its path in a cloud checkout (`/home/user/Stagewatch/docs/ecosystem`); edit `S` if the trees live elsewhere |
 
-## Where the work stands (2026-11-16)
+## Where the work stands (2026-11-17)
 
 The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Continue development"). Every repository's work
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.24 closed (`fe8224e`); seven units after its papers landed (head `30e6370`)
+### Stagewatch — 2.24 closed (`fe8224e`); eight units after its papers landed (head `1f4e017` before this guide's commit)
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -90,7 +90,12 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     S2.1b tightened to one socket. The rig's `nodes` control line ends each row with `connectedAt` (a tool, not the
     product). Open, each in `docs/WHATS_NEXT.md`: the order of PlayMap's first ping against the rig's first message (TLS,
     recorded by neither app); a keyless PlayMap link the viewing-code door shuts (no lane rig runs with `--view`); a rig
-    whose web server never answers. `docs/ECOSYSTEM.md`'s lane line still names 2.23's pins (outside that unit's papers).
+    whose web server never answers.
+  - SW24.1v (`1f4e017`), a lane unit with no product change: the Mapper pin at `158d0b32` (PlayMap's five batches of
+    2026-11-17); whole and green, nothing moved (unit 6256, e2e 95 of 95, LAN 48 of 48, laptop 5 of 5, offline 3 of 3;
+    both siblings built with the SDK 10.0.404). No lane row reads STATE's scan block, so the lane proves nothing of
+    fix-scan-cue-words beyond PlayMap building and every other row holding; a scan driver is written as open with its
+    design in `docs/WHATS_NEXT.md`. `docs/ECOSYSTEM.md`'s lane line now keeps 2.23's 49 rows as 2.23's and gives 2.24's 56.
 - **The fold-in rule (both chain templates, 2026-11-16):** a committing stage makes the changes its review names and
   builds no new mechanism; what needs one is written as open with its path and design, and gets a unit of its own.
   Three units in a row (SW24.1p, SW24.1q, Patterns 100.4) landed fold-in code no second reader had read, and each
@@ -188,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `1a6386db`: the CI bounds and the scheduling probe landed; the Windows job's stall is measured, its cause not yet known
+### PlayMap (repo Mapper) — head `158d0b32`: the owner's four batches and the measurement batch landed; the Windows job's stall is measured, its cause not yet known
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -254,8 +259,17 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     latency, pool counts) where CI sets `PLAYMAP_SCHEDULING_PROBE=1`, uploaded from both jobs.
   - fix-foldercamera-cue-words (`1a6386db`): the folder camera test's person waits for its own cue's words; a person's
     fault ends the wait for the scan at once. Shown by a planted hold in a scratch copy, never observed on the runner.
-  - Still to land, in order: fix-small-test-items, then the orchestrator's fix-ci-stall-measure (below), then
-    fix-scan-cue-words (the product line).
+  - fix-small-test-items (`ab22f621`, tests only): the identify tests' fake Stagewatch speaks first and the theory holds
+    its link past the 12 s drop mark on a clock it controls; `OptimiseWorkerEndTests`' hold is seen on a thread of its own.
+    `StagewatchSinkTests`' 403 case was read to a PRODUCT defect and not mended (below).
+  - fix-ci-stall-measure (`dd4d82f5`, the orchestrator's batch, tests and CI only): the probe writes eighteen columns
+    (completed pool items, GC pause, working set, process CPU, its own write time, a second highest-priority beat) under
+    a facts line; `NodeHostTests` records the child engine's own start and "is up" stamps beside when the test saw them
+    (`*.nodehost.csv`); `tools/ci-tests.ps1 -Suites` runs a one-row-a-second machine sampler and prints Defender's status
+    once; `NodeLogTests`' failure says the dropped count and both files' lengths; `tools/probe-read.py` reads the rows.
+  - fix-scan-cue-words (`158d0b32`, the product line): a Folder camera's words stand in STATE's scan block, as the stage
+    `waiting`, only while it waits for the picture they ask for (nine stale points); a wait given up is refused on SCAN
+    NEXT instead of answered "taken"; a manual camera's refusal now stands for the whole re-wait (the owner's call, put).
 - The hang guard's proof (run 481, dispatched on `f8e038a7`): on Windows, on an idle runner, blame ended a never-ending
   test at 60 s with `VSTEST_DUMP_FORCENETDUMP=1` and without it; `dotnet test` returned at 63 s; a 4.2 MB dump each;
   `dotnet-dump` named the test. The setting stays. It does not rule the dump path out for a large host, so run 479's 85
@@ -277,18 +291,31 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     count counts blocked workers; that a higher pool minimum, a parallelism cap or a bigger runner would cure it; that
     the probe caused it. Not to do: widen the tests' waits, set a pool minimum or cap xUnit's threads, exclude anything
     from Defender, or credit runs 473, 477 and 479 to this stall (they had no probe).
-- Next, measurement only (the orchestrator's batch fix-ci-stall-measure, test-only and CI-only, on the owner's "no
-  governor follows without a reading"): the probe gains columns (completed work items, GC pause, working set, process CPU
-  time, the other wait's overshoot, its own write time, a second heartbeat thread); NodeHostTests records the child's own
-  start and "is up" times beside when the test saw them; a one-row-a-second machine sampler runs beside the Windows test
-  step (memory, paging, disk queue, processor, the test hosts' and Defender's CPU) and Defender's status is printed once;
-  NodeLogTests' failure says the dropped count and both files' state; `tools/probe-read.py` reads the rows.
-- The owner's calls that the reading raised, none taken: a dump written when a stall is seen (it pauses the host); any
-  pool minimum or parallelism cap in test hosts (it would stop CI finding pool-blocking a 4-core show laptop would meet);
-  the runner's size or image; reading or changing Defender on the runner; NodeLog's roll on Windows (and three other
-  plain `File.Move` replaces: `SupervisorLog.cs`, `MediaTransfer.cs`, `PhoneKeys.cs`).
-- The findings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `ci480/`); the measurement batch's
-  CARRYOVER entry is to carry the reading into Mapper.
+- Four more Windows readings, each read with the probe (`tools/probe-read.py` on the Engine host's rows and trx):
+  - Run 482 (`1a6386db`), green: the same stall in a passing run. NodeHost took 56 s; queued pool work waited up to
+    11.9 s; the probe's thread wrote nothing for 9.3, 12.9 and 7.4 s; the tests beside it had long waits and passed.
+  - Run 483 (`ab22f621`), green: no stall; NodeHost 2.7 s.
+  - Run 484 (`dd4d82f5`), green: the new instruments' first run, all working (849 sampler rows, no warning; Defender
+    never over 3.1 % of a processor; memory never under 9.8 GB); no stall; the child engine up 3.8 s after its start.
+    The sampler's own rows gap up to 9.5 s at full processors with no stall in the host: read it beside the probe's beat.
+  - Run 485 (`158d0b32`): Linux and the installer green; Windows red on one test only, `StagewatchSinkTests`' 403 case
+    (the product defect below), not the scan change; no stall; the child engine up in 9.8 s.
+  So across the seven Windows runs with a reading the stall and a slow NodeHost child go together both ways: 465 (45 s),
+  480 (54 s, red), 482 (56 s, green) stalled; 466, 467, 483, 484, 485 (2.7 to 9.8 s) did not. None has stalled since the
+  new columns landed: the cause waits for the next stall.
+- For the owner, none taken:
+  1. `src/PlayMap.Engine/Assistant/StagewatchProposalSink.cs`: the sink's pull clears a refusal's words within one poll
+     even when it asked the desk nothing, so `Problem` reads "" beside a refusal that stands. No product reader today;
+     the test that shows it fails now and then (run 485; twice in batch validates). Design in fix-small-test-items' entry;
+     recommended: mend, an answered pull not clearing an offer's refusal.
+  2. A manual Folder camera's refusal standing for the whole re-wait in place of "…, then SCAN NEXT" (landed that way;
+     the alternative drops the reason).
+  3. `NodeLog`'s roll on Windows (a failed move is counted as a dropped line and retried only on the next line), with
+     `SupervisorLog.cs`, `MediaTransfer.cs` and `PhoneKeys.cs` of the same shape; the deterministic Windows test waits on it.
+  4. A dump written when a stall is seen; any pool minimum or parallelism cap in test hosts; the runner's size or image;
+     Defender's settings: each recommended no until a reading names the cause.
+- The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `ci480/` to `ci485/`); Mapper's
+  CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the defect.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
 - Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch);
