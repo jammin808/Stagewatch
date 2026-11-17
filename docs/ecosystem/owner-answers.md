@@ -110,6 +110,21 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   Companion/LineWebSocketTests.cs), a test project's csproj only where the shared file must be named to compile, and a CARRYOVER
   entry: test-only, no product line.
 
+- Three calls after PlayMap's batches (2026-11-17): put to the owner as three questions with a recommendation each; the
+  owner chose the recommended answer to each. What that allows, and no more:
+  1. The approval desk sink's refusal words ("Mend it"): a new round-2 fix batch, fix-sink-refusal-words, a product line.
+     An offer's refusal is kept apart from the pull's own problem: a pull that asked the desk nothing changes neither, and
+     a pull the desk answers does NOT clear an offer's refusal (it clears when the desk takes an offer); `Problem` is the
+     pull's if any, else the offer's; both written under the sink's gate. The design is fix-small-test-items' CARRYOVER
+     entry. The leave: src/PlayMap.Engine/Assistant/StagewatchProposalSink.cs, its tests
+     (tests/PlayMap.Engine.Tests/StagewatchSinkTests.cs: the 403 case kept as it is and now deterministic, and the new
+     cases the design names), any paper that says when `Problem` clears, and a CARRYOVER entry.
+  2. The manual Folder camera's refusal ("Keep as landed"): it stands in the scan's status for the whole re-wait, in place
+     of the cue's "…, then SCAN NEXT", as fix-scan-cue-words (158d0b32) landed it. Nothing to do.
+  3. Extra CI runs ("Up to three runs"): the orchestrator may dispatch the normal build on Mapper's working branch up to
+     three times, stopping at the first run whose Windows Engine host stalls, to read a stall with the new measurements.
+     No more than three without asking again; a push's own run is not one of the three.
+
 - PlayMap's Windows job and what it showed (2026-11-16, second answer): five items were put to the owner with a
   recommendation each (all yes); the owner answered "Carry on with your recommendations". What that allows, and no more:
   1. fix-ci-windows-bounds (items 4 and 5): in `.github/workflows/build.yml`, a 60-minute limit on the windows job; in its
