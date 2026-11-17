@@ -21,7 +21,7 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.24 closed (`fe8224e`); eight units after its papers landed (head `1f4e017` before this guide's commit)
+### Stagewatch — 2.24 closed (`fe8224e`); eight units after its papers landed (head `15d6e81` before this guide's commit: the owner's answers of 2026-11-17)
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -193,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `158d0b32`: the owner's four batches and the measurement batch landed; the Windows job's stall is measured, its cause not yet known
+### PlayMap (repo Mapper) — head `f8282af0`: the owner's batches landed; the Windows job's stall is read to the child engine NodeHostTests starts (HIGH class, software OpenGL); a recording and A/B batch is in flight
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -303,23 +303,62 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   So across the seven Windows runs with a reading the stall and a slow NodeHost child go together both ways: 465 (45 s),
   480 (54 s, red), 482 (56 s, green) stalled; 466, 467, 483, 484, 485 (2.7 to 9.8 s) did not. None has stalled since the
   new columns landed: the cause waits for the next stall.
+- The owner's three answers of 2026-11-17 (`owner-answers.md`) and what came of them:
+  - "Mend it": fix-sink-refusal-words (`f8282af0`, the product line `StagewatchProposalSink.cs`): an offer's refusal and
+    the pull's own problem are kept apart; an answered poll does not clear a refusal; three new tests. Open in its entry:
+    a refusal can outlive its proposal; two offers in flight settle by answer order; a refused collect stands until a
+    later pull succeeds.
+  - "Keep as landed": a manual Folder camera's refusal stands for the whole re-wait. Nothing to do.
+  - "Up to three runs", stopping at the first stall: run 486 (no stall, NodeHost 2.1 s), run 487 (STALLED, NodeHost
+    17 s, red on `NodeCredentialStoreTests`, a victim). The third was not dispatched. Run 488, the push of `f8282af0`
+    and not one of the three, stalled too (NodeHost 48.6 s, red on `ClockSlewTests`, a victim; the sink's 403 case
+    passed).
+- What the two instrumented stalls showed (observed): once the child engine of
+  `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing` is up it holds all four processors (487: about 377 % of one
+  processor for 8 s; 488: 390 to 395 % for about 46 s); the test host gets zero processor time and completes zero pool
+  items (488: 496 of 529 probe rows), its Highest-priority beat is unrun for over a second at a time, and the sampler's
+  own process is held (488: samples of 18, 17 and 11 s); memory, disk and Defender are quiet; it ends as the test kills
+  the child.
+- The cause as read by five readers and an adversarial check (run 487; read from code, NOT yet recorded on the runner):
+  the child claims HIGH priority class by default (`src/PlayMap.Core/Machine/MachineSettings.cs:23`, claimed in
+  `MachineParts.Configure` before the "is up" line) and draws the default project's one 1920x1080 60 Hz output offscreen
+  through Mesa llvmpipe, which the Windows job copies beside `dotnet.exe`; a frame costs about one period, and when it
+  reaches the period `RenderHost.Pace` starts the next at once, so four busy threads at HIGH shut out every Normal-class
+  process. On Linux the child claims nothing and never stalls. Most Windows runs escape because the test kills the
+  child within 75 to 150 ms of seeing it up. Overturned from run 480's pass: "the child came up late", "the CPU was
+  not saturated", "the kill did not end it". Not on a shipped node as such: no Mesa ships, so its GL cannot fall back to
+  llvmpipe; the real-node hazard is CPU-bound in-process work under HIGH (Compute, FFmpeg, HAP workers), unmeasured.
+  Unknown: the child's class and renderer on the runner, when saturation starts, whether runs 480 and 482 share the
+  cause, why run 479 hung 85 minutes.
+- In flight (the orchestrator's batch on "no governor follows without a reading"; tests and CI only):
+  fix-ci-nodehost-measure. The nodehost row gains the child's priority class, renderer name, processor time and thread
+  count at up and at kill, and the stamps of connect, PING, STATE and kill; the sampler gains `Priority Base` and the
+  processor queue length; a `nodehostab` dispatch input runs only a job that runs NodeHostTests' PING test three times
+  with a 5 s hold: as today, at class normal, and at the default class with no enabled output. After it lands: dispatch
+  `nodehostab` once and read the three legs. Chain script: scratch `wf2/playmap-nodehost.js` (generator
+  `wf2/gen-playmap-e.py`).
+- Held until the A/B reads and the owner answers: the test-only mend (the test's child on a project with no enabled
+  output, or its home at class normal) and every product option. Not to do: serialise or skip NodeHostTests, set
+  `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits, change pool minimums.
 - For the owner, none taken:
-  1. `src/PlayMap.Engine/Assistant/StagewatchProposalSink.cs`: the sink's pull clears a refusal's words within one poll
-     even when it asked the desk nothing, so `Problem` reads "" beside a refusal that stands. No product reader today;
-     the test that shows it fails now and then (run 485; twice in batch validates). Design in fix-small-test-items' entry;
-     recommended: mend, an answered pull not clearing an offer's refusal.
-  2. A manual Folder camera's refusal standing for the whole re-wait in place of "…, then SCAN NEXT" (landed that way;
-     the alternative drops the reason).
-  3. `NodeLog`'s roll on Windows (a failed move is counted as a dropped line and retried only on the next line), with
+  1. The default priority class of a node (HIGH today; NORMAL, or HIGH only under a named condition such as installed,
+     armed or a hardware adapter on the air). Round 3 §9 decision 12 is the standing call.
+  2. Whether a headless node draws outputs nobody sees (already put in `docs/round2/CARRYOVER.md`, about line 1395).
+  3. Whether a render loop that misses its period yields a bounded slice; a processor floor for the rest of the machine.
+  4. Whether NodeHostTests may start its child with no enabled output or at class normal (the one real-child test then
+     stops exercising the default claims or the render loop).
+  5. `NodeLog`'s roll on Windows (a failed move is counted as a dropped line and retried only on the next line), with
      `SupervisorLog.cs`, `MediaTransfer.cs` and `PhoneKeys.cs` of the same shape; the deterministic Windows test waits on it.
-  4. A dump written when a stall is seen; any pool minimum or parallelism cap in test hosts; the runner's size or image;
-     Defender's settings: each recommended no until a reading names the cause.
-- The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `ci480/` to `ci485/`); Mapper's
-  CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the defect.
+  6. A dump written when a stall is seen; any pool minimum or parallelism cap in test hosts; the runner's size or image;
+     Defender's settings: each recommended no.
+- The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `wf2/ci487-findings.md`, `ci480/` to
+  `ci488/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
+  defect; fix-ci-nodehost-measure's entry is to carry runs 487 and 488 and the cause as read.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
 - Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch);
-  `workflows/playmap-ci480-root-cause.js` is the read-only root-cause pass (readers by lens, one adversarial check).
+  `workflows/playmap-ci480-root-cause.js` and `workflows/playmap-ci487-root-cause.js` are the read-only root-cause passes
+  (readers by lens, one adversarial check).
 
 ### Open findings carried into the next units
 
