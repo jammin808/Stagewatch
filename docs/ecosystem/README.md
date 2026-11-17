@@ -188,7 +188,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — two wire fixes and three test mends landed (`2ae7ac7b`); the rest waits on round 3's integration pass
+### PlayMap (repo Mapper) — head `1a6386db`: the CI bounds and the scheduling probe landed; the Windows job's stall is measured, its cause not yet known
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -245,18 +245,54 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   with its own message) and waits on the owner. A product point surfaced beside it, the owner's to judge: the scan
   status keeps showing the previous cue's "then SCAN NEXT" through that gap (`src/PlayMap.Engine/Scanning/CuedCapture.cs`).
   PlayMap's Windows job has been red or hung on five of its last six runs, each on a different test.
-- Asked of the owner on 2026-11-16 and not yet answered (nothing is pushed to Mapper until then): (1) the test-only
-  mend of the FolderCameraTests race; (2) three test-only items outside the approved files (`StagewatchIdentifyTests`'
-  fake says nothing first, so since the ping fix its tests must finish inside 12 s; `OptimiseWorkerEndTests`' hold;
-  `StagewatchSinkTests`' 403 case, to be read first); (3) the stale "then SCAN NEXT" words in the product; (4) in
-  `.github/workflows/build.yml`: a 60-minute limit on the Windows job, a per-project deadline in its test step that
-  prints the process tree, a proof or removal of the hang-dump setting; (5) a measurement: a test-only probe in each
-  test host recording thread wake overshoot, pool dispatch latency and pool counts to a file the Windows job uploads, to
-  tell whether the different red tests share a cause (a held pool, an oversubscribed 4-vCPU runner) or are separate
-  defects. The findings are in the session's scratch only; the two paragraphs above carry what they found.
+- The owner answered all five on 2026-11-16 ("Carry on with your recommendations"; `owner-answers.md`, "PlayMap's Windows
+  job and what it showed"), as four batches. Landed and pushed so far:
+  - fix-ci-windows-bounds (`f8e038a7`): the Windows job ends at 60 minutes; `tools/ci-tests.ps1 -Suites` runs each test
+    project under a deadline of its own (30 minutes for Engine, 10 for the rest) that prints the process tree, stops it,
+    fails the project as `<name>(deadline)` and goes on; a `hangproof` dispatch input runs only a job that proves the hang
+    guard; `tests/Shared/SchedulingProbe.cs` in every test project writes a row every 50 ms (wake overshoot, pool dispatch
+    latency, pool counts) where CI sets `PLAYMAP_SCHEDULING_PROBE=1`, uploaded from both jobs.
+  - fix-foldercamera-cue-words (`1a6386db`): the folder camera test's person waits for its own cue's words; a person's
+    fault ends the wait for the scan at once. Shown by a planted hold in a scratch copy, never observed on the runner.
+  - Still to land, in order: fix-small-test-items, then the orchestrator's fix-ci-stall-measure (below), then
+    fix-scan-cue-words (the product line).
+- The hang guard's proof (run 481, dispatched on `f8e038a7`): on Windows, on an idle runner, blame ended a never-ending
+  test at 60 s with `VSTEST_DUMP_FORCENETDUMP=1` and without it; `dotnet test` returned at 63 s; a 4.2 MB dump each;
+  `dotnet-dump` named the test. The setting stays. It does not rule the dump path out for a large host, so run 479's 85
+  minutes stay unexplained; the deadline and the job's limit now bound a repeat.
+- CI run 480 on `f8e038a7`: Linux and the installer green; Windows red in the Test step at two Engine tests (the new
+  script ran every project to its end, no deadline hit). Read by five readers and an adversarial check against the
+  probe's rows, nothing run:
+  - `SettingsWriterTests.ASyncRoleAnEpochTheLinkAndANewTokenSurviveEachOther` was a victim, not a defect of its own:
+    from 23:34:15 to 23:35:09 a work item queued to the Windows Engine host's thread pool waited up to 12.7 s to start
+    while the probe's own wake overshoot stayed at its floor (the host was not saturated as that thread saw it); the
+    probe's dedicated thread itself stopped twice for over 7 s; four tests that take seconds each took 52 to 56 s and
+    one's 10 s wall-clock wait ran out. Linux, same commit: no queued item waited longer than 0.25 s. Run 465 has the
+    same shape. Both windows begin as `NodeHostTests.TheNodeHostRunsAnEngineThatAnswersPing` starts its child engine and
+    end as the child is seen up. What held the workers is not known.
+  - `NodeLogTests.EveryFileTheLogStartsBeginsWithTheBuild` ("line 1 was not moved aside") is separate: no stall in its
+    window. Likeliest, read not shown: one roll's `File.Move` threw on Windows, was swallowed and counted as a dropped
+    line, and is retried only when another line is logged (`src/PlayMap.Engine/Host/NodeLog.cs`).
+  - Refuted by the check: that the child's kill ended the stall (recovery is 0.18 s before it); that the pool's thread
+    count counts blocked workers; that a higher pool minimum, a parallelism cap or a bigger runner would cure it; that
+    the probe caused it. Not to do: widen the tests' waits, set a pool minimum or cap xUnit's threads, exclude anything
+    from Defender, or credit runs 473, 477 and 479 to this stall (they had no probe).
+- Next, measurement only (the orchestrator's batch fix-ci-stall-measure, test-only and CI-only, on the owner's "no
+  governor follows without a reading"): the probe gains columns (completed work items, GC pause, working set, process CPU
+  time, the other wait's overshoot, its own write time, a second heartbeat thread); NodeHostTests records the child's own
+  start and "is up" times beside when the test saw them; a one-row-a-second machine sampler runs beside the Windows test
+  step (memory, paging, disk queue, processor, the test hosts' and Defender's CPU) and Defender's status is printed once;
+  NodeLogTests' failure says the dropped count and both files' state; `tools/probe-read.py` reads the rows.
+- The owner's calls that the reading raised, none taken: a dump written when a stall is seen (it pauses the host); any
+  pool minimum or parallelism cap in test hosts (it would stop CI finding pool-blocking a 4-core show laptop would meet);
+  the runner's size or image; reading or changing Defender on the runner; NodeLog's roll on Windows (and three other
+  plain `File.Move` replaces: `SupervisorLog.cs`, `MediaTransfer.cs`, `PhoneKeys.cs`).
+- The findings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `ci480/`); the measurement batch's
+  CARRYOVER entry is to carry the reading into Mapper.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
-- Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch).
+- Template: `workflows/train3-playmap.js` (several batches) or `workflows/playmap-desk-unconfirmed.js` (one batch);
+  `workflows/playmap-ci480-root-cause.js` is the read-only root-cause pass (readers by lens, one adversarial check).
 
 ### Open findings carried into the next units
 
