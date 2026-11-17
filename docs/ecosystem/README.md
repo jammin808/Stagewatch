@@ -193,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `f8282af0`: the owner's batches landed; the Windows job's stall is read to the child engine NodeHostTests starts (HIGH class, software OpenGL); a recording and A/B batch is in flight
+### PlayMap (repo Mapper) — head `eccb35a0`: the Windows job's stall is recorded on the runner (the child engine's drawn output, with the test host below the child's class); the test-only mend waits on the owner
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -330,29 +330,59 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   llvmpipe; the real-node hazard is CPU-bound in-process work under HIGH (Compute, FFmpeg, HAP workers), unmeasured.
   Unknown: the child's class and renderer on the runner, when saturation starts, whether runs 480 and 482 share the
   cause, why run 479 hung 85 minutes.
-- In flight (the orchestrator's batch on "no governor follows without a reading"; tests and CI only):
-  fix-ci-nodehost-measure. The nodehost row gains the child's priority class, renderer name, processor time and thread
-  count at up and at kill, and the stamps of connect, PING, STATE and kill; the sampler gains `Priority Base` and the
-  processor queue length; a `nodehostab` dispatch input runs only a job that runs NodeHostTests' PING test three times
-  with a 5 s hold: as today, at class normal, and at the default class with no enabled output. After it lands: dispatch
-  `nodehostab` once and read the three legs. Chain script: scratch `wf2/playmap-nodehost.js` (generator
-  `wf2/gen-playmap-e.py`).
-- Held until the A/B reads and the owner answers: the test-only mend (the test's child on a project with no enabled
-  output, or its home at class normal) and every product option. Not to do: serialise or skip NodeHostTests, set
-  `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits, change pool minimums.
+- fix-ci-nodehost-measure landed (`eccb35a0`, tests and CI only; the orchestrator's batch on "no governor follows
+  without a reading"): the nodehost row carries the child's priority class, renderer, processor time, thread count and
+  the stamps of connect, PING, STATE and kill; the sampler carries each process's base priority and the processor queue
+  length; a `nodehostab` dispatch input runs only a job that runs NodeHostTests' PING test three times with a 5 s hold.
+  Its CARRYOVER entry carries runs 487 and 488.
+- Run 490 (the `nodehostab` job, dispatched once on `eccb35a0`), recorded on the runner, each leg n=1, A first:
+  - A, as the suite runs it: child High (base 13) on llvmpipe, 3.98 processors over the hold; the test host's probe
+    silent for 32, 30 and 28 s, its Highest beat for 50 s, queue length 352; the test took 2 min 36 s.
+  - B, the child's home at class normal (base 8): 3.80 processors; the probe silent up to 9.6 s, the host's pool held
+    for the child's whole life (14 items in 38 s), the beat on time; 45 s.
+  - C, default class, the one output not enabled: about 0.03 processors once started; nothing held; 9 s.
+  - The test host and `dotnet test` run at base 6 (Below Normal) in that job; where 6 comes from is not known.
+- Run 489 (the push of `eccb35a0`): Linux and the installer green; Windows red on one Devices test only,
+  `NecDriverTests.EveryCommandIsRefusedUntilTheLinkAllowsUnverifiedCommands` ("Not listening"), read to a race in the
+  test's `Simulators/FakeTcpServer.cs` (a test that ends at once stops the listener as the accept loop calls it; that
+  exception is not caught). No stall: the child High on llvmpipe, killed 0.1 s after up.
+- What two readers and an adversarial check made of it (scratch `wf2/ci490-findings.md`; the reading they tested is
+  `wf2/ci490-reading.md`):
+  - The demand is the enabled 1080p output drawn through llvmpipe (about 3.6 to 3.9 processors, at High or Normal).
+    The class does not change the demand; it decides who loses.
+  - The stall needs a second condition: the test host below the child's class. `PreflightMachineTests.OffWindowsState…`
+    claims HIGH on the shared Engine test host and never restores it (run 489's sampler shows the host going from base 6
+    to 13). In the runs where it ended before NodeHost began (484, 485, 486, 489) nothing stalled; where NodeHost came
+    first, four of five stalled (480, 482, 487, 488; 483 escaped). The order varies because xUnit runs collections in
+    parallel. For 480 to 488 the host's class is inferred from the order, not recorded.
+  - Corrected: "most runs escape by exposure" (the 487 check's guess) is wrong; STATE's `frameMsP95` for a headless
+    output is the loop's present interval, not draw cost; the sampler's lists pair by name, never by position.
+  - With no enabled output the render loop still runs and paces under the default claims; only the draw is skipped.
+- Next, in the check's order: (1) the test-only mend: NodeHostTests' child on the default project with its output not
+  enabled, asserting from STATE that none is enabled and, on Windows, that the child reads High; (2) record the test
+  host's own class in the nodehost row and the step shell's class; (3) only AFTER (1), end PreflightMachineTests' leak
+  of HIGH into the shared host (`PlatformCallsTests` leaks the same way); (4) a companion real-child test with a tiny
+  enabled output, measured first as a leg D; (5) more legs (rotated order, the host raised, the child's log kept);
+  (6) a dispatched measurement of the product hazard on its own subject. (1) was told to the owner as the owner's call
+  and is put to them; (2) can ride with it.
+- Not to do: land (3) before (1); raise the test host's class as a mend; use class normal as the mend; change the
+  PROCESS default, the headless draw, Pace, MMCSS or the pools on this CI evidence; and the earlier list (serialise or
+  skip NodeHostTests, `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits,
+  change pool minimums).
 - For the owner, none taken:
   1. The default priority class of a node (HIGH today; NORMAL, or HIGH only under a named condition such as installed,
      armed or a hardware adapter on the air). Round 3 §9 decision 12 is the standing call.
   2. Whether a headless node draws outputs nobody sees (already put in `docs/round2/CARRYOVER.md`, about line 1395).
   3. Whether a render loop that misses its period yields a bounded slice; a processor floor for the rest of the machine.
-  4. Whether NodeHostTests may start its child with no enabled output or at class normal (the one real-child test then
-     stops exercising the default claims or the render loop).
+  4. Whether NodeHostTests may start its child with no enabled output (put to the owner on 2026-11-17 with run 490's
+     legs; the claims and the loop stay exercised, the saturating draw leaves the default suite), and the test-only
+     mend of `FakeTcpServer`'s accept race (run 489).
   5. `NodeLog`'s roll on Windows (a failed move is counted as a dropped line and retried only on the next line), with
      `SupervisorLog.cs`, `MediaTransfer.cs` and `PhoneKeys.cs` of the same shape; the deterministic Windows test waits on it.
   6. A dump written when a stall is seen; any pool minimum or parallelism cap in test hosts; the runner's size or image;
      Defender's settings: each recommended no.
-- The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `wf2/ci487-findings.md`, `ci480/` to
-  `ci488/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
+- The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `wf2/ci487-findings.md`, `wf2/ci490-findings.md`,
+  `ci480/` to `ci490/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
   defect; fix-ci-nodehost-measure's entry is to carry runs 487 and 488 and the cause as read.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
