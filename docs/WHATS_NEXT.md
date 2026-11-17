@@ -2233,7 +2233,9 @@ a told link closing until its socket ends, the Stagewatch link's rise published 
 one row added (below). *Since then (SW24.1u):* Patterns' Round 101 closed at d7ef79a (a repair round: a speaker message whose
 request never reached a connection is not-sent), and PlayMap's two fix batches of 2026-11-16 are at cf576ffc (its Stagewatch link
 writes no ping before the connection's first message is read); the lane pins both with no row weakened, three rows added and one
-held tighter (below).
+held tighter (below). *Since then (SW24.1v):* PlayMap's five fix batches of 2026-11-17 are at 158d0b32 (one product change: a
+Folder camera's words stand in STATE's scan block only while it waits for the picture they ask for); the lane pins it with every
+row held as it was (below).
 
 ### The units
 
@@ -2248,7 +2250,8 @@ it did and left in its own words, as written when it landed.
 | SW24.1r | 6931ddc | The review of SW24.1q's fold-in, read by two adversarial readers after it landed: the context and the preflight built by time on the hub's clock (`ServedContext.Due`: a turn that finds the last build `PreflightWire.BuildEvery`, 1 s, old), served live while no older than `PreflightWire.MaxAge` = the hub's 3 s bound plus that 1 s (4 s), so a slow but live show thread is never served stuck and every asked door turns at a stall's start with the hub; Companion's answered `SNAPSHOT` (the subscribe answer's too) marked stuck by the one rule, and the module drawing no frame while stuck, asking `SNAPSHOT` at the first pong without `STUCK` and keeping `ACCESS` across a stuck; the lows (flags read before the pair, the context's resuming mark from the hub's own verdict, the stuck words); the fences on injected time, at the Companion door and on `/ws`, and the desk's due line held whole; the unit's own review folded in (the desk keeps building before its frame, so no frame of its carries a pre-stall verdict as current; the context's stuck words; the papers' `/ws` timing) | The rig's frame at the turn that ends a 3 to 4 s stall carries the verdict judged before it (open, below); the preflight's stuck words (decision 16's); the preflight's clock beside the hub's; the module's package version moves with the app on the PC; the desk's walk-through the maintainer's; the flag-before-pair order held by reading, not a check |
 | SW24.1s | cf1817a | The items SW24.1r's fold-in left open: no frame carries a verdict judged before a stall as current (`SnapshotHub.MadeBeforeStall`: the show thread stuck, or resuming and the judging older than the alive mark that ended the stall; `PreflightWire.Carried`'s one new term, read through `ServedContext.FrameVerdict` by the rig's `Frame()` and the desk's `BuildSnapshot` alike), so the rig's frame at the turn that ends a stall carries the stuck verdict and the desk's the one judged in its turn; one clock: the preflight judged and stamped on the hub's clock beside the context pair (`ServedContext.PublishPreflight`) and served by the one rule and that age (`ServedContext.Preflight`, `IShowControl.ServedPreflight`, which `GET /api/preflight` and MCP's `get_preflight` read; `IShowContext.PreflightJson` and the wall-clock `PreflightWire.ServedNow` and `PreflightResult.VerdictAt` gone), the wall clock dating only the `at` a reader sees; the flags-before-pair order held by a deterministic check (`ReadOrderKept`: the show thread's build run inside the reader's first clock read); the wall clock stepped an hour each way moving no door (`WallClockKept`, `SlowThreadKept`, the preflight route's test) | The preflight's stuck words (decision 16's, the owner's); on the rig the frame of the turn that ends a stall still carries the windows and desk word of the build before it (its order is kept; its verdict no longer); the desk's walk-through the maintainer's |
 | SW24.1t | b59c654 | The lane at Patterns' Round 100 (a794633, closed): the pin moved and every row held as it was (the run before any row moved: LAN 44 of 44, laptop 5 of 5, offline 3 of 3; the unit's whole validate after: unit 6256, e2e 94 of 94, self-check 75, LAN 45 of 45, laptop 5 of 5, offline 3 of 3); S4.6, S4.7 and S9.1 read 100.5's `told` false on the open accepted link (STATE's `decks` row, EYE JSON's accepted row) and S4.7 the dropped connection's grey ended row untold; S6.2b reads the operator's frame and its verdict, `/api/preflight` and MCP's `get_state`, `get_running_order`, `get_context` and `get_preflight` stuck in the same moment by the one served-stuck rule (Companion's door stays S8.3's, `/ws` is not read); S9.3 (new) reads that no app posts its context to Patterns (`bus.posted`, `bus.postRefused`, `bus.apps[].posted`, the journal's `ContextPost` rows, `patterns.log`'s refusal summaries); no product change | A closing link's `told` window (no outside way to make Patterns tell the link its last word, and no linger on a desk); a real app's `CONTEXT POST` (no poster at these pins); S9.2's counting half and S5.4's `serves` edge, unchanged at this pin; the turn-over frame's verdict not observable from outside |
-| SW24.1u | this commit (`git log --grep SW24.1u`; its hash goes in the next papers commit) | The lane at Patterns' Round 101 (d7ef79a, closed) and PlayMap's two fix batches of 2026-11-16 (cf576ffc): the pins moved and every row held as it was (the run before any row moved: LAN 45 of 45, laptop 5 of 5, offline 3 of 3; the unit's whole validate after: unit 6256, e2e 95 of 95, self-check 76, LAN 48 of 48, laptop 5 of 5, offline 3 of 3), Patterns built with the .NET SDK 10.0.404 its `global.json` now names and Mapper with 10.0.404, the newest this bench has; S2.1d (new) holds PlayMap's link to the rig one connection past its 12 s drop bound, in the rig's own record (its `nodes` line's new `connectedAt`, the time the rig accepted each socket); S2.1b holds PlayMap's refused link one socket, one link at every read, through its watch while the rig keeps it open; S3.8 (new) reads Patterns' speaker message not-sent in both of 101.2's words, with the rig's cable pulled, and reaching the rig never; S3.9 (new) reads one the rig took and never answered unconfirmed; the lane's build line names the SDK of a sibling with no `global.json`; no product change | The order of PlayMap's first ping against the rig's first message (no outside reader sees it); a keyless PlayMap link asked for a viewing code (no lane row has a rig with one); 101.3 and 101.6's Nodes-line words (no reader of the lane's sees them) |
+| SW24.1u | 30e6370 | The lane at Patterns' Round 101 (d7ef79a, closed) and PlayMap's two fix batches of 2026-11-16 (cf576ffc): the pins moved and every row held as it was (the run before any row moved: LAN 45 of 45, laptop 5 of 5, offline 3 of 3; the unit's whole validate after: unit 6256, e2e 95 of 95, self-check 76, LAN 48 of 48, laptop 5 of 5, offline 3 of 3), Patterns built with the .NET SDK 10.0.404 its `global.json` now names and Mapper with 10.0.404, the newest this bench has; S2.1d (new) holds PlayMap's link to the rig one connection past its 12 s drop bound, in the rig's own record (its `nodes` line's new `connectedAt`, the time the rig accepted each socket); S2.1b holds PlayMap's refused link one socket, one link at every read, through its watch while the rig keeps it open; S3.8 (new) reads Patterns' speaker message not-sent in both of 101.2's words, with the rig's cable pulled, and reaching the rig never; S3.9 (new) reads one the rig took and never answered unconfirmed; the lane's build line names the SDK of a sibling with no `global.json`; no product change | The order of PlayMap's first ping against the rig's first message (no outside reader sees it); a keyless PlayMap link asked for a viewing code (no lane row has a rig with one); 101.3 and 101.6's Nodes-line words (no reader of the lane's sees them) |
+| SW24.1v | this commit (`git log --grep SW24.1v`; its hash goes in the next papers commit) | The lane at PlayMap's five fix batches of 2026-11-17 (158d0b32): the pin moved and every row held as it was, none moved (the implementer's run at the new pin: the self-check 76, LAN 48 of 48, laptop 5 of 5, offline 3 of 3, unit 6256, e2e 95 of 95; the unit's whole validate after the review: unit 6256, e2e 95 of 95, self-check 76, LAN 48 of 48, laptop 5 of 5, offline 3 of 3), Patterns built with the .NET SDK 10.0.404 its `global.json` names and Mapper with 10.0.404, the newest this bench has; no row, no driver and no product change | No lane row reads PlayMap's one product change, fix-scan-cue-words (STATE's scan block, a scan's stage, a Folder camera): the lane drives no scan, and a scan driver is a new mechanism (open, with its design) |
 
 The release's papers (SW24.2) are this section, REMOTE.md's 2.24 section, FEATURES.md's 2.24 entry, and the sentences of NODES.md,
 README.md and ECOSYSTEM.md that had gone stale; they change no code. Between 2.23's head and SW24.1, one commit of the plan
@@ -2299,13 +2302,13 @@ The tree's versions still read 2.16.0 (`src/Timer.App/Timer.App.csproj`, `compan
 papers, nothing here bumps a version or makes a tag; `release.ps1` moves them on the PC. 2.24.0 goes after 2.23.0, from the commit
 that carries this section. No file of the Companion module changed in 2.24; it takes 2.24.0 with the app, as each release's module
 does. A tag waits for CI's interop job beside the other jobs (the owner's answer S-interop-gate), at the pins
-`tools/interop/siblings.json` holds for this release — Patterns' pin moved by SW24.1p, SW24.1t and SW24.1u, Mapper's by SW24.1u, AGMessage's as SW23.1p left it — each sibling
+`tools/interop/siblings.json` holds for this release — Patterns' pin moved by SW24.1p, SW24.1t and SW24.1u, Mapper's by SW24.1u and SW24.1v, AGMessage's as SW23.1p left it — each sibling
 built with the SDK its own `global.json` names (`tools/interop/sdk.sh`):
 
 | Sibling | Pin | What it is | SDK |
 |---|---|---|---|
 | Patterns | d7ef79a | its Round 101, closed (a repair round: 101.2 a speaker message whose request never reached a connection is not-sent; 101.3 and 101.6 the Nodes line's words; 101.5 the SDK pin moved), on its Round 100 (a794633: `CONTEXT POST`, a told link closing for every reader), its Round 99 (52e176b: the Eye's network) and Round 98's acceptor (2515017) | 10.0.404 (`global.json`, `rollForward` `latestPatch`) |
-| Mapper (PlayMap) | cf576ffc | fix-link-first-ping (9b7d1fca: its Stagewatch link writes no ping before the connection's first message is read) and fix-hold-tests (tests only); no LINK yet | names none (no `global.json`): the newest SDK the machine has, 10.0.404 here |
+| Mapper (PlayMap) | 158d0b32 | fix-scan-cue-words (a Folder camera's words stand in STATE's scan block, as the stage `waiting`, only while it waits for the picture they ask for) and four batches of CI and tests only, on cf576ffc's fix-link-first-ping (9b7d1fca: its Stagewatch link writes no ping before the connection's first message is read); no LINK yet | names none (no `global.json`): the newest SDK the machine has, 10.0.404 here |
 | AGMessage | d0e3961 | 0.5.0 (`engines` Node ≥ 24.11) | not .NET |
 
 **§14's `landed` list, as it stands**: `*Landed (§14): Stagewatch, Patterns, Mapper.*` (docs/SHOWBUS.md), unchanged by 2.24.
@@ -2425,6 +2428,24 @@ crafted master licence file rejected, and an owner-only file and its backup writ
       never answers at all has no control line, so the 'connection closed before Stagewatch <name> answered' words are not read.
     - **Patterns' 101.3 and 101.6** changed only what the Nodes line draws beside a key's standing (the approval desk's words); STATE
       does not carry them, and no row of the lane reads the Nodes line, so no row is added.
+  - **At PlayMap's five fix batches of 2026-11-17 (SW24.1v).** The lane pins Mapper 158d0b32 (Patterns d7ef79a and AGMessage
+    d0e3961 as they were), and every row stands as it was, none moved: LAN 48 of 48, the laptop 5 of 5, offline 3 of 3, Patterns
+    built with the .NET SDK 10.0.404 its `global.json` names and Mapper, which names none, with 10.0.404, the newest this bench has
+    (each read from the lane's own build line). Of the five batches four are CI and tests only (fix-ci-windows-bounds f8e038a7 and
+    fix-ci-stall-measure dd4d82f5, whose scheduling probe in every test host stays off unless `PLAYMAP_SCHEDULING_PROBE=1`, which
+    the lane never sets; fix-foldercamera-cue-words 1a6386db and fix-small-test-items ab22f621), and the lane builds only
+    `tools/PlayMap.Node`, so they reach no row. Open, with what it waits for:
+    - **What the lane does not prove of fix-scan-cue-words.** PlayMap's one product change of the five (158d0b32:
+      `CuedCapture.cs`, `FolderCamera.cs`, `ScanRunner.cs`) makes a Folder camera's words stand in STATE's `scan` block, as the
+      stage `waiting`, only while it waits for the picture they ask for; no verb, STATE field or wire word was added. No driver of
+      the lane starts a scan, reads STATE's `scan` block or a scan's stage, or names a Folder camera (`git grep` over
+      `tests/interop` and `tools/interop` finds none), so the lane proves of it only that PlayMap builds and that every other row
+      holds at the pin; PlayMap's own `FolderCameraWordsTests` hold the change. A row for it waits for a scan driver of its own
+      unit, a new mechanism: `tests/interop/apps/playmap.cjs` starting PlayMap's node with a Folder camera on a folder the driver
+      writes into (manual, so the camera waits for `SCAN NEXT`), the scan begun over PlayMap's wire, and a row reading STATE's
+      `scan` block at every step: the camera's words, stage `waiting`, while it waits for a picture and the folder holds none, and
+      those words gone once `SCAN NEXT` takes the picture the driver wrote, through the settle and the read until the next cue's
+      words. It is a row about PlayMap alone (no other app reads a scan), so it may as well stay with PlayMap's own tests.
   - **Mended in SW24.1p: a stuck show's context was served stale.** The rig and the desk build their context on the show thread
     (`tools/Stagewatch.Rig/Program.cs` `Tick`, `MainViewModel.ShowBus.cs` `RefreshShowBus`), so while it was stuck `GET /api/context`,
     MCP's `get_context` and the context Patterns pulls were the last one built before the stall — a running countdown served as
@@ -2959,6 +2980,33 @@ crafted master licence file rejected, and an owner-only file and its backup writ
     message pending, the control message 1 and the one after the legs message 2 on the rig; S3.9's cable was pulled 1.0 s after
     its line, its receipt `unconfirmed` 4.05 s after it, and the rig's frame named it (message 3) 107 ms after its show thread
     turned over. No row failed in either validate, and none was rerun.
+- **The lane at PlayMap's five fix batches of 2026-11-17 (SW24.1v).** A lane unit after SW24.1u; nothing of Stagewatch's product
+  changed, as the lane proved no defect of Stagewatch's own, and no row or driver moved.
+  - **The pin and the SDKs.** `tools/interop/siblings.json` pins Mapper at 158d0b32 (fix-scan-cue-words, the last of the five; on
+    its pushed working branch, `git branch -r --contains 158d0b32`); Patterns d7ef79a and AGMessage d0e3961 as they were. The
+    lane's build lines say: Patterns "with the .NET SDK 10.0.404, as dotnet resolves its global.json", Mapper "with the .NET SDK
+    10.0.404, the newest this machine has (it has no global.json)".
+  - **What moved in PlayMap between the pins** (`git log --stat cf576ffc..158d0b32`, each batch with its CARRYOVER entry):
+    fix-ci-windows-bounds (f8e038a7) and fix-ci-stall-measure (dd4d82f5), CI and tests only, a scheduling probe in every test host
+    that stays off unless `PLAYMAP_SCHEDULING_PROBE=1`, which the lane never sets; fix-foldercamera-cue-words (1a6386db) and
+    fix-small-test-items (ab22f621), tests only; and fix-scan-cue-words (158d0b32), the one change under `src/`
+    (`src/PlayMap.Engine/Scanning/CuedCapture.cs`, `FolderCamera.cs`, `ScanRunner.cs`): a Folder camera's words stand in STATE's
+    `scan` block, as the stage `waiting`, only while it waits for the picture they ask for, with no verb, STATE field or wire word
+    added. No driver of the lane reads STATE's `scan` block, a scan's stage or a Folder camera (`git grep` over `tests/interop` and
+    `tools/interop` finds none), and the lane drives no scan, so it proves nothing of that change beyond PlayMap building and every
+    other row holding; no row is added, as a scan driver is a new mechanism (open, with its design, in *What this release did not
+    do*, above).
+  - **ECOSYSTEM.md**: its lane line gave 2.23's 49 rows and pins (Patterns' Round 99.7, PlayMap 2ae7ac7b) as 2.24's, and its
+    roadmap called Patterns' Round 99 in flight; the line now keeps 2.23's 49 rows (41, 5 and 3) as 2.23's and says what the lane
+    runs at 2.24's pins (56 rows: 48, 5 and 3, against Patterns' Round 101 at d7ef79a, PlayMap 158d0b32 and AGMessage 0.5.0), and
+    the roadmap that Round 99 has closed.
+  - **The runs.** The implementer's: `tools/test.sh build interop` at the new pin, no row moved (its three topologies one after
+    another in that one run): the self-check 76 of 76, LAN 48 of 48, the laptop 5 of 5, offline 3 of 3, every lane passed; then
+    `tools/test.sh unit` (6256 passed, 0 failed; `InteropDocTests` holds BUILD.md's rows table to the drivers) and
+    `tools/test.sh e2e` (95 of 95). The unit's whole validate, once, after the review was folded in (ECOSYSTEM.md's lane line
+    keeping 2.23's 49 rows as 2.23's): `tools/test.sh build unit e2e interop`, green the first time: unit 6256 passed, 0 failed,
+    e2e 95 of 95, the self-check 76, LAN 48 of 48, the laptop 5 of 5, offline 3 of 3, its build lines naming the same SDKs. TMPDIR
+    under artifacts and removed after each. No row or test failed in either run, and none was rerun.
 - **The 2.24 papers (SW24.2).** REMOTE.md's 2.24 section (each item and row, and what a reader may rely on), NODES.md §4's context
   and node links and §6–§7's level-0 items, FEATURES.md's 2.24 entry, README.md's index and release line, ECOSYSTEM.md's roadmap
   and lane lines, and this section; no code. The version stays 2.16.0 in the tree, as `release.ps1` moves it on the PC.

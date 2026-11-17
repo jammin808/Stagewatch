@@ -171,7 +171,7 @@ proposes into one approval queue.
      before a press (Stagewatch 2.23, Patterns Round 98); to PlayMap once its acceptor lands.
    - The Eye sees the room: Stagewatch's context by Show Bus §6 P1–P8, each PeerLink an edge to the node it reaches and each
      window to the app it is granted to, proved or said not proved (Stagewatch 2.24); Patterns' Eye drawing each app once by
-     proof (Patterns Round 99, in flight); PlayMap's context naming its peers and the timer it draws (its spine, landed) and posting
+     proof (Patterns Round 99); PlayMap's context naming its peers and the timer it draws (its spine, landed) and posting
      its context to Patterns over a PeerLink once PlayMap speaks LINK.
    - ~~Merged journals~~ One report from verified peers' lines (Stagewatch 2.21).
    - One preflight, "ready for doors" (Stagewatch 2.21).
@@ -188,10 +188,11 @@ proposes into one approval queue.
   Show Bus 1.3 does this with vectors in its own text and one scripted peer that every tree runs against itself (§13.20).
   Beside them, Stagewatch's interop lane runs the four real apps against each other at pinned commits, on one LAN and one
   show laptop (`tools/test.sh interop`; `docs/BUILD.md`, "The interop lane", says what it proves and what it does not). At
-  2.23 and 2.24 it runs 49 rows green — 41 on the LAN, 5 on the show laptop, 3 offline: the desk, the doors, Stagewatch's playout links
-  (the one to Patterns proved both ways with LINK, and proved again after a dropped connection with the key Patterns enrolled),
-  Patterns' link proving itself on `/ws`, a window granted to Patterns and MCP proposing to PlayMap among them — against Patterns
-  at its Round 99.7, PlayMap at 2ae7ac7b and AGMessage 0.5.0 (`docs/WHATS_NEXT.md`, 2.23 and 2.24).
+  2.23 it ran 49 rows green (41 on the LAN, 5 on the show laptop, 3 offline); at 2.24 it runs 56 — 48 on the LAN, 5 on the show
+  laptop, 3 offline: the desk, the doors, Stagewatch's playout links (the one to Patterns proved both ways with LINK, and proved
+  again after a dropped connection with the key Patterns enrolled), Patterns' link proving itself on `/ws`, a window granted to
+  Patterns and MCP proposing to PlayMap among them — against Patterns at its Round 101 (d7ef79a), PlayMap at 158d0b32 and
+  AGMessage 0.5.0 (`docs/WHATS_NEXT.md`, 2.23 and 2.24).
 - **Security drift.** Auth is only as strong as the weakest node. Use the same key model and lockouts everywhere,
   and send nothing secret on discovery.
 - **Code signing** is still deferred. SmartScreen warnings will cost trust at venues, so sign before a wider
