@@ -185,6 +185,21 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
 
 - The pause of 2026-11-12 is lifted (2026-11-14): "Continue development."
 
+- PlayMap's Windows stall, after run 490's three legs (2026-11-18; asked with the legs' readings: output on = about four
+  processors and a test of 2 min 36 s, output off = near zero and 9 s). Four answers, each the recommended one:
+  1. NodeHostTests' child: "Mend it". Test-only: the test starts its child with the default project's one output not
+     enabled, asserts from STATE that none is enabled and, on Windows, that the child reads High; the test host's own
+     class is recorded each run; the papers say what CI stops seeing (a saturating 1080p draw under HIGH; the dispatched
+     `nodehostab` job keeps measuring it). No second real-child test with a small output was asked for.
+  2. `PreflightMachineTests`' leak of HIGH into the shared Engine test host: "Fix it after the mend". Test-only, and
+     strictly after the NodeHost mend has landed and run green; watched over the next Windows runs.
+  3. `tests/PlayMap.Devices.Tests/Simulators/FakeTcpServer.cs`' accept race (run 489's one red test): "Mend it".
+     Test-only, with a test that fails without the mend; it rides in the NodeHost mend's batch.
+  4. The product questions (a node's default priority class; whether a headless node draws outputs nobody sees; whether
+     a render loop that overruns yields): "No change; measure first". Nothing in the product changes; a dispatched CI
+     measurement of the hazard on its own subject is built (what a saturating HIGH process costs a normal-priority
+     process doing real work, at HIGH and at NORMAL); the owner reads it, then decides.
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns
