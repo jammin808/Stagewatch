@@ -193,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `7ffde5c6`: the stall's test-only mend landed and run 491's Windows job is green; a runner image update broke the installer job's libvmx build (the owner's call); the measurement batch is in flight
+### PlayMap (repo Mapper) — head `15499771`: the stall's mend holds in both test orders (runs 491, 492); the priority cost is measured once (run 493) and checked; the leak's fix is in flight; libvmx's compiler on the new runner image is the owner's call
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -382,11 +382,37 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   Visual Studio's own Clang components (`VC.Llvm.Clang`) and the 14.44 toolset. `build.yml` lines 351-369 and 660-673
   prefer the PATH's clang and fall back to Visual Studio's. libvmx.dll ships in the installer, so which compiler builds
   it is put to the owner (recommended: prefer Visual Studio's own clang, print its version, fail with words if absent).
-- In flight: fix-ci-priority-measure (the second batch of scratch `wf2/playmap-mend.js`, generator
-  `wf2/gen-playmap-f.py`): a `prioritycost` dispatch input and `tools/priority-probe/`, a burner claiming HIGH or NORMAL
-  through the product's own platform beside a Normal victim doing a frame loop. After it lands: push, dispatch once, read.
-- Then: the leak's fix (PreflightMachineTests restores the class it found; `PlatformCallsTests` leaks the same way),
-  allowed now that run 491's Windows job is green; then watch the probe over the next Windows runs.
+- fix-ci-priority-measure landed (`15499771`, tools and CI only): a `prioritycost` dispatch input; `tools/priority-probe/`
+  (project file `.csproj.in`, built from a copy outside the checkout): a burner that claims HIGH or NORMAL through the
+  product's own `ClaimProcess` and reads it back, beside a victim set to Normal doing a frame loop (about 10 ms of work
+  every 16.7 ms), a 50 ms tick and a pool item; six 20 s legs; a summary table per leg and as ratios to the baseline.
+- Run 492 (the push of `15499771`): all three jobs green; every job drew the OLDER runner image (20261103.298.1), which
+  is why libvmx built. The other test order this time (PreflightMachineTests at 19:47:37, NodeHost at 19:49:18): the
+  nodehost row records the test host HIGH at start and at kill (the leak, recorded), the child High with no output,
+  NodeHost 4.7 s. So the mend holds with the host below normal (491) and at High (492).
+- Run 493 (the `prioritycost` job, dispatched once on `15499771`; one run per leg, fixed order, 4 processors), as two
+  readers and an adversarial check corrected it (scratch `wf2/ci493-findings.md`, the reading `wf2/ci493-reading.md`,
+  raw files `ci493/pc/`); frames done of 1200 slots / missed, longest stretch with no frame, longest pool wait:
+  - baseline: 1200 / 0; 18 ms; 0.16 ms.
+  - HIGH on all 4 processors: 2 / 1198; 17.6 s (ended as the burner stopped); at least 17.6 s. Every victim thread,
+    the 50 ms tick included, froze about 6 s from the burner's start.
+  - NORMAL on all 4: 1096 / 104 (8.7 %); 73 ms; 31 ms. The runner's own Below Normal processes were held for seconds.
+  - HIGH on 3 of 4: 1157 / 43 (3.6 %); 100 ms; 84 ms. Most misses ride a disturbance about every 550 ms, source unknown.
+  - NORMAL on 3 of 4: 1195 / 5; 43 ms; 19 ms.
+  - HIGH on all 4, the victim left Below Normal: 6 / 1194; 8.3 s.
+  The check's corrections: the probe's reader undercounts (its "due" rule drops a stall that straddles the window's
+  start: it printed 1055, 41 and 1049 missed); the tick did NOT keep running beside HIGH; pool waits pending at the
+  window's end are lower bounds; processors used are from the burner's ready to its stop, not the window; cores minus
+  one is each pool's own width (Compute, HAP), not a floor the node holds, and nothing caps their sum; what HIGH buys
+  the node itself is not measured by any leg. README and the CARRYOVER entry say three things the data does not support
+  (a missed period's meaning, the window "cut to the time its burner was burning", N-1 as the pools' width).
+- Next for the measurement (each put to the owner; a second dispatch is the owner's to allow): the reader's and the
+  papers' corrections (tools only); a second dispatch; legs in another order and repeated; the runner's scheduler
+  settings recorded; a trace for the 6 s release and the 550 ms disturbance; a real workload as the burner.
+- In flight: fix-preflight-priority-leak (scratch `wf2/playmap-leak.js`, generator `wf2/gen-playmap-g.py`):
+  PreflightMachineTests leaves the shared Engine test host as it found it, with a fence. From it on every Engine test on
+  the Windows runner runs at the runner's Below Normal class: read the next Windows runs for a test that only passed
+  at High.
 - Not to do: land (3) before (1); raise the test host's class as a mend; use class normal as the mend; change the
   PROCESS default, the headless draw, Pace, MMCSS or the pools on this CI evidence; and the earlier list (serialise or
   skip NodeHostTests, `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits,
@@ -404,7 +430,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   6. A dump written when a stall is seen; any pool minimum or parallelism cap in test hosts; the runner's size or image;
      Defender's settings: each recommended no.
 - The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `wf2/ci487-findings.md`, `wf2/ci490-findings.md`,
-  `ci480/` to `ci490/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
+  `wf2/ci493-findings.md`, `ci480/` to `ci493/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
   defect; fix-ci-nodehost-measure's entry is to carry runs 487 and 488 and the cause as read.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
