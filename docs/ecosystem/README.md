@@ -193,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `eccb35a0`: the Windows job's stall is recorded on the runner (the child engine's drawn output, with the test host below the child's class); the test-only mend waits on the owner
+### PlayMap (repo Mapper) — head `7ffde5c6`: the stall's test-only mend landed and run 491's Windows job is green; a runner image update broke the installer job's libvmx build (the owner's call); the measurement batch is in flight
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -358,13 +358,35 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   - Corrected: "most runs escape by exposure" (the 487 check's guess) is wrong; STATE's `frameMsP95` for a headless
     output is the loop's present interval, not draw cost; the sampler's lists pair by name, never by position.
   - With no enabled output the render loop still runs and paces under the default claims; only the draw is skipped.
-- Next, in the check's order: (1) the test-only mend: NodeHostTests' child on the default project with its output not
-  enabled, asserting from STATE that none is enabled and, on Windows, that the child reads High; (2) record the test
-  host's own class in the nodehost row and the step shell's class; (3) only AFTER (1), end PreflightMachineTests' leak
-  of HIGH into the shared host (`PlatformCallsTests` leaks the same way); (4) a companion real-child test with a tiny
-  enabled output, measured first as a leg D; (5) more legs (rotated order, the host raised, the child's log kept);
-  (6) a dispatched measurement of the product hazard on its own subject. (1) was told to the owner as the owner's call
-  and is put to them; (2) can ride with it.
+- The owner's four answers of 2026-11-18 (`owner-answers.md`): mend the NodeHost test; fix the leak after that mend is
+  green; mend the fake TCP server's race; the product unchanged, the hazard measured first.
+- fix-ci-nodehost-mend landed (`7ffde5c6`, tests and CI only): NodeHostTests' child starts on the default project with
+  its output not enabled (asserted from STATE; on Windows the child must read High); the dispatched legs are A output on,
+  B output on at class normal, C as the suite runs it; the nodehost row ends with the test host's class at start and at
+  kill; `ci-tests.ps1` prints the step shell's and its parent's class; `FakeTcpServer`'s accept after the stop ends
+  quietly, fenced by `FakeTcpServerTests` (fails without the mend). Its CARRYOVER entry carries runs 489 and 490 and the
+  check's findings. Open in it: six other test fakes with the same accept shape (two can throw on their first round:
+  `FakePatternsDesk` in `HostRig.cs` and in `LinkTests.cs`), not edited; two Engine tests that failed on the bench,
+  outside the leave (`ContentHostTests.ARoutedGeneratorDrawsOnItsItemsTimeAndAStingReachesTheFrame`, 3 of 3 in its part,
+  also at `eccb35a0`, passes alone, cause not named; `HostNetworkTests.ADesksBlackoutIsHeldWithItsAge…`, once, read to a
+  race in the test's fake desk).
+- Run 491 (the push of `7ffde5c6`): Linux green; Windows GREEN, 1,369 Engine tests passed, in the order that used to
+  stall (NodeHost at 19:16:13, before PreflightMachineTests at 19:17:02): the test host BelowNormal at start and at kill
+  (recorded, no longer inferred), the child High on llvmpipe with its output not enabled, NodeHost 4.2 s, no probe gap.
+  The step's pwsh and its parent `Runner.Worker.exe` both read BelowNormal, base 6: that is where base 6 comes from.
+- Run 491's installer job is RED, not from the mend: its step "libvmx (OMT's codec, beside the exe)" failed with
+  `STL1000: Unexpected compiler version, expected Clang 22 or newer`. That job drew runner image `windows-2025-vs2026`
+  20261116.315.1 (Visual Studio Enterprise 2026 18.12, MSVC 14.52.37025), whose STL refuses the image's own LLVM 20.1.8
+  on the PATH; the Windows job drew the older image 20261103.298.1 and built libvmx. The same break reaches the Windows
+  job (its "native test doubles' compiler" step takes the PATH's clang too) once it draws the new image. The image lists
+  Visual Studio's own Clang components (`VC.Llvm.Clang`) and the 14.44 toolset. `build.yml` lines 351-369 and 660-673
+  prefer the PATH's clang and fall back to Visual Studio's. libvmx.dll ships in the installer, so which compiler builds
+  it is put to the owner (recommended: prefer Visual Studio's own clang, print its version, fail with words if absent).
+- In flight: fix-ci-priority-measure (the second batch of scratch `wf2/playmap-mend.js`, generator
+  `wf2/gen-playmap-f.py`): a `prioritycost` dispatch input and `tools/priority-probe/`, a burner claiming HIGH or NORMAL
+  through the product's own platform beside a Normal victim doing a frame loop. After it lands: push, dispatch once, read.
+- Then: the leak's fix (PreflightMachineTests restores the class it found; `PlatformCallsTests` leaks the same way),
+  allowed now that run 491's Windows job is green; then watch the probe over the next Windows runs.
 - Not to do: land (3) before (1); raise the test host's class as a mend; use class normal as the mend; change the
   PROCESS default, the headless draw, Pace, MMCSS or the pools on this CI evidence; and the earlier list (serialise or
   skip NodeHostTests, `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits,
