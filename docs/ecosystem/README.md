@@ -193,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `15499771`: the stall's mend holds in both test orders (runs 491, 492); the priority cost is measured once (run 493) and checked; the leak's fix is in flight; libvmx's compiler on the new runner image is the owner's call
+### PlayMap (repo Mapper) — head `d27c894c`: the stall is mended and the leak closed (runs 491, 492, 494 green on Windows); the priority cost is measured once (run 493) and checked; libvmx's compiler on the new runner image and the measurement's next step are the owner's calls
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -409,10 +409,21 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
 - Next for the measurement (each put to the owner; a second dispatch is the owner's to allow): the reader's and the
   papers' corrections (tools only); a second dispatch; legs in another order and repeated; the runner's scheduler
   settings recorded; a trace for the 6 s release and the 550 ms disturbance; a real workload as the burner.
-- In flight: fix-preflight-priority-leak (scratch `wf2/playmap-leak.js`, generator `wf2/gen-playmap-g.py`):
-  PreflightMachineTests leaves the shared Engine test host as it found it, with a fence. From it on every Engine test on
-  the Windows runner runs at the runner's Below Normal class: read the next Windows runs for a test that only passed
-  at High.
+- fix-preflight-priority-leak landed (`d27c894c`, tests only; scratch `wf2/playmap-leak.js`): the one Engine test that
+  makes a real process-wide claim on the shared host (`PreflightMachineTests.OffWindowsState…`) puts the host's priority
+  class, QoS and GPU class back as it found them (helper `Machine/HostProcessState.cs`) and asserts it; on Windows it
+  also asserts the claim did move the host to High. Open in its entry: for about 0.8 s while that test runs, other
+  classes' tests still see High (a serial collection would close it and would move the test to the run's end: not
+  made); `PlatformCallsTests` leaves its own test host at HIGH (read, not edited: the owner's); the product has no
+  release of a process claim (the owner's); the render claim crosses an await.
+- Run 494 (the push of `d27c894c`): all three jobs green (all on the older image 20261103.298.1). Windows: 1,369 Engine
+  tests passed; PreflightMachineTests ended 20:53:44, NodeHost 20:55:12 with the host BelowNormal at start and at kill
+  (in run 492, the same order before the fix, it read High); the sampler's Engine test host reads base 6 in all 759
+  rows; no probe gap. The leak is closed on the runner. Every Engine test there now runs Below Normal: keep reading the
+  Windows runs for a test that only passed at High (none in run 494).
+- Next for PlayMap: the owner's two calls (libvmx's compiler on CI; the measurement's reader and papers, and a second
+  dispatch). Stagewatch's lane moves its Mapper pin to `d27c894c` as SW24.1w (in flight, scratch `wf2/sw-chain-24w.js`,
+  generator `wf2/gen-sw24w.py`): the one product change between the pins is the proposal sink (`f8282af0`).
 - Not to do: land (3) before (1); raise the test host's class as a mend; use class normal as the mend; change the
   PROCESS default, the headless draw, Pace, MMCSS or the pools on this CI evidence; and the earlier list (serialise or
   skip NodeHostTests, `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits,
