@@ -191,7 +191,7 @@ proposes into one approval queue.
   2.23 it ran 49 rows green (41 on the LAN, 5 on the show laptop, 3 offline); at 2.24 it runs 56 — 48 on the LAN, 5 on the show
   laptop, 3 offline: the desk, the doors, Stagewatch's playout links (the one to Patterns proved both ways with LINK, and proved
   again after a dropped connection with the key Patterns enrolled), Patterns' link proving itself on `/ws`, a window granted to
-  Patterns and MCP proposing to PlayMap among them — against Patterns at its Round 101 (d7ef79a), PlayMap at 158d0b32 and
+  Patterns and MCP proposing to PlayMap among them — against Patterns at its Round 101 (d7ef79a), PlayMap at d27c894c and
   AGMessage 0.5.0 (`docs/WHATS_NEXT.md`, 2.23 and 2.24).
 - **Security drift.** Auth is only as strong as the weakest node. Use the same key model and lockouts everywhere,
   and send nothing secret on discovery.

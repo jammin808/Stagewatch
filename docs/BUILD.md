@@ -245,10 +245,13 @@ tools/test.sh help                                # every lane, and every variab
   nothing before it, so every client of it speaks first: the lane's own wire client says its `HELLO` and then hears the `NONCE`
   that byte brought, row S0.1 holds that a connection which says nothing for 1.5 s hears nothing, and the VT rigs' playout
   links to it speak first too; its hello does not say `cap peerlink` yet, and the rigs' links to it stay level 0, amber,
-  legacy), PlayMap 158d0b32 (its fix-scan-cue-words: a Folder camera's words stand in STATE's `scan` block, as the stage
-  `waiting`, only while it waits for the picture they ask for, which no row reads, as the lane drives no scan; beside it four
-  batches of CI and tests only; on cf576ffc's fix-link-first-ping, 9b7d1fca: its Stagewatch link writes no ping before the
-  connection's first message is read, its silence rule still running from the connection's start, so it relies on the rig
+  legacy), PlayMap d27c894c (its fix-sink-refusal-words: the sink that offers its assistant's proposals to a Stagewatch's
+  approval desk keeps an offer's refusal apart from its pull's own problem, which no row reads, as no host of PlayMap's
+  switches that sink on and its words reach no STATE; beside it four batches of CI and tests only; on 158d0b32's
+  fix-scan-cue-words: a Folder camera's words stand in STATE's `scan` block, as the stage `waiting`, only while it waits for
+  the picture they ask for, which no row reads, as the lane drives no scan; on cf576ffc's fix-link-first-ping, 9b7d1fca: its
+  Stagewatch link writes no ping before the connection's first message is read, its silence rule still running from the
+  connection's start, so it relies on the rig
   speaking first, which row S2.1d reads holding past the drop bound, and
   fix-hold-tests, tests only; on 031c9a3's fix batches, whose line wire says its greeting STATE only after a connection's proof,
   so a level-0 link to it counts no line it could not read; it offers no LINK yet), AGMessage d0e3961
