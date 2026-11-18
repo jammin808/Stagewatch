@@ -21,7 +21,7 @@ The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Con
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
 lands, so a working tree holds at most the one unit in progress. AGMessage stays with its own session.
 
-### Stagewatch — 2.24 closed (`fe8224e`); eight units after its papers landed (head `15d6e81` before this guide's commit: the owner's answers of 2026-11-17)
+### Stagewatch — 2.24 closed (`fe8224e`); nine units after its papers landed (head `25f5bc9`, SW24.1w, before this guide's commit)
 
 - 2.20 + 2.21 are cut on `d311de8` and 2.22 on `4ff9064` (the maintainer's PC: `tools\release.ps1`; nothing of 2.23 is in it). 2.23 waits for its release on `45c94c1`
   (`tools\release.ps1 -Version 2.23.0 -ModuleVersion 2.23.0`).
@@ -422,8 +422,12 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   rows; no probe gap. The leak is closed on the runner. Every Engine test there now runs Below Normal: keep reading the
   Windows runs for a test that only passed at High (none in run 494).
 - Next for PlayMap: the owner's two calls (libvmx's compiler on CI; the measurement's reader and papers, and a second
-  dispatch). Stagewatch's lane moves its Mapper pin to `d27c894c` as SW24.1w (in flight, scratch `wf2/sw-chain-24w.js`,
-  generator `wf2/gen-sw24w.py`): the one product change between the pins is the proposal sink (`f8282af0`).
+  dispatch). Stagewatch's lane moved its Mapper pin to `d27c894c` as SW24.1w (`25f5bc9`, pushed; scratch `wf2/sw-chain-24w.js`,
+  generator `wf2/gen-sw24w.py`): LAN 48 of 48, laptop 5 of 5, offline 3 of 3, unit 6256, e2e 95 of 95; no row, driver or
+  product file changed. The one product change between the pins is the proposal sink (`f8282af0`), and no lane row reads
+  it: rows S3.5 and S3.7 drive PlayMap's proposals through `StagewatchLink`, not the sink, and no host of PlayMap's
+  switches the sink on. The row that would prove it waits on PlayMap (a host that turns the sink on, and a STATE reader
+  of its `Problem`); it is written as open in `docs/WHATS_NEXT.md` with its design.
 - Not to do: land (3) before (1); raise the test host's class as a mend; use class normal as the mend; change the
   PROCESS default, the headless draw, Pace, MMCSS or the pools on this CI evidence; and the earlier list (serialise or
   skip NodeHostTests, `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits,
