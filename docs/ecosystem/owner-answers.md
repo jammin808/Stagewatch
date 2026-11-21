@@ -231,6 +231,13 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
      Normal load (what HIGH buys); a leg keeping a whole core free; the labels say logical processors where they count them.
      It is dispatched once the batch is green on its push.
 
+- After PlayMap's run 499 (2026-11-21; red on the Windows job at `NodeLogTests.EveryFileTheLogStartsBeginsWithTheBuild`, "line 3
+  was not moved aside: the log has dropped 1", the second time after run 480): "go with your recommendation". A product change
+  with a leave of its own (fix-nodelog-roll): NodeLog's roll on Windows replaces with POSIX semantics as `DurableFile` does, a
+  failed roll is tried again without waiting for the next line, and it is counted on its own, never as a dropped line; the
+  Windows test designed in PlayMap's CARRYOVER is added; the three replaces of the same shape (`SupervisorLog.cs`,
+  `MediaTransfer.cs`, `PhoneKeys.cs`) are mended alongside.
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns
