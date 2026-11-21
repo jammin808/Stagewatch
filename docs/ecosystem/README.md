@@ -421,8 +421,15 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   (in run 492, the same order before the fix, it read High); the sampler's Engine test host reads base 6 in all 759
   rows; no probe gap. The leak is closed on the runner. Every Engine test there now runs Below Normal: keep reading the
   Windows runs for a test that only passed at High (none in run 494).
-- Next for PlayMap: the owner's two calls (libvmx's compiler on CI; the measurement's reader and papers, and a second
-  dispatch). Stagewatch's lane moved its Mapper pin to `d27c894c` as SW24.1w (`25f5bc9`, pushed; scratch `wf2/sw-chain-24w.js`,
+- The owner's answer of 2026-11-21 ("Continue with your recommendations", `owner-answers.md`): three batches in one chain
+  (scratch `wf2/playmap-recs.js`, generator `wf2/gen-playmap-h.py`): fix-ci-libvmx-clang, fix-test-isolation-leftovers,
+  fix-priority-probe-reader; then one more `prioritycost` dispatch with the legs repeated in another order.
+- fix-ci-libvmx-clang landed (`6c3333dd`, CI only): `tools/ci-clang.ps1` is the one way both Windows steps find the compiler
+  (Visual Studio's own clang through vswhere; no fallback to the PATH; its version, Visual Studio's and the MSVC toolset in
+  the log and the step summary). Run 495 (its push): all three jobs green, and both Windows jobs drew the NEWER image
+  (win25-vs2026 20261116.315.1) that broke run 491: clang 22.1.3 from Visual Studio 18.12.12405.243 against MSVC
+  14.52.37025 built the native doubles and the shipped libvmx. Proven on the new image. Open in its entry: `NativeBuild.cs`
+  still falls back to the PATH for local runs, and ROADMAP, VIDEO and the native sources still say "the runner's LLVM". Stagewatch's lane moved its Mapper pin to `d27c894c` as SW24.1w (`25f5bc9`, pushed; scratch `wf2/sw-chain-24w.js`,
   generator `wf2/gen-sw24w.py`): LAN 48 of 48, laptop 5 of 5, offline 3 of 3, unit 6256, e2e 95 of 95; no row, driver or
   product file changed. The one product change between the pins is the proposal sink (`f8282af0`), and no lane row reads
   it: rows S3.5 and S3.7 drive PlayMap's proposals through `StagewatchLink`, not the sink, and no host of PlayMap's
