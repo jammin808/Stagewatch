@@ -200,6 +200,22 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
      measurement of the hazard on its own subject is built (what a saturating HIGH process costs a normal-priority
      process doing real work, at HIGH and at NORMAL); the owner reads it, then decides.
 
+- After PlayMap's runs 491 to 494 and the priority measurement's check (2026-11-21): the owner answered "Continue with your
+  recommendations", read as approval of each recommendation in the report of 2026-11-18, all on PlayMap and none touching
+  its product:
+  1. libvmx's compiler on CI: prefer Visual Studio's own clang (the one its standard library is built for), print its
+     version, and fail with words if the component is absent; no fallback to the runner's LLVM on the PATH.
+  2. The priority probe: its reader rebuilds every frame slot (no stall that straddles the window's start is dropped),
+     reports the burning lead before each window, marks pool waits still pending at the window's end as lower bounds,
+     stamps each process's processor time at the window's bounds and records the runner's scheduler settings; its README
+     and CARRYOVER text say what the data supports; the probe and its reader are built and checked on every push. One
+     more dispatch of `prioritycost` follows once the reader is fixed, with the legs repeated and in another order (the
+     orchestrator's recommendation, made in this answer's reading: one run per leg is n=1).
+  3. The test-only items found on the way: the six other test fakes with the same accept race; `PlatformCallsTests`
+     putting its test host back as found; `PreflightMachineTests` in a serial collection (the run order it changes no
+     longer decides the host's class); and the race in `HostNetworkTests`' fake desk if a deterministic reading confirms it.
+  Not in it: the product's default priority class and the other product calls stay as they are (2026-11-18, answer 4).
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns
