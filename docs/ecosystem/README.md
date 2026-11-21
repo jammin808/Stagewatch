@@ -15,7 +15,7 @@ carry byte-identical copies of the contract, not of this folder.
 | `data/` | `gaps.json` (G01–G49), `maps-lite.json`, `master-plan.json` (the units as data), `units/*.json` (each design's units) |
 | `workflows/` | The scripts each train ran (implement → adversarial review → fold-in and one commit per unit); the two chain templates in use now (`stagewatch-chain.js`, `patterns-chain.js`); `unit-brief.py`, which builds a unit's brief from this folder; and `patterns-app-parts.sh`, which runs Patterns' App suite as foreground parts. They name this folder by its path in a cloud checkout (`/home/user/Stagewatch/docs/ecosystem`); edit `S` if the trees live elsewhere |
 
-## Where the work stands (2026-11-17)
+## Where the work stands (2026-11-21)
 
 The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Continue development"). Every repository's work
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
@@ -193,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `d27c894c`: the stall is mended and the leak closed (runs 491, 492, 494 green on Windows); the priority cost is measured once (run 493) and checked; libvmx's compiler on the new runner image and the measurement's next step are the owner's calls
+### PlayMap (repo Mapper) — head `8356f447`: the stall is mended and the leak closed (runs 491 to 497 green on Windows); libvmx is built by Visual Studio's own clang (proven on the newer image); the priority cost is measured twice (runs 493 and 498) and checked; the node's default class and the measurement's next step are the owner's calls
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -435,24 +435,62 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   it: rows S3.5 and S3.7 drive PlayMap's proposals through `StagewatchLink`, not the sink, and no host of PlayMap's
   switches the sink on. The row that would prove it waits on PlayMap (a host that turns the sink on, and a STATE reader
   of its `Problem`); it is written as open in `docs/WHATS_NEXT.md` with its design.
+- fix-test-isolation-leftovers landed (`c7edf367`, tests only): one accept helper for the six fakes (`tests/Shared/Accepts.cs`,
+  with its tests); `HostProcessState` shared, and `PlatformCallsTests` puts its test host back as it found it;
+  `PlatformCallsTests` and `PreflightMachineTests` in serial collections; HostNetworkTests' fake desk on one lane, with the
+  order of a push said while a STATUS answer waits fenced. Run 496 (its push): all three jobs green.
+- fix-priority-probe-reader landed (`8356f447`, tools and CI only): the reader rebuilt (slots, ticks by wake, the lead, waits
+  still pending as lower bounds); the runner's scheduler read (Win32PrioritySeparation, timer resolution, cores and SMT); the
+  legs repeated and alternated (15); a self-check against synthetic files, run by the Linux job. Run 497 (its push): all
+  three jobs green, the self-check 58 of 58.
+- Run 498 (the second `prioritycost` dispatch, on `8356f447`, 15 legs), as two readers and an adversarial check corrected it
+  (scratch `wf2/ci498-findings.md`, the reading `wf2/ci498-reading.md`, raw files `ci498/pc/`); missed slots of 1200, each
+  repeat in run order:
+  - baseline 0, 0. HIGH on all 4 processors: 1194, 1193, 1194 (every victim thread held for seconds from the burner's start,
+    with brief releases; the count sits at its ceiling and the hold lengths differ). NORMAL on all 4: 98, 96, 116 (starts held
+    a median 7 ms, at most 31 ms; the work itself not slower). HIGH on 3 of 4: 535, 43, 41. NORMAL on 3 of 4: 7, 5, 5. HIGH on
+    all 4 with the victim Below Normal: 1195.
+  - The one freeze (#02, the job's first burned leg): every thread at base 8 or below stopped for 8.1 s. The frozen frame
+    thread was charged no processor time and the burner used 2.99 processors, so something outside the probe appears to have
+    held the free logical processor; no file names it. SMT is out as its cause (#05 and #06 ran on the same layout); a cold
+    exe is out; the first burned leg stays open at n = 1. Orphan MSBuild and VBCSCompiler processes were alive through the
+    legs, and the sampler's name list does not include them.
+  - Run 498's VM: 4 logical processors on 2 cores with SMT (run 493's VM did not record its layout). The pools' "cores minus
+    one" (Compute, HAP) is logical processors minus one, so a one-free leg leaves a burner's SMT sibling free, never a whole
+    core. Win32PrioritySeparation reads 2; the measured start lateness fits turns of about two clock ticks (the quantum was not
+    read). The timer resolution read 15.625 ms at every reading (instants only).
+  - A disturbance about every 551 ms is in every one-free leg at both classes in both runs: HIGH makes each one a missed slot,
+    NORMAL mostly does not. Its source is unknown. Below Normal processes noticed a file about 4 s late beside a one-free
+    burner at either class, 10-11 s at NORMAL on all 4, 18-21 s at HIGH on all 4.
+  - No leg measures what HIGH buys the node (the burner has no deadline), a real node's load, a Windows 11 client with a desk
+    in the foreground, a victim above Normal, an imposed floor (CPU sets) or a whole core free.
+- Next for the measurement (each the owner's; no dispatch or probe change without the owner's word): a third dispatch with the
+  order changed (a warm-up first; high-n1 early and late, or two dispatches with mirrored orders); the build's servers
+  stopped before the legs and the sampler widened to every process with its base priority; a scheduling trace; legs pinned
+  to cores (a whole core free); a deadline on the HIGH side; victims at AboveNormal and High; a real workload as the burner;
+  a client machine (a lab line). The probe's leg labels and README say "cores less one" where the code takes logical
+  processors less one.
 - Not to do: land (3) before (1); raise the test host's class as a mend; use class normal as the mend; change the
   PROCESS default, the headless draw, Pace, MMCSS or the pools on this CI evidence; and the earlier list (serialise or
   skip NodeHostTests, `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits,
   change pool minimums).
 - For the owner, none taken:
   1. The default priority class of a node (HIGH today; NORMAL, or HIGH only under a named condition such as installed,
-     armed or a hardware adapter on the air). Round 3 §9 decision 12 is the standing call.
+     armed or a hardware adapter on the air). Round 3 §9 decision 12 is the standing call. Measured by runs 493 and 498
+     (above); the owner's answer of 2026-11-18 is "No change; measure first".
   2. Whether a headless node draws outputs nobody sees (already put in `docs/round2/CARRYOVER.md`, about line 1395).
   3. Whether a render loop that misses its period yields a bounded slice; a processor floor for the rest of the machine.
-  4. Whether NodeHostTests may start its child with no enabled output (put to the owner on 2026-11-17 with run 490's
-     legs; the claims and the loop stay exercised, the saturating draw leaves the default suite), and the test-only
-     mend of `FakeTcpServer`'s accept race (run 489).
+  4. Answered 2026-11-18: NodeHostTests' child starts with no enabled output, and `FakeTcpServer`'s accept race is mended
+     (both in `7ffde5c6`).
   5. `NodeLog`'s roll on Windows (a failed move is counted as a dropped line and retried only on the next line), with
      `SupervisorLog.cs`, `MediaTransfer.cs` and `PhoneKeys.cs` of the same shape; the deterministic Windows test waits on it.
   6. A dump written when a stall is seen; any pool minimum or parallelism cap in test hosts; the runner's size or image;
      Defender's settings: each recommended no.
+  7. The race in PlayMap's link to Patterns (read, not reproduced; recorded in fix-test-isolation-leftovers' entry):
+     `PatternsLink` can take its asked STATUS answer after a newer pushed STATE and follow the stale blackout or clip until
+     the desk's next push. Whether the link orders an asked STATE against pushes is a product change, the owner's.
 - The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `wf2/ci487-findings.md`, `wf2/ci490-findings.md`,
-  `wf2/ci493-findings.md`, `ci480/` to `ci493/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
+  `wf2/ci493-findings.md`, `wf2/ci498-findings.md`, `ci480/` to `ci498/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
   defect; fix-ci-nodehost-measure's entry is to carry runs 487 and 488 and the cause as read.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
