@@ -216,6 +216,21 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
      longer decides the host's class); and the race in `HostNetworkTests`' fake desk if a deterministic reading confirms it.
   Not in it: the product's default priority class and the other product calls stay as they are (2026-11-18, answer 4).
 
+- After run 498 (the second priority measurement) and its check (2026-11-21, the day's second answer): "Continue with your
+  recommendations", read as approval of the three recommendations in that report:
+  1. The node's default priority class stays HIGH until a third measurement reports what HIGH buys the node beside what it
+     costs the rest of the machine; then the owner decides with both halves. No product change to the class, the pools, the
+     supervisor's or the desk's class.
+  2. The race in PlayMap's link to Patterns is mended (a product change, a leave of its own: fix-patterns-link-answer-order):
+     the link no longer takes its asked STATUS answer after a newer pushed STATE; the mend is in
+     `src/PlayMap.Net/Links/PatternsLink.cs`, fenced by a test that fails without it on every platform; the Net suite's fake
+     desk says its lines in one lane, as the Engine suite's already does.
+  3. A third `prioritycost` dispatch (tools and CI only, a leave of its own: fix-priority-probe-third): a warm-up before the
+     first leg and the "HIGH, all but one" leg early and late; the build's servers stopped before the legs and the sampler
+     listing every process with its base priority; a deadline loop on the busy side, at HIGH and at NORMAL beside a competing
+     Normal load (what HIGH buys); a leg keeping a whole core free; the labels say logical processors where they count them.
+     It is dispatched once the batch is green on its push.
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns
