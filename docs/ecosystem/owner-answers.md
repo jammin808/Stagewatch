@@ -250,6 +250,22 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   3. `PhoneKeys.Load`'s outer catch takes UnauthorizedAccessException (a product change, a leave of its own:
      fix-phonekeys-load-access), with a test.
 
+- After the read-only check of PlayMap's supervisor (2026-11-22: no risk today, the freeze rule is inactive while HEALTH carries no
+  shown frames or GPU phase; once wp3-stability's heartbeat fills them, a supervisor held about 10 s, or an engine starving its own
+  HEALTH answer, can be stopped as frozen): "Continue with your recommendations, and keep the thorough alternative heartbeat with
+  no request and reply at all in the plans if it is better." Read as:
+  1. wp3-stability's heartbeat (HEALTH's ShownFrames and the gpu phase kept running; round 3 PLAN wp3-stability item 3) lands only
+     after the mends below; the plan says so.
+  2. The supervisor sees its own lateness (fix-supervisor-held): each step records how late it ran and how long its ask took, and a
+     lost ask from a late step is counted as the supervisor held, not as the engine silent; tested on the supervisor's manual clock
+     (the check's test design); the words that promise a stop never comes while frames move corrected (INSTALL.md, the installer
+     design, SupervisorCore's and SupervisorTests' summaries, the stop message).
+  3. The engine answers HEALTH from a snapshot on a thread of its own above its pools (fix-engine-health-thread), so a saturated
+     engine still answers.
+  4. The heartbeat with no round trip (the engine writes its shown-frame count where the supervisor reads it with no deadline: the
+     installer design's second path) stays in the plans as the better design at the root, to be built later; the papers name it
+     so.
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns
