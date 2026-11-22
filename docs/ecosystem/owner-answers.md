@@ -266,6 +266,18 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
      installer design's second path) stays in the plans as the better design at the root, to be built later; the papers name it
      so.
 
+- After fix-priority-probe-node (2026-11-22; the node decodes only what an enabled output draws, so its legs enable one 64 x 36
+  output per clip and on a runner with no GPU mostly measure Mesa's llvmpipe inside the node): "Continue with your
+  recommendations". Read as:
+  1. The node legs are dispatched as built (prioritycost on the head that carries them, once its push is green); their thread
+     groups split the node's own decode from Mesa's draw; no decode-only mode is built into the product for the measurement.
+     The figure for a show machine is a lab line (the real node at HIGH and NORMAL on the show laptop, with its GPU), named in
+     PlayMap's ROADMAP lab list.
+  2. The engine's start-up fault on a node home whose settings lack the link fields (`NetworkHost.cs` 290, a
+     NullReferenceException on `s.PatternsHost.Length`) is mended (a product change, a leave of its own:
+     fix-node-settings-missing-fields): a missing field reads as its default, the node says so once in its log, a test fences
+     it.
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns
