@@ -193,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `8356f447`: the stall is mended and the leak closed (runs 491 to 497 green on Windows); libvmx is built by Visual Studio's own clang (proven on the newer image); the priority cost is measured twice (runs 493 and 498) and checked; the node's default class and the measurement's next step are the owner's calls
+### PlayMap (repo Mapper) — head `dd844a05`: the stall mended, the leak closed, the link's answer order and the log's roll mended (runs 501 and 503 green); the priority cost measured three times (runs 493, 498, 502), with what HIGH buys and a whole core free, and checked; the node's default class is the owner's call
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -470,6 +470,51 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   to cores (a whole core free); a deadline on the HIGH side; victims at AboveNormal and High; a real workload as the burner;
   a client machine (a lab line). The probe's leg labels and README say "cores less one" where the code takes logical
   processors less one.
+- The owner's answer after run 498 ("Continue with your recommendations", `owner-answers.md`): two batches (scratch
+  `wf2/playmap-third.js`, generator `wf2/gen-playmap-i.py`). fix-patterns-link-answer-order landed (`61df7f60`, product):
+  `PatternsLink` sets aside an asked STATUS answer once a pushed STATE has been taken since the ask (a count under the link's
+  gate; Patterns' STATE `rev` read and not used, the reasons in its entry); fenced through an internal seam, mutation-proved;
+  the Net fake desk speaks in one lane. Open in its entry: the gate's half of the rule is not fenced (the count compared
+  outside the lock passes both tests). fix-priority-probe-third landed (`5e068eaf`, tools and CI): no build server, a quiet
+  start and a warm-up, high-n1 early, middle and late, buy-high/buy-normal, high-core1/normal-core1, every process sampled.
+- Run 499 (the push of `61df7f60`): red on Windows at `NodeLogTests.EveryFileTheLogStartsBeginsWithTheBuild` ("line 3 was not
+  moved aside: the log has dropped 1"), as in run 480. Run 500 (the push of `5e068eaf`): red on every Windows step that calls
+  `tools/ci-tests.ps1`, a ParserError at line 818 the batch's bench (no PowerShell) could not see. Mended by hand as `319fb5ea`
+  (CI only, made in a separate worktree while the next batch ran): the line rewritten, and `tools/ps-parse.ps1` run by the Linux
+  test job over every tracked `.ps1` after checkout (fails over 5e068eaf's script with both errors). PowerShell 7.4 for the bench
+  is in scratch (`pwsh/pwsh`, unpacked from the GitHub release; `dotnet tool install PowerShell` fails here). Run 501 (its push):
+  all three jobs green.
+- The owner's answer after run 499 ("go with your recommendation"): fix-nodelog-roll landed (`dd844a05`, product; scratch
+  `wf2/playmap-roll.js`, generator `wf2/gen-playmap-j.py`; rebased onto `319fb5ea` before its push): `DurableFile.Replace` (the
+  POSIX-semantics rename, unflushed) used by NodeLog's roll, the supervisor log's roll, the media map and PhoneKeys' move aside;
+  a failed roll counted in `RollsFailed`/`RollOwed`, never in `Dropped`, and retried without a line (100 ms doubling to 5 s);
+  the supervisor log keeps the line when its roll fails; a retry test on every platform and a `[WindowsFact]` with `.1` held.
+  Run 503 (its push): all three jobs green, the Windows tests included. Open in its entry: a reader for a stuck roll (the
+  owner's); `PhoneKeys.Load`'s outer catch lacks UnauthorizedAccessException (outside that leave).
+- Run 502 (the third `prioritycost` dispatch, on `319fb5ea`, 24 legs), as two readers and an adversarial check corrected it
+  (scratch `wf2/ci502-findings.md`, the reading `wf2/ci502-reading.md`, raw files `ci502/pc/`); missed slots of 1200:
+  - baseline 0, 0; high-n1 warm-up (the first burned place, never counted with its kind) 44; high-n1 42, 41, 41; normal-n1 2, 3
+    and 65 (#22, outside load); buy-high (a light loop claimed HIGH through the product's claim beside a 4-thread NORMAL burner)
+    0, 0; buy-normal (the same claimed NORMAL) 79, 100 (6.6 and 8.3 %); high-core1 (2 HIGH threads pinned to logical processors
+    0;1, core 2 free) 7, 0; normal-core1 0, 0; normal-n 106, then 281 and 299 (#18, #19, outside load); high-n 1199, 1194, 1196;
+    high-n-runner 1193.
+  - Run 498's 8.1 s freeze did not recur (0 of 1 at the first burned place, 0 of 6 later over three runs); it stays unplaced.
+  - The core1 legs change three things at once (a free whole core, one burner thread fewer, hard pinning): which removed the
+    cost is not known. #07's misses fell mostly while Windows servicing (TiWorker) ran on the "free" core.
+  - The sampler (base 6) has no row in 11 of 24 legs (starved by a NORMAL or HIGH burner on every processor), so the outside
+    load of #18, #19 and #22 is not named; Defender and Windows Update processes appeared then (candidates only). The fenced
+    reader took two impossible samples (processes summing past the machine) as svchost load; it should refuse such a sample
+    and join by pid.
+  - Together (three 2-core SMT Server VMs, synthetic loads): HIGH is safe for the rest of the machine only while the node's
+    demand stays below the logical processors; at every processor a Normal or Below Normal process is held for seconds (12 of
+    12 legs). HIGH shields a light deadline loop from outside Normal load (2 of 2). One logical processor free costs a Normal
+    process 3.4-3.7 % at HIGH (one 8.1 s freeze in 8), 0.2-0.6 % at NORMAL. Nothing caps the sum of the pools (Compute and HAP
+    each logical processors less one), so the real node's demand is unknown. The supervisor's rules (HEALTH silent 10 s, frozen
+    3 s) are the same order as the holds measured; whether a held supervisor could misjudge a healthy engine is not read yet.
+- Next (each the owner's): the real node's demand measured (its render loop at HIGH and NORMAL with the Compute, HAP and decode
+  load, beside an idle and a busy desk); the sampler made unstarvable (above the burner, or a scheduling trace) and the reader
+  refusing impossible samples; legs separating the core1 confounds and a CPU-sets leg; a read of how the supervisor judges
+  silence while itself held.
 - Not to do: land (3) before (1); raise the test host's class as a mend; use class normal as the mend; change the
   PROCESS default, the headless draw, Pace, MMCSS or the pools on this CI evidence; and the earlier list (serialise or
   skip NodeHostTests, `LP_NUM_THREADS` job-wide, stop copying Mesa, lower the child's class from outside, widen waits,
@@ -482,15 +527,14 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   3. Whether a render loop that misses its period yields a bounded slice; a processor floor for the rest of the machine.
   4. Answered 2026-11-18: NodeHostTests' child starts with no enabled output, and `FakeTcpServer`'s accept race is mended
      (both in `7ffde5c6`).
+  5a. Answered 2026-11-21 (after run 499): NodeLog's roll and its three same-shape replaces mended (`dd844a05`).
   5. `NodeLog`'s roll on Windows (a failed move is counted as a dropped line and retried only on the next line), with
      `SupervisorLog.cs`, `MediaTransfer.cs` and `PhoneKeys.cs` of the same shape; the deterministic Windows test waits on it.
   6. A dump written when a stall is seen; any pool minimum or parallelism cap in test hosts; the runner's size or image;
      Defender's settings: each recommended no.
-  7. The race in PlayMap's link to Patterns (read, not reproduced; recorded in fix-test-isolation-leftovers' entry):
-     `PatternsLink` can take its asked STATUS answer after a newer pushed STATE and follow the stale blackout or clip until
-     the desk's next push. Whether the link orders an asked STATE against pushes is a product change, the owner's.
+  7. Answered 2026-11-21 (after run 498): the race in PlayMap's link to Patterns mended (`61df7f60`).
 - The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `wf2/ci487-findings.md`, `wf2/ci490-findings.md`,
-  `wf2/ci493-findings.md`, `wf2/ci498-findings.md`, `ci480/` to `ci498/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
+  `wf2/ci493-findings.md`, `wf2/ci498-findings.md`, `wf2/ci502-findings.md`, `ci480/` to `ci502/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
   defect; fix-ci-nodehost-measure's entry is to carry runs 487 and 488 and the cause as read.
 - Nothing more can start now: PM-9a–c and PM-10 (wp4-peerlink) are "first after round 3's integration pass", which has not
   happened in Mapper, and PM-12…PM-20 follow them per `master-plan.md`.
