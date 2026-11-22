@@ -15,7 +15,7 @@ carry byte-identical copies of the contract, not of this folder.
 | `data/` | `gaps.json` (G01–G49), `maps-lite.json`, `master-plan.json` (the units as data), `units/*.json` (each design's units) |
 | `workflows/` | The scripts each train ran (implement → adversarial review → fold-in and one commit per unit); the two chain templates in use now (`stagewatch-chain.js`, `patterns-chain.js`); `unit-brief.py`, which builds a unit's brief from this folder; and `patterns-app-parts.sh`, which runs Patterns' App suite as foreground parts. They name this folder by its path in a cloud checkout (`/home/user/Stagewatch/docs/ecosystem`); edit `S` if the trees live elsewhere |
 
-## Where the work stands (2026-11-21)
+## Where the work stands (2026-11-22)
 
 The owner paused the work on 2026-11-12 and lifted the pause on 2026-11-14 ("Continue development"). Every repository's work
 is on the session's designated working branch (the same name in all five repositories); each landed unit is pushed as it
@@ -193,7 +193,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   lands and launching it again with the new list. The App suite runs only by six foreground parts through
   `workflows/patterns-app-parts.sh`. Run one App test run at a time on the machine (OPEN L111).
 
-### PlayMap (repo Mapper) — head `dd844a05`: the stall mended, the leak closed, the link's answer order and the log's roll mended (runs 501 and 503 green); the priority cost measured three times (runs 493, 498, 502), with what HIGH buys and a whole core free, and checked; the node's default class is the owner's call
+### PlayMap (repo Mapper) — head `990847f3`: the link's answer order, the log's roll, PhoneKeys' load, the supervisor's own lateness and a missing settings field mended (runs 504, 507, 508 and 509 green); the priority cost measured three times and checked, the real node's legs dispatched on `990847f3`; the engine's HEALTH thread waits on the owner (the heartbeat with no round trip recommended)
 
 - Landed and pushed, each a round-2 fix batch with its entry in `docs/round2/CARRYOVER.md`: PM-1 fix-showbus-identify, PM-2
   fix-showbus-keys, PM-3 fix-media-page-import, PM-5 fix-showbus-node-link (and its status-light arm), PM-4 fix-showbus-1.3,
@@ -511,7 +511,7 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
     process 3.4-3.7 % at HIGH (one 8.1 s freeze in 8), 0.2-0.6 % at NORMAL. Nothing caps the sum of the pools (Compute and HAP
     each logical processors less one), so the real node's demand is unknown. The supervisor's rules (HEALTH silent 10 s, frozen
     3 s) are the same order as the holds measured; whether a held supervisor could misjudge a healthy engine is not read yet.
-- Next (each the owner's): the real node's demand measured (its render loop at HIGH and NORMAL with the Compute, HAP and decode
+- Next (each the owner's; the node legs, the sampler, the reader and the supervisor read are done above): the real node's demand measured (its render loop at HIGH and NORMAL with the Compute, HAP and decode
   load, beside an idle and a busy desk); the sampler made unstarvable (above the burner, or a scheduling trace) and the reader
   refusing impossible samples; legs separating the core1 confounds and a CPU-sets leg; a read of how the supervisor judges
   silence while itself held.
@@ -533,6 +533,46 @@ lands, so a working tree holds at most the one unit in progress. AGMessage stays
   6. A dump written when a stall is seen; any pool minimum or parallelism cap in test hosts; the runner's size or image;
      Defender's settings: each recommended no.
   7. Answered 2026-11-21 (after run 498): the race in PlayMap's link to Patterns mended (`61df7f60`).
+- Since `dd844a05` (2026-11-22), each a round-2 fix batch with its CARRYOVER entry, on the owner's answers recorded in
+  `owner-answers.md` (commits `8555681`, `1a92935`, `c54ec7b`):
+  - fix-phonekeys-load-access (`5ec32be2`, product): `PhoneKeys.Load` takes UnauthorizedAccessException; the record is moved
+    aside only where `.unreadable` is free and never saved over. Run 504 green.
+  - fix-priority-probe-node (`c11aa904`, tools and CI): node legs (PlayMap's own node playing HAP Q clips on 64 x 36 outputs, at
+    HIGH and NORMAL, idle and beside the burner), a sampler at High the busy process cannot starve, a reader that refuses a sample
+    summing past the machine and joins by pid. On a runner with no GPU the legs mostly measure Mesa's llvmpipe inside the node;
+    their thread groups split the node's decode from Mesa's draw. Run 505 red on both test jobs at
+    `SettingsGateTests.NoCodeButTheNetworkHostWritesTheSettingsFile`: the probe wrote the node's settings file itself. Mended as
+    `a54c3473` (made in a separate worktree while the next batch ran): the probe gives its node a home, ports, name and class
+    only through the product (`--home`, `--http`/`--wire` on free ports, `MACHINE SET PROCESS`); the fence unchanged. The node
+    now binds every interface and announces on the runner (no product switch; a `--bind` option is Open). Run 507 green.
+  - The supervisor check (read-only, two readers and an adversarial check; scratch `wf2/supervisor-held-findings.md`): no risk at
+    HEAD (the freeze rule is inactive while HEALTH carries no shown frames or GPU phase); once wp3-stability's heartbeat fills
+    them, a supervisor held about 10 s, or an engine whose pool starves its own HEALTH answer, could be stopped as frozen.
+  - fix-supervisor-held (`8e41259a`, product): each step records how late it ran and how long its ask took (`LateNs`, `AskNs`,
+    `WasHeld`; margin 500 ms, ask deadline 400 ms); a lost ask from a late step is the supervisor held, never the engine silent;
+    the 10 s rule counts only on-time steps; the words that promised no stop while frames move corrected; wp3-stability item 3
+    gated on the mends (PLAN); the heartbeat with no round trip named in ROADMAP as the better design. Run 506 red: the settings
+    fence above, and `StagewatchLinkTests.AStagewatchThatAnswers413SaysItsWordsAndHoldsNothing` on Linux, whose last check
+    asked that no "413" be left in words that named the fake's port 41307. Mended as `990847f3` (test only): the check reads
+    the refusal's own words and "(413)". Run 509 green.
+  - fix-node-settings-missing-fields (`e2bf6815`, product): a field missing from `playmap.node.json` reads its rule at the
+    reader (`NodeHome.Parse`, the field list from the record by reflection): strings "", the ports their defaults,
+    `requireHttps` true, `trustLoopback` and `announce` false; a missing token never reads open (the damaged path: the file
+    kept as `.damaged`, a fresh token, the rest kept); the start names the missing fields once, by name only. The show
+    machine's node figure is a lab line in ROADMAP. Open in its entry: `MachineSettings.Locked`'s positional records read a
+    missing string null (outside its leave); a file edited while the node runs is filled with no line. Run 508 green.
+  - fix-engine-health-thread: stopped after reading, by its brief's rule (a new listener means the owner decides); nothing
+    changed. A read-only design check followed (scratch `wf2/health-design-findings.md`, raw `wf2/health-design-check.json`):
+    the approved snapshot fails its aim (the control lane's tick is posted by a pool timer, `EngineCore.cs` 159, so it freezes
+    with the pool); the working door is a new loopback listener (a second bind exemption, a single slot a silent local client
+    can hold, a disk look inside `HealthNow`); a route on the shared port exists but reworks every wire connection's start;
+    and an older gap: a node bound to a LAN address is never reached by the supervisor's loopback ask (nor by the armed
+    preinstall check). Recommended to the owner: build the heartbeat with no round trip now in its place (a per-start shared
+    section the supervisor makes with the stop event's access list, written by the render thread each frame; no listener, port,
+    pipe or verb; about 1,100 to 1,400 lines in about 18 files, three of them package-owned through the §5.7 lane). The
+    owner's answer is awaited.
+  - Dispatched 2026-11-22 04:36 UTC: `prioritycost` on `990847f3` (the node legs as built). To read: its artifacts into
+    `ci<run>/pc` and a check adapted from `wf2/playmap-ci502-check.js`.
 - The readings and raw files are in the session's scratch (`wf2/ci480-findings.md`, `wf2/ci487-findings.md`, `wf2/ci490-findings.md`,
   `wf2/ci493-findings.md`, `wf2/ci498-findings.md`, `wf2/ci502-findings.md`, `ci480/` to `ci502/`); Mapper's CARRYOVER entries of fix-ci-stall-measure and fix-small-test-items carry runs 480 to 483 and the
   defect; fix-ci-nodehost-measure's entry is to carry runs 487 and 488 and the cause as read.
