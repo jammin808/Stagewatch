@@ -238,6 +238,18 @@ Every owner question in master-plan.md is answered with the plan's RECOMMENDED a
   Windows test designed in PlayMap's CARRYOVER is added; the three replaces of the same shape (`SupervisorLog.cs`,
   `MediaTransfer.cs`, `PhoneKeys.cs`) are mended alongside.
 
+- After run 502 (the third priority measurement) and its check (2026-11-22): "Continue with your recommendations", read as
+  approval of the three recommendations in that report:
+  1. The node's default class stays HIGH; the real node's demand is measured next (tools and CI only, a leave of its own:
+     fix-priority-probe-node): the engine itself playing a HAP clip with its Compute and decode pools busy, at HIGH and at
+     NORMAL, recording its processor use and what a Normal process beside it loses; the sampler made one the busy process
+     cannot starve, and the reader refusing a sample whose processes sum past the machine and joining by pid. A cap on the
+     pools so a whole core stays free is a later product change, the owner's once those figures are in.
+  2. A read-only check of the supervisor: whether a supervisor that is itself held could stop a healthy engine (HEALTH
+     silent 10 s, frozen after 3 s). Nothing is changed by it.
+  3. `PhoneKeys.Load`'s outer catch takes UnauthorizedAccessException (a product change, a leave of its own:
+     fix-phonekeys-load-access), with a test.
+
 # Commit identity (all repos, from 2026-10-25)
 The committer is always the session's configured committer identity (each repo's git config says so; never override it with -c user.name/
 user.email). The AUTHOR follows the repo: Stagewatch --author="jammin808 <b.rohleder@gmail.com>"; Patterns
